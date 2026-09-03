@@ -17,9 +17,49 @@ from typing import Annotated, Literal
 from pydantic import Field, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Repository root: apps/api/src/core/config.py -> up four levels.
-REPO_ROOT = Path(__file__).resolve().parents[4]
-API_ROOT = Path(__file__).resolve().parents[2]
+def _ancestor(module_path: Path, levels: int) -> Path:
+    """The directory ``levels`` above this file, clamped to the filesystem root.
+
+    Both roots below are found by counting directories up from this file, which
+    is correct in a checkout and wrong in the container image: ``src/`` is
+    copied straight to ``/app``, so there are fewer parents to count than the
+    checkout layout has. ``parents[4]`` then raises ``IndexError`` while this
+    module is still being imported - before any logger or exception handler
+    exists - so the application could not boot at all. Gunicorn reported
+    "Worker failed to boot" above a pathlib traceback that mentioned neither
+    configuration nor a missing file.
+
+    It survived every test, a clean lint and a green build because all of them
+    run from a checkout. The layout is the input, and only one layout had ever
+    been supplied; the first thing to import this module from an installed
+    layout was the deployed image itself.
+
+    Clamping rather than special-casing the two known layouts: this is a
+    "how far up can I go" question, the answer is never an error, and a
+    predicate would just be one more thing to get wrong for the next layout.
+    Both roots are used only to locate an optional ``.env``, and a deployed
+    environment passes real environment variables and needs no file - so a
+    clamped path pointing at a ``.env`` that does not exist is an ordinary
+    case, which pydantic-settings ignores.
+    """
+    parents = module_path.parents
+    return parents[min(levels, len(parents) - 1)]
+
+
+def _api_root(module_path: Path) -> Path:
+    """The directory holding ``src/``: ``apps/api`` in a checkout, ``/app`` in
+    the image."""
+    return _ancestor(module_path, 2)
+
+
+def _repo_root(module_path: Path) -> Path:
+    """The repository root in a checkout; the nearest thing to it otherwise."""
+    return _ancestor(module_path, 4)
+
+
+_MODULE_PATH = Path(__file__).resolve()
+API_ROOT = _api_root(_MODULE_PATH)
+REPO_ROOT = _repo_root(_MODULE_PATH)
 
 
 class AppEnv(StrEnum):

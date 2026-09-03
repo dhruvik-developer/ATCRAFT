@@ -26,8 +26,21 @@ $ErrorActionPreference = 'Stop'
 $Root    = $PSScriptRoot
 $ApiDir  = Join-Path $Root 'apps\api'
 $WebDir  = Join-Path $Root 'apps\web'
-$DcDev   = @('compose', '-f', 'docker-compose.yml', '-f', 'docker-compose.dev.yml')
-$DcProd  = @('compose', '-f', 'docker-compose.yml', '-f', 'docker-compose.prod.yml')
+# The local development stack is a THIRD stack, separate from the two
+# deployments, and needs its own project name: docker-compose.yml requires
+# COMPOSE_PROJECT_NAME so a bare `docker compose up` cannot put two
+# deployments into one project and have them silently share a database.
+#
+# 'atcraft-erp' is deliberately the historical name, so the volumes an
+# existing checkout already has - and the demo data in them - stay put.
+if (-not $env:COMPOSE_PROJECT_NAME) { $env:COMPOSE_PROJECT_NAME = 'atcraft-erp' }
+$LocalProject = $env:COMPOSE_PROJECT_NAME
+$DcDev   = @('compose', '-p', $LocalProject, '-f', 'docker-compose.yml', '-f', 'docker-compose.dev.yml')
+
+# The two deployments are driven by scripts/deploy.sh alone, which reads
+# deploy/<name>.env and passes the project name explicitly on every command.
+# Duplicating that here would be a second place for the two to be confused.
+# Run under Git Bash:  ./scripts/deploy.sh main up
 
 function Invoke-Step {
     param([string]$Command, [string]$WorkDir = $Root)
@@ -84,7 +97,7 @@ function Show-Help {
         'shell-api'        = 'Shell inside the backend container'
         'shell-db'         = 'psql inside the Postgres container'
         'backup'           = 'Dump the database to .\backups'
-        'prod-up'          = 'Start the production stack'
+        'deploy'           = 'Deployments are run with ./scripts/deploy.sh (see ONE-BOX-RUNBOOK.md)'
         'clean'            = 'Remove build artefacts and caches'
     }
     foreach ($k in $targets.Keys) {
@@ -178,8 +191,22 @@ switch ($Target) {
         Write-Host "Reminder: copy this dump to EXTERNAL storage. A backup is not reliable until a restore is tested (section 46)." -ForegroundColor Yellow
     }
 
-    'prod-up'   { Invoke-Docker ($DcProd + @('up', '-d', '--build')) }
-    'prod-down' { Invoke-Docker ($DcProd + @('down')) }
+    # Deployments are not driven from PowerShell. scripts/deploy.sh performs
+    # the cross-checks that keep the two apart - shared project name, shared
+    # port, shared JWT secret, wrong branch - and reimplementing those here
+    # would mean maintaining two sets of guards that must never disagree.
+    { $_ -in @('prod-up', 'prod-down', 'deploy') } {
+        Write-Host ''
+        Write-Host 'Deployments are run through scripts/deploy.sh, under Git Bash:' -ForegroundColor Yellow
+        Write-Host ''
+        Write-Host '    ./scripts/deploy.sh main up        # deployment 1 (main branch)'
+        Write-Host '    ./scripts/deploy.sh dev  up        # deployment 2 (dev branch)'
+        Write-Host '    ./scripts/deploy.sh main migrate'
+        Write-Host '    ./scripts/verify-isolation.sh      # prove they cannot see each other'
+        Write-Host ''
+        Write-Host 'See ONE-BOX-RUNBOOK.md for the full sequence.'
+        Write-Host ''
+    }
 
     'clean' {
         Get-ChildItem -Path $Root -Recurse -Directory -Filter '__pycache__' -ErrorAction SilentlyContinue |

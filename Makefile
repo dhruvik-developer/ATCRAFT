@@ -6,13 +6,30 @@
 # =============================================================================
 .DEFAULT_GOAL := help
 .PHONY: help dev dev-docker up down restart logs ps migrate migration seed demo-data db-fresh db-handover \
+        deployment-guard deploy-init deploy-doctor deploy-up deploy-down \
+        deploy-migrate deploy-health deploy-backup deploy-verify \
         test test-unit test-integration test-e2e test-load lint format \
         typecheck check shell-api shell-db backup restore clean install
 
-DC_DEV  := docker compose -f docker-compose.yml -f docker-compose.dev.yml
-DC_PROD := docker compose -f docker-compose.yml -f docker-compose.prod.yml
+# The local development stack is a THIRD stack, separate from the two
+# deployments, and it needs its own project name: docker-compose.yml requires
+# COMPOSE_PROJECT_NAME so that a bare `docker compose up` cannot put two
+# deployments into one project and have them share a database.
+#
+# `atcraft-erp` is deliberately the historical name, so the volumes an existing
+# checkout already has - and the demo data in them - stay where they are.
+COMPOSE_PROJECT_NAME ?= atcraft-erp
+export COMPOSE_PROJECT_NAME
+
+DC_DEV  := docker compose -p $(COMPOSE_PROJECT_NAME) -f docker-compose.yml -f docker-compose.dev.yml
 API_DIR := apps/api
 WEB_DIR := apps/web
+
+# The two deployments are never driven from here. scripts/deploy.sh reads
+# deploy/<name>.env, takes the project name from it and passes it explicitly on
+# every command; a make variable would be one more place for the two to be
+# confused. See ONE-BOX-RUNBOOK.md.
+DEPLOY := ./scripts/deploy.sh
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -128,11 +145,39 @@ backup: ## Dump the database to ./backups (never the only copy - section 45)
 	  > backups/atcraft-$$(date +%Y%m%d-%H%M%S).dump
 	@echo "Reminder: copy this dump to external storage. A backup is not reliable until a restore is tested."
 
-prod-up: ## Start the production stack
-	$(DC_PROD) up -d --build
+# --- Deployments (two independent stacks on one host) --------------------
+# Every target below takes DEPLOY=main or DEPLOY=dev. There is no default:
+# a defaulted deployment name is a command that acts on whichever stack the
+# author happened to have in mind.
 
-prod-down: ## Stop the production stack
-	$(DC_PROD) down
+deployment-guard:
+	@test -n "$(D)" || { \
+	  echo 'error: name the deployment, e.g.  make deploy-up D=main'; \
+	  exit 1; }
+
+deploy-init: deployment-guard ## Create deploy/<D>.env with generated secrets
+	$(DEPLOY) $(D) init
+
+deploy-doctor: deployment-guard ## Check deployment D's configuration
+	$(DEPLOY) $(D) doctor
+
+deploy-up: deployment-guard ## Build and start deployment D
+	$(DEPLOY) $(D) up
+
+deploy-down: deployment-guard ## Stop deployment D (data kept)
+	$(DEPLOY) $(D) down
+
+deploy-migrate: deployment-guard ## Migrate deployment D's database to head
+	$(DEPLOY) $(D) migrate
+
+deploy-health: deployment-guard ## Health of deployment D
+	$(DEPLOY) $(D) health
+
+deploy-backup: deployment-guard ## Dump deployment D's database
+	$(DEPLOY) $(D) backup
+
+deploy-verify: ## Prove the two deployments cannot reach each other
+	./scripts/verify-isolation.sh
 
 clean: ## Remove build artefacts and caches (keeps volumes)
 	find . -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true

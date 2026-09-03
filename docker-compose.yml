@@ -176,7 +176,13 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "celery", "-A", "src.workers.celery_app:celery_app", "inspect", "ping", "-d", "celery@$$HOSTNAME"]
+      # CMD-SHELL, not CMD. The exec form runs no shell, so `$HOSTNAME` is
+      # passed through as those nine literal characters and the probe asks for
+      # a node named `celery@$HOSTNAME`, which will never exist. It fails with
+      # "No nodes replied within time constraint" - which reads like a broker
+      # or a hung-worker problem, and sent this investigation to Redis first
+      # while the worker was answering `pong` the whole time.
+      test: ["CMD-SHELL", "celery -A src.workers.celery_app:celery_app inspect ping -d celery@$$HOSTNAME"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -200,6 +206,28 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    # Beat MUST declare its own healthcheck, even though it is the one service
+    # that serves no HTTP. Without this it inherits the HEALTHCHECK baked into
+    # the api image - an HTTP probe of /health/live - and is therefore
+    # permanently unhealthy: `up --wait` never returns, and every monitor shows
+    # a broken container that is working perfectly.
+    #
+    # What is checked is the schedule file's freshness. The persistent
+    # scheduler creates it at startup and rewrites it as it syncs, so a stale
+    # file is the one honest signal that beat has stopped scheduling while its
+    # process is still alive. That matters here: nothing else notices, and the
+    # symptom is the nightly summary refresh, the stale-reservation sweep and
+    # the dispatch delay alerts all quietly not happening.
+    #
+    # `python -c` rather than pgrep or find: the slim base image ships neither
+    # procps nor findutils, and a healthcheck whose command is missing reports
+    # unhealthy for the wrong reason.
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import glob,os,sys,time; f=glob.glob(\"/tmp/celerybeat-schedule*\"); sys.exit(0 if f and time.time()-max(map(os.path.getmtime,f)) < 900 else 1)'"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
     networks: [internal]
     restart: unless-stopped
 
@@ -239,7 +267,12 @@ services:
       - backend
       - frontend
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost/healthz"]
+      # 127.0.0.1, not localhost: in this image `localhost` resolves to ::1
+      # first and nginx listens on IPv4 only, so the probe is refused while
+      # every real request succeeds. The container reports unhealthy, `up
+      # --wait` fails, and nothing is actually wrong with it. The frontend
+      # image's own HEALTHCHECK had the same fault - see apps/web/Dockerfile.
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1/healthz"]
       interval: 10s
       timeout: 5s
       retries: 5
