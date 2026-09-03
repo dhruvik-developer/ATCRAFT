@@ -1,0 +1,253 @@
+# Architecture
+
+## Shape: modular monolith
+
+One FastAPI application, one PostgreSQL database, modules with real boundaries.
+
+This is a deliberate choice, not a stepping stone we are embarrassed about. The
+ERP's modules are densely coupled by nature — a sales order touches inventory,
+BOM, allocation, MRP, procurement, production, QC, dispatch and finance before it
+is done. Splitting that across services buys network calls, distributed
+transactions, eventual-consistency bugs and a debugging story nobody wants, in
+exchange for scaling properties this workload does not yet need.
+
+The boundaries are still real: each module owns its tables, exposes a service
+API, and could be lifted out later if measured load ever justifies it.
+
+```
+Users
+  |
+Nginx ── TLS · rate limit · security headers · compression
+  |
+  ├── /        → React SPA (static, content-hashed)
+  └── /api/v1  → FastAPI
+                    |
+        ┌───────────┼───────────┐
+        │           │           │
+   PostgreSQL     Redis      Celery
+   source of      cache      workers
+   truth          + broker      │
+        │                       │
+        └───────────┬───────────┘
+                    │
+              File storage
+```
+
+## Layers
+
+```
+HTTP request
+   │
+   ▼
+middleware      request id · access log · security headers · body limit · rate limit
+   │
+   ▼
+router          authorise, validate, delegate, return the envelope — and nothing else
+   │
+   ▼
+service         business rules · transaction boundary · audit · cross-module calls
+   │
+   ▼
+repository      queries, always tenant-scoped, pagination, no business decisions
+   │
+   ▼
+models          SQLAlchemy: constraints and indexes that make bad states unrepresentable
+   │
+   ▼
+PostgreSQL
+```
+
+Two rules keep this honest:
+
+- A route that contains business logic is a review rejection.
+- A repository that decides whether something is *allowed* belongs in a service.
+
+### Where a transaction begins
+
+Services own transactions, not routes and not repositories:
+
+```python
+async with transaction(session):
+    order = await create_production_order(...)
+    await reserve_material(...)
+    await record_audit(...)
+# one COMMIT, or one ROLLBACK — never a partial business state
+```
+
+`transaction()` nests safely, so a service can be called standalone or as part of
+a larger operation without changing.
+
+## Core (`src/core`)
+
+Cross-cutting concerns every module depends on and none of them owns.
+
+| Module | Responsibility |
+|---|---|
+| `config` | typed settings from the environment; refuses weak production secrets |
+| `database` | async engine, bounded pool, session lifecycle, advisory locks |
+| `models` | declarative base, mixins, constraint naming convention |
+| `types` | `Money`, `UnitPrice`, `Quantity`, `GUID` — the numeric contract |
+| `ids` | UUIDv7 |
+| `clock` | one source of "now", always UTC, freezable in tests |
+| `security` | Argon2id hashing, JWT issue/verify, password policy |
+| `permissions` | the permission registry and baseline roles |
+| `deps` | `Principal`, `TenantContext`, `require_permission` |
+| `errors` | the exception hierarchy and stable error codes |
+| `responses` | the response envelope |
+| `pagination` | offset and keyset pagination |
+| `cache` | tenant-scoped Redis cache-aside with explicit invalidation |
+| `ratelimit` | sliding-window limits keyed on account, not just IP |
+| `state_machine` | declarative transition graphs |
+| `logging` | structured JSON logs with request-scoped context |
+| `observability` | Prometheus metrics, OpenTelemetry, Sentry |
+| `registry` | imports every module's models so Alembic sees the whole schema |
+
+## Modules
+
+Each module is a package:
+
+```
+src/modules/<name>/
+  models.py      tables, constraints, indexes
+  schemas.py     Pydantic request/response contracts
+  repository.py  queries (extends BaseRepository — tenant scope is structural)
+  service.py     business rules, transactions, audit
+  router.py      an APIRouter named `router`, with its own prefix and tags
+  engine.py      only where there is a real algorithm (BOM explosion, MRP)
+```
+
+`src/api/router.py` mounts them in a fixed order so the OpenAPI document groups
+the way the business reads.
+
+### Dependency direction
+
+```
+masters      warehouses · products · vendors · customers · organization · users
+   ↓
+engines      inventory  ·  bom  ·  routing
+   ↓
+demand       allocation · sales
+   ↓
+planning     mrp · procurement
+   ↓
+execution    production · assembly · job_work
+   ↓
+downstream   quality · packing · dispatch · finance · reports
+```
+
+Dependencies point downward only. A master-data module must never import from an
+execution module; where it needs a fact from one (vendor rating needs QC
+results), it takes it as an input rather than reaching upward.
+
+## The two data patterns that matter
+
+### Ledger + current state
+
+```
+inventory_transactions   append-only, explains WHY the balance changed
+inventory_balances       current state, optimised for reads
+```
+
+The ledger gives auditability, traceability and historical reconstruction. The
+balance gives the sub-100ms reads that allocation checks and dashboards need.
+Neither can be dropped: summing the ledger per request does not scale, and a
+balance table alone cannot answer "why is this number what it is?".
+
+The same shape appears in `ledger_entries` (finance) and `audit_logs`.
+
+### Snapshot at commitment
+
+A production order snapshots its exploded BOM into
+`production_order_components` when it is released. A revised BOM must not
+retroactively change what an in-flight order requires. The same reasoning governs
+price capture on order lines and cost capture on inventory movements.
+
+## Concurrency
+
+The one scenario the master rules single out:
+
+> Available = 100. Order A requests 80, order B requests 50.
+> The system must never allow both.
+
+The answer is PostgreSQL, not application code:
+
+1. `SET LOCAL lock_timeout` — fail fast rather than queueing behind a lock.
+2. `SELECT ... FOR UPDATE` on the affected balance rows, **ordered by primary
+   key** so two multi-line documents cannot deadlock each other.
+3. Re-read quantities *after* the lock. A value read before it is worthless.
+4. Validate, write the ledger, update the balance, write the audit row.
+5. One COMMIT.
+
+Plus a defence that does not depend on anyone remembering: `CHECK` constraints on
+`inventory_balances` enforcing `on_hand >= 0`, `reserved <= on_hand` and
+`allocated <= reserved`, and `available_quantity` as a generated column that
+cannot drift from its inputs.
+
+A Redis lock is not a substitute. It cannot make a stock update atomic; it can
+only decide who *tries*.
+
+## Background work
+
+Anything that can outlive a request goes to Celery: MRP runs above the
+configured demand-line threshold, exports, PDF and Excel generation, bulk
+imports, notification fan-out, and the scheduled jobs that refresh summary tables
+and release stale reservations.
+
+```
+POST /mrp/runs
+   → create the run row (QUEUED)
+   → dispatch to Celery
+   → 202 with a job id and a status URL
+   ← client polls; the UI shows Generating… → Completed → Download
+```
+
+Queues are separated by shape — `mrp`, `reports`, `notifications`, `default` —
+so a four-minute planning run never sits in front of a 200 ms notification.
+
+## Request lifecycle
+
+```
+Nginx mints X-Request-ID (or honours an inbound one)
+   → RequestContextMiddleware binds it to the execution context
+   → every log line, audit row and Celery task carries it
+   → the response returns it in X-Request-ID
+```
+
+One identifier spans nginx, the API, the database logs and the worker. A support
+ticket quoting it finds the whole story.
+
+## Frontend
+
+```
+src/app/         shell: layout, routing, navigation
+src/components/  design system + DataTable + shared building blocks
+src/features/    one folder per business area
+src/lib/         api-client · query-client · format · permissions
+src/hooks/       useListQuery and friends
+```
+
+Server state lives in TanStack Query and is not duplicated into a global store.
+List state (page, size, sort, search, filters) lives in the URL, so a filtered
+view is shareable and survives the back button.
+
+`lib/api-client.ts` is the only place that calls `fetch`. Token refresh, the
+response envelope, error shaping and the correlation id are handled there once.
+
+Permissions in the UI control affordances only. The API authorises every request
+independently — anyone can edit the browser's idea of their permissions, and the
+server does not care.
+
+## What we deliberately did not build
+
+| Not present | Why | When to revisit |
+|---|---|---|
+| Microservices | modules are too coupled; the overhead buys nothing yet | organisational scale, or one module genuinely outgrowing the box |
+| Kafka | Celery + PostgreSQL cover every current async need | cross-system event streaming with real replay requirements |
+| Elasticsearch | `pg_trgm` handles item and partner search | demonstrated relevance/fuzzy needs beyond PostgreSQL |
+| ClickHouse | summary tables and materialised views are enough | measured analytical volume, not "the project is large" |
+| Kubernetes | one Compose stack on one server fits the load | multi-node, real HA requirements |
+| Event sourcing | the ledger already gives history where it matters | — |
+
+Scale in this order: SQL and indexes → Redis → Celery → bigger server → separate
+database host → read replicas → split the genuinely hot component. Only then
+consider anything above.

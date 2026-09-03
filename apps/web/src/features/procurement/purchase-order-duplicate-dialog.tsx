@@ -1,0 +1,259 @@
+/**
+ * The duplicate purchase order conversation.
+ *
+ * When the API answers a create with 409 `DUPLICATE_DOCUMENT`, it has found
+ * open order lines that already cover the requirement being raised. A toast
+ * would be the wrong response: the buyer needs to see *which* lines, on which
+ * orders, and how sure the matcher is - that is what stops the same material
+ * being bought twice.
+ *
+ * Only one of the four resolutions in master rules section 16 has a create-time
+ * endpoint. `CREATE_NEW_WITH_APPROVAL` is a resubmit carrying
+ * `acknowledge_duplicates` and a recorded reason, and the API refuses even that
+ * without `purchase_order.approve`. Merging into the existing order, topping its
+ * quantity up and cancelling it are all edits to *that* document and have no
+ * path from here, so they are presented as what to go and do, with a link,
+ * rather than as buttons that would move the refusal one click later.
+ */
+
+import { AlertTriangle, ExternalLink, ShieldAlert, TriangleAlert } from 'lucide-react'
+import { useState } from 'react'
+import { Link } from 'react-router-dom'
+
+import { FieldError, StatusBadge } from '@/components/shared'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/overlays'
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Badge,
+  Label,
+  Textarea,
+} from '@/components/ui/primitives'
+import { formatDate, formatQuantity } from '@/lib/format'
+
+import {
+  DUPLICATE_ACTION_COPY,
+  type DuplicateActionCode,
+  type DuplicateConfidence,
+  type DuplicateConflict,
+} from './procurement-types'
+
+/** How loudly to object, by how sure the matcher is. */
+const CONFIDENCE_COPY: Record<
+  DuplicateConfidence,
+  { label: string; variant: 'destructive' | 'warning' | 'muted' }
+> = {
+  EXACT: { label: 'Same demand', variant: 'destructive' },
+  STRONG: { label: 'Strong match', variant: 'warning' },
+  POSSIBLE: { label: 'Possible match', variant: 'muted' },
+}
+
+export function PurchaseOrderDuplicateDialog({
+  conflict,
+  open,
+  onOpenChange,
+  onAcknowledge,
+  isResolving,
+  canAcknowledge,
+}: {
+  conflict: DuplicateConflict
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** Re-submits the same order acknowledging the duplicates, with this reason. */
+  onAcknowledge: (reason: string) => void
+  isResolving: boolean
+  /** The API refuses an acknowledgement without purchase order approval. */
+  canAcknowledge: boolean
+}) {
+  const [reason, setReason] = useState('')
+  const [reasonTouched, setReasonTouched] = useState(false)
+  const reasonTooShort = reason.trim().length < 3
+
+  // The union of what the matcher says is possible across every candidate,
+  // recommended ones first, so the buyer reads the cheapest fix at the top.
+  const recommended = new Set(conflict.candidates.map((candidate) => candidate.recommended_action))
+  const offered = [...new Set(conflict.candidates.flatMap((c) => c.available_actions))].sort(
+    (a, b) => Number(recommended.has(b)) - Number(recommended.has(a)),
+  )
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="lg">
+        <DialogHeader>
+          <DialogTitle>This requirement may already be on order</DialogTitle>
+          <DialogDescription>
+            The order was not created. {conflict.candidate_count}{' '}
+            {conflict.candidate_count === 1 ? 'open order line' : 'open order lines'} already cover
+            what you are raising.
+          </DialogDescription>
+        </DialogHeader>
+
+        <DialogBody className="space-y-4">
+          <Alert variant="warning">
+            <TriangleAlert aria-hidden />
+            <AlertTitle>Why this stopped</AlertTitle>
+            <AlertDescription>{conflict.message}</AlertDescription>
+          </Alert>
+
+          <div>
+            <h3 className="text-sm font-medium">Lines that already cover this</h3>
+            <ul className="mt-2 divide-y rounded-lg border">
+              {conflict.candidates.map((candidate) => {
+                const confidence = CONFIDENCE_COPY[candidate.confidence]
+                return (
+                  <li key={candidate.purchase_order_line_id} className="space-y-2 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link
+                        to={`/procurement/purchase-orders/${candidate.purchase_order_id}`}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        // Opened in a new tab so the order being raised, and
+                        // everything typed into it, survives the comparison.
+                        className="inline-flex items-center gap-1 font-medium hover:underline"
+                      >
+                        {candidate.purchase_order_code}
+                        <ExternalLink className="h-3 w-3" aria-hidden />
+                        <span className="sr-only">(opens in a new tab)</span>
+                      </Link>
+                      <StatusBadge status={candidate.status} />
+                      <Badge variant={confidence.variant}>{confidence.label}</Badge>
+                    </div>
+
+                    <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
+                      <div>
+                        <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+                          Item
+                        </dt>
+                        <dd className="truncate">
+                          {candidate.item_id ? (
+                            <Link
+                              to={`/items/${candidate.item_id}`}
+                              target="_blank"
+                              rel="noreferrer noopener"
+                              className="hover:underline"
+                            >
+                              Open the item
+                            </Link>
+                          ) : (
+                            '-'
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+                          Still expected
+                        </dt>
+                        <dd className="tabular">{formatQuantity(candidate.open_quantity)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase tracking-wide text-muted-foreground">
+                          Required by
+                        </dt>
+                        <dd>{formatDate(candidate.required_date)}</dd>
+                      </div>
+                    </dl>
+
+                    {candidate.match_reasons.length > 0 && (
+                      <ul className="flex flex-wrap gap-1">
+                        {candidate.match_reasons.map((match) => (
+                          <li key={match}>
+                            <Badge variant="muted">{match}</Badge>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-medium">How would you like to proceed?</h3>
+            <ul className="mt-2 space-y-2">
+              {offered.map((action: DuplicateActionCode) => {
+                const copy = DUPLICATE_ACTION_COPY[action]
+                return (
+                  <li key={action} className="rounded-lg border p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">{copy.label}</span>
+                      {recommended.has(action) && <Badge variant="default">Recommended</Badge>}
+                      {copy.actionable && (
+                        <Badge variant="warning">
+                          <ShieldAlert className="h-3 w-3" aria-hidden />
+                          Needs approval rights
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="mt-0.5 text-sm text-muted-foreground">{copy.description}</p>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+
+          {canAcknowledge ? (
+            <div>
+              <Label htmlFor="po-duplicate-reason" required>
+                Why is this order needed as well?
+              </Label>
+              <Textarea
+                id="po-duplicate-reason"
+                value={reason}
+                onChange={(event) => setReason(event.target.value)}
+                className="mt-1.5"
+                aria-invalid={reasonTouched && reasonTooShort}
+              />
+              {reasonTouched && reasonTooShort ? (
+                <FieldError message="Record at least three characters of reason" />
+              ) : (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Stored on the order and shown to anybody who opens it later.
+                </p>
+              )}
+            </div>
+          ) : (
+            <Alert variant="info">
+              <AlertTriangle aria-hidden />
+              <AlertTitle>You cannot override this yourself</AlertTitle>
+              <AlertDescription>
+                Raising an order over a duplicate warning needs purchase order approval rights. Fix
+                one of the existing orders above, or ask an approver to raise this one.
+              </AlertDescription>
+            </Alert>
+          )}
+        </DialogBody>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isResolving}>
+            Cancel, do not raise this order
+          </Button>
+          {canAcknowledge && (
+            <Button
+              loading={isResolving}
+              onClick={() => {
+                if (reasonTooShort) {
+                  setReasonTouched(true)
+                  return
+                }
+                onAcknowledge(reason.trim())
+              }}
+            >
+              Raise it anyway
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}

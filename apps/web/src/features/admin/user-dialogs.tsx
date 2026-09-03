@@ -1,0 +1,893 @@
+/**
+ * The write surfaces of the users tab: create/edit, role assignment and an
+ * administrator-triggered password reset.
+ *
+ * Three API rules shape these forms rather than being discovered at save time:
+ *
+ * * The role set is replaced wholesale through its own endpoint, gated on
+ *   `permission.assign`, so it is not a field on the edit form.
+ * * Activation is a lifecycle change with a mandatory reason that also revokes
+ *   sessions, so it is not a checkbox either - the page owns that dialog.
+ * * A PATCH that omits a placement must not unassign it, so clearing one is an
+ *   explicit `clear_*` flag rather than a null.
+ */
+
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { KeyRound, ShieldCheck } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Controller, useForm } from 'react-hook-form'
+import { z } from 'zod'
+
+import { FieldError } from '@/components/shared'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/overlays'
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+  Badge,
+  Checkbox,
+  Input,
+  Label,
+  Skeleton,
+} from '@/components/ui/primitives'
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_RULES,
+  passwordField,
+  unmetRules,
+} from '@/features/auth/password-policy'
+import { VendorPicker } from '@/features/vendors/vendor-picker'
+import { api } from '@/lib/api-client'
+import { applyFieldErrors } from '@/lib/form-errors'
+import { queryKeys, staleTimes } from '@/lib/query-client'
+import { toast } from '@/lib/toast'
+
+import {
+  useBranchOptions,
+  useDepartmentOptions,
+  usePlantOptions,
+  useRoleOptions,
+  type PasswordResetResult,
+  type UserDetail,
+  type UserRow,
+} from './admin-types'
+
+/** Radix forbids an empty option value, so "not set" needs a sentinel. */
+const NONE = '__none'
+
+const asId = (value: string): string | null => (value === NONE || value === '' ? null : value)
+const asText = (value: string): string | null => (value.trim() === '' ? null : value.trim())
+
+// -------------------------------------------------------- create / edit -----
+
+function userSchema(isEdit: boolean) {
+  return z.object({
+    email: z.string().trim().min(1, 'Email is required').email('Enter a valid email address'),
+    full_name: z.string().trim().min(1, 'Name is required').max(255, 'At most 255 characters'),
+    // On an edit the field means "set a new password"; blank leaves it alone.
+    password: z
+      .string()
+      .max(PASSWORD_MAX_LENGTH, `At most ${PASSWORD_MAX_LENGTH} characters`)
+      .superRefine((value, ctx) => {
+        if (isEdit && value === '') return
+        for (const rule of unmetRules(value)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `Missing: ${rule.label.toLowerCase()}`,
+          })
+        }
+      }),
+    phone: z.string().trim().max(32, 'At most 32 characters'),
+    employee_code: z.string().trim().max(32, 'At most 32 characters'),
+    branch_id: z.string(),
+    plant_id: z.string(),
+    department_id: z.string(),
+    vendor_id: z.string().nullable(),
+    must_change_password: z.boolean(),
+    role_ids: z.array(z.string()),
+  })
+}
+
+type UserFormValues = z.infer<ReturnType<typeof userSchema>>
+
+function emptyUser(): UserFormValues {
+  return {
+    email: '',
+    full_name: '',
+    password: '',
+    phone: '',
+    employee_code: '',
+    branch_id: NONE,
+    plant_id: NONE,
+    department_id: NONE,
+    vendor_id: null,
+    must_change_password: true,
+    role_ids: [],
+  }
+}
+
+function userValues(user: UserDetail): UserFormValues {
+  return {
+    email: user.email,
+    full_name: user.full_name,
+    password: '',
+    phone: user.phone ?? '',
+    employee_code: user.employee_code ?? '',
+    branch_id: user.branch_id ?? NONE,
+    plant_id: user.plant_id ?? NONE,
+    department_id: user.department_id ?? NONE,
+    vendor_id: user.vendor_id,
+    must_change_password: user.must_change_password,
+    role_ids: (user.roles ?? []).map((role) => role.id),
+  }
+}
+
+/**
+ * Loads the full record itself rather than being handed a grid row.
+ *
+ * `GET /users` returns a deliberately narrow summary - no phone, no scope
+ * arrays, no role objects - because a grid renders none of them. The edit form
+ * needs all three, so it asks for the detail when it opens.
+ */
+export function UserFormDialog({
+  open,
+  onOpenChange,
+  userId,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** Present for an edit, null for a create. */
+  userId: string | null
+}) {
+  const queryClient = useQueryClient()
+  const isEdit = Boolean(userId)
+
+  const detail = useQuery({
+    queryKey: queryKeys.users.detail(userId ?? ''),
+    queryFn: () => api.get<UserDetail>(`/users/${userId}`),
+    enabled: open && Boolean(userId),
+    staleTime: staleTimes.master,
+  })
+  const user = detail.data ?? null
+
+  const branches = useBranchOptions(open)
+  const plants = usePlantOptions(open)
+  const departments = useDepartmentOptions(open)
+  const roles = useRoleOptions(open && !isEdit)
+
+  const {
+    register,
+    control,
+    handleSubmit,
+    reset,
+    watch,
+    setValue,
+    setError,
+    formState: { errors },
+  } = useForm<UserFormValues>({
+    resolver: zodResolver(userSchema(isEdit)),
+    defaultValues: emptyUser(),
+  })
+
+  // Seeded once per opening, keyed on the id: a background refetch resolving
+  // mid-edit must not wipe what is being typed.
+  const loadedId = user?.id ?? null
+  useEffect(() => {
+    if (!open) return
+    if (isEdit && !user) return
+    reset(user ? userValues(user) : emptyUser())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isEdit, loadedId, reset])
+
+  const password = watch('password')
+  const vendorId = watch('vendor_id')
+
+  const mutation = useMutation({
+    mutationFn: (values: UserFormValues) => {
+      const shared = {
+        email: values.email.trim().toLowerCase(),
+        full_name: values.full_name.trim(),
+        phone: asText(values.phone),
+        employee_code: asText(values.employee_code),
+      }
+
+      if (user) {
+        // "Absent" and "null" both arrive as None on the server, so an
+        // unassignment is a flag rather than a null id.
+        return api.patch<UserDetail>(`/users/${user.id}`, {
+          ...shared,
+          ...(asId(values.branch_id)
+            ? { branch_id: asId(values.branch_id) }
+            : { clear_branch: true }),
+          ...(asId(values.plant_id) ? { plant_id: asId(values.plant_id) } : { clear_plant: true }),
+          ...(asId(values.department_id)
+            ? { department_id: asId(values.department_id) }
+            : { clear_department: true }),
+          ...(values.vendor_id ? { vendor_id: values.vendor_id } : { clear_vendor: true }),
+          ...(values.password ? { password: values.password } : {}),
+          must_change_password: values.must_change_password,
+        })
+      }
+
+      return api.post<UserDetail>('/users', {
+        ...shared,
+        password: values.password,
+        branch_id: asId(values.branch_id),
+        plant_id: asId(values.plant_id),
+        department_id: asId(values.department_id),
+        vendor_id: values.vendor_id,
+        role_ids: values.role_ids,
+        is_active: true,
+        must_change_password: values.must_change_password,
+      })
+    },
+    onSuccess: (saved) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.users.all })
+      toast.success(isEdit ? 'User updated' : 'User created', `${saved.full_name} - ${saved.email}`)
+      onOpenChange(false)
+    },
+    onError: (error) => applyFieldErrors(error, setError),
+  })
+
+  const roleList = roles.data ?? []
+  const selectableRoles = vendorId
+    ? roleList.filter((role) => role.is_vendor_role)
+    : roleList.filter((role) => !role.is_vendor_role)
+
+  const loadingDetail = isEdit && detail.isLoading
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="lg">
+        <DialogHeader>
+          <DialogTitle>{isEdit ? `Edit ${user?.full_name ?? 'user'}` : 'New user'}</DialogTitle>
+          <DialogDescription>
+            {isEdit
+              ? 'Setting a password here signs the account out of every device it is currently using.'
+              : 'The first password is hashed on arrival and never stored, logged or echoed back.'}
+          </DialogDescription>
+        </DialogHeader>
+
+        {loadingDetail && (
+          <div className="space-y-3" aria-busy="true">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <Skeleton key={index} className="h-9 w-full" />
+            ))}
+          </div>
+        )}
+
+        <form
+          onSubmit={handleSubmit((values) => mutation.mutate(values))}
+          className={loadingDetail ? 'hidden' : 'flex min-h-0 flex-col gap-4'}
+          noValidate
+        >
+          <DialogBody className="space-y-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="user-name" required>
+                  Full name
+                </Label>
+                <Input
+                  id="user-name"
+                  {...register('full_name')}
+                  autoComplete="off"
+                  aria-invalid={Boolean(errors.full_name)}
+                  className="mt-1.5"
+                />
+                <FieldError message={errors.full_name?.message} />
+              </div>
+
+              <div>
+                <Label htmlFor="user-email" required>
+                  Email
+                </Label>
+                <Input
+                  id="user-email"
+                  type="email"
+                  {...register('email')}
+                  autoComplete="off"
+                  aria-invalid={Boolean(errors.email)}
+                  className="mt-1.5"
+                />
+                <FieldError message={errors.email?.message} />
+              </div>
+
+              <div>
+                <Label htmlFor="user-phone">Phone</Label>
+                <Input
+                  id="user-phone"
+                  {...register('phone')}
+                  autoComplete="off"
+                  className="mt-1.5"
+                />
+                <FieldError message={errors.phone?.message} />
+              </div>
+
+              <div>
+                <Label htmlFor="user-employee-code">Employee code</Label>
+                <Input
+                  id="user-employee-code"
+                  {...register('employee_code')}
+                  autoComplete="off"
+                  className="mt-1.5"
+                />
+                <FieldError message={errors.employee_code?.message} />
+              </div>
+
+              <div className="sm:col-span-2">
+                <Label htmlFor="user-password" required={!isEdit}>
+                  {isEdit ? 'New password' : 'First password'}
+                </Label>
+                <Input
+                  id="user-password"
+                  type="password"
+                  {...register('password')}
+                  autoComplete="new-password"
+                  aria-invalid={Boolean(errors.password)}
+                  aria-describedby="user-password-policy"
+                  className="mt-1.5"
+                />
+                <FieldError message={errors.password?.message} />
+                <ul
+                  id="user-password-policy"
+                  className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"
+                >
+                  {PASSWORD_RULES.map((rule) => (
+                    <li
+                      key={rule.id}
+                      className={password && rule.satisfied(password) ? 'text-success' : undefined}
+                    >
+                      {rule.label}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div>
+                <Label htmlFor="user-branch">Branch</Label>
+                <Controller
+                  control={control}
+                  name="branch_id"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger id="user-branch" className="mt-1.5">
+                        <SelectValue placeholder="No branch" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NONE}>No branch</SelectItem>
+                        {(branches.data ?? []).map((branch) => (
+                          <SelectItem key={branch.id} value={branch.id}>
+                            {branch.code} - {branch.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="user-plant">Plant</Label>
+                <Controller
+                  control={control}
+                  name="plant_id"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger id="user-plant" className="mt-1.5">
+                        <SelectValue placeholder="No plant" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NONE}>No plant</SelectItem>
+                        {(plants.data ?? []).map((plant) => (
+                          <SelectItem key={plant.id} value={plant.id}>
+                            {plant.code} - {plant.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="user-department">Department</Label>
+                <Controller
+                  control={control}
+                  name="department_id"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger id="user-department" className="mt-1.5">
+                        <SelectValue placeholder="No department" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NONE}>No department</SelectItem>
+                        {(departments.data ?? []).map((department) => (
+                          <SelectItem key={department.id} value={department.id}>
+                            {department.code} - {department.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+
+              <div>
+                <Controller
+                  control={control}
+                  name="vendor_id"
+                  render={({ field }) => (
+                    <VendorPicker
+                      id="user-vendor"
+                      label="Vendor portal account"
+                      value={field.value}
+                      onChange={(next) => {
+                        field.onChange(next)
+                        // Vendor and internal roles are mutually exclusive, so
+                        // a selection made before the binding changed is no
+                        // longer legal and the API would refuse the whole save.
+                        setValue('role_ids', [])
+                      }}
+                      placeholder="Internal staff account"
+                    />
+                  )}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Binding an account to a vendor limits it to the vendor portal, and to vendor roles
+                  only.
+                </p>
+              </div>
+            </div>
+
+            {!isEdit && (
+              <fieldset className="rounded-lg border p-4">
+                <legend className="px-1.5 text-sm font-medium">Roles</legend>
+                {selectableRoles.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    {roles.isLoading
+                      ? 'Loading roles...'
+                      : vendorId
+                        ? 'No vendor roles exist yet. Create one on the Roles tab first.'
+                        : 'No roles available.'}
+                  </p>
+                ) : (
+                  <Controller
+                    control={control}
+                    name="role_ids"
+                    render={({ field }) => (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {selectableRoles.map((role) => {
+                          const checked = field.value.includes(role.id)
+                          return (
+                            <label
+                              key={role.id}
+                              className="flex cursor-pointer items-start gap-2.5 text-sm"
+                            >
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(next) =>
+                                  field.onChange(
+                                    next
+                                      ? [...field.value, role.id]
+                                      : field.value.filter((id: string) => id !== role.id),
+                                  )
+                                }
+                              />
+                              <span className="min-w-0">
+                                <span className="font-medium">{role.name}</span>
+                                <span className="block text-xs text-muted-foreground">
+                                  {role.permission_count} permissions
+                                </span>
+                              </span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    )}
+                  />
+                )}
+              </fieldset>
+            )}
+
+            <label className="flex items-start gap-2.5 text-sm">
+              <Controller
+                control={control}
+                name="must_change_password"
+                render={({ field }) => (
+                  <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                )}
+              />
+              <span>
+                Require a password change at next sign-in
+                <span className="block text-xs text-muted-foreground">
+                  A password someone else chose has been typed into a chat window or read out over a
+                  telephone.
+                </span>
+              </span>
+            </label>
+          </DialogBody>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={mutation.isPending}>
+              {isEdit ? 'Save changes' : 'Create user'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ------------------------------------------------------ role assignment -----
+
+const assignmentSchema = z.object({
+  role_ids: z.array(z.string()),
+  reason: z
+    .string()
+    .trim()
+    .min(3, 'Give a reason of at least 3 characters')
+    .max(255, 'At most 255 characters'),
+})
+
+type AssignmentValues = z.infer<typeof assignmentSchema>
+
+export function RoleAssignmentDialog({
+  open,
+  onOpenChange,
+  userId,
+  userName,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  userId: string
+  userName: string
+}) {
+  const queryClient = useQueryClient()
+  const roles = useRoleOptions(open)
+
+  // The grid row carries role *codes*; assignment needs role ids and the
+  // vendor binding, so the detail is fetched when the dialog opens.
+  const detail = useQuery({
+    queryKey: queryKeys.users.detail(userId),
+    queryFn: () => api.get<UserDetail>(`/users/${userId}`),
+    enabled: open,
+    staleTime: staleTimes.master,
+  })
+  const user = detail.data ?? null
+
+  const {
+    control,
+    handleSubmit,
+    register,
+    reset,
+    setError,
+    formState: { errors },
+  } = useForm<AssignmentValues>({
+    resolver: zodResolver(assignmentSchema),
+    defaultValues: { role_ids: [], reason: '' },
+  })
+
+  useEffect(() => {
+    if (open && user) reset({ role_ids: (user.roles ?? []).map((role) => role.id), reason: '' })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, user?.id, reset])
+
+  const mutation = useMutation({
+    mutationFn: (values: AssignmentValues) =>
+      api.post<UserDetail>(`/users/${userId}/roles`, {
+        role_ids: values.role_ids,
+        reason: values.reason.trim(),
+      }),
+    onSuccess: (saved) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.users.all })
+      const held = saved.roles?.length ?? 0
+      toast.success('Roles updated', `${saved.full_name} now holds ${held} role(s)`)
+      onOpenChange(false)
+    },
+    onError: (error) => applyFieldErrors(error, setError),
+  })
+
+  const isVendorUser = Boolean(user?.vendor_id)
+  const roleList = roles.data ?? []
+  const loadingDetail = detail.isLoading
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="lg">
+        <DialogHeader>
+          <DialogTitle>Roles for {user?.full_name ?? userName}</DialogTitle>
+          <DialogDescription>
+            The submitted list replaces the account&apos;s roles entirely. Assigning a role grants
+            every permission in it, and the API enforces that grant on every request from this
+            account.
+          </DialogDescription>
+        </DialogHeader>
+
+        {loadingDetail && (
+          <div className="space-y-2" aria-busy="true">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <Skeleton key={index} className="h-14 w-full" />
+            ))}
+          </div>
+        )}
+
+        <form
+          onSubmit={handleSubmit((values) => mutation.mutate(values))}
+          className={loadingDetail ? 'hidden' : 'flex min-h-0 flex-col gap-4'}
+          noValidate
+        >
+          <DialogBody className="space-y-4">
+            {isVendorUser && (
+              <Alert variant="info">
+                <AlertTitle>Vendor portal account</AlertTitle>
+                <AlertDescription>
+                  This account is bound to a vendor, so only vendor roles may be assigned to it.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            <Controller
+              control={control}
+              name="role_ids"
+              render={({ field }) => (
+                <div className="space-y-2">
+                  {roles.isLoading && (
+                    <p className="text-sm text-muted-foreground">Loading roles...</p>
+                  )}
+                  {roleList.map((role) => {
+                    const blocked = isVendorUser !== role.is_vendor_role
+                    const checked = field.value.includes(role.id)
+                    return (
+                      <label
+                        key={role.id}
+                        className={
+                          blocked
+                            ? 'flex items-start gap-2.5 rounded-md border p-3 text-sm opacity-60'
+                            : 'flex cursor-pointer items-start gap-2.5 rounded-md border p-3 text-sm'
+                        }
+                      >
+                        <Checkbox
+                          checked={checked}
+                          disabled={blocked}
+                          onCheckedChange={(next) =>
+                            field.onChange(
+                              next
+                                ? [...field.value, role.id]
+                                : field.value.filter((id: string) => id !== role.id),
+                            )
+                          }
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium">{role.name}</span>
+                            <span className="font-mono text-xs text-muted-foreground">
+                              {role.code}
+                            </span>
+                            {role.is_system && <Badge variant="secondary">System</Badge>}
+                            {role.is_vendor_role && <Badge variant="muted">Vendor</Badge>}
+                          </span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">
+                            {role.description ?? `${role.permission_count} permissions`}
+                          </span>
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+            />
+
+            <div>
+              <Label htmlFor="assign-reason" required>
+                Reason
+              </Label>
+              <Input
+                id="assign-reason"
+                {...register('reason')}
+                autoComplete="off"
+                aria-invalid={Boolean(errors.reason)}
+                className="mt-1.5"
+              />
+              <FieldError message={errors.reason?.message} />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Kept in the audit trail. An access review six months from now reads this line.
+              </p>
+            </div>
+          </DialogBody>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={mutation.isPending}>
+              <ShieldCheck />
+              Save roles
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// -------------------------------------------------------- password reset ----
+
+const resetSchema = z.object({
+  new_password: z.union([z.literal(''), passwordField]),
+  reason: z
+    .string()
+    .trim()
+    .min(3, 'Give a reason of at least 3 characters')
+    .max(255, 'At most 255 characters'),
+})
+
+type ResetValues = z.infer<typeof resetSchema>
+
+export function ResetPasswordDialog({
+  open,
+  onOpenChange,
+  user,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  user: UserRow
+}) {
+  const queryClient = useQueryClient()
+  const [issued, setIssued] = useState<PasswordResetResult | null>(null)
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    watch,
+    setError,
+    formState: { errors },
+  } = useForm<ResetValues>({
+    resolver: zodResolver(resetSchema),
+    defaultValues: { new_password: '', reason: '' },
+  })
+
+  useEffect(() => {
+    if (open) {
+      reset({ new_password: '', reason: '' })
+      setIssued(null)
+    }
+  }, [open, reset])
+
+  const password = watch('new_password')
+
+  const mutation = useMutation({
+    mutationFn: (values: ResetValues) =>
+      api.post<PasswordResetResult>(`/users/${user.id}/reset-password`, {
+        ...(values.new_password ? { new_password: values.new_password } : {}),
+        reason: values.reason.trim(),
+      }),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.users.all })
+      setIssued(result)
+      toast.success(
+        'Password reset',
+        `${result.sessions_revoked} session(s) revoked for ${user.email}`,
+      )
+    },
+    onError: (error) => applyFieldErrors(error, setError),
+  })
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>Reset password for {user.full_name}</DialogTitle>
+          <DialogDescription>
+            The account is signed out everywhere and must choose a new password at its next sign-in.
+          </DialogDescription>
+        </DialogHeader>
+
+        {issued ? (
+          <>
+            <Alert variant="warning">
+              <AlertTitle>
+                {issued.temporary_password ? 'Temporary password' : 'Password set'}
+              </AlertTitle>
+              <AlertDescription>
+                {issued.temporary_password ? (
+                  <>
+                    <code className="mt-1.5 block break-all rounded-md bg-muted px-2 py-1.5 font-mono text-sm text-foreground">
+                      {issued.temporary_password}
+                    </code>
+                    <span className="mt-2 block">
+                      Shown once and never recoverable. Hand it over through a channel the account
+                      holder controls.
+                    </span>
+                  </>
+                ) : (
+                  'The password you supplied is now in force.'
+                )}
+              </AlertDescription>
+            </Alert>
+            <DialogFooter>
+              <Button onClick={() => onOpenChange(false)}>Done</Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <form
+            onSubmit={handleSubmit((values) => mutation.mutate(values))}
+            className="flex flex-col gap-4"
+            noValidate
+          >
+            <div>
+              <Label htmlFor="reset-password">New password</Label>
+              <Input
+                id="reset-password"
+                type="password"
+                {...register('new_password')}
+                autoComplete="new-password"
+                aria-invalid={Boolean(errors.new_password)}
+                className="mt-1.5"
+              />
+              <FieldError message={errors.new_password?.message} />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Leave blank and the server generates one. That is the safer default: an
+                administrator who invents passwords tends to reuse the same one.
+              </p>
+              {password && (
+                <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                  {PASSWORD_RULES.map((rule) => (
+                    <li
+                      key={rule.id}
+                      className={rule.satisfied(password) ? 'text-success' : undefined}
+                    >
+                      {rule.label}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div>
+              <Label htmlFor="reset-reason" required>
+                Reason
+              </Label>
+              <Input
+                id="reset-reason"
+                {...register('reason')}
+                autoComplete="off"
+                aria-invalid={Boolean(errors.reason)}
+                className="mt-1.5"
+              />
+              <FieldError message={errors.reason?.message} />
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="destructive" loading={mutation.isPending}>
+                <KeyRound />
+                Reset password
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}

@@ -1,0 +1,143 @@
+/**
+ * Display formatting for ERP values.
+ *
+ * The rule that matters here: money and quantities arrive from the API as
+ * decimal *strings* and are computed with decimal.js. `Number(value)` is used
+ * only at the final formatting step, after all arithmetic is finished, because
+ * an IEEE-754 double cannot represent 0.1 exactly and an invoice that is one
+ * paisa out is a real defect (master rules 84).
+ */
+
+import Decimal from 'decimal.js'
+import { format, formatDistanceToNowStrict, isValid, parseISO } from 'date-fns'
+
+import type { DecimalString } from '@/types/api'
+
+// Enough precision for a multi-level BOM cost roll-up without surprises.
+Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP })
+
+const DEFAULT_LOCALE = 'en-IN'
+const DEFAULT_CURRENCY = 'INR'
+
+export function toDecimal(value: DecimalString | number | null | undefined): Decimal {
+  if (value === null || value === undefined || value === '') return new Decimal(0)
+  try {
+    return new Decimal(value)
+  } catch {
+    return new Decimal(0)
+  }
+}
+
+/** Currency for display. Never used as an input to further arithmetic. */
+export function formatMoney(
+  value: DecimalString | number | null | undefined,
+  options: { currency?: string; compact?: boolean; showSymbol?: boolean } = {},
+): string {
+  const { currency = DEFAULT_CURRENCY, compact = false, showSymbol = true } = options
+  const amount = toDecimal(value)
+
+  return new Intl.NumberFormat(DEFAULT_LOCALE, {
+    style: showSymbol ? 'currency' : 'decimal',
+    currency,
+    minimumFractionDigits: compact ? 0 : 2,
+    maximumFractionDigits: compact ? 1 : 2,
+    notation: compact ? 'compact' : 'standard',
+  }).format(amount.toNumber())
+}
+
+/**
+ * Quantity with trailing zeros trimmed.
+ *
+ * The API sends 4 decimal places uniformly, but showing "12.0000 NOS" in a grid
+ * of whole-number hardware counts is noise. Fractional precision is preserved
+ * when it is actually present.
+ */
+export function formatQuantity(
+  value: DecimalString | number | null | undefined,
+  uom?: string,
+): string {
+  const qty = toDecimal(value)
+  const text = qty
+    .toDecimalPlaces(4)
+    .toFixed()
+    .replace(/(\.\d*?)0+$/, '$1')
+    .replace(/\.$/, '')
+  const grouped = new Intl.NumberFormat(DEFAULT_LOCALE, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 4,
+  }).format(Number(text))
+  return uom ? `${grouped} ${uom}` : grouped
+}
+
+export function formatNumber(value: number | null | undefined, fractionDigits = 0): string {
+  if (value === null || value === undefined) return '-'
+  return new Intl.NumberFormat(DEFAULT_LOCALE, {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(value)
+}
+
+export function formatPercent(
+  value: DecimalString | number | null | undefined,
+  fractionDigits = 1,
+): string {
+  const pct = toDecimal(value)
+  return `${pct.toDecimalPlaces(fractionDigits).toFixed(fractionDigits)}%`
+}
+
+// ------------------------------------------------------------------ dates ---
+
+function parse(value: string | Date | null | undefined): Date | null {
+  if (!value) return null
+  const parsed = value instanceof Date ? value : parseISO(value)
+  return isValid(parsed) ? parsed : null
+}
+
+/** Date only. The API stores UTC; dates are shown in the browser's zone. */
+export function formatDate(value: string | Date | null | undefined): string {
+  const parsed = parse(value)
+  return parsed ? format(parsed, 'dd MMM yyyy') : '-'
+}
+
+export function formatDateTime(value: string | Date | null | undefined): string {
+  const parsed = parse(value)
+  return parsed ? format(parsed, 'dd MMM yyyy, HH:mm') : '-'
+}
+
+export function formatRelative(value: string | Date | null | undefined): string {
+  const parsed = parse(value)
+  return parsed ? `${formatDistanceToNowStrict(parsed)} ago` : '-'
+}
+
+/** Whole days from today; negative means overdue. Used for delay badges. */
+export function daysUntil(value: string | Date | null | undefined): number | null {
+  const parsed = parse(value)
+  if (!parsed) return null
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  return Math.round((startOfDay(parsed) - startOfDay(new Date())) / 86_400_000)
+}
+
+/** yyyy-MM-dd for <input type="date"> and query parameters. */
+export function toDateInput(value: string | Date | null | undefined): string {
+  const parsed = parse(value)
+  return parsed ? format(parsed, 'yyyy-MM-dd') : ''
+}
+
+// ------------------------------------------------------------------ misc ----
+
+export function formatFileSize(bytes: number | null | undefined): string {
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  return `${(bytes / 1024 ** exponent).toFixed(exponent === 0 ? 0 : 1)} ${units[exponent]}`
+}
+
+/** Turn CONSTANT_CASE enum values into readable labels. */
+export function humanise(value: string | null | undefined): string {
+  if (!value) return '-'
+  return value
+    .toLowerCase()
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}

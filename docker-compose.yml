@@ -1,0 +1,260 @@
+# =============================================================================
+# ATCRAFT MANUFACTURING ERP - base Docker Compose topology
+#
+# Service boundaries are IDENTICAL across every deployment (master rules
+# section 49A). Only runtime configuration changes between overlays:
+#
+#   development (hybrid or full-docker):
+#     docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#   deployed (behind the host nginx):
+#     docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Frontend and backend are ALWAYS separate containers. Never combined.
+#
+# -----------------------------------------------------------------------------
+# TWO INDEPENDENT DEPLOYMENTS ON ONE HOST
+# -----------------------------------------------------------------------------
+# The isolation boundary is the Compose *project name*. One project name gets
+# its own containers, its own bridge network and its own named volumes, so
+# `postgres` and `redis` resolve to that deployment's instances and to nothing
+# else. Deployment 1 cannot address deployment 2's database because the name
+# does not exist on its network.
+#
+# That is why nothing here is named by hand:
+#
+#   * no `container_name:` - a fixed name is claimed host-wide, so the second
+#     deployment fails with "container name is already in use". Compose names
+#     containers <project>-<service>-N instead, unique per project.
+#   * no fixed top-level `name:` - it would put both deployments in ONE project,
+#     which means one set of volumes: deployment 2 would mount, and migrate,
+#     deployment 1's database. This is the failure the whole design exists to
+#     prevent, and it is silent - the stack comes up perfectly.
+#   * no fixed host ports - see the overlays; a second deployment binding the
+#     same port cannot start.
+#
+# Use scripts/deploy.sh, which sets COMPOSE_PROJECT_NAME from the deployment's
+# env file and refuses to run without one.
+# =============================================================================
+
+name: ${COMPOSE_PROJECT_NAME:?COMPOSE_PROJECT_NAME must be set - run via scripts/deploy.sh}
+
+x-postgres-env: &postgres-env
+  POSTGRES_DB: ${POSTGRES_DB:-atcraft_erp}
+  POSTGRES_USER: ${POSTGRES_USER:-atcraft}
+  # No default. A shared fallback password is a shared credential across every
+  # deployment that forgot to set one, which is how one box's test database
+  # ends up openable with the password from another box's production.
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+
+x-api-env: &api-env
+  APP_ENV: ${APP_ENV:-development}
+  # Hosts `postgres` and `redis` resolve on this project's network only.
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-atcraft}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-atcraft_erp}
+  DATABASE_SYNC_URL: postgresql+psycopg://${POSTGRES_USER:-atcraft}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-atcraft_erp}
+  REDIS_URL: redis://redis:6379/0
+  CELERY_BROKER_URL: redis://redis:6379/1
+  CELERY_RESULT_BACKEND: redis://redis:6379/2
+  # Per deployment, and never shared: a token minted by one deployment must not
+  # authenticate against the other. The issuer and audience make that a
+  # deliberate rejection rather than an accident of key rotation.
+  JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+  JWT_ISSUER: ${JWT_ISSUER:-atcraft-erp}
+  JWT_AUDIENCE: ${JWT_AUDIENCE:-atcraft-erp}
+  CORS_ORIGINS: ${CORS_ORIGINS:-}
+  STORAGE_PATH: /storage
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+services:
+  # ---------------------------------------------------------------- postgres
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      <<: *postgres-env
+      # Deterministic collation so index ordering never drifts between hosts.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    command:
+      - postgres
+      # The initial migration creates 103 tables, 643 indexes, 590 foreign keys
+      # and 556 check constraints inside ONE transaction, and every object taken
+      # needs a lock slot. The default of 64 is nowhere near enough: it fails
+      # with "out of shared memory / You might need to increase
+      # max_locks_per_transaction", which reads like a memory problem and is not.
+      # The same applies to the test harness, which builds the full metadata in
+      # one transaction.
+      - -c
+      - max_locks_per_transaction=1024
+      # Sized from the deployment's env file, not hardcoded: two deployments
+      # share one box's RAM, and two clusters each claiming 1GB of
+      # shared_buffers oversubscribe it between them.
+      - -c
+      - max_connections=${PG_MAX_CONNECTIONS:-100}
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-256MB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-1GB}
+      - -c
+      - work_mem=${PG_WORK_MEM:-16MB}
+      - -c
+      - maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:-128MB}
+      - -c
+      - log_min_duration_statement=${PG_LOG_MIN_DURATION_MS:-500}
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.track=all
+    volumes:
+      # PostgreSQL 18+ images place data in a major-version subdirectory of
+      # /var/lib/postgresql. Mounting at .../data (the pre-18 convention) makes
+      # the entrypoint refuse to start, and would break `pg_upgrade --link`
+      # across a mount boundary at the next major upgrade.
+      - postgres-data:/var/lib/postgresql
+      - ./infrastructure/docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # "container started" is not "service ready" (section 49A).
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-atcraft} -d ${POSTGRES_DB:-atcraft_erp}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks: [internal]
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------- redis
+  redis:
+    image: redis:7-alpine
+    # The shared policy lives in the mounted file; the memory ceiling is the
+    # one thing that differs per deployment, and a command-line argument
+    # overrides the config file.
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf", "--maxmemory", "${REDIS_MAXMEMORY:-512mb}"]
+    volumes:
+      - redis-data:/data
+      - ./infrastructure/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [internal]
+    restart: unless-stopped
+
+  # ----------------------------------------------------------------- backend
+  backend:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    image: ${IMAGE_PREFIX:-atcraft}/api:${IMAGE_TAG:-local}
+    environment: *api-env
+    volumes:
+      - storage-data:/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health/live', timeout=3).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks: [internal]
+    restart: unless-stopped
+
+  # ----------------------------------------------------------- celery-worker
+  celery-worker:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    image: ${IMAGE_PREFIX:-atcraft}/api:${IMAGE_TAG:-local}
+    command: ["celery", "-A", "src.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=${CELERY_CONCURRENCY:-4}"]
+    environment: *api-env
+    volumes:
+      - storage-data:/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "celery", "-A", "src.workers.celery_app:celery_app", "inspect", "ping", "-d", "celery@$$HOSTNAME"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks: [internal]
+    restart: unless-stopped
+
+  # ------------------------------------------------------------- celery-beat
+  # Scheduled work: nightly summary-table refresh, stale-reservation sweep,
+  # dispatch delay alerts. Present because section 35 scheduled calculations
+  # exist.
+  celery-beat:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    image: ${IMAGE_PREFIX:-atcraft}/api:${IMAGE_TAG:-local}
+    command: ["celery", "-A", "src.workers.celery_app:celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
+    environment: *api-env
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------- frontend
+  frontend:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        # Relative, so one bundle works behind any hostname - the deployment's
+        # own nginx routes /api/v1 to its own backend. An absolute URL here
+        # would bake one deployment's domain into the other's bundle.
+        VITE_API_BASE_URL: /api/v1
+        VITE_APP_RELEASE: ${IMAGE_TAG:-local}
+        VITE_ERROR_REPORT_URL: ${VITE_ERROR_REPORT_URL:-}
+    image: ${IMAGE_PREFIX:-atcraft}/web:${IMAGE_TAG:-local}
+    depends_on:
+      - backend
+    networks: [internal]
+    restart: unless-stopped
+
+  # ------------------------------------------------------------------- nginx
+  # The deployment's own router: it owns /api routing, per-endpoint rate limits,
+  # the SPA fallback and the response security headers. It does NOT terminate
+  # TLS and does not know its own public hostname - the host nginx does both,
+  # and proxies to the single port this container publishes on loopback.
+  #
+  # Keeping it means each deployment is complete and testable on its own:
+  #   curl http://127.0.0.1:<HTTP_PORT>/healthz
+  # answers without the host nginx being configured at all.
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infrastructure/nginx/conf.d:/etc/nginx/conf.d:ro
+    depends_on:
+      - backend
+      - frontend
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+    restart: unless-stopped
+
+# Declared explicitly so the per-project name shows up in `docker network ls`
+# as <project>_internal, and the boundary is visible rather than implied.
+networks:
+  internal:
+    driver: bridge
+
+# Project-scoped, so these become <project>_postgres-data and so on. Two
+# deployments therefore hold two distinct volumes from the same declaration.
+volumes:
+  postgres-data:
+  redis-data:
+  storage-data:

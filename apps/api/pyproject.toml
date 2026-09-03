@@ -1,0 +1,174 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atcraft-erp-api"
+version = "0.1.0"
+description = "Atcraft Manufacturing ERP - FastAPI modular monolith"
+requires-python = ">=3.11"
+readme = "README.md"
+
+# -----------------------------------------------------------------------------
+# Runtime dependencies.
+# Master rules section 6 forbids adding dependencies without justification, so
+# every entry below carries the reason it exists.
+# -----------------------------------------------------------------------------
+dependencies = [
+    # --- Web framework (locked stack, section 3) ---------------------------
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.32,<1.0",       # ASGI server (dev + container entrypoint)
+    "gunicorn>=23.0,<24.0",               # production process manager for uvicorn workers
+    "python-multipart>=0.0.20",           # multipart/form-data: login form + file uploads
+
+    # --- Validation / configuration (locked stack) -------------------------
+    "pydantic>=2.9,<3.0",
+    "pydantic-settings>=2.6,<3.0",        # typed env configuration, no os.getenv sprawl
+    "email-validator>=2.2",               # EmailStr validation for user/partner contacts
+
+    # --- Database (locked stack) -------------------------------------------
+    "sqlalchemy[asyncio]>=2.0.36,<2.1",
+    "asyncpg>=0.30,<0.31",                # async driver for the application
+    "psycopg[binary]>=3.2,<4.0",          # sync driver, used only by Alembic
+    "alembic>=1.14,<2.0",
+
+    # --- Cache / queue (locked stack) --------------------------------------
+    "redis>=5.2,<6.0",                    # asyncio client for cache-aside + rate limiting
+    "celery>=5.4,<6.0",                   # project-standard background job system
+
+    # --- Security -----------------------------------------------------------
+    "argon2-cffi>=23.1",                  # Argon2id password hashing (replaces weak hashing)
+    "bcrypt>=4.2",                        # verify-only path for legacy bcrypt hashes on migration
+    "pyjwt>=2.10,<3.0",                   # access/refresh token signing with explicit expiry
+
+    # --- Observability (section 56) ----------------------------------------
+    "structlog>=24.4",                    # structured JSON logs with request-id binding
+    "prometheus-client>=0.21",            # /metrics endpoint scraped by Prometheus
+
+    # --- Background job output (section 77) --------------------------------
+    "openpyxl>=3.1",                      # Excel exports generated inside Celery workers
+    "reportlab>=4.2",                     # PDF generation (packing lists, POs) in workers
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "httpx>=0.28",                        # ASGI transport for API tests
+    "faker>=33.0",                        # deterministic-seeded test fixtures
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "types-python-dateutil",
+    "watchfiles>=1.0",                    # Celery worker auto-reload in dev containers
+]
+otel = [
+    "opentelemetry-sdk>=1.29",
+    "opentelemetry-instrumentation-fastapi>=0.50b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.50b0",
+    "opentelemetry-instrumentation-redis>=0.50b0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.29",
+]
+sentry = ["sentry-sdk[fastapi]>=2.19"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+# -----------------------------------------------------------------------------
+# Ruff - lint + format
+# -----------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",    # pycodestyle
+    "F",         # pyflakes
+    "I",         # import sorting
+    "N",         # pep8 naming
+    "UP",        # pyupgrade
+    "B",         # bugbear
+    "C4",        # comprehensions
+    "DTZ",       # naive-datetime usage - timestamps must be UTC-aware (section 28)
+    "T20",       # no print() in application code
+    "SIM",       # simplify
+    "RUF",
+    "ASYNC",     # async correctness
+    "S",         # bandit security rules
+]
+ignore = [
+    "B008",      # FastAPI Depends() in defaults is the framework idiom
+    "S101",      # assert is fine in tests (narrowed below)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "N806", "E402"]
+"migrations/**" = ["E501", "N999", "DTZ"]
+# S105 flags any constant whose NAME contains "token"/"password". These files
+# define error codes and permission strings, not credentials.
+"src/core/errors.py" = ["S105"]
+"src/core/permissions.py" = ["S105"]
+"src/modules/*/schemas.py" = ["S105"]
+# Audit ACTION names, not credentials: PASSWORD_CHANGED is a thing that
+# happened, and the audit log records that it happened.
+"src/modules/audit/models.py" = ["S105"]
+# A CLI reports to stdout; that is its interface, not stray debugging.
+"src/core/seed.py" = ["T201"]
+"src/core/demo_data/*.py" = ["T201"]
+"scripts/**" = ["T201"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+# -----------------------------------------------------------------------------
+# mypy
+# -----------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+plugins = ["pydantic.mypy"]
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+strict_equality = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*", "migrations.*"]
+disallow_untyped_defs = false
+
+# -----------------------------------------------------------------------------
+# pytest
+# -----------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "unit: pure business-logic tests, no external services",
+    "integration: requires PostgreSQL and/or Redis",
+    "api: exercises HTTP routes through the ASGI app",
+    "concurrency: exercises simultaneous transactions (inventory correctness)",
+    "slow: excluded from the fast feedback loop",
+]
+filterwarnings = ["error::DeprecationWarning:src.*"]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["src/main.py", "*/migrations/*", "*/__init__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@abstractmethod",
+]

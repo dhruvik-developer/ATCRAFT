@@ -1,0 +1,9 @@
+dist
+node_modules
+coverage
+
+# Generated from ../../openapi.json by `npm run contract:types`.
+# Prettier must not touch it: `npm run contract:check` compares the committed
+# file byte-for-byte against fresh generator output, so any reformatting would
+# make that guard fail permanently and for a reason nobody would guess.
+src/types/openapi.ts

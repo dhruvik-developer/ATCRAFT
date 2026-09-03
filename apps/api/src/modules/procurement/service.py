@@ -1,0 +1,3636 @@
+"""Procurement business rules and transaction boundaries.
+
+The rules that matter, and why each one lives here rather than in the caller:
+
+1. **A purchase order that duplicates an open one is refused.** Master rules
+   section 16: same vendor, same item, same warehouse, overlapping delivery
+   window, or - strongest of all - the same source demand. Creating it anyway
+   needs an explicit acknowledgement from somebody holding
+   ``purchase_order.approve``, and the reason is written onto the document. The
+   matching itself is pure and lives in :mod:`service_rules`, so the rule can be
+   argued with the business without a database.
+2. **Posting a goods receipt is one transaction or none of it.** Tolerance
+   check, stock movement, QC routing, purchase-order advancement and every audit
+   row commit together. A receipt that moved stock but left the order at SENT is
+   the defect this structure makes impossible.
+3. **Over-receipt is bounded by a named constant, checked here and again by a
+   CHECK constraint.** Application code is not trusted alone with the number a
+   vendor gets to invoice for (section 17).
+4. **Quantity that requires incoming inspection is received into ``QC_HOLD``,
+   not ``AVAILABLE``.** It is physically present and must never be promised to a
+   sales order until quality has released it (database.md section 8).
+5. **The quotation recommendation is advice with its reasoning attached**, and
+   the buyer's own decision is what gets recorded (section 15).
+
+The quality module is reached through a guarded import. When it is deployed,
+posting raises the incoming inspection inside the same transaction; when it is
+not, the receipt line is left flagged ``PENDING`` with the quantity already on
+QC hold, which is exactly the work queue quality picks up when it lands.
+"""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
+from typing import Any, Protocol
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.common.codes import DocTypes, next_document_number
+from src.core.clock import today, utcnow
+from src.core.database import advisory_xact_lock, transaction
+from src.core.deps import Principal, TenantContext
+from src.core.errors import (
+    AuthorizationError,
+    BusinessRuleError,
+    ErrorCode,
+    NotFoundError,
+    PermissionDeniedError,
+    ValidationError,
+)
+from src.core.logging import get_logger
+from src.core.pagination import PageParams, SortParams
+from src.core.permissions import Permission
+from src.core.responses import OffsetPagination
+from src.core.types import ZERO, to_money, to_quantity
+from src.modules.audit.models import AuditAction
+from src.modules.audit.service import record_audit, record_status_change, snapshot
+from src.modules.inventory.models import StockState, TransactionType
+from src.modules.inventory.schemas import StockBatchCreate
+from src.modules.inventory.service import MovementRequest, TraceabilityService, post_movements
+from src.modules.procurement.models import (
+    DUPLICATE_REQUIRED_DATE_WINDOW_DAYS,
+    EDITABLE_PO_STATUSES,
+    RECEIVABLE_PO_STATUSES,
+    GoodsReceipt,
+    GoodsReceiptLine,
+    GoodsReceiptStatus,
+    PurchaseOrder,
+    PurchaseOrderLine,
+    PurchaseOrderLineStatus,
+    PurchaseOrderStatus,
+    PurchaseRequisition,
+    PurchaseRequisitionLine,
+    PurchaseReturn,
+    PurchaseReturnLine,
+    PurchaseReturnStatus,
+    PurchaseSourceType,
+    QuotationStatus,
+    ReceiptLineQcStatus,
+    RequisitionStatus,
+    Rfq,
+    RfqLine,
+    RfqStatus,
+    VendorQuotation,
+    VendorQuotationLine,
+)
+from src.modules.procurement.repository import (
+    BatchLookupRepository,
+    GoodsReceiptLineRepository,
+    GoodsReceiptRepository,
+    ItemVendorLinkRepository,
+    OpenOrderLine,
+    PendingApprovalRepository,
+    PurchasableItem,
+    PurchasableItemRepository,
+    PurchaseOrderLineRepository,
+    PurchaseOrderRepository,
+    PurchaseReturnLineRepository,
+    PurchaseReturnRepository,
+    QuotationLineRepository,
+    QuotationRepository,
+    RequisitionLineRepository,
+    RequisitionRepository,
+    RfqLineRepository,
+    RfqRepository,
+    VendorFacts,
+    VendorLookupRepository,
+    WarehouseLookupRepository,
+)
+from src.modules.procurement.schemas import (
+    ComparisonItemRow,
+    ComparisonOffer,
+    ComparisonVendorColumn,
+    DuplicateCandidateRead,
+    DuplicateCheckRequest,
+    DuplicateCheckResult,
+    GoodsReceiptCreate,
+    GoodsReceiptDetail,
+    GoodsReceiptFilters,
+    GoodsReceiptLineRead,
+    GoodsReceiptPostResult,
+    GoodsReceiptSummary,
+    PendingApproval,
+    PendingApprovalFilters,
+    PostedMovement,
+    PurchaseOrderCreate,
+    PurchaseOrderDetail,
+    PurchaseOrderFilters,
+    PurchaseOrderLineIn,
+    PurchaseOrderLineRead,
+    PurchaseOrderSummary,
+    PurchaseOrderTracking,
+    PurchaseOrderUpdate,
+    PurchaseReturnCreate,
+    PurchaseReturnDetail,
+    PurchaseReturnFilters,
+    PurchaseReturnLineRead,
+    PurchaseReturnPostResult,
+    PurchaseReturnSummary,
+    QuotationComparison,
+    QuotationCreate,
+    QuotationDetail,
+    QuotationFilters,
+    QuotationLineIn,
+    QuotationLineRead,
+    QuotationSummary,
+    QuotationUpdate,
+    RequisitionCreate,
+    RequisitionDetail,
+    RequisitionFilters,
+    RequisitionLineIn,
+    RequisitionLineRead,
+    RequisitionSummary,
+    RequisitionUpdate,
+    RfqCreate,
+    RfqDetail,
+    RfqFilters,
+    RfqLineIn,
+    RfqLineRead,
+    RfqSummary,
+    RfqUpdate,
+    TrackedReceipt,
+)
+from src.modules.procurement.service_rules import (
+    DEFAULT_SCORE_WEIGHTS,
+    GOODS_RECEIPT_LIFECYCLE,
+    PURCHASE_ORDER_LIFECYCLE,
+    PURCHASE_RETURN_LIFECYCLE,
+    QUOTATION_LIFECYCLE,
+    REQUISITION_LIFECYCLE,
+    RFQ_LIFECYCLE,
+    CandidateInput,
+    DuplicateCandidate,
+    LineAmounts,
+    OfferInput,
+    ScoreWeights,
+    assert_within_over_receipt_tolerance,
+    classify_candidates,
+    compute_line_amounts,
+    duplicate_refusal,
+    effective_unit_price,
+    order_is_fully_received,
+    po_line_status_for,
+    rank_offers,
+    receipt_unit_cost,
+    recommendation_reason,
+    requisition_line_status_for,
+    sum_document_totals,
+)
+from src.modules.vendors.models import Vendor
+from src.modules.vendors.service import can_receive_purchase_orders
+
+log = get_logger(__name__)
+
+# --- audit entity names -------------------------------------------------------
+
+AUDIT_REQUISITION = "purchase_requisition"
+AUDIT_RFQ = "rfq"
+AUDIT_QUOTATION = "vendor_quotation"
+AUDIT_PURCHASE_ORDER = "purchase_order"
+AUDIT_GOODS_RECEIPT = "goods_receipt"
+AUDIT_PURCHASE_RETURN = "purchase_return"
+
+#: Reference type written onto every inventory ledger row this module posts, so
+#: "what did this GRN move?" is one indexed lookup (database.md section 4.2).
+MOVEMENT_REFERENCE_GRN = "goods_receipt"
+MOVEMENT_REFERENCE_RETURN = "purchase_return"
+
+#: Header fields snapshotted around an edit so the audit diff names what moved
+#: rather than reprinting the whole row.
+ORDER_AUDITED_FIELDS = [
+    "code",
+    "vendor_id",
+    "po_date",
+    "expected_delivery_date",
+    "warehouse_id",
+    "branch_id",
+    "status",
+    "priority",
+    "currency",
+    "subtotal",
+    "discount",
+    "tax_amount",
+    "freight_amount",
+    "total_amount",
+    "payment_terms_days",
+    "delivery_address",
+    "terms",
+    "source_type",
+    "source_id",
+    "assigned_vendor_user_id",
+    "duplicate_acknowledged",
+    "notes",
+]
+
+REQUISITION_AUDITED_FIELDS = [
+    "code",
+    "requisition_date",
+    "required_date",
+    "warehouse_id",
+    "department_id",
+    "branch_id",
+    "status",
+    "priority",
+    "requested_by_id",
+    "source_type",
+    "source_id",
+    "purpose",
+    "notes",
+]
+
+# ASSUMPTION: the approver of a procurement document may not be the person who
+# raised it, unless they are a platform superuser or hold SUPER_ADMIN. Approval
+# is evidence of a second person's judgement (master rules section 42), and a
+# purchase order signed off by the buyer who raised it is not evidence of
+# anything. Recorded in docs/assumptions.md section 2; one predicate, in one
+# place, if a small team wants it relaxed.
+SUPER_ADMIN_ROLE_CODE = "SUPER_ADMIN"
+
+# ASSUMPTION: a serial-tracked item cannot be received through a goods receipt.
+# The inventory engine requires a serial id on every movement of one, and the
+# procurement contract gives a receipt line nowhere to record the many serials
+# that arrive against a single line. Refusing with an explicit message is better
+# than posting stock whose units cannot be identified afterwards.
+SERIAL_RECEIPT_MESSAGE = (
+    "is serial tracked. Serial numbers cannot be captured on a goods receipt line; "
+    "register the units through inventory and receive them there."
+)
+
+
+def can_approve(principal: Principal, created_by_id: uuid.UUID | None) -> bool:
+    """Whether this principal may approve a document raised by ``created_by_id``."""
+    if principal.is_superuser or SUPER_ADMIN_ROLE_CODE in principal.role_codes:
+        return True
+    return created_by_id is None or created_by_id != principal.user_id
+
+
+def _assert_separate_approver(principal: Principal, created_by_id: uuid.UUID | None) -> None:
+    if not can_approve(principal, created_by_id):
+        raise AuthorizationError(
+            "A document cannot be approved by the person who raised it.",
+            code=ErrorCode.APPROVAL_REQUIRED,
+        )
+
+
+# =============================================================================
+# Quality integration - guarded import (database.md section 8)
+# =============================================================================
+
+
+class QualityPort(Protocol):
+    """What procurement asks of the quality module when it is deployed.
+
+    Deliberately narrow: one call, raising one incoming inspection against one
+    received line. Anything wider would couple the receipt path to a module
+    that is built independently of it.
+    """
+
+    async def __call__(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        *,
+        item_id: uuid.UUID,
+        quantity: Decimal,
+        warehouse_id: uuid.UUID,
+        reference_type: str,
+        reference_id: uuid.UUID,
+        reference_code: str,
+        vendor_id: uuid.UUID | None = None,
+        batch_id: uuid.UUID | None = None,
+    ) -> Any: ...
+
+
+def resolve_quality_port() -> QualityPort | None:
+    """The quality module's inspection factory, if it is deployed.
+
+    Only the *absence* of the module is tolerated. A failure inside it is not
+    swallowed: an inspection that could not be raised must roll the receipt back
+    with everything else, or the stock sits on QC hold with nobody told to look
+    at it.
+    """
+    try:
+        from src.modules.quality import service as quality_service
+    except ImportError:
+        return None
+
+    factory = getattr(quality_service, "create_incoming_inspection", None)
+    return factory if callable(factory) else None
+
+
+# =============================================================================
+# Shared helpers
+# =============================================================================
+
+
+async def _transition(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    machine: Any,
+    entity: Any,
+    entity_type: str,
+    entity_code: str | None,
+    target: Any,
+    reason: str,
+    status_enum: Any,
+    action: AuditAction = AuditAction.STATUS_CHANGE,
+) -> None:
+    """Move a document's status and record it.
+
+    Every status change in this module funnels through here, so there is exactly
+    one place that writes a procurement status column and exactly one place that
+    writes the matching audit row (master rules section 73).
+    """
+    current = status_enum(entity.status)
+    machine.assert_transition(current, target)
+    entity.status = target
+    if hasattr(entity, "updated_by_id"):
+        entity.updated_by_id = tenant.user_id
+    await session.flush()
+
+    await record_status_change(
+        session,
+        company_id=tenant.company_id,
+        entity_type=entity_type,
+        entity_id=entity.id,
+        entity_code=entity_code,
+        from_status=str(current),
+        to_status=str(target),
+        user_id=tenant.user_id,
+        action=action,
+        reason=reason,
+    )
+
+
+async def _load_items(
+    session: AsyncSession, tenant: TenantContext, item_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, PurchasableItem]:
+    """Batched item facts, with every unknown id reported at once."""
+    items = await PurchasableItemRepository(session, tenant).load(item_ids)
+    missing = [i for i in dict.fromkeys(item_ids) if i not in items]
+    if missing:
+        raise NotFoundError("Item", ", ".join(str(i) for i in missing))
+    return items
+
+
+def _assert_purchasable(items: dict[uuid.UUID, PurchasableItem]) -> None:
+    """Master rules section 1: the capability flag decides, never the item group."""
+    blocked = [i.code for i in items.values() if not i.can_purchase]
+    if blocked:
+        raise BusinessRuleError(
+            f"These items are not flagged as purchasable: {', '.join(sorted(blocked))}.",
+            details={"item_codes": sorted(blocked)},
+        )
+    inactive = [i.code for i in items.values() if not i.is_active]
+    if inactive:
+        raise BusinessRuleError(
+            f"These items are inactive and cannot be ordered: {', '.join(sorted(inactive))}.",
+            details={"item_codes": sorted(inactive)},
+        )
+
+
+async def _assert_warehouse(
+    session: AsyncSession, tenant: TenantContext, warehouse_id: uuid.UUID
+) -> None:
+    if not await WarehouseLookupRepository(session, tenant).exists_in_tenant(warehouse_id):
+        raise NotFoundError("Warehouse", warehouse_id)
+
+
+async def _load_vendor(
+    session: AsyncSession, tenant: TenantContext, vendor_id: uuid.UUID
+) -> Vendor:
+    vendor = await VendorLookupRepository(session, tenant).get(vendor_id)
+    if vendor is None:
+        raise NotFoundError("Vendor", vendor_id)
+    return vendor
+
+
+def _assert_orderable(vendor: Vendor) -> None:
+    # The predicate lives in the vendors module so no caller re-derives
+    # "approved and not switched off" and gets one of the three flags wrong.
+    if not can_receive_purchase_orders(vendor):
+        raise BusinessRuleError(
+            f"Vendor {vendor.code} is not approved for purchase orders.",
+            details={"vendor_id": str(vendor.id), "vendor_code": vendor.code},
+        )
+
+
+# =============================================================================
+# Purchase requisition
+# =============================================================================
+
+
+def requisition_detail(
+    requisition: PurchaseRequisition, lines: Sequence[PurchaseRequisitionLine]
+) -> RequisitionDetail:
+    detail = RequisitionDetail.model_validate(requisition)
+    detail.lines = [RequisitionLineRead.model_validate(line) for line in lines]
+    return detail
+
+
+def _apply_requisition_line(
+    line: PurchaseRequisitionLine, payload: RequisitionLineIn, item: PurchasableItem
+) -> PurchaseRequisitionLine:
+    line.line_number = payload.line_number
+    line.item_id = payload.item_id
+    line.description = payload.description or item.name
+    line.quantity = to_quantity(payload.quantity)
+    line.uom_id = payload.uom_id or item.order_uom_id
+    line.required_date = payload.required_date
+    line.estimated_unit_price = payload.estimated_unit_price
+    line.suggested_vendor_id = payload.suggested_vendor_id
+    line.notes = payload.notes
+    line.status = requisition_line_status_for(
+        quantity=line.quantity, ordered_quantity=line.ordered_quantity or ZERO
+    )
+    return line
+
+
+async def create_requisition(
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    payload: RequisitionCreate,
+) -> tuple[PurchaseRequisition, list[PurchaseRequisitionLine]]:
+    """Raise a DRAFT requisition. Nothing is committed to a vendor yet."""
+    repo = RequisitionRepository(session, tenant)
+    line_repo = RequisitionLineRepository(session, tenant)
+
+    async with transaction(session):
+        await _assert_warehouse(session, tenant, payload.warehouse_id)
+        items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
+        _assert_purchasable(items)
+
+        requisition_date = payload.requisition_date or today()
+        if payload.required_date < requisition_date:
+            raise ValidationError("The required date cannot be before the requisition date.")
+
+        code = await next_document_number(
+            session, tenant.company_id, DocTypes.PURCHASE_REQUISITION, on=requisition_date
+        )
+        requisition = PurchaseRequisition(
+            code=code,
+            requisition_date=requisition_date,
+            required_date=payload.required_date,
+            warehouse_id=payload.warehouse_id,
+            department_id=payload.department_id or principal.department_id,
+            branch_id=payload.branch_id or principal.branch_id,
+            requested_by_id=payload.requested_by_id or tenant.user_id,
+            status=RequisitionStatus.DRAFT,
+            priority=payload.priority,
+            source_type=payload.source_type,
+            source_id=payload.source_id,
+            purpose=payload.purpose,
+            notes=payload.notes,
+        )
+        repo.add(requisition)
+        await session.flush()
+
+        lines = [
+            _apply_requisition_line(
+                line_repo.add(PurchaseRequisitionLine(requisition_id=requisition.id)),
+                payload_line,
+                items[payload_line.item_id],
+            )
+            for payload_line in payload.lines
+        ]
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.CREATE,
+            entity_type=AUDIT_REQUISITION,
+            entity_id=requisition.id,
+            entity_code=requisition.code,
+            summary=f"Raised {requisition.code} with {len(lines)} line(s)",
+            user_id=tenant.user_id,
+            new_values={
+                **snapshot(requisition, REQUISITION_AUDITED_FIELDS),
+                "line_count": len(lines),
+            },
+        )
+
+    return requisition, lines
+
+
+async def update_requisition(
+    session: AsyncSession,
+    tenant: TenantContext,
+    requisition_id: uuid.UUID,
+    payload: RequisitionUpdate,
+) -> tuple[PurchaseRequisition, list[PurchaseRequisitionLine]]:
+    """Edit a draft. Anything past DRAFT is re-raised rather than rewritten."""
+    repo = RequisitionRepository(session, tenant)
+    line_repo = RequisitionLineRepository(session, tenant)
+
+    async with transaction(session):
+        requisition = await repo.lock_for_update(requisition_id)
+        if requisition is None:
+            raise NotFoundError("Purchase requisition", requisition_id)
+        if RequisitionStatus(requisition.status) is not RequisitionStatus.DRAFT:
+            raise BusinessRuleError(
+                f"Requisition {requisition.code} is {requisition.status} and can no longer "
+                "be edited.",
+                details={"status": str(requisition.status)},
+            )
+
+        before = snapshot(requisition, REQUISITION_AUDITED_FIELDS)
+
+        if payload.warehouse_id is not None:
+            await _assert_warehouse(session, tenant, payload.warehouse_id)
+            requisition.warehouse_id = payload.warehouse_id
+        for field in ("required_date", "department_id", "branch_id", "requested_by_id",
+                      "priority", "purpose", "notes"):
+            value = getattr(payload, field)
+            if value is not None:
+                setattr(requisition, field, value)
+        if requisition.required_date < requisition.requisition_date:
+            raise ValidationError("The required date cannot be before the requisition date.")
+
+        lines: list[PurchaseRequisitionLine]
+        if payload.lines is not None:
+            items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
+            _assert_purchasable(items)
+            await line_repo.delete_for_requisition(requisition.id)
+            lines = [
+                _apply_requisition_line(
+                    line_repo.add(PurchaseRequisitionLine(requisition_id=requisition.id)),
+                    payload_line,
+                    items[payload_line.item_id],
+                )
+                for payload_line in payload.lines
+            ]
+        else:
+            lines = await line_repo.list_for_requisition(requisition.id)
+
+        repo.touch(requisition)
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.UPDATE,
+            entity_type=AUDIT_REQUISITION,
+            entity_id=requisition.id,
+            entity_code=requisition.code,
+            summary=f"Updated {requisition.code}",
+            user_id=tenant.user_id,
+            old_values=before,
+            new_values=snapshot(requisition, REQUISITION_AUDITED_FIELDS),
+        )
+
+    return requisition, lines
+
+
+async def transition_requisition(
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    requisition_id: uuid.UUID,
+    target: RequisitionStatus,
+    *,
+    reason: str,
+) -> PurchaseRequisition:
+    """Submit, approve, reject, cancel or close a requisition."""
+    repo = RequisitionRepository(session, tenant)
+
+    async with transaction(session):
+        requisition = await repo.lock_for_update(requisition_id)
+        if requisition is None:
+            raise NotFoundError("Purchase requisition", requisition_id)
+
+        if target is RequisitionStatus.APPROVED:
+            _assert_separate_approver(principal, requisition.created_by_id)
+            requisition.approved_by_id = principal.user_id
+            requisition.approved_at = utcnow()
+        elif target is RequisitionStatus.REJECTED:
+            _assert_separate_approver(principal, requisition.created_by_id)
+            requisition.rejection_reason = reason
+        elif target is RequisitionStatus.CANCELLED:
+            requisition.cancellation_reason = reason
+
+        action = {
+            RequisitionStatus.APPROVED: AuditAction.APPROVE,
+            RequisitionStatus.REJECTED: AuditAction.REJECT,
+            RequisitionStatus.CANCELLED: AuditAction.CANCEL,
+        }.get(target, AuditAction.STATUS_CHANGE)
+
+        await _transition(
+            session,
+            tenant,
+            machine=REQUISITION_LIFECYCLE,
+            entity=requisition,
+            entity_type=AUDIT_REQUISITION,
+            entity_code=requisition.code,
+            target=target,
+            reason=reason,
+            status_enum=RequisitionStatus,
+            action=action,
+        )
+
+    return requisition
+
+
+async def delete_draft_requisition(
+    session: AsyncSession, tenant: TenantContext, requisition_id: uuid.UUID, *, reason: str
+) -> None:
+    """Remove a draft outright. Anything further along is cancelled instead."""
+    repo = RequisitionRepository(session, tenant)
+    line_repo = RequisitionLineRepository(session, tenant)
+
+    async with transaction(session):
+        requisition = await repo.lock_for_update(requisition_id)
+        if requisition is None:
+            raise NotFoundError("Purchase requisition", requisition_id)
+        if RequisitionStatus(requisition.status) is not RequisitionStatus.DRAFT:
+            raise BusinessRuleError(
+                f"Requisition {requisition.code} is {requisition.status}; cancel it instead "
+                "of deleting it.",
+                details={"status": str(requisition.status)},
+            )
+
+        code, requisition_uuid = requisition.code, requisition.id
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.DELETE,
+            entity_type=AUDIT_REQUISITION,
+            entity_id=requisition_uuid,
+            entity_code=code,
+            summary=f"Deleted draft requisition {code}",
+            user_id=tenant.user_id,
+            context={"reason": reason},
+        )
+        await line_repo.delete_for_requisition(requisition_uuid)
+        await repo.hard_delete(requisition)
+
+
+async def list_requisitions(
+    session: AsyncSession,
+    tenant: TenantContext,
+    filters: RequisitionFilters,
+    params: PageParams,
+    sort: SortParams,
+) -> tuple[list[RequisitionSummary], OffsetPagination]:
+    rows, pagination = await RequisitionRepository(session, tenant).list_page_filtered(
+        filters, params, sort
+    )
+    return [RequisitionSummary.model_validate(row) for row in rows], pagination
+
+
+async def get_requisition_detail(
+    session: AsyncSession, tenant: TenantContext, requisition_id: uuid.UUID
+) -> RequisitionDetail:
+    repo = RequisitionRepository(session, tenant)
+    requisition = await repo.get(requisition_id)
+    if requisition is None:
+        raise NotFoundError("Purchase requisition", requisition_id)
+    lines = await RequisitionLineRepository(session, tenant).list_for_requisition(requisition_id)
+    return requisition_detail(requisition, lines)
+
+
+# =============================================================================
+# Request for quotation
+# =============================================================================
+
+
+def rfq_detail(rfq: Rfq, lines: Sequence[RfqLine]) -> RfqDetail:
+    detail = RfqDetail.model_validate(rfq)
+    detail.lines = [RfqLineRead.model_validate(line) for line in lines]
+    return detail
+
+
+def _apply_rfq_line(line: RfqLine, payload: RfqLineIn, item: PurchasableItem) -> RfqLine:
+    line.line_number = payload.line_number
+    line.item_id = payload.item_id
+    line.description = payload.description or item.name
+    line.quantity = to_quantity(payload.quantity)
+    line.uom_id = payload.uom_id or item.order_uom_id
+    line.required_date = payload.required_date
+    line.requisition_line_id = payload.requisition_line_id
+    line.specification = payload.specification
+    line.notes = payload.notes
+    return line
+
+
+def _rfq_lines_from_requisition(
+    requisition_lines: Sequence[PurchaseRequisitionLine],
+) -> list[RfqLineIn]:
+    """Copy an approved requisition's open lines onto an RFQ.
+
+    Lines already fully ordered are skipped: re-quoting something that has been
+    bought is how a second, duplicate order gets raised.
+    """
+    payloads: list[RfqLineIn] = []
+    for line in requisition_lines:
+        outstanding = Decimal(line.quantity) - Decimal(line.ordered_quantity)
+        if outstanding <= 0:
+            continue
+        payloads.append(
+            RfqLineIn(
+                line_number=line.line_number,
+                item_id=line.item_id,
+                description=line.description,
+                quantity=to_quantity(outstanding),
+                uom_id=line.uom_id,
+                required_date=line.required_date,
+                requisition_line_id=line.id,
+            )
+        )
+    if not payloads:
+        raise BusinessRuleError(
+            "Every line on this requisition has already been ordered; there is nothing to quote."
+        )
+    return payloads
+
+
+async def create_rfq(
+    session: AsyncSession, tenant: TenantContext, payload: RfqCreate
+) -> tuple[Rfq, list[RfqLine]]:
+    repo = RfqRepository(session, tenant)
+    line_repo = RfqLineRepository(session, tenant)
+    requisition_repo = RequisitionRepository(session, tenant)
+    requisition_line_repo = RequisitionLineRepository(session, tenant)
+
+    async with transaction(session):
+        await _assert_warehouse(session, tenant, payload.warehouse_id)
+
+        line_payloads = payload.lines
+        requisition: PurchaseRequisition | None = None
+        if payload.requisition_id is not None:
+            requisition = await requisition_repo.get(payload.requisition_id)
+            if requisition is None:
+                raise NotFoundError("Purchase requisition", payload.requisition_id)
+            if RequisitionStatus(requisition.status) not in (
+                RequisitionStatus.APPROVED,
+                RequisitionStatus.CONVERTED,
+            ):
+                raise BusinessRuleError(
+                    f"Requisition {requisition.code} is {requisition.status}; only an approved "
+                    "requisition can be quoted.",
+                    details={"status": str(requisition.status)},
+                )
+            if line_payloads is None:
+                line_payloads = _rfq_lines_from_requisition(
+                    await requisition_line_repo.list_for_requisition(requisition.id)
+                )
+
+        if not line_payloads:
+            raise ValidationError("An RFQ needs at least one line.")
+
+        vendors = await VendorLookupRepository(session, tenant).load(payload.vendor_ids)
+        unknown = [v for v in payload.vendor_ids if v not in vendors]
+        if unknown:
+            raise NotFoundError("Vendor", ", ".join(str(v) for v in unknown))
+
+        items = await _load_items(session, tenant, [line.item_id for line in line_payloads])
+        _assert_purchasable(items)
+
+        rfq_date = payload.rfq_date or today()
+        code = await next_document_number(
+            session, tenant.company_id, DocTypes.RFQ, on=rfq_date
+        )
+        rfq = Rfq(
+            code=code,
+            rfq_date=rfq_date,
+            response_due_date=payload.response_due_date,
+            required_date=payload.required_date,
+            requisition_id=payload.requisition_id,
+            warehouse_id=payload.warehouse_id,
+            vendor_ids=list(dict.fromkeys(payload.vendor_ids)),
+            status=RfqStatus.DRAFT,
+            currency=payload.currency,
+            terms=payload.terms,
+            notes=payload.notes,
+        )
+        repo.add(rfq)
+        await session.flush()
+
+        lines = [
+            _apply_rfq_line(
+                line_repo.add(RfqLine(rfq_id=rfq.id)), payload_line, items[payload_line.item_id]
+            )
+            for payload_line in line_payloads
+        ]
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.CREATE,
+            entity_type=AUDIT_RFQ,
+            entity_id=rfq.id,
+            entity_code=rfq.code,
+            summary=(
+                f"Raised {rfq.code} for {len(lines)} line(s) to {len(rfq.vendor_ids)} vendor(s)"
+            ),
+            user_id=tenant.user_id,
+            new_values={
+                "code": rfq.code,
+                "warehouse_id": rfq.warehouse_id,
+                "requisition_id": rfq.requisition_id,
+                "vendor_ids": rfq.vendor_ids,
+                "line_count": len(lines),
+            },
+        )
+
+    return rfq, lines
+
+
+async def update_rfq(
+    session: AsyncSession, tenant: TenantContext, rfq_id: uuid.UUID, payload: RfqUpdate
+) -> tuple[Rfq, list[RfqLine]]:
+    repo = RfqRepository(session, tenant)
+    line_repo = RfqLineRepository(session, tenant)
+
+    async with transaction(session):
+        rfq = await repo.lock_for_update(rfq_id)
+        if rfq is None:
+            raise NotFoundError("RFQ", rfq_id)
+        if RfqStatus(rfq.status) is not RfqStatus.DRAFT:
+            raise BusinessRuleError(
+                f"RFQ {rfq.code} has already been sent and can no longer be edited.",
+                details={"status": str(rfq.status)},
+            )
+
+        if payload.warehouse_id is not None:
+            await _assert_warehouse(session, tenant, payload.warehouse_id)
+            rfq.warehouse_id = payload.warehouse_id
+        if payload.vendor_ids is not None:
+            vendors = await VendorLookupRepository(session, tenant).load(payload.vendor_ids)
+            unknown = [v for v in payload.vendor_ids if v not in vendors]
+            if unknown:
+                raise NotFoundError("Vendor", ", ".join(str(v) for v in unknown))
+            rfq.vendor_ids = list(dict.fromkeys(payload.vendor_ids))
+        for field in ("response_due_date", "required_date", "currency", "terms", "notes"):
+            value = getattr(payload, field)
+            if value is not None:
+                setattr(rfq, field, value)
+
+        lines: list[RfqLine]
+        if payload.lines is not None:
+            items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
+            _assert_purchasable(items)
+            await line_repo.delete_for_rfq(rfq.id)
+            lines = [
+                _apply_rfq_line(
+                    line_repo.add(RfqLine(rfq_id=rfq.id)),
+                    payload_line,
+                    items[payload_line.item_id],
+                )
+                for payload_line in payload.lines
+            ]
+        else:
+            lines = await line_repo.list_for_rfq(rfq.id)
+
+        repo.touch(rfq)
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.UPDATE,
+            entity_type=AUDIT_RFQ,
+            entity_id=rfq.id,
+            entity_code=rfq.code,
+            summary=f"Updated {rfq.code}",
+            user_id=tenant.user_id,
+        )
+
+    return rfq, lines
+
+
+async def transition_rfq(
+    session: AsyncSession,
+    tenant: TenantContext,
+    rfq_id: uuid.UUID,
+    target: RfqStatus,
+    *,
+    reason: str,
+) -> Rfq:
+    repo = RfqRepository(session, tenant)
+
+    async with transaction(session):
+        rfq = await repo.lock_for_update(rfq_id)
+        if rfq is None:
+            raise NotFoundError("RFQ", rfq_id)
+
+        if target is RfqStatus.SENT:
+            if not rfq.vendor_ids:
+                raise BusinessRuleError(
+                    f"RFQ {rfq.code} names no vendors; add at least one before sending it."
+                )
+            rfq.sent_at = utcnow()
+        elif target is RfqStatus.CLOSED:
+            rfq.closed_at = utcnow()
+        elif target is RfqStatus.CANCELLED:
+            rfq.cancellation_reason = reason
+
+        await _transition(
+            session,
+            tenant,
+            machine=RFQ_LIFECYCLE,
+            entity=rfq,
+            entity_type=AUDIT_RFQ,
+            entity_code=rfq.code,
+            target=target,
+            reason=reason,
+            status_enum=RfqStatus,
+            action=(
+                AuditAction.CANCEL
+                if target is RfqStatus.CANCELLED
+                else AuditAction.STATUS_CHANGE
+            ),
+        )
+
+    return rfq
+
+
+async def list_rfqs(
+    session: AsyncSession,
+    tenant: TenantContext,
+    filters: RfqFilters,
+    params: PageParams,
+    sort: SortParams,
+) -> tuple[list[RfqSummary], OffsetPagination]:
+    rows, pagination = await RfqRepository(session, tenant).list_page_filtered(
+        filters, params, sort
+    )
+    return [RfqSummary.model_validate(row) for row in rows], pagination
+
+
+async def get_rfq_detail(
+    session: AsyncSession, tenant: TenantContext, rfq_id: uuid.UUID
+) -> RfqDetail:
+    rfq = await RfqRepository(session, tenant).get(rfq_id)
+    if rfq is None:
+        raise NotFoundError("RFQ", rfq_id)
+    lines = await RfqLineRepository(session, tenant).list_for_rfq(rfq_id)
+    return rfq_detail(rfq, lines)
+
+
+# =============================================================================
+# Vendor quotation
+# =============================================================================
+
+
+def quotation_detail(
+    quotation: VendorQuotation, lines: Sequence[VendorQuotationLine]
+) -> QuotationDetail:
+    detail = QuotationDetail.model_validate(quotation)
+    detail.lines = [QuotationLineRead.model_validate(line) for line in lines]
+    return detail
+
+
+def _apply_quotation_line(
+    line: VendorQuotationLine,
+    payload: QuotationLineIn,
+    item: PurchasableItem,
+    amounts: LineAmounts,
+) -> VendorQuotationLine:
+    line.line_number = payload.line_number
+    line.rfq_line_id = payload.rfq_line_id
+    line.item_id = payload.item_id
+    line.description = payload.description or item.name
+    line.quantity = to_quantity(payload.quantity)
+    line.uom_id = payload.uom_id or item.order_uom_id
+    line.unit_price = payload.unit_price
+    line.discount_percentage = payload.discount_percentage or ZERO
+    line.discount = amounts.discount_amount
+    # Tax comes from the item master, never from the payload: a quotation that
+    # understated GST would flow straight onto a purchase order and then onto a
+    # statutory document (master rules section 38).
+    line.tax_rate = item.gst_rate
+    line.tax_amount = amounts.tax_amount
+    line.line_total = amounts.line_total
+    line.lead_time_days = payload.lead_time_days
+    line.min_order_quantity = payload.min_order_quantity or ZERO
+    line.notes = payload.notes
+    return line
+
+
+def _price_quotation_lines(
+    payloads: Sequence[QuotationLineIn], items: dict[uuid.UUID, PurchasableItem]
+) -> list[LineAmounts]:
+    return [
+        compute_line_amounts(
+            quantity=payload.quantity,
+            unit_price=payload.unit_price,
+            tax_rate=items[payload.item_id].gst_rate,
+            discount_percentage=payload.discount_percentage,
+            discount_amount=payload.discount,
+        )
+        for payload in payloads
+    ]
+
+
+async def _load_rfq_for_quoting(
+    session: AsyncSession, tenant: TenantContext, rfq_id: uuid.UUID
+) -> Rfq:
+    rfq = await RfqRepository(session, tenant).get(rfq_id)
+    if rfq is None:
+        raise NotFoundError("RFQ", rfq_id)
+    if RfqStatus(rfq.status) in (RfqStatus.CANCELLED, RfqStatus.CLOSED):
+        raise BusinessRuleError(
+            f"RFQ {rfq.code} is {rfq.status}; it can no longer take quotations.",
+            details={"status": str(rfq.status)},
+        )
+    return rfq
+
+
+async def create_quotation(
+    session: AsyncSession, tenant: TenantContext, payload: QuotationCreate
+) -> tuple[VendorQuotation, list[VendorQuotationLine]]:
+    """Record what one vendor quoted against an RFQ."""
+    repo = QuotationRepository(session, tenant)
+    line_repo = QuotationLineRepository(session, tenant)
+
+    async with transaction(session):
+        rfq = await _load_rfq_for_quoting(session, tenant, payload.rfq_id)
+        vendor = await _load_vendor(session, tenant, payload.vendor_id)
+
+        if await repo.by_rfq_vendor(rfq.id, vendor.id) is not None:
+            raise BusinessRuleError(
+                f"Vendor {vendor.code} has already quoted on {rfq.code}; update that quotation "
+                "with the revised offer instead of recording a second one.",
+                code=ErrorCode.DUPLICATE_DOCUMENT,
+                status_code=409,
+                details={"rfq_code": rfq.code, "vendor_code": vendor.code},
+            )
+
+        items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
+        amounts = _price_quotation_lines(payload.lines, items)
+        totals = sum_document_totals(amounts, freight_amount=payload.freight_amount)
+
+        quotation = VendorQuotation(
+            rfq_id=rfq.id,
+            vendor_id=vendor.id,
+            vendor_reference=payload.vendor_reference.strip(),
+            quotation_date=payload.quotation_date or today(),
+            valid_until=payload.valid_until,
+            currency=payload.currency,
+            payment_terms_days=payload.payment_terms_days or vendor.payment_terms_days,
+            lead_time_days=payload.lead_time_days or vendor.lead_time_days,
+            subtotal=totals.subtotal,
+            discount=totals.discount,
+            tax_amount=totals.tax_amount,
+            freight_amount=totals.freight_amount,
+            total_amount=totals.total_amount,
+            status=QuotationStatus.RECEIVED,
+            terms=payload.terms,
+            notes=payload.notes,
+        )
+        repo.add(quotation)
+        await session.flush()
+
+        lines = [
+            _apply_quotation_line(
+                line_repo.add(VendorQuotationLine(quotation_id=quotation.id)),
+                payload_line,
+                items[payload_line.item_id],
+                line_amounts,
+            )
+            for payload_line, line_amounts in zip(payload.lines, amounts, strict=True)
+        ]
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.CREATE,
+            entity_type=AUDIT_QUOTATION,
+            entity_id=quotation.id,
+            entity_code=quotation.vendor_reference,
+            summary=(
+                f"Recorded quotation {quotation.vendor_reference} from {vendor.code} "
+                f"on {rfq.code}: {quotation.currency} {quotation.total_amount}"
+            ),
+            user_id=tenant.user_id,
+            new_values={
+                "rfq_id": rfq.id,
+                "vendor_id": vendor.id,
+                "total_amount": quotation.total_amount,
+                "lead_time_days": quotation.lead_time_days,
+                "line_count": len(lines),
+            },
+        )
+
+    return quotation, lines
+
+
+async def update_quotation(
+    session: AsyncSession, tenant: TenantContext, quotation_id: uuid.UUID, payload: QuotationUpdate
+) -> tuple[VendorQuotation, list[VendorQuotationLine]]:
+    """Replace a quotation with the vendor's revised offer."""
+    repo = QuotationRepository(session, tenant)
+    line_repo = QuotationLineRepository(session, tenant)
+
+    async with transaction(session):
+        quotation = await repo.lock_for_update(quotation_id)
+        if quotation is None:
+            raise NotFoundError("Vendor quotation", quotation_id)
+        if QUOTATION_LIFECYCLE.is_terminal(QuotationStatus(quotation.status)):
+            raise BusinessRuleError(
+                f"This quotation is {quotation.status} and can no longer be revised.",
+                details={"status": str(quotation.status)},
+            )
+
+        before = snapshot(quotation, ["total_amount", "lead_time_days", "valid_until"])
+
+        for field in ("quotation_date", "valid_until", "currency", "payment_terms_days",
+                      "lead_time_days", "terms", "notes"):
+            value = getattr(payload, field)
+            if value is not None:
+                setattr(quotation, field, value)
+        if payload.vendor_reference is not None:
+            quotation.vendor_reference = payload.vendor_reference.strip()
+
+        lines: list[VendorQuotationLine]
+        if payload.lines is not None:
+            items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
+            amounts = _price_quotation_lines(payload.lines, items)
+            await line_repo.delete_for_quotation(quotation.id)
+            lines = [
+                _apply_quotation_line(
+                    line_repo.add(VendorQuotationLine(quotation_id=quotation.id)),
+                    payload_line,
+                    items[payload_line.item_id],
+                    line_amounts,
+                )
+                for payload_line, line_amounts in zip(payload.lines, amounts, strict=True)
+            ]
+        else:
+            lines = await line_repo.list_for_quotation(quotation.id)
+            amounts = [
+                LineAmounts(
+                    gross_amount=to_money(Decimal(line.quantity) * Decimal(line.unit_price)),
+                    discount_amount=Decimal(line.discount),
+                    taxable_amount=to_money(
+                        Decimal(line.quantity) * Decimal(line.unit_price) - Decimal(line.discount)
+                    ),
+                    tax_amount=Decimal(line.tax_amount),
+                    line_total=Decimal(line.line_total),
+                )
+                for line in lines
+            ]
+
+        freight = (
+            payload.freight_amount
+            if payload.freight_amount is not None
+            else Decimal(quotation.freight_amount)
+        )
+        totals = sum_document_totals(amounts, freight_amount=freight)
+        quotation.subtotal = totals.subtotal
+        quotation.discount = totals.discount
+        quotation.tax_amount = totals.tax_amount
+        quotation.freight_amount = totals.freight_amount
+        quotation.total_amount = totals.total_amount
+
+        repo.touch(quotation)
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.UPDATE,
+            entity_type=AUDIT_QUOTATION,
+            entity_id=quotation.id,
+            entity_code=quotation.vendor_reference,
+            summary=f"Revised quotation {quotation.vendor_reference}",
+            user_id=tenant.user_id,
+            old_values=before,
+            new_values=snapshot(quotation, ["total_amount", "lead_time_days", "valid_until"]),
+        )
+
+    return quotation, lines
+
+
+async def decide_quotation(
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    quotation_id: uuid.UUID,
+    target: QuotationStatus,
+    *,
+    reason: str,
+) -> VendorQuotation:
+    """Select or reject one vendor's offer, with the buyer's reason recorded."""
+    repo = QuotationRepository(session, tenant)
+
+    async with transaction(session):
+        quotation = await repo.lock_for_update(quotation_id)
+        if quotation is None:
+            raise NotFoundError("Vendor quotation", quotation_id)
+
+        if target is QuotationStatus.SELECTED:
+            if quotation.valid_until is not None and quotation.valid_until < today():
+                raise BusinessRuleError(
+                    f"Quotation {quotation.vendor_reference} lapsed on "
+                    f"{quotation.valid_until.isoformat()}; ask the vendor to requote.",
+                    details={"valid_until": quotation.valid_until.isoformat()},
+                )
+            quotation.selected_by_id = principal.user_id
+            quotation.selected_at = utcnow()
+        quotation.decision_reason = reason
+
+        await _transition(
+            session,
+            tenant,
+            machine=QUOTATION_LIFECYCLE,
+            entity=quotation,
+            entity_type=AUDIT_QUOTATION,
+            entity_code=quotation.vendor_reference,
+            target=target,
+            reason=reason,
+            status_enum=QuotationStatus,
+            action=(
+                AuditAction.APPROVE
+                if target is QuotationStatus.SELECTED
+                else AuditAction.REJECT
+                if target is QuotationStatus.REJECTED
+                else AuditAction.STATUS_CHANGE
+            ),
+        )
+
+    return quotation
+
+
+async def list_quotations(
+    session: AsyncSession,
+    tenant: TenantContext,
+    filters: QuotationFilters,
+    params: PageParams,
+    sort: SortParams,
+) -> tuple[list[QuotationSummary], OffsetPagination]:
+    rows, pagination = await QuotationRepository(session, tenant).list_page_filtered(
+        filters, params, sort
+    )
+    return [QuotationSummary.model_validate(row) for row in rows], pagination
+
+
+async def get_quotation_detail(
+    session: AsyncSession, tenant: TenantContext, quotation_id: uuid.UUID
+) -> QuotationDetail:
+    quotation = await QuotationRepository(session, tenant).get(quotation_id)
+    # A vendor principal is told "not found" rather than "forbidden" for another
+    # vendor's quotation: confirming a competitor quoted, and on what, is itself
+    # the disclosure. Same treatment as another vendor's purchase order.
+    if quotation is None or (
+        tenant.vendor_id is not None and quotation.vendor_id != tenant.vendor_id
+    ):
+        raise NotFoundError("Vendor quotation", quotation_id)
+    lines = await QuotationLineRepository(session, tenant).list_for_quotation(quotation_id)
+    return quotation_detail(quotation, lines)
+
+
+# --- comparison ---------------------------------------------------------------
+
+
+def _offer_lead_time(line: VendorQuotationLine, quotation: VendorQuotation) -> int:
+    """The line's own lead time when it has one, otherwise the header's.
+
+    A vendor quotes one lead time for a stocked part and another for a machined
+    one on the same sheet of paper; the line is the more specific promise.
+    """
+    return int(line.lead_time_days if line.lead_time_days is not None else quotation.lead_time_days)
+
+
+async def compare_quotations(
+    session: AsyncSession,
+    tenant: TenantContext,
+    rfq_id: uuid.UUID,
+    *,
+    weights: ScoreWeights = DEFAULT_SCORE_WEIGHTS,
+) -> QuotationComparison:
+    """Side-by-side comparison of every quotation received against one RFQ.
+
+    Four batched reads for the whole board - RFQ, its lines, every quotation,
+    every quotation line - plus one vendor lookup and one item lookup. Building
+    it per vendor would be the N+1 the rules forbid, on a screen a buyer opens
+    for every purchase they make.
+    """
+    # The board is every vendor's price for the same basket, side by side. There
+    # is no reading of it a vendor principal is entitled to, whatever permission
+    # a misconfigured role hands them (master rules section 16).
+    if tenant.vendor_id is not None:
+        raise AuthorizationError(
+            "The quotation comparison is not available to vendor accounts.",
+            code=ErrorCode.SCOPE_DENIED,
+        )
+
+    rfq_repo = RfqRepository(session, tenant)
+    rfq = await rfq_repo.get(rfq_id)
+    if rfq is None:
+        raise NotFoundError("RFQ", rfq_id)
+
+    rfq_lines = await RfqLineRepository(session, tenant).list_for_rfq(rfq.id)
+    quotations = await QuotationRepository(session, tenant).for_rfq(rfq.id)
+    lines_by_quotation = await QuotationLineRepository(session, tenant).list_for_quotations(
+        [q.id for q in quotations]
+    )
+    vendors = await VendorLookupRepository(session, tenant).load([q.vendor_id for q in quotations])
+    items = await PurchasableItemRepository(session, tenant).load(
+        [line.item_id for line in rfq_lines]
+        + [line.item_id for lines in lines_by_quotation.values() for line in lines]
+    )
+
+    as_of = today()
+    vendor_names = {
+        vendor_id: facts.name for vendor_id, facts in vendors.items()
+    }
+
+    columns = [
+        _comparison_column(
+            quotation, vendors.get(quotation.vendor_id), lines_by_quotation.get(quotation.id, []),
+            as_of=as_of,
+        )
+        for quotation in quotations
+    ]
+
+    currencies = {q.currency for q in quotations}
+    mixed_currency = len(currencies) > 1
+
+    rows, best_vendor_counts = _comparison_rows(
+        rfq_lines=rfq_lines,
+        quotations=quotations,
+        lines_by_quotation=lines_by_quotation,
+        vendors=vendors,
+        items=items,
+        vendor_names=vendor_names,
+        as_of=as_of,
+        weights=weights,
+        mixed_currency=mixed_currency,
+    )
+
+    overall_vendor_id, overall_reason = _overall_recommendation(
+        columns=columns,
+        best_vendor_counts=best_vendor_counts,
+        vendor_names=vendor_names,
+        mixed_currency=mixed_currency,
+    )
+
+    return QuotationComparison(
+        rfq_id=rfq.id,
+        rfq_code=rfq.code,
+        rfq_status=RfqStatus(rfq.status),
+        currency=rfq.currency,
+        vendors=columns,
+        items=rows,
+        recommended_vendor_id=overall_vendor_id,
+        recommendation_reason=overall_reason,
+        mixed_currency=mixed_currency,
+    )
+
+
+def _comparison_column(
+    quotation: VendorQuotation,
+    vendor: VendorFacts | None,
+    lines: Sequence[VendorQuotationLine],
+    *,
+    as_of: date,
+) -> ComparisonVendorColumn:
+    expired = quotation.valid_until is not None and quotation.valid_until < as_of
+    return ComparisonVendorColumn(
+        vendor_id=quotation.vendor_id,
+        vendor_code=vendor.code if vendor else "",
+        vendor_name=vendor.name if vendor else "",
+        quotation_id=quotation.id,
+        quotation_status=QuotationStatus(quotation.status),
+        vendor_rating=vendor.rating if vendor else None,
+        rating_sample_size=vendor.rating_sample_size if vendor else 0,
+        lead_time_days=int(quotation.lead_time_days),
+        payment_terms_days=int(quotation.payment_terms_days),
+        currency=quotation.currency,
+        subtotal=Decimal(quotation.subtotal),
+        freight_amount=Decimal(quotation.freight_amount),
+        tax_amount=Decimal(quotation.tax_amount),
+        total_amount=Decimal(quotation.total_amount),
+        valid_until=quotation.valid_until,
+        is_expired=expired,
+        quoted_item_count=len(lines),
+    )
+
+
+def _comparison_rows(
+    *,
+    rfq_lines: Sequence[RfqLine],
+    quotations: Sequence[VendorQuotation],
+    lines_by_quotation: dict[uuid.UUID, list[VendorQuotationLine]],
+    vendors: dict[uuid.UUID, VendorFacts],
+    items: dict[uuid.UUID, PurchasableItem],
+    vendor_names: dict[uuid.UUID, str],
+    as_of: date,
+    weights: ScoreWeights,
+    mixed_currency: bool,
+) -> tuple[list[ComparisonItemRow], dict[uuid.UUID, int]]:
+    """One row per item, every vendor's offer scored and ranked against it."""
+    quotation_by_id = {q.id: q for q in quotations}
+
+    # Offers are grouped by item rather than by RFQ line, so a vendor who quoted
+    # an item the RFQ did not ask for still appears on the board.
+    offers_by_item: dict[uuid.UUID, list[tuple[VendorQuotation, VendorQuotationLine]]] = {}
+    for quotation_id, lines in lines_by_quotation.items():
+        quotation = quotation_by_id[quotation_id]
+        for line in lines:
+            offers_by_item.setdefault(line.item_id, []).append((quotation, line))
+
+    rfq_line_by_item = {line.item_id: line for line in rfq_lines}
+    ordered_items = list(rfq_line_by_item) + [
+        item_id for item_id in offers_by_item if item_id not in rfq_line_by_item
+    ]
+
+    rows: list[ComparisonItemRow] = []
+    best_vendor_counts: dict[uuid.UUID, int] = {}
+
+    for item_id in ordered_items:
+        offers = offers_by_item.get(item_id, [])
+        item = items.get(item_id)
+        rfq_line = rfq_line_by_item.get(item_id)
+
+        inputs = [
+            OfferInput(
+                vendor_id=quotation.vendor_id,
+                quotation_id=quotation.id,
+                quotation_line_id=line.id,
+                effective_unit_price=effective_unit_price(
+                    unit_price=Decimal(line.unit_price),
+                    discount_percentage=Decimal(line.discount_percentage),
+                ),
+                lead_time_days=_offer_lead_time(line, quotation),
+                vendor_rating=(
+                    vendors[quotation.vendor_id].rating
+                    if quotation.vendor_id in vendors
+                    else None
+                ),
+                is_expired=quotation.valid_until is not None and quotation.valid_until < as_of,
+            )
+            for quotation, line in offers
+        ]
+        ranked = rank_offers(inputs, weights=weights)
+        line_by_id = {line.id: (quotation, line) for quotation, line in offers}
+
+        row_offers: list[ComparisonOffer] = []
+        for entry in ranked:
+            quotation, line = line_by_id[entry.offer.quotation_line_id]
+            vendor = vendors.get(quotation.vendor_id)
+            row_offers.append(
+                ComparisonOffer(
+                    vendor_id=quotation.vendor_id,
+                    vendor_code=vendor.code if vendor else "",
+                    vendor_name=vendor.name if vendor else "",
+                    quotation_id=quotation.id,
+                    quotation_line_id=line.id,
+                    unit_price=Decimal(line.unit_price),
+                    discount_percentage=Decimal(line.discount_percentage),
+                    effective_unit_price=entry.offer.effective_unit_price,
+                    quantity=Decimal(line.quantity),
+                    tax_rate=Decimal(line.tax_rate),
+                    line_total=Decimal(line.line_total),
+                    lead_time_days=entry.offer.lead_time_days,
+                    vendor_rating=entry.offer.vendor_rating,
+                    payment_terms_days=int(quotation.payment_terms_days),
+                    is_expired=entry.offer.is_expired,
+                    is_lowest_price=entry.is_lowest_price,
+                    is_fastest=entry.is_fastest,
+                    score=entry.score,
+                    rank=entry.rank,
+                )
+            )
+
+        live = [entry for entry in ranked if not entry.offer.is_expired]
+        if mixed_currency:
+            # Comparing 100 EUR against 9,000 INR by magnitude would recommend
+            # the wrong vendor with total confidence. Better to show the board
+            # and say why no winner is named.
+            recommended_vendor_id = None
+            reason = (
+                "Vendors quoted in different currencies; convert to one currency before "
+                "comparing these prices."
+            )
+        elif live:
+            recommended_vendor_id = live[0].offer.vendor_id
+            reason = recommendation_reason(ranked, vendor_names=vendor_names)
+            best_vendor_counts[recommended_vendor_id] = (
+                best_vendor_counts.get(recommended_vendor_id, 0) + 1
+            )
+        else:
+            recommended_vendor_id = None
+            reason = recommendation_reason(ranked, vendor_names=vendor_names)
+
+        rows.append(
+            ComparisonItemRow(
+                item_id=item_id,
+                item_code=item.code if item else "",
+                item_name=item.name if item else "",
+                quantity=Decimal(rfq_line.quantity) if rfq_line else ZERO,
+                uom_id=rfq_line.uom_id if rfq_line else None,
+                rfq_line_id=rfq_line.id if rfq_line else None,
+                offers=row_offers,
+                recommended_vendor_id=recommended_vendor_id,
+                recommendation_reason=reason,
+            )
+        )
+
+    return rows, best_vendor_counts
+
+
+def _overall_recommendation(
+    *,
+    columns: Sequence[ComparisonVendorColumn],
+    best_vendor_counts: dict[uuid.UUID, int],
+    vendor_names: dict[uuid.UUID, str],
+    mixed_currency: bool,
+) -> tuple[uuid.UUID | None, str]:
+    """Name one vendor for the whole basket, or say why none is named.
+
+    The vendor that wins the most lines, not the lowest total: splitting an
+    order across three vendors to save on two lines usually costs more in
+    freight and follow-up than it saves, and the per-item rows are there for a
+    buyer who wants to split anyway.
+    """
+    if not columns:
+        return None, "No quotations have been received against this RFQ."
+    if mixed_currency:
+        return None, (
+            "Quotations were received in more than one currency; no overall recommendation is "
+            "made until they are converted to a common currency."
+        )
+    if not best_vendor_counts:
+        return None, "Every quotation received has lapsed; ask the vendors to requote."
+
+    totals_by_vendor = {c.vendor_id: Decimal(c.total_amount) for c in columns}
+    winner_id = max(
+        best_vendor_counts,
+        # Most lines won; ties broken by the lower total so the result is stable.
+        # The total stays a Decimal: rounding a quotation through binary float to
+        # break a tie can pick the dearer vendor, and money never touches float
+        # anywhere in this codebase (master rules section 84).
+        key=lambda vendor_id: (
+            best_vendor_counts[vendor_id],
+            -totals_by_vendor.get(vendor_id, ZERO),
+        ),
+    )
+    won = best_vendor_counts[winner_id]
+    total_lines = sum(best_vendor_counts.values())
+    column = next((c for c in columns if c.vendor_id == winner_id), None)
+    name = vendor_names.get(winner_id, "This vendor")
+
+    detail = (
+        f" at {column.currency} {column.total_amount} with a {column.lead_time_days}-day lead time"
+        if column
+        else ""
+    )
+    return winner_id, (
+        f"{name} is recommended: best value on {won} of {total_lines} quoted line(s){detail}."
+    )
+
+
+# =============================================================================
+# Duplicate purchase order prevention (master rules section 16)
+# =============================================================================
+
+
+def _as_candidate_input(row: OpenOrderLine) -> CandidateInput:
+    return CandidateInput(
+        purchase_order_id=row.purchase_order_id,
+        purchase_order_code=row.purchase_order_code,
+        purchase_order_line_id=row.line_id,
+        status=row.status,
+        vendor_id=row.vendor_id,
+        item_id=row.item_id,
+        warehouse_id=row.warehouse_id,
+        ordered_quantity=row.quantity,
+        received_quantity=row.received_quantity,
+        required_date=row.required_date,
+        source_type=row.source_type,
+        source_id=row.source_id,
+    )
+
+
+def _date_envelope(dates: Sequence[date | None]) -> tuple[date | None, date | None]:
+    """The coarse window the SQL narrows on, before per-item matching.
+
+    Widened by the duplicate window on both sides so a candidate that is only
+    just inside one line's window is still fetched.
+    """
+    known = [d for d in dates if d is not None]
+    if not known:
+        return None, None
+    from datetime import timedelta
+
+    span = timedelta(days=DUPLICATE_REQUIRED_DATE_WINDOW_DAYS)
+    return min(known) - span, max(known) + span
+
+
+async def find_duplicate_candidates(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    vendor_id: uuid.UUID,
+    item_id: uuid.UUID,
+    required_date: date | None,
+    warehouse_id: uuid.UUID,
+    source_type: PurchaseSourceType | None = None,
+    source_id: uuid.UUID | None = None,
+    exclude_order_id: uuid.UUID | None = None,
+    window_days: int = DUPLICATE_REQUIRED_DATE_WINDOW_DAYS,
+) -> list[DuplicateCandidate]:
+    """Open purchase orders that may already cover this demand.
+
+    The public single-item contract from master rules section 16. Matches on
+    vendor, item, warehouse, an overlapping required-date window and the source
+    demand reference, over orders that are still open. Multi-line callers use
+    :func:`find_duplicates_for_lines`, which asks the same question for a whole
+    document in one statement.
+    """
+    date_from, date_to = _date_envelope([required_date])
+    rows = await PurchaseOrderRepository(session, tenant).open_lines_for_duplicate_check(
+        vendor_id=vendor_id,
+        warehouse_id=warehouse_id,
+        item_ids=[item_id],
+        date_from=date_from,
+        date_to=date_to,
+        source_type=source_type,
+        source_id=source_id,
+        exclude_order_id=exclude_order_id,
+    )
+    return classify_candidates(
+        [_as_candidate_input(row) for row in rows],
+        vendor_id=vendor_id,
+        item_id=item_id,
+        warehouse_id=warehouse_id,
+        required_date=required_date,
+        source_type=source_type,
+        source_id=source_id,
+        window_days=window_days,
+    )
+
+
+async def find_duplicates_for_lines(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    vendor_id: uuid.UUID,
+    warehouse_id: uuid.UUID,
+    lines: Sequence[tuple[uuid.UUID, date | None]],
+    source_type: PurchaseSourceType | None,
+    source_id: uuid.UUID | None,
+    exclude_order_id: uuid.UUID | None = None,
+) -> list[DuplicateCandidate]:
+    """The whole-document form: one query for every line's items.
+
+    ``lines`` is ``(item_id, required_date)``. The per-line rules are then
+    applied in memory over the fetched set, so a twenty-line order costs one
+    round trip rather than twenty.
+    """
+    if not lines:
+        return []
+
+    date_from, date_to = _date_envelope([required for _, required in lines])
+    rows = await PurchaseOrderRepository(session, tenant).open_lines_for_duplicate_check(
+        vendor_id=vendor_id,
+        warehouse_id=warehouse_id,
+        item_ids=[item_id for item_id, _ in lines],
+        date_from=date_from,
+        date_to=date_to,
+        source_type=source_type,
+        source_id=source_id,
+        exclude_order_id=exclude_order_id,
+    )
+    candidates = [_as_candidate_input(row) for row in rows]
+
+    found: dict[uuid.UUID, DuplicateCandidate] = {}
+    for item_id, required in lines:
+        for candidate in classify_candidates(
+            candidates,
+            vendor_id=vendor_id,
+            item_id=item_id,
+            warehouse_id=warehouse_id,
+            required_date=required,
+            source_type=source_type,
+            source_id=source_id,
+        ):
+            # Keyed by order line so two proposed lines for the same item do not
+            # report the same existing line twice.
+            found.setdefault(candidate.purchase_order_line_id, candidate)
+    return list(found.values())
+
+
+def _duplicate_read(candidate: DuplicateCandidate) -> DuplicateCandidateRead:
+    return DuplicateCandidateRead(
+        purchase_order_id=candidate.purchase_order_id,
+        purchase_order_code=candidate.purchase_order_code,
+        purchase_order_line_id=candidate.purchase_order_line_id,
+        status=candidate.status,
+        vendor_id=candidate.vendor_id,
+        item_id=candidate.item_id,
+        warehouse_id=candidate.warehouse_id,
+        ordered_quantity=candidate.ordered_quantity,
+        received_quantity=candidate.received_quantity,
+        open_quantity=candidate.open_quantity,
+        required_date=candidate.required_date,
+        source_type=candidate.source_type,
+        source_id=candidate.source_id,
+        confidence=str(candidate.confidence),
+        match_reasons=list(candidate.match_reasons),
+        recommended_action=str(candidate.recommended_action),
+        available_actions=[str(a) for a in candidate.available_actions],
+    )
+
+
+async def check_duplicates(
+    session: AsyncSession, tenant: TenantContext, payload: DuplicateCheckRequest
+) -> DuplicateCheckResult:
+    """What an order would collide with, asked before it is raised.
+
+    Read-only, so the buyer sees the warning while they can still act on it
+    rather than after a refused submission.
+    """
+    candidates = await find_duplicates_for_lines(
+        session,
+        tenant,
+        vendor_id=payload.vendor_id,
+        warehouse_id=payload.warehouse_id,
+        lines=[
+            (line.item_id, line.required_date or payload.expected_delivery_date)
+            for line in payload.lines
+        ],
+        source_type=payload.source_type,
+        source_id=payload.source_id,
+    )
+    return DuplicateCheckResult(
+        candidates=[_duplicate_read(c) for c in candidates],
+        requires_acknowledgement=bool(candidates),
+    )
+
+
+# =============================================================================
+# Purchase order
+# =============================================================================
+
+
+def order_detail(order: PurchaseOrder, lines: Sequence[PurchaseOrderLine]) -> PurchaseOrderDetail:
+    detail = PurchaseOrderDetail.model_validate(order)
+    detail.lines = [PurchaseOrderLineRead.model_validate(line) for line in lines]
+    return detail
+
+
+def _apply_order_line(
+    line: PurchaseOrderLine,
+    payload: PurchaseOrderLineIn,
+    item: PurchasableItem,
+    amounts: LineAmounts,
+) -> PurchaseOrderLine:
+    line.line_number = payload.line_number
+    line.item_id = payload.item_id
+    line.description = payload.description or item.name
+    line.quantity = to_quantity(payload.quantity)
+    line.uom_id = payload.uom_id or item.order_uom_id
+    line.unit_price = payload.unit_price
+    line.discount_percentage = payload.discount_percentage or ZERO
+    line.discount = amounts.discount_amount
+    # Tax rate comes from the item master, never the payload (section 38).
+    line.tax_rate = item.gst_rate
+    line.tax_amount = amounts.tax_amount
+    line.line_total = amounts.line_total
+    line.required_date = payload.required_date
+    line.requires_qc = payload.requires_qc
+    line.requisition_line_id = payload.requisition_line_id
+    line.quotation_line_id = payload.quotation_line_id
+    line.notes = payload.notes
+    line.status = po_line_status_for(
+        quantity=line.quantity, received_quantity=line.received_quantity or ZERO
+    )
+    return line
+
+
+def _price_order_lines(
+    payloads: Sequence[PurchaseOrderLineIn], items: dict[uuid.UUID, PurchasableItem]
+) -> list[LineAmounts]:
+    return [
+        compute_line_amounts(
+            quantity=payload.quantity,
+            unit_price=payload.unit_price,
+            tax_rate=items[payload.item_id].gst_rate,
+            discount_percentage=payload.discount_percentage,
+            discount_amount=payload.discount,
+        )
+        for payload in payloads
+    ]
+
+
+def _apply_order_totals(order: PurchaseOrder, amounts: list[LineAmounts], freight: Decimal) -> None:
+    totals = sum_document_totals(amounts, freight_amount=freight)
+    order.subtotal = totals.subtotal
+    order.discount = totals.discount
+    order.tax_amount = totals.tax_amount
+    order.freight_amount = totals.freight_amount
+    order.total_amount = totals.total_amount
+
+
+async def create_purchase_order(
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    payload: PurchaseOrderCreate,
+) -> tuple[PurchaseOrder, list[PurchaseOrderLine], list[DuplicateCandidate]]:
+    """Raise a DRAFT purchase order, refusing an undeclared duplicate.
+
+    The duplicate check (master rules section 16) runs inside the creating
+    transaction, so an order raised concurrently for the same demand is seen.
+    Proceeding anyway needs ``acknowledge_duplicates`` *and*
+    ``purchase_order.approve``: overriding a duplicate warning is an approval
+    decision, not a data-entry one, and the reason is written onto the document.
+    """
+    repo = PurchaseOrderRepository(session, tenant)
+    line_repo = PurchaseOrderLineRepository(session, tenant)
+
+    async with transaction(session):
+        vendor = await _load_vendor(session, tenant, payload.vendor_id)
+        _assert_orderable(vendor)
+        await _assert_warehouse(session, tenant, payload.warehouse_id)
+
+        items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
+        _assert_purchasable(items)
+
+        po_date = payload.po_date or today()
+        if payload.expected_delivery_date and payload.expected_delivery_date < po_date:
+            raise ValidationError("The expected delivery date cannot be before the order date.")
+
+        # The duplicate check below is a check-then-act: it reads open orders and
+        # then inserts one. Two buyers raising the same order at the same moment
+        # cannot see each other's uncommitted row, so both would find nothing and
+        # both would be created without the acknowledgement section 16 requires.
+        # Serialising on the vendor and warehouse - the pair the search itself
+        # narrows on - makes the second caller read the first one's committed
+        # order. One key, so there is no acquisition order to get wrong.
+        await advisory_xact_lock(
+            session, tenant.company_id, "po-duplicate", payload.vendor_id, payload.warehouse_id
+        )
+
+        candidates = await find_duplicates_for_lines(
+            session,
+            tenant,
+            vendor_id=vendor.id,
+            warehouse_id=payload.warehouse_id,
+            lines=[
+                (line.item_id, line.required_date or payload.expected_delivery_date)
+                for line in payload.lines
+            ],
+            source_type=payload.source_type,
+            source_id=payload.source_id,
+        )
+        if candidates:
+            if not payload.acknowledge_duplicates:
+                raise duplicate_refusal(candidates)
+            if not principal.has(Permission.PURCHASE_ORDER_APPROVE):
+                raise PermissionDeniedError(str(Permission.PURCHASE_ORDER_APPROVE))
+            log.info(
+                "procurement.duplicate_acknowledged",
+                vendor_id=str(vendor.id),
+                candidate_count=len(candidates),
+                user_id=str(principal.user_id),
+            )
+
+        amounts = _price_order_lines(payload.lines, items)
+        code = await next_document_number(
+            session, tenant.company_id, DocTypes.PURCHASE_ORDER, on=po_date
+        )
+
+        order = PurchaseOrder(
+            code=code,
+            vendor_id=vendor.id,
+            po_date=po_date,
+            expected_delivery_date=payload.expected_delivery_date,
+            warehouse_id=payload.warehouse_id,
+            branch_id=payload.branch_id or principal.branch_id,
+            status=PurchaseOrderStatus.DRAFT,
+            priority=payload.priority,
+            currency=payload.currency,
+            payment_terms_days=(
+                payload.payment_terms_days
+                if payload.payment_terms_days is not None
+                else vendor.payment_terms_days
+            ),
+            delivery_address=payload.delivery_address,
+            terms=payload.terms,
+            source_type=payload.source_type,
+            source_id=payload.source_id,
+            assigned_vendor_user_id=payload.assigned_vendor_user_id,
+            vendor_reference=payload.vendor_reference,
+            duplicate_acknowledged=bool(candidates) and payload.acknowledge_duplicates,
+            duplicate_acknowledgement_reason=(
+                payload.duplicate_acknowledgement_reason if candidates else None
+            ),
+            notes=payload.notes,
+        )
+        _apply_order_totals(order, amounts, payload.freight_amount)
+        repo.add(order)
+        await session.flush()
+
+        lines = [
+            _apply_order_line(
+                line_repo.add(PurchaseOrderLine(purchase_order_id=order.id)),
+                payload_line,
+                items[payload_line.item_id],
+                line_amounts,
+            )
+            for payload_line, line_amounts in zip(payload.lines, amounts, strict=True)
+        ]
+        await session.flush()
+
+        await _link_source_documents(session, tenant, order, lines)
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.CREATE,
+            entity_type=AUDIT_PURCHASE_ORDER,
+            entity_id=order.id,
+            entity_code=order.code,
+            summary=(
+                f"Raised {order.code} on {vendor.code}: {len(lines)} line(s), "
+                f"{order.currency} {order.total_amount}"
+            ),
+            user_id=tenant.user_id,
+            new_values={
+                **snapshot(order, ORDER_AUDITED_FIELDS),
+                "line_count": len(lines),
+                "duplicate_candidates": [c.purchase_order_code for c in candidates],
+            },
+        )
+
+    return order, lines, candidates
+
+
+async def _link_source_documents(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: PurchaseOrder,
+    lines: Sequence[PurchaseOrderLine],
+) -> None:
+    """Push the ordered quantity back onto the requisition and quotation it came from.
+
+    Batched: the requisition lines are loaded in one statement and updated in
+    memory. Without this the requisition stays PENDING forever and the next
+    buyer re-orders it - the duplicate the previous section exists to prevent.
+    """
+    requisition_line_ids = [
+        line.requisition_line_id for line in lines if line.requisition_line_id is not None
+    ]
+    if requisition_line_ids:
+        # Locked, not merely read: ``ordered_quantity`` below is a
+        # read-modify-write on a row two orders raised from the same requisition
+        # line would otherwise both take a stale copy of.
+        requisition_lines = await RequisitionLineRepository(session, tenant).lock_many(
+            requisition_line_ids
+        )
+        by_id = {line.id: line for line in requisition_lines}
+        touched_requisitions: set[uuid.UUID] = set()
+        for order_line in lines:
+            source_line = by_id.get(order_line.requisition_line_id or uuid.UUID(int=0))
+            if source_line is None:
+                continue
+            source_line.ordered_quantity = to_quantity(
+                Decimal(source_line.ordered_quantity) + Decimal(order_line.quantity)
+            )
+            source_line.status = requisition_line_status_for(
+                quantity=source_line.quantity, ordered_quantity=source_line.ordered_quantity
+            )
+            touched_requisitions.add(source_line.requisition_id)
+
+        # One statement for every requisition the order draws on, not one SELECT
+        # per requisition inside the loop: a twenty-line order sourced from
+        # twenty requisitions is twenty round trips on the write path, which is
+        # the N+1 this module treats as a defect (master rules section 32).
+        requisitions = await RequisitionRepository(session, tenant).get_many(
+            sorted(touched_requisitions)
+        )
+        for requisition in sorted(requisitions, key=lambda r: r.id):
+            if RequisitionStatus(requisition.status) is RequisitionStatus.APPROVED:
+                await _transition(
+                    session,
+                    tenant,
+                    machine=REQUISITION_LIFECYCLE,
+                    entity=requisition,
+                    entity_type=AUDIT_REQUISITION,
+                    entity_code=requisition.code,
+                    target=RequisitionStatus.CONVERTED,
+                    reason=f"Purchase order {order.code} raised",
+                    status_enum=RequisitionStatus,
+                )
+
+    if order.source_type is PurchaseSourceType.VENDOR_QUOTATION and order.source_id:
+        quotation = await QuotationRepository(session, tenant).get(order.source_id)
+        if quotation is not None:
+            quotation.converted_purchase_order_id = order.id
+            await session.flush()
+
+
+async def _release_source_lines(
+    session: AsyncSession, tenant: TenantContext, lines: Sequence[PurchaseOrderLine]
+) -> None:
+    """Give the requisition its demand back when order lines stop existing.
+
+    ``ordered_quantity`` is what tells the next buyer a requisition line has
+    already been bought. Only ever adding to it means a line whose purchase
+    order was cancelled, rejected or edited away stays marked ORDERED for good:
+    the demand is never re-raised and the shortage is silently dropped - the
+    mirror image of the duplicate :func:`_link_source_documents` exists to
+    prevent. Clamped at zero so a partially released line cannot go negative.
+    """
+    requisition_line_ids = [
+        line.requisition_line_id for line in lines if line.requisition_line_id is not None
+    ]
+    if not requisition_line_ids:
+        return
+
+    source_lines = await RequisitionLineRepository(session, tenant).lock_many(requisition_line_ids)
+    by_id = {line.id: line for line in source_lines}
+    for order_line in lines:
+        source_line = by_id.get(order_line.requisition_line_id or uuid.UUID(int=0))
+        if source_line is None:
+            continue
+        released = Decimal(source_line.ordered_quantity) - Decimal(order_line.quantity)
+        source_line.ordered_quantity = to_quantity(released if released > 0 else ZERO)
+        source_line.status = requisition_line_status_for(
+            quantity=source_line.quantity, ordered_quantity=source_line.ordered_quantity
+        )
+    await session.flush()
+
+
+async def update_purchase_order(
+    session: AsyncSession,
+    tenant: TenantContext,
+    tenant_principal: Principal,
+    order_id: uuid.UUID,
+    payload: PurchaseOrderUpdate,
+) -> tuple[PurchaseOrder, list[PurchaseOrderLine]]:
+    """Edit an order that has not yet been approved.
+
+    Past approval the vendor has, or is about to have, a copy of the document
+    and a quantity change is an amendment that must go back through approval -
+    so the order is rejected here rather than silently rewritten under the
+    approver's signature.
+    """
+    repo = PurchaseOrderRepository(session, tenant)
+    line_repo = PurchaseOrderLineRepository(session, tenant)
+
+    async with transaction(session):
+        order = await repo.lock_for_update(order_id)
+        if order is None:
+            raise NotFoundError("Purchase order", order_id)
+        if PurchaseOrderStatus(order.status) not in EDITABLE_PO_STATUSES:
+            raise BusinessRuleError(
+                f"Purchase order {order.code} is {order.status} and can no longer be edited; "
+                "cancel it and raise an amended order.",
+                details={"status": str(order.status)},
+            )
+
+        before = snapshot(order, ORDER_AUDITED_FIELDS)
+
+        if payload.warehouse_id is not None:
+            await _assert_warehouse(session, tenant, payload.warehouse_id)
+            order.warehouse_id = payload.warehouse_id
+        for field in (
+            "expected_delivery_date",
+            "branch_id",
+            "priority",
+            "currency",
+            "payment_terms_days",
+            "delivery_address",
+            "terms",
+            "notes",
+            "vendor_reference",
+            "assigned_vendor_user_id",
+        ):
+            value = getattr(payload, field)
+            if value is not None:
+                setattr(order, field, value)
+        if order.expected_delivery_date and order.expected_delivery_date < order.po_date:
+            raise ValidationError("The expected delivery date cannot be before the order date.")
+
+        lines: list[PurchaseOrderLine]
+        if payload.lines is not None:
+            items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
+            _assert_purchasable(items)
+            amounts = _price_order_lines(payload.lines, items)
+            # The outgoing lines gave their quantity to a requisition line when
+            # the order was raised. Deleting them without handing it back leaves
+            # that demand marked as bought by an order line that no longer
+            # exists, so it is never re-raised.
+            await _release_source_lines(
+                session, tenant, await line_repo.lock_for_order(order.id)
+            )
+            await line_repo.delete_for_order(order.id)
+            lines = [
+                _apply_order_line(
+                    line_repo.add(PurchaseOrderLine(purchase_order_id=order.id)),
+                    payload_line,
+                    items[payload_line.item_id],
+                    line_amounts,
+                )
+                for payload_line, line_amounts in zip(payload.lines, amounts, strict=True)
+            ]
+        else:
+            lines = await line_repo.list_for_order(order.id)
+            amounts = [
+                LineAmounts(
+                    gross_amount=to_money(Decimal(line.quantity) * Decimal(line.unit_price)),
+                    discount_amount=Decimal(line.discount),
+                    taxable_amount=to_money(
+                        Decimal(line.quantity) * Decimal(line.unit_price) - Decimal(line.discount)
+                    ),
+                    tax_amount=Decimal(line.tax_amount),
+                    line_total=Decimal(line.line_total),
+                )
+                for line in lines
+            ]
+
+        freight = (
+            payload.freight_amount
+            if payload.freight_amount is not None
+            else Decimal(order.freight_amount)
+        )
+        _apply_order_totals(order, amounts, freight)
+        repo.touch(order)
+        await session.flush()
+
+        if payload.lines is not None:
+            # Re-attach the replacement lines to whatever they now claim to
+            # satisfy, so the requisition's ordered quantity matches the lines
+            # that actually exist.
+            await _link_source_documents(session, tenant, order, lines)
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.UPDATE,
+            entity_type=AUDIT_PURCHASE_ORDER,
+            entity_id=order.id,
+            entity_code=order.code,
+            summary=f"Updated {order.code}",
+            user_id=tenant.user_id,
+            old_values=before,
+            new_values=snapshot(order, ORDER_AUDITED_FIELDS),
+        )
+
+    return order, lines
+
+
+async def transition_purchase_order(
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    order_id: uuid.UUID,
+    target: PurchaseOrderStatus,
+    *,
+    reason: str,
+    assigned_vendor_user_id: uuid.UUID | None = None,
+    expected_delivery_date: date | None = None,
+    vendor_reference: str | None = None,
+) -> PurchaseOrder:
+    """Submit, approve, reject, send, acknowledge, cancel or close an order."""
+    repo = PurchaseOrderRepository(session, tenant)
+
+    async with transaction(session):
+        order = await repo.lock_for_update(order_id)
+        if order is None:
+            raise NotFoundError("Purchase order", order_id)
+
+        if target is PurchaseOrderStatus.PENDING_APPROVAL:
+            lines = await PurchaseOrderLineRepository(session, tenant).list_for_order(order.id)
+            if not lines:
+                raise BusinessRuleError(
+                    f"Purchase order {order.code} has no lines and cannot be submitted."
+                )
+            vendor = await _load_vendor(session, tenant, order.vendor_id)
+            _assert_orderable(vendor)
+        elif target is PurchaseOrderStatus.APPROVED:
+            _assert_separate_approver(principal, order.created_by_id)
+            order.approved_by_id = principal.user_id
+            order.approved_at = utcnow()
+        elif target is PurchaseOrderStatus.REJECTED:
+            _assert_separate_approver(principal, order.created_by_id)
+            order.rejection_reason = reason
+        elif target is PurchaseOrderStatus.SENT:
+            order.sent_at = utcnow()
+            if assigned_vendor_user_id is not None:
+                order.assigned_vendor_user_id = assigned_vendor_user_id
+        elif target is PurchaseOrderStatus.ACKNOWLEDGED:
+            order.acknowledged_at = utcnow()
+            if expected_delivery_date is not None:
+                if expected_delivery_date < order.po_date:
+                    raise ValidationError(
+                        "The acknowledged delivery date cannot be before the order date."
+                    )
+                order.expected_delivery_date = expected_delivery_date
+            if vendor_reference is not None:
+                order.vendor_reference = vendor_reference
+        elif target is PurchaseOrderStatus.CANCELLED:
+            order.cancellation_reason = reason
+
+        action = {
+            PurchaseOrderStatus.APPROVED: AuditAction.PURCHASE_APPROVAL,
+            PurchaseOrderStatus.REJECTED: AuditAction.REJECT,
+            PurchaseOrderStatus.CANCELLED: AuditAction.CANCEL,
+        }.get(target, AuditAction.STATUS_CHANGE)
+
+        await _transition(
+            session,
+            tenant,
+            machine=PURCHASE_ORDER_LIFECYCLE,
+            entity=order,
+            entity_type=AUDIT_PURCHASE_ORDER,
+            entity_code=order.code,
+            target=target,
+            reason=reason,
+            status_enum=PurchaseOrderStatus,
+            action=action,
+        )
+
+        if target is PurchaseOrderStatus.CLOSED:
+            await _short_close_lines(session, tenant, order)
+        elif target in (PurchaseOrderStatus.CANCELLED, PurchaseOrderStatus.REJECTED):
+            # Neither state is reachable once anything has been received, so the
+            # whole ordered quantity goes back to the requisition that asked for
+            # it. Leaving it counted would mark the demand as bought by an order
+            # nobody will ever deliver.
+            await _release_source_lines(
+                session,
+                tenant,
+                await PurchaseOrderLineRepository(session, tenant).lock_for_order(order.id),
+            )
+
+    return order
+
+
+async def _short_close_lines(
+    session: AsyncSession, tenant: TenantContext, order: PurchaseOrder
+) -> None:
+    """Stop expecting the undelivered balance of a short-closed order."""
+    lines = await PurchaseOrderLineRepository(session, tenant).lock_for_order(order.id)
+    for line in lines:
+        if PurchaseOrderLineStatus(line.status) in (
+            PurchaseOrderLineStatus.PENDING,
+            PurchaseOrderLineStatus.PARTIALLY_RECEIVED,
+        ):
+            line.status = po_line_status_for(
+                quantity=line.quantity,
+                received_quantity=line.received_quantity,
+                short_closed=True,
+            )
+    await session.flush()
+
+
+async def record_shipment(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order_id: uuid.UUID,
+    *,
+    courier_name: str | None,
+    tracking_reference: str | None,
+    shipped_at: Any = None,
+    expected_delivery_date: date | None = None,
+) -> PurchaseOrder:
+    """Record the inbound courier details (master rules section 23).
+
+    Typically written by the vendor's dispatch manager through the portal, which
+    is why it is a separate call from the buyer-side edit: it is allowed on a
+    sent order, where the rest of the document is frozen.
+    """
+    repo = PurchaseOrderRepository(session, tenant)
+
+    async with transaction(session):
+        order = await repo.lock_for_update(order_id)
+        if order is None:
+            raise NotFoundError("Purchase order", order_id)
+        if PurchaseOrderStatus(order.status) not in (
+            *RECEIVABLE_PO_STATUSES,
+            PurchaseOrderStatus.APPROVED,
+        ):
+            raise BusinessRuleError(
+                f"Purchase order {order.code} is {order.status}; shipment details can only be "
+                "recorded on an order that is with the vendor.",
+                details={"status": str(order.status)},
+            )
+        # A vendor principal may only touch its own orders. Belt and braces
+        # beside the repository filter (master rules section 16).
+        if tenant.vendor_id is not None and order.vendor_id != tenant.vendor_id:
+            raise NotFoundError("Purchase order", order_id)
+
+        before = snapshot(
+            order, ["courier_name", "tracking_reference", "shipped_at", "expected_delivery_date"]
+        )
+        if courier_name is not None:
+            order.courier_name = courier_name
+        if tracking_reference is not None:
+            order.tracking_reference = tracking_reference
+        if shipped_at is not None:
+            order.shipped_at = shipped_at
+        if expected_delivery_date is not None:
+            if expected_delivery_date < order.po_date:
+                raise ValidationError(
+                    "The expected delivery date cannot be before the order date."
+                )
+            order.expected_delivery_date = expected_delivery_date
+
+        repo.touch(order)
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.UPDATE,
+            entity_type=AUDIT_PURCHASE_ORDER,
+            entity_id=order.id,
+            entity_code=order.code,
+            summary=f"Recorded inbound shipment details on {order.code}",
+            user_id=tenant.user_id,
+            old_values=before,
+            new_values=snapshot(
+                order,
+                ["courier_name", "tracking_reference", "shipped_at", "expected_delivery_date"],
+            ),
+        )
+
+    return order
+
+
+async def list_purchase_orders(
+    session: AsyncSession,
+    tenant: TenantContext,
+    filters: PurchaseOrderFilters,
+    params: PageParams,
+    sort: SortParams,
+) -> tuple[list[PurchaseOrderSummary], OffsetPagination]:
+    rows, pagination = await PurchaseOrderRepository(session, tenant).list_page_filtered(
+        filters, params, sort, today=today()
+    )
+    return [PurchaseOrderSummary.model_validate(row) for row in rows], pagination
+
+
+async def get_purchase_order_detail(
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
+) -> PurchaseOrderDetail:
+    order = await _get_order_for_tenant(session, tenant, order_id)
+    lines = await PurchaseOrderLineRepository(session, tenant).list_for_order(order_id)
+    return order_detail(order, lines)
+
+
+async def _get_order_for_tenant(
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
+) -> PurchaseOrder:
+    order = await PurchaseOrderRepository(session, tenant).get(order_id)
+    # A vendor principal is told "not found" rather than "forbidden": confirming
+    # that another vendor's order exists is itself a disclosure.
+    if order is None or (tenant.vendor_id is not None and order.vendor_id != tenant.vendor_id):
+        raise NotFoundError("Purchase order", order_id)
+    return order
+
+
+# --- dispatch tracking (master rules section 23) ------------------------------
+
+
+async def order_tracking(
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
+) -> PurchaseOrderTracking:
+    """The inbound tracking view of one order.
+
+    Four reads: the order, its lines, its receipts and the vendor. Every number
+    on the board is derived from the order lines rather than re-aggregated from
+    the receipt lines, because those totals are exactly what posting maintains.
+    """
+    order = await _get_order_for_tenant(session, tenant, order_id)
+    lines = await PurchaseOrderLineRepository(session, tenant).list_for_order(order.id)
+    receipts = await GoodsReceiptRepository(session, tenant).for_order(order.id)
+    vendors = await VendorLookupRepository(session, tenant).load([order.vendor_id])
+    qc_pending_lines = await GoodsReceiptLineRepository(session, tenant).qc_pending_count(order.id)
+
+    ordered = to_quantity(sum((Decimal(line.quantity) for line in lines), ZERO))
+    received = to_quantity(sum((Decimal(line.received_quantity) for line in lines), ZERO))
+    accepted = to_quantity(sum((Decimal(line.accepted_quantity) for line in lines), ZERO))
+    rejected = to_quantity(sum((Decimal(line.rejected_quantity) for line in lines), ZERO))
+
+    open_lines = [
+        line
+        for line in lines
+        if PurchaseOrderLineStatus(line.status)
+        in (PurchaseOrderLineStatus.PENDING, PurchaseOrderLineStatus.PARTIALLY_RECEIVED)
+    ]
+    pending = to_quantity(
+        sum(
+            (
+                Decimal(line.quantity) - Decimal(line.received_quantity)
+                for line in open_lines
+                if Decimal(line.quantity) > Decimal(line.received_quantity)
+            ),
+            ZERO,
+        )
+    )
+
+    status = PurchaseOrderStatus(order.status)
+    grn_pending = bool(open_lines) and status in RECEIVABLE_PO_STATUSES
+    as_of = today()
+    days_late = (
+        (as_of - order.expected_delivery_date).days
+        if order.expected_delivery_date is not None and order.expected_delivery_date < as_of
+        else 0
+    )
+
+    return PurchaseOrderTracking(
+        purchase_order_id=order.id,
+        code=order.code,
+        status=status,
+        vendor_id=order.vendor_id,
+        vendor_name=vendors[order.vendor_id].name if order.vendor_id in vendors else "",
+        warehouse_id=order.warehouse_id,
+        po_date=order.po_date,
+        expected_delivery_date=order.expected_delivery_date,
+        sent_at=order.sent_at,
+        acknowledged_at=order.acknowledged_at,
+        shipped_at=order.shipped_at,
+        courier_name=order.courier_name,
+        tracking_reference=order.tracking_reference,
+        ordered_quantity=ordered,
+        received_quantity=received,
+        accepted_quantity=accepted,
+        rejected_quantity=rejected,
+        pending_quantity=pending,
+        # Late only while something is still outstanding: an order delivered a
+        # week after the promised date is a supplier performance fact, not a
+        # live problem for the tracking board.
+        is_delayed=days_late > 0 and grn_pending,
+        days_late=days_late,
+        grn_pending=grn_pending,
+        qc_pending=qc_pending_lines > 0 or status is PurchaseOrderStatus.QC_PENDING,
+        qc_pending_line_count=qc_pending_lines,
+        receipts=[
+            TrackedReceipt(
+                id=receipt.id,
+                code=receipt.code,
+                receipt_date=receipt.receipt_date,
+                status=GoodsReceiptStatus(receipt.status),
+                total_received_quantity=Decimal(receipt.total_received_quantity),
+                total_accepted_quantity=Decimal(receipt.total_accepted_quantity),
+                total_rejected_quantity=Decimal(receipt.total_rejected_quantity),
+            )
+            for receipt in receipts
+        ],
+    )
+
+
+# =============================================================================
+# Goods receipt
+# =============================================================================
+
+
+def receipt_detail(receipt: GoodsReceipt, lines: Sequence[GoodsReceiptLine]) -> GoodsReceiptDetail:
+    detail = GoodsReceiptDetail.model_validate(receipt)
+    detail.lines = [GoodsReceiptLineRead.model_validate(line) for line in lines]
+    return detail
+
+
+@dataclass(frozen=True, slots=True)
+class _ReceiptContext:
+    """Everything the posting path needs, fetched once and validated together."""
+
+    receipt: GoodsReceipt
+    order: PurchaseOrder
+    lines: list[GoodsReceiptLine]
+    order_lines: dict[uuid.UUID, PurchaseOrderLine]
+    items: dict[uuid.UUID, PurchasableItem]
+
+
+async def create_goods_receipt(
+    session: AsyncSession, tenant: TenantContext, payload: GoodsReceiptCreate
+) -> tuple[GoodsReceipt, list[GoodsReceiptLine]]:
+    """Record a delivery as a DRAFT. No stock moves until it is posted.
+
+    The tolerance is checked here as well as at posting, so the storekeeper is
+    told at the gate rather than after keying a whole delivery note.
+    """
+    repo = GoodsReceiptRepository(session, tenant)
+    line_repo = GoodsReceiptLineRepository(session, tenant)
+    order_repo = PurchaseOrderRepository(session, tenant)
+    order_line_repo = PurchaseOrderLineRepository(session, tenant)
+
+    async with transaction(session):
+        order = await order_repo.get(payload.purchase_order_id)
+        if order is None:
+            raise NotFoundError("Purchase order", payload.purchase_order_id)
+        if PurchaseOrderStatus(order.status) not in RECEIVABLE_PO_STATUSES:
+            raise BusinessRuleError(
+                f"Purchase order {order.code} is {order.status}; goods can only be received "
+                "against an order that has been sent to the vendor.",
+                details={"status": str(order.status), "code": order.code},
+            )
+
+        order_lines = {
+            line.id: line for line in await order_line_repo.list_for_order(order.id)
+        }
+        items = await _load_items(
+            session, tenant, [line.item_id for line in order_lines.values()]
+        )
+
+        receipt_date = payload.receipt_date or today()
+        code = await next_document_number(
+            session, tenant.company_id, DocTypes.GRN, on=receipt_date
+        )
+        receipt = GoodsReceipt(
+            code=code,
+            purchase_order_id=order.id,
+            vendor_id=order.vendor_id,
+            warehouse_id=order.warehouse_id,
+            receipt_date=receipt_date,
+            status=GoodsReceiptStatus.DRAFT,
+            vendor_delivery_note=payload.vendor_delivery_note,
+            vendor_invoice_number=payload.vendor_invoice_number,
+            gate_entry_number=payload.gate_entry_number,
+            vehicle_number=payload.vehicle_number,
+            transporter_id=payload.transporter_id,
+            notes=payload.notes,
+        )
+        repo.add(receipt)
+        await session.flush()
+
+        lines: list[GoodsReceiptLine] = []
+        for payload_line in payload.lines:
+            order_line = order_lines.get(payload_line.purchase_order_line_id)
+            if order_line is None:
+                raise ValidationError(
+                    f"Line {payload_line.line_number} references a purchase order line that is "
+                    f"not on {order.code}.",
+                    details={
+                        "line_number": payload_line.line_number,
+                        "purchase_order_line_id": str(payload_line.purchase_order_line_id),
+                    },
+                )
+            item = items[order_line.item_id]
+            if item.is_serial_tracked:
+                raise BusinessRuleError(
+                    f"Item {item.code} {SERIAL_RECEIPT_MESSAGE}",
+                    details={"item_code": item.code, "item_id": str(item.id)},
+                )
+            if item.is_batch_tracked and not (payload_line.batch_number or "").strip():
+                raise BusinessRuleError(
+                    f"Item {item.code} is batch tracked; the vendor's lot number is required "
+                    f"on line {payload_line.line_number}.",
+                    code=ErrorCode.BATCH_REQUIRED,
+                    details={"item_code": item.code, "line_number": payload_line.line_number},
+                )
+            assert_within_over_receipt_tolerance(
+                item_code=item.code,
+                line_number=payload_line.line_number,
+                ordered_quantity=order_line.quantity,
+                already_received=order_line.received_quantity,
+                incoming_quantity=payload_line.received_quantity,
+            )
+
+            requires_qc = (
+                order_line.requires_qc
+                if payload_line.requires_qc is None
+                else payload_line.requires_qc
+            )
+            # Nothing was taken into stock, so there is nothing to inspect. A
+            # line left flagged for inspection with no accepted quantity gets no
+            # inspection raised at posting - the posting path only raises them
+            # for quantity it actually put on QC hold - and then holds the
+            # purchase order in QC_PENDING forever, because only an inspection
+            # decision can leave that state.
+            if to_quantity(payload_line.accepted_quantity) <= 0:
+                requires_qc = False
+            taxable = to_money(
+                Decimal(order_line.quantity) * Decimal(order_line.unit_price)
+                - Decimal(order_line.discount)
+            )
+            line = line_repo.add(
+                GoodsReceiptLine(
+                    goods_receipt_id=receipt.id,
+                    line_number=payload_line.line_number,
+                    purchase_order_line_id=order_line.id,
+                    item_id=order_line.item_id,
+                    description=order_line.description or item.name,
+                    received_quantity=to_quantity(payload_line.received_quantity),
+                    accepted_quantity=to_quantity(payload_line.accepted_quantity),
+                    rejected_quantity=to_quantity(payload_line.rejected_quantity),
+                    uom_id=order_line.uom_id,
+                    unit_cost=receipt_unit_cost(
+                        quantity=Decimal(order_line.quantity),
+                        taxable_amount=taxable,
+                        fallback_unit_price=Decimal(order_line.unit_price),
+                    ),
+                    batch_number=(payload_line.batch_number or "").strip().upper() or None,
+                    manufactured_on=payload_line.manufactured_on,
+                    expires_on=payload_line.expires_on,
+                    location_id=payload_line.location_id,
+                    requires_qc=requires_qc,
+                    qc_status=(
+                        ReceiptLineQcStatus.PENDING
+                        if requires_qc
+                        else ReceiptLineQcStatus.NOT_REQUIRED
+                    ),
+                    rejection_reason=payload_line.rejection_reason,
+                    notes=payload_line.notes,
+                )
+            )
+            lines.append(line)
+
+        receipt.total_received_quantity = to_quantity(
+            sum((Decimal(line.received_quantity) for line in lines), ZERO)
+        )
+        receipt.total_accepted_quantity = to_quantity(
+            sum((Decimal(line.accepted_quantity) for line in lines), ZERO)
+        )
+        receipt.total_rejected_quantity = to_quantity(
+            sum((Decimal(line.rejected_quantity) for line in lines), ZERO)
+        )
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.CREATE,
+            entity_type=AUDIT_GOODS_RECEIPT,
+            entity_id=receipt.id,
+            entity_code=receipt.code,
+            summary=(
+                f"Recorded {receipt.code} against {order.code}: "
+                f"{receipt.total_received_quantity} received, "
+                f"{receipt.total_rejected_quantity} rejected"
+            ),
+            user_id=tenant.user_id,
+            new_values={
+                "purchase_order_id": order.id,
+                "vendor_id": receipt.vendor_id,
+                "warehouse_id": receipt.warehouse_id,
+                "line_count": len(lines),
+                "total_received_quantity": receipt.total_received_quantity,
+            },
+        )
+
+    return receipt, lines
+
+
+async def _resolve_batches(
+    session: AsyncSession,
+    tenant: TenantContext,
+    lines: Sequence[GoodsReceiptLine],
+    *,
+    vendor_id: uuid.UUID,
+    received_on: date,
+) -> None:
+    """Attach a ``stock_batches`` row to every batch-tracked receipt line.
+
+    Existing lots are resolved in one statement. A genuinely new lot is created
+    through ``inventory.TraceabilityService`` rather than inserted here, so the
+    duplicate check and the audit entry for a batch stay in the module that owns
+    the table - one call per new lot on the document, not one per line.
+    """
+    tracked = [line for line in lines if line.batch_number]
+    if not tracked:
+        return
+
+    lookup = BatchLookupRepository(session, tenant)
+    known = await lookup.by_numbers([(line.item_id, line.batch_number or "") for line in tracked])
+
+    traceability = TraceabilityService(session, tenant)
+    for line in tracked:
+        key = (line.item_id, line.batch_number or "")
+        batch_id = known.get(key)
+        if batch_id is None:
+            created = await traceability.create_batch(
+                StockBatchCreate(
+                    item_id=line.item_id,
+                    batch_number=line.batch_number or "",
+                    vendor_id=vendor_id,
+                    manufactured_on=line.manufactured_on,
+                    expires_on=line.expires_on,
+                    received_on=received_on,
+                    initial_quantity=Decimal(line.accepted_quantity),
+                    unit_cost=Decimal(line.unit_cost),
+                )
+            )
+            batch_id = created.id
+            known[key] = batch_id
+        line.batch_id = batch_id
+
+
+async def post_goods_receipt(
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    receipt_id: uuid.UUID,
+    *,
+    quality: QualityPort | None = None,
+) -> GoodsReceiptPostResult:
+    """Post a receipt: move the stock, route QC, advance the order. One transaction.
+
+    In order:
+
+    1. Lock the receipt and its purchase order, then every order line in primary
+       key order, so two deliveries against the same order serialise rather than
+       both validating against stale received quantities.
+    2. Re-check the over-receipt tolerance against the *locked* quantities. The
+       check at draft time was advisory; this one is the gate.
+    3. Post every accepted quantity through ``inventory.post_movements`` as one
+       batch, routed to ``QC_HOLD`` where the line requires inspection and to
+       ``AVAILABLE`` where it does not.
+    4. Advance the purchase order and its lines through the state machine.
+    5. Raise the incoming inspections, or leave the lines flagged for quality.
+    6. Write the audit entries - all of it inside the same transaction.
+
+    Rejected quantity is deliberately *not* posted to inventory. Goods refused
+    at the gate never entered the company's custody; they leave on the lorry
+    they arrived on. Material accepted and only later found defective is sent
+    back with a purchase return, which posts the offsetting movement.
+    """
+    receipt_repo = GoodsReceiptRepository(session, tenant)
+    receipt_line_repo = GoodsReceiptLineRepository(session, tenant)
+    order_repo = PurchaseOrderRepository(session, tenant)
+    order_line_repo = PurchaseOrderLineRepository(session, tenant)
+
+    quality_port = quality if quality is not None else resolve_quality_port()
+
+    async with transaction(session):
+        receipt = await receipt_repo.lock_for_update(receipt_id)
+        if receipt is None:
+            raise NotFoundError("Goods receipt", receipt_id)
+        # Fail before any work: the state machine is the authority on whether
+        # this document can be posted at all.
+        GOODS_RECEIPT_LIFECYCLE.assert_transition(
+            GoodsReceiptStatus(receipt.status), GoodsReceiptStatus.POSTED
+        )
+
+        order = await order_repo.lock_for_update(receipt.purchase_order_id)
+        if order is None:  # pragma: no cover - FK guarantees the row exists
+            raise NotFoundError("Purchase order", receipt.purchase_order_id)
+        if PurchaseOrderStatus(order.status) not in RECEIVABLE_PO_STATUSES:
+            raise BusinessRuleError(
+                f"Purchase order {order.code} is {order.status}; {receipt.code} cannot be posted "
+                "against it.",
+                details={"status": str(order.status)},
+            )
+
+        lines = await receipt_line_repo.list_for_receipt(receipt.id)
+        if not lines:
+            raise BusinessRuleError(f"Goods receipt {receipt.code} has no lines to post.")
+
+        order_lines = {line.id: line for line in await order_line_repo.lock_for_order(order.id)}
+        items = await _load_items(session, tenant, [line.item_id for line in lines])
+
+        context = _ReceiptContext(
+            receipt=receipt, order=order, lines=lines, order_lines=order_lines, items=items
+        )
+        _validate_receipt_against_order(context)
+        _clear_qc_on_unaccepted_lines(context)
+
+        await _resolve_batches(
+            session,
+            tenant,
+            lines,
+            vendor_id=receipt.vendor_id,
+            received_on=receipt.receipt_date,
+        )
+
+        movements = _build_receipt_movements(context)
+        transactions = await post_movements(session, tenant, movements) if movements else []
+
+        _apply_receipt_to_order_lines(context)
+        await session.flush()
+
+        qc_lines = [
+            line
+            for line in lines
+            if line.requires_qc and Decimal(line.accepted_quantity) > 0
+        ]
+        inspections_created = False
+        if quality_port is not None and qc_lines:
+            inspections_created = await _raise_inspections(
+                session, tenant, context, qc_lines, quality_port
+            )
+
+        receipt.posted_at = utcnow()
+        receipt.posted_by_id = principal.user_id
+        await _transition(
+            session,
+            tenant,
+            machine=GOODS_RECEIPT_LIFECYCLE,
+            entity=receipt,
+            entity_type=AUDIT_GOODS_RECEIPT,
+            entity_code=receipt.code,
+            target=GoodsReceiptStatus.POSTED,
+            reason=f"Posted against {order.code}",
+            status_enum=GoodsReceiptStatus,
+        )
+
+        await _advance_order_after_receipt(session, tenant, context)
+
+        # The products module documents these two columns as written by goods
+        # receipt posting (see ItemVendorLink.last_purchase_price). One
+        # statement for every item on the receipt.
+        await ItemVendorLinkRepository(session, tenant).record_last_purchase(
+            receipt.vendor_id,
+            {
+                line.item_id: Decimal(line.unit_cost)
+                for line in lines
+                if Decimal(line.accepted_quantity) > 0
+            },
+            receipt.receipt_date,
+        )
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.INVENTORY_MOVEMENT,
+            entity_type=AUDIT_GOODS_RECEIPT,
+            entity_id=receipt.id,
+            entity_code=receipt.code,
+            summary=(
+                f"Posted {receipt.code}: {receipt.total_accepted_quantity} accepted into "
+                f"{len(movements)} stock position(s), "
+                f"{receipt.total_rejected_quantity} rejected"
+            ),
+            user_id=tenant.user_id,
+            new_values={
+                "purchase_order_code": order.code,
+                "purchase_order_status": str(order.status),
+                "movements": len(movements),
+                "qc_hold_lines": len(qc_lines),
+                "qc_inspections_created": inspections_created,
+            },
+        )
+
+    return GoodsReceiptPostResult(
+        receipt=receipt_detail(receipt, lines),
+        purchase_order_status=PurchaseOrderStatus(order.status),
+        movements=[
+            PostedMovement(
+                transaction_id=txn.id,
+                item_id=txn.item_id,
+                warehouse_id=txn.warehouse_id,
+                quantity=Decimal(txn.quantity),
+                stock_state=str(txn.stock_state),
+                batch_id=txn.batch_id,
+            )
+            for txn in transactions
+        ],
+        qc_hold_line_count=len(qc_lines),
+        qc_inspections_created=inspections_created,
+    )
+
+
+def _validate_receipt_against_order(context: _ReceiptContext) -> None:
+    """Re-check every line against the locked order quantities."""
+    for line in context.lines:
+        order_line = context.order_lines.get(line.purchase_order_line_id)
+        if order_line is None:
+            raise BusinessRuleError(
+                f"Line {line.line_number} of {context.receipt.code} references a purchase order "
+                f"line that is no longer on {context.order.code}.",
+                details={"line_number": line.line_number},
+            )
+        if PurchaseOrderLineStatus(order_line.status) is PurchaseOrderLineStatus.CANCELLED:
+            raise BusinessRuleError(
+                f"Line {line.line_number}: purchase order line {order_line.line_number} has been "
+                "cancelled and cannot be received.",
+                details={"line_number": line.line_number},
+            )
+        item = context.items[line.item_id]
+        assert_within_over_receipt_tolerance(
+            item_code=item.code,
+            line_number=line.line_number,
+            ordered_quantity=order_line.quantity,
+            already_received=order_line.received_quantity,
+            incoming_quantity=line.received_quantity,
+        )
+        if item.is_batch_tracked and not line.batch_number:
+            raise BusinessRuleError(
+                f"Item {item.code} is batch tracked; line {line.line_number} has no lot number.",
+                code=ErrorCode.BATCH_REQUIRED,
+                details={"item_code": item.code, "line_number": line.line_number},
+            )
+
+
+def _clear_qc_on_unaccepted_lines(context: _ReceiptContext) -> None:
+    """Drop the inspection flag from lines that accepted nothing.
+
+    Goods refused at the gate never entered the company's custody, so no
+    quantity is put on QC hold and no inspection is raised for them. Leaving
+    such a line flagged PENDING puts a work item in quality's inbound queue that
+    has nothing to inspect, and - because the order-level count reads exactly
+    that flag - holds the purchase order in QC_PENDING, which only an inspection
+    decision can leave. Applied here as well as at draft time so a receipt keyed
+    before this rule existed still posts to a reachable state.
+    """
+    for line in context.lines:
+        if line.requires_qc and to_quantity(Decimal(line.accepted_quantity)) <= 0:
+            line.requires_qc = False
+            line.qc_status = ReceiptLineQcStatus.NOT_REQUIRED
+
+
+def _build_receipt_movements(context: _ReceiptContext) -> list[MovementRequest]:
+    """One movement per accepted line, routed by the QC requirement.
+
+    Built as a batch so the inventory engine locks every affected balance row in
+    primary-key order - the deadlock-free pattern database.md section 4.4
+    requires for a multi-line document.
+    """
+    movements: list[MovementRequest] = []
+    for line in context.lines:
+        accepted = to_quantity(Decimal(line.accepted_quantity))
+        if accepted <= 0:
+            continue
+        state = StockState.QC_HOLD if line.requires_qc else StockState.AVAILABLE
+        line.posted_stock_state = str(state)
+        movements.append(
+            MovementRequest(
+                item_id=line.item_id,
+                warehouse_id=context.receipt.warehouse_id,
+                quantity=accepted,
+                transaction_type=TransactionType.PURCHASE_RECEIPT,
+                reference_type=MOVEMENT_REFERENCE_GRN,
+                reference_id=context.receipt.id,
+                reference_code=context.receipt.code,
+                reason=(
+                    f"Goods receipt {context.receipt.code} against {context.order.code}"
+                    + (" (held for incoming inspection)" if line.requires_qc else "")
+                ),
+                location_id=line.location_id,
+                batch_id=line.batch_id,
+                unit_cost=Decimal(line.unit_cost),
+                stock_state=state,
+            )
+        )
+    return movements
+
+
+def _apply_receipt_to_order_lines(context: _ReceiptContext) -> None:
+    """Roll the receipt into the order lines' running totals."""
+    for line in context.lines:
+        order_line = context.order_lines[line.purchase_order_line_id]
+        order_line.received_quantity = to_quantity(
+            Decimal(order_line.received_quantity) + Decimal(line.received_quantity)
+        )
+        order_line.accepted_quantity = to_quantity(
+            Decimal(order_line.accepted_quantity) + Decimal(line.accepted_quantity)
+        )
+        order_line.rejected_quantity = to_quantity(
+            Decimal(order_line.rejected_quantity) + Decimal(line.rejected_quantity)
+        )
+        order_line.status = po_line_status_for(
+            quantity=order_line.quantity, received_quantity=order_line.received_quantity
+        )
+
+
+async def _raise_inspections(
+    session: AsyncSession,
+    tenant: TenantContext,
+    context: _ReceiptContext,
+    qc_lines: Sequence[GoodsReceiptLine],
+    quality_port: QualityPort,
+) -> bool:
+    """Ask the quality module for an inspection per held line.
+
+    One call per held line because an inspection is per lot and per line; there
+    is no batch form in the contract. A failure here is not swallowed - the
+    whole receipt rolls back rather than leaving quantity on QC hold that
+    nobody has been asked to inspect.
+    """
+    for line in qc_lines:
+        inspection = await quality_port(
+            session,
+            tenant,
+            item_id=line.item_id,
+            quantity=Decimal(line.accepted_quantity),
+            warehouse_id=context.receipt.warehouse_id,
+            reference_type=MOVEMENT_REFERENCE_GRN,
+            reference_id=context.receipt.id,
+            reference_code=context.receipt.code,
+            vendor_id=context.receipt.vendor_id,
+            batch_id=line.batch_id,
+        )
+        line.qc_inspection_id = getattr(inspection, "id", None)
+        line.qc_status = ReceiptLineQcStatus.PENDING
+    await session.flush()
+    return True
+
+
+async def _advance_order_after_receipt(
+    session: AsyncSession, tenant: TenantContext, context: _ReceiptContext
+) -> None:
+    """Move the purchase order to where its quantities now say it is.
+
+    A short receipt leaves it PARTIALLY_RECEIVED. A complete one goes to
+    RECEIVED and then straight on: to QC_PENDING when any line is held for
+    inspection, otherwise to GRN_COMPLETED. Each hop is a separate audited
+    transition, so the document's history reads as what actually happened.
+    """
+    order = context.order
+    all_lines = list(context.order_lines.values())
+    fully_received = order_is_fully_received(
+        [
+            (
+                Decimal(line.quantity),
+                Decimal(line.received_quantity),
+                PurchaseOrderLineStatus(line.status)
+                in (PurchaseOrderLineStatus.CLOSED, PurchaseOrderLineStatus.CANCELLED),
+            )
+            for line in all_lines
+        ]
+    )
+
+    target = (
+        PurchaseOrderStatus.RECEIVED if fully_received else PurchaseOrderStatus.PARTIALLY_RECEIVED
+    )
+    if PurchaseOrderStatus(order.status) != target:
+        await _transition(
+            session,
+            tenant,
+            machine=PURCHASE_ORDER_LIFECYCLE,
+            entity=order,
+            entity_type=AUDIT_PURCHASE_ORDER,
+            entity_code=order.code,
+            target=target,
+            reason=f"Goods receipt {context.receipt.code} posted",
+            status_enum=PurchaseOrderStatus,
+        )
+
+    if not fully_received:
+        return
+
+    awaiting_qc = await GoodsReceiptLineRepository(session, tenant).qc_pending_count(order.id)
+    follow_on = (
+        PurchaseOrderStatus.QC_PENDING if awaiting_qc else PurchaseOrderStatus.GRN_COMPLETED
+    )
+    await _transition(
+        session,
+        tenant,
+        machine=PURCHASE_ORDER_LIFECYCLE,
+        entity=order,
+        entity_type=AUDIT_PURCHASE_ORDER,
+        entity_code=order.code,
+        target=follow_on,
+        reason=(
+            f"{awaiting_qc} line(s) awaiting incoming inspection"
+            if awaiting_qc
+            else "All receipts posted and no inspection required"
+        ),
+        status_enum=PurchaseOrderStatus,
+    )
+
+
+async def cancel_goods_receipt(
+    session: AsyncSession, tenant: TenantContext, receipt_id: uuid.UUID, *, reason: str
+) -> GoodsReceipt:
+    """Cancel a draft receipt. A posted one is reversed by a purchase return."""
+    repo = GoodsReceiptRepository(session, tenant)
+
+    async with transaction(session):
+        receipt = await repo.lock_for_update(receipt_id)
+        if receipt is None:
+            raise NotFoundError("Goods receipt", receipt_id)
+        if GoodsReceiptStatus(receipt.status) is GoodsReceiptStatus.POSTED:
+            raise BusinessRuleError(
+                f"Goods receipt {receipt.code} has been posted and moved stock; raise a purchase "
+                "return to send the material back.",
+                details={"status": str(receipt.status)},
+            )
+        receipt.cancellation_reason = reason
+        await _transition(
+            session,
+            tenant,
+            machine=GOODS_RECEIPT_LIFECYCLE,
+            entity=receipt,
+            entity_type=AUDIT_GOODS_RECEIPT,
+            entity_code=receipt.code,
+            target=GoodsReceiptStatus.CANCELLED,
+            reason=reason,
+            status_enum=GoodsReceiptStatus,
+            action=AuditAction.CANCEL,
+        )
+
+    return receipt
+
+
+async def list_goods_receipts(
+    session: AsyncSession,
+    tenant: TenantContext,
+    filters: GoodsReceiptFilters,
+    params: PageParams,
+    sort: SortParams,
+) -> tuple[list[GoodsReceiptSummary], OffsetPagination]:
+    rows, pagination = await GoodsReceiptRepository(session, tenant).list_page_filtered(
+        filters, params, sort
+    )
+    return [GoodsReceiptSummary.model_validate(row) for row in rows], pagination
+
+
+async def get_goods_receipt_detail(
+    session: AsyncSession, tenant: TenantContext, receipt_id: uuid.UUID
+) -> GoodsReceiptDetail:
+    receipt = await GoodsReceiptRepository(session, tenant).get(receipt_id)
+    if receipt is None:
+        raise NotFoundError("Goods receipt", receipt_id)
+    lines = await GoodsReceiptLineRepository(session, tenant).list_for_receipt(receipt_id)
+    return receipt_detail(receipt, lines)
+
+
+# =============================================================================
+# Purchase return
+# =============================================================================
+
+
+def return_detail(
+    purchase_return: PurchaseReturn, lines: Sequence[PurchaseReturnLine]
+) -> PurchaseReturnDetail:
+    detail = PurchaseReturnDetail.model_validate(purchase_return)
+    detail.lines = [PurchaseReturnLineRead.model_validate(line) for line in lines]
+    return detail
+
+
+async def create_purchase_return(
+    session: AsyncSession, tenant: TenantContext, payload: PurchaseReturnCreate
+) -> tuple[PurchaseReturn, list[PurchaseReturnLine]]:
+    """Raise a DRAFT return against the receipt lines it reverses.
+
+    Bounded by what was actually accepted on each receipt line: returning more
+    than came in would drive the position negative and leave the ledger
+    describing goods that were never received.
+    """
+    repo = PurchaseReturnRepository(session, tenant)
+    line_repo = PurchaseReturnLineRepository(session, tenant)
+    receipt_repo = GoodsReceiptRepository(session, tenant)
+    receipt_line_repo = GoodsReceiptLineRepository(session, tenant)
+
+    async with transaction(session):
+        receipt = await receipt_repo.get(payload.goods_receipt_id)
+        if receipt is None:
+            raise NotFoundError("Goods receipt", payload.goods_receipt_id)
+        if GoodsReceiptStatus(receipt.status) is not GoodsReceiptStatus.POSTED:
+            raise BusinessRuleError(
+                f"Goods receipt {receipt.code} is {receipt.status}; only material that was "
+                "actually received can be returned.",
+                details={"status": str(receipt.status)},
+            )
+
+        receipt_lines = {
+            line.id: line
+            for line in await receipt_line_repo.lock_many(
+                [line.goods_receipt_line_id for line in payload.lines]
+            )
+        }
+        items = await _load_items(
+            session, tenant, [line.item_id for line in receipt_lines.values()]
+        )
+
+        return_date = payload.return_date or today()
+        code = await next_document_number(
+            session, tenant.company_id, DocTypes.PURCHASE_RETURN, on=return_date
+        )
+        purchase_return = PurchaseReturn(
+            code=code,
+            vendor_id=receipt.vendor_id,
+            goods_receipt_id=receipt.id,
+            purchase_order_id=receipt.purchase_order_id,
+            warehouse_id=receipt.warehouse_id,
+            return_date=return_date,
+            status=PurchaseReturnStatus.DRAFT,
+            reason=payload.reason,
+            debit_note_number=payload.debit_note_number,
+            notes=payload.notes,
+        )
+        repo.add(purchase_return)
+        await session.flush()
+
+        lines: list[PurchaseReturnLine] = []
+        amounts: list[LineAmounts] = []
+        for payload_line in payload.lines:
+            receipt_line = receipt_lines.get(payload_line.goods_receipt_line_id)
+            if receipt_line is None or receipt_line.goods_receipt_id != receipt.id:
+                raise ValidationError(
+                    f"Line {payload_line.line_number} references a receipt line that is not on "
+                    f"{receipt.code}.",
+                    details={"line_number": payload_line.line_number},
+                )
+            returnable = Decimal(receipt_line.accepted_quantity) - Decimal(
+                receipt_line.returned_quantity
+            )
+            if Decimal(payload_line.quantity) > returnable:
+                raise BusinessRuleError(
+                    f"Line {payload_line.line_number}: only {to_quantity(returnable)} of "
+                    f"{items[receipt_line.item_id].code} from {receipt.code} is still returnable.",
+                    details={
+                        "line_number": payload_line.line_number,
+                        "returnable_quantity": str(to_quantity(returnable)),
+                        "requested_quantity": str(to_quantity(payload_line.quantity)),
+                    },
+                )
+
+            item = items[receipt_line.item_id]
+            line_amounts = compute_line_amounts(
+                quantity=payload_line.quantity,
+                unit_price=Decimal(receipt_line.unit_cost),
+                tax_rate=item.gst_rate,
+            )
+            amounts.append(line_amounts)
+            lines.append(
+                line_repo.add(
+                    PurchaseReturnLine(
+                        purchase_return_id=purchase_return.id,
+                        line_number=payload_line.line_number,
+                        goods_receipt_line_id=receipt_line.id,
+                        item_id=receipt_line.item_id,
+                        description=receipt_line.description or item.name,
+                        quantity=to_quantity(payload_line.quantity),
+                        uom_id=receipt_line.uom_id,
+                        unit_price=Decimal(receipt_line.unit_cost),
+                        tax_rate=item.gst_rate,
+                        tax_amount=line_amounts.tax_amount,
+                        line_total=line_amounts.line_total,
+                        batch_id=receipt_line.batch_id,
+                        location_id=receipt_line.location_id,
+                        reason=payload_line.reason or payload.reason,
+                        notes=payload_line.notes,
+                    )
+                )
+            )
+
+        totals = sum_document_totals(amounts)
+        purchase_return.subtotal = totals.subtotal
+        purchase_return.tax_amount = totals.tax_amount
+        purchase_return.total_amount = totals.total_amount
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.CREATE,
+            entity_type=AUDIT_PURCHASE_RETURN,
+            entity_id=purchase_return.id,
+            entity_code=purchase_return.code,
+            summary=(
+                f"Raised {purchase_return.code} against {receipt.code}: "
+                f"{len(lines)} line(s), {purchase_return.total_amount}"
+            ),
+            user_id=tenant.user_id,
+            new_values={
+                "goods_receipt_id": receipt.id,
+                "vendor_id": purchase_return.vendor_id,
+                "reason": purchase_return.reason,
+                "line_count": len(lines),
+            },
+        )
+
+    return purchase_return, lines
+
+
+async def post_purchase_return(
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    return_id: uuid.UUID,
+) -> PurchaseReturnPostResult:
+    """Post the return: one negative movement per line, against the same lot.
+
+    ``PURCHASE_RETURN`` is a decreasing transaction type, so the quantity passed
+    is a magnitude and the engine applies the sign (see CLAUDE.md - the type
+    carries the sign, never the caller's arithmetic).
+    """
+    repo = PurchaseReturnRepository(session, tenant)
+    line_repo = PurchaseReturnLineRepository(session, tenant)
+    receipt_line_repo = GoodsReceiptLineRepository(session, tenant)
+    order_line_repo = PurchaseOrderLineRepository(session, tenant)
+
+    async with transaction(session):
+        purchase_return = await repo.lock_for_update(return_id)
+        if purchase_return is None:
+            raise NotFoundError("Purchase return", return_id)
+        PURCHASE_RETURN_LIFECYCLE.assert_transition(
+            PurchaseReturnStatus(purchase_return.status), PurchaseReturnStatus.POSTED
+        )
+
+        lines = await line_repo.list_for_return(purchase_return.id)
+        if not lines:
+            raise BusinessRuleError(
+                f"Purchase return {purchase_return.code} has no lines to post."
+            )
+
+        receipt_lines = {
+            line.id: line
+            for line in await receipt_line_repo.lock_many(
+                [line.goods_receipt_line_id for line in lines]
+            )
+        }
+        items = await _load_items(session, tenant, [line.item_id for line in lines])
+
+        # Locked here, before any movement is posted, for two reasons. The
+        # returned quantity below is a read-modify-write on a column with no
+        # version counter, and nothing else in this path serialises two returns
+        # against the same order line: they touch different receipt lines, and
+        # when the two deliveries arrived under different lots they touch
+        # different balance rows too. Taking the lock before post_movements also
+        # keeps the acquisition order the same as the receipt path's - order
+        # lines, then inventory balances - so the two cannot deadlock.
+        order_lines = {
+            line.id: line
+            for line in await order_line_repo.lock_many(
+                [receipt_lines[line.goods_receipt_line_id].purchase_order_line_id for line in lines]
+            )
+        }
+
+        movements: list[MovementRequest] = []
+        for line in lines:
+            receipt_line = receipt_lines[line.goods_receipt_line_id]
+            returnable = Decimal(receipt_line.accepted_quantity) - Decimal(
+                receipt_line.returned_quantity
+            )
+            if Decimal(line.quantity) > returnable:
+                raise BusinessRuleError(
+                    f"Line {line.line_number}: only {to_quantity(returnable)} of "
+                    f"{items[line.item_id].code} is still returnable against this receipt.",
+                    details={
+                        "line_number": line.line_number,
+                        "returnable_quantity": str(to_quantity(returnable)),
+                    },
+                )
+            movements.append(
+                MovementRequest(
+                    item_id=line.item_id,
+                    warehouse_id=purchase_return.warehouse_id,
+                    quantity=to_quantity(Decimal(line.quantity)),
+                    transaction_type=TransactionType.PURCHASE_RETURN,
+                    reference_type=MOVEMENT_REFERENCE_RETURN,
+                    reference_id=purchase_return.id,
+                    reference_code=purchase_return.code,
+                    reason=f"{purchase_return.code}: {line.reason or purchase_return.reason}",
+                    location_id=line.location_id,
+                    batch_id=line.batch_id,
+                    unit_cost=Decimal(line.unit_price),
+                    # Returned stock leaves the pool it was received into; a
+                    # line still on QC hold is released by quality first.
+                    stock_state=StockState.AVAILABLE,
+                )
+            )
+
+        transactions = await post_movements(session, tenant, movements)
+
+        for line in lines:
+            receipt_line = receipt_lines[line.goods_receipt_line_id]
+            receipt_line.returned_quantity = to_quantity(
+                Decimal(receipt_line.returned_quantity) + Decimal(line.quantity)
+            )
+            order_line = order_lines.get(receipt_line.purchase_order_line_id)
+            if order_line is not None:
+                order_line.returned_quantity = to_quantity(
+                    Decimal(order_line.returned_quantity) + Decimal(line.quantity)
+                )
+
+        purchase_return.posted_at = utcnow()
+        purchase_return.posted_by_id = principal.user_id
+        await session.flush()
+
+        await _transition(
+            session,
+            tenant,
+            machine=PURCHASE_RETURN_LIFECYCLE,
+            entity=purchase_return,
+            entity_type=AUDIT_PURCHASE_RETURN,
+            entity_code=purchase_return.code,
+            target=PurchaseReturnStatus.POSTED,
+            reason=purchase_return.reason,
+            status_enum=PurchaseReturnStatus,
+        )
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.INVENTORY_MOVEMENT,
+            entity_type=AUDIT_PURCHASE_RETURN,
+            entity_id=purchase_return.id,
+            entity_code=purchase_return.code,
+            summary=(
+                f"Posted {purchase_return.code}: {len(movements)} line(s) returned to "
+                f"the vendor"
+            ),
+            user_id=tenant.user_id,
+            new_values={
+                "movements": len(movements),
+                "total_amount": purchase_return.total_amount,
+                "reason": purchase_return.reason,
+            },
+        )
+
+    return PurchaseReturnPostResult(
+        purchase_return=return_detail(purchase_return, lines),
+        movements=[
+            PostedMovement(
+                transaction_id=txn.id,
+                item_id=txn.item_id,
+                warehouse_id=txn.warehouse_id,
+                quantity=Decimal(txn.quantity),
+                stock_state=str(txn.stock_state),
+                batch_id=txn.batch_id,
+            )
+            for txn in transactions
+        ],
+    )
+
+
+async def cancel_purchase_return(
+    session: AsyncSession, tenant: TenantContext, return_id: uuid.UUID, *, reason: str
+) -> PurchaseReturn:
+    repo = PurchaseReturnRepository(session, tenant)
+
+    async with transaction(session):
+        purchase_return = await repo.lock_for_update(return_id)
+        if purchase_return is None:
+            raise NotFoundError("Purchase return", return_id)
+        purchase_return.cancellation_reason = reason
+        await _transition(
+            session,
+            tenant,
+            machine=PURCHASE_RETURN_LIFECYCLE,
+            entity=purchase_return,
+            entity_type=AUDIT_PURCHASE_RETURN,
+            entity_code=purchase_return.code,
+            target=PurchaseReturnStatus.CANCELLED,
+            reason=reason,
+            status_enum=PurchaseReturnStatus,
+            action=AuditAction.CANCEL,
+        )
+
+    return purchase_return
+
+
+async def list_purchase_returns(
+    session: AsyncSession,
+    tenant: TenantContext,
+    filters: PurchaseReturnFilters,
+    params: PageParams,
+    sort: SortParams,
+) -> tuple[list[PurchaseReturnSummary], OffsetPagination]:
+    rows, pagination = await PurchaseReturnRepository(session, tenant).list_page_filtered(
+        filters, params, sort
+    )
+    return [PurchaseReturnSummary.model_validate(row) for row in rows], pagination
+
+
+async def get_purchase_return_detail(
+    session: AsyncSession, tenant: TenantContext, return_id: uuid.UUID
+) -> PurchaseReturnDetail:
+    purchase_return = await PurchaseReturnRepository(session, tenant).get(return_id)
+    if purchase_return is None:
+        raise NotFoundError("Purchase return", return_id)
+    lines = await PurchaseReturnLineRepository(session, tenant).list_for_return(return_id)
+    return return_detail(purchase_return, lines)
+
+
+# =============================================================================
+# Approvals queue
+# =============================================================================
+
+
+async def pending_approvals(
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    filters: PendingApprovalFilters,
+    params: PageParams,
+) -> tuple[list[PendingApproval], OffsetPagination]:
+    """Documents waiting on *this* principal's decision.
+
+    Filtered by what the caller can actually approve rather than by what exists:
+    a queue full of items somebody cannot action is a queue they stop reading.
+    """
+    return await PendingApprovalRepository(session, tenant).list_pending(
+        params,
+        filters=filters,
+        include_requisitions=principal.has(Permission.PURCHASE_REQUISITION_APPROVE),
+        include_orders=principal.has(Permission.PURCHASE_ORDER_APPROVE),
+    )
+
+
+# =============================================================================
+# Planning contract: what MRP nets incoming supply against
+# =============================================================================
+#
+# ``src.modules.mrp.repository`` resolves this function by name at call time -
+# it never imports these tables and never guesses at their columns. The
+# signature below IS that contract; changing it silently turns MRP's netting
+# stage off, which shows up only as a warning on the run and a plan that
+# over-orders. See the module docstring in ``src/modules/mrp/repository.py``.
+
+
+async def incoming_quantities(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    item_ids: Sequence[uuid.UUID],
+    warehouse_ids: Sequence[uuid.UUID] | None = None,
+    upto: date,
+) -> dict[uuid.UUID, list[tuple[date, Decimal]]]:
+    """Committed purchase-order balances still expected, by promised arrival date.
+
+    The netting input for master rules section 14's "net against confirmed
+    incoming POs (**by expected date**)". Read-only by construction: no status
+    moves, no stock moves, and therefore no audit row - there is nothing to
+    audit about answering a question.
+
+    Each item maps to its outstanding balances as ``(due_date, quantity)``
+    tranches in date order, all due on or before ``upto``. The dates are the
+    contract: the caller nets a requirement against the tranches that arrive
+    before it is needed, not against the whole horizon. A single summed figure
+    per item - what this returned before - cannot express that, and a plan built
+    on one silently netted demand due this week against an order landing next
+    month.
+
+    Which orders count is :data:`~src.modules.procurement.repository.
+    NETTABLE_PO_STATUSES` (approved and beyond, not yet arrived) crossed with
+    :data:`~src.modules.procurement.repository.NETTABLE_PO_LINE_STATUSES`
+    (lines still expecting a delivery); both constants carry the argument for
+    their membership.
+
+    ``warehouse_ids`` of ``None`` means the whole company, which is what a run
+    that was not scoped to warehouses plans against. ``item_ids`` empty returns
+    an empty mapping. Items with nothing on order are absent from the result;
+    the planner reads it with ``incoming.get(item_id, ())``, so absence and an
+    empty schedule mean the same thing.
+    """
+    return await PurchaseOrderLineRepository(session, tenant).incoming_by_item(
+        item_ids, warehouse_ids=warehouse_ids, upto=upto
+    )
+
+
+__all__ = [
+    "AUDIT_GOODS_RECEIPT",
+    "AUDIT_PURCHASE_ORDER",
+    "AUDIT_PURCHASE_RETURN",
+    "AUDIT_QUOTATION",
+    "AUDIT_REQUISITION",
+    "AUDIT_RFQ",
+    "QualityPort",
+    "can_approve",
+    "cancel_goods_receipt",
+    "cancel_purchase_return",
+    "check_duplicates",
+    "compare_quotations",
+    "create_goods_receipt",
+    "create_purchase_order",
+    "create_purchase_return",
+    "create_quotation",
+    "create_requisition",
+    "create_rfq",
+    "decide_quotation",
+    "delete_draft_requisition",
+    "find_duplicate_candidates",
+    "find_duplicates_for_lines",
+    "get_goods_receipt_detail",
+    "get_purchase_order_detail",
+    "get_purchase_return_detail",
+    "get_quotation_detail",
+    "get_requisition_detail",
+    "get_rfq_detail",
+    "incoming_quantities",
+    "list_goods_receipts",
+    "list_purchase_orders",
+    "list_purchase_returns",
+    "list_quotations",
+    "list_requisitions",
+    "list_rfqs",
+    "order_detail",
+    "order_tracking",
+    "pending_approvals",
+    "post_goods_receipt",
+    "post_purchase_return",
+    "quotation_detail",
+    "receipt_detail",
+    "record_shipment",
+    "requisition_detail",
+    "resolve_quality_port",
+    "return_detail",
+    "rfq_detail",
+    "transition_purchase_order",
+    "transition_requisition",
+    "transition_rfq",
+    "update_purchase_order",
+    "update_quotation",
+    "update_requisition",
+    "update_rfq",
+]

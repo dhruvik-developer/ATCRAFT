@@ -1,0 +1,485 @@
+/**
+ * Dispatch, and the tracking board beside it.
+ *
+ * Three things here are worth a test each, and none of them is visible to the
+ * compiler.
+ *
+ * **The state machine has no shortcut.** `NOT_DISPATCHED -> READY_FOR_DISPATCH
+ * -> DISPATCHED`, and nothing jumps the middle step. Offering "Dispatch" on a
+ * consignment that has not been staged takes an operator through a confirmation
+ * and a recorded reason to reach a 409 - and worse, teaches them that the
+ * release sometimes fails for no visible reason.
+ *
+ * **Confirming a delivery is its own right.** `dispatch.confirm_delivery` is
+ * separate from `dispatch.update`, because the person who books a consignment
+ * out is not the person who attests that it arrived. A gate on `update` here
+ * would let anyone who can edit a dispatch close it as delivered.
+ *
+ * **The transition payloads are not interchangeable.** Three of them demand a
+ * `reason`; the delivery takes a `delivery_note` and no reason at all. Posting
+ * the same body to all four earns a 422 on a field the operator never saw.
+ *
+ * A note on cost: every assertion that reads the row's action menu opens a Radix
+ * popper, and floating-ui's positioning takes tens of seconds under jsdom. Those
+ * tests carry an explicit timeout and are deliberately few, each one covering
+ * both what the menu offers and what the resulting request carries.
+ */
+
+import { screen, waitFor, within } from '@testing-library/react'
+import { beforeAll, describe, expect, it } from 'vitest'
+
+import { P } from '@/lib/permissions'
+import { ok, page, renderScreen } from '@/test/harness'
+
+import DispatchPage from './dispatch-page'
+import type { DispatchRow, DispatchStatus, DispatchTrackingRow } from './dispatch-types'
+
+/**
+ * jsdom implements neither the Pointer Capture API nor `scrollIntoView`, and
+ * Radix's menus and selects call both while opening. Without them the click on
+ * a trigger throws inside the event handler and the failure reads as "no menu
+ * item found", which looks like a missing action rather than a missing browser
+ * API.
+ */
+beforeAll(() => {
+  const proto = window.HTMLElement.prototype as unknown as Record<string, unknown>
+  proto.hasPointerCapture ??= () => false
+  proto.setPointerCapture ??= () => {}
+  proto.releasePointerCapture ??= () => {}
+  proto.scrollIntoView ??= () => {}
+})
+
+/** Long enough for one popper to position itself under jsdom. */
+const POPPER = 90_000
+
+const DISPATCH_ID = '01a00000-0000-7000-8000-0000000000d1'
+
+/** One row of `GET /dispatch` (`DispatchSummary`). */
+function dispatch(overrides: Partial<DispatchRow> = {}): DispatchRow {
+  return {
+    id: DISPATCH_ID,
+    code: 'DSP-0001',
+    dispatch_type: 'SALES',
+    status: 'NOT_DISPATCHED',
+    customer_id: '01a00000-0000-7000-8000-0000000000c1',
+    vendor_id: null,
+    warehouse_id: '01a00000-0000-7000-8000-0000000000w1',
+    sales_order_id: null,
+    dispatch_date: '2026-09-02',
+    expected_delivery_date: '2026-09-08',
+    actual_delivery_date: null,
+    transporter_id: null,
+    courier_name: 'Blue Dart',
+    tracking_id: 'BD-99881',
+    total_boxes: 4,
+    total_weight_kg: '112.500',
+    created_at: '2026-09-01T06:00:00Z',
+    ...overrides,
+  }
+}
+
+/** One row of `GET /dispatch/tracking` (`TrackingBoardRow`). */
+function trackingRow(overrides: Partial<DispatchTrackingRow> = {}): DispatchTrackingRow {
+  return {
+    dispatch_id: DISPATCH_ID,
+    code: 'DSP-0001',
+    dispatch_type: 'SALES',
+    status: 'IN_TRANSIT',
+    party_type: 'CUSTOMER',
+    party_name: 'Hardware House',
+    reference_code: 'SO-0007',
+    courier_name: 'Blue Dart',
+    transporter_name: null,
+    tracking_id: 'BD-99881',
+    dispatch_date: '2026-09-02',
+    expected_delivery_date: '2026-09-08',
+    actual_delivery_date: null,
+    is_delayed: false,
+    delay_days: 0,
+    delay_reason: null,
+    qc_pending: false,
+    grn_pending: false,
+    ...overrides,
+  }
+}
+
+/** Records the query string of each request, which `fetch.calls` drops. */
+function urlRecorder() {
+  const urls: URL[] = []
+  return {
+    urls,
+    paramsAt(index: number): Record<string, string> {
+      const url = urls[index]
+      expect(url, `expected at least ${index + 1} request(s)`).toBeDefined()
+      return Object.fromEntries(url!.searchParams)
+    },
+  }
+}
+
+/** Render the list and open one row's action menu. */
+async function openActions(
+  status: DispatchStatus,
+  permissions: string[],
+  routes: Record<string, unknown> = {},
+) {
+  const rendered = renderScreen(<DispatchPage />, {
+    permissions,
+    routes: { 'GET /dispatch': page([dispatch({ status })]), ...routes },
+  })
+  await screen.findByText('DSP-0001')
+  await rendered.user.click(screen.getByRole('button', { name: 'Actions for DSP-0001' }))
+  await screen.findByRole('menuitem', { name: /tracking timeline/i })
+  return rendered
+}
+
+/** The action names the open menu is offering. */
+function menuItems(): string[] {
+  return screen
+    .getAllByRole('menuitem')
+    .map((item) => item.textContent?.trim() ?? '')
+}
+
+describe('who may raise a consignment', () => {
+  it('offers the create action to an account holding dispatch.create', async () => {
+    renderScreen(<DispatchPage />, {
+      permissions: [P.DISPATCH_VIEW, P.DISPATCH_CREATE],
+      routes: { 'GET /dispatch': page([dispatch()]) },
+    })
+
+    expect(await screen.findByRole('button', { name: /create dispatch/i })).toBeVisible()
+  })
+
+  it('withholds it from an account that may only read the board', async () => {
+    renderScreen(<DispatchPage />, {
+      permissions: [P.DISPATCH_VIEW],
+      routes: { 'GET /dispatch': page([dispatch()]) },
+    })
+
+    expect(await screen.findByText('DSP-0001')).toBeVisible()
+    expect(screen.queryByRole('button', { name: /create dispatch/i })).toBeNull()
+  })
+})
+
+describe('the two lists', () => {
+  it('forwards each list filter under the name the endpoint answers', async () => {
+    const recorder = urlRecorder()
+    renderScreen(<DispatchPage />, {
+      permissions: [P.DISPATCH_VIEW],
+      route: '/dispatch?status=IN_TRANSIT&dispatch_type=SALES&delayed_only=true&in_flight_only=true',
+      routes: {
+        'GET /dispatch': ({ url }) => {
+          recorder.urls.push(url)
+          return page([dispatch({ status: 'IN_TRANSIT' })])
+        },
+      },
+    })
+
+    expect(await screen.findByText('DSP-0001')).toBeVisible()
+    const params = recorder.paramsAt(0)
+    expect(params.status).toBe('IN_TRANSIT')
+    expect(params.dispatch_type).toBe('SALES')
+    expect(params.delayed_only).toBe('true')
+    expect(params.in_flight_only).toBe('true')
+    // Newest first: a dispatch screen is read from today backwards.
+    expect(params.sort_by).toBe('dispatch_date')
+    expect(params.sort_dir).toBe('desc')
+  })
+
+  it('reads the tracking board from its own endpoint, and sorts it not at all', async () => {
+    // The board is a different projection, not a filtered dispatch list: it
+    // joins both directions of movement and carries the party's name, which the
+    // dispatch list does not have. It also takes no sort parameters, so sending
+    // one would be silently ignored and the arrow would lie.
+    const recorder = urlRecorder()
+    const { user, fetch } = renderScreen(<DispatchPage />, {
+      permissions: [P.DISPATCH_VIEW],
+      routes: {
+        'GET /dispatch': page([dispatch()]),
+        'GET /dispatch/tracking': ({ url }) => {
+          recorder.urls.push(url)
+          return page([trackingRow()])
+        },
+      },
+    })
+
+    await screen.findByText('DSP-0001')
+    await user.click(screen.getByRole('tab', { name: /tracking board/i }))
+
+    expect(await screen.findByText('Hardware House')).toBeVisible()
+    expect(fetch.calls.map((call) => call.path)).toContain('/dispatch/tracking')
+    const params = recorder.paramsAt(0)
+    expect(params.sort_by).toBeUndefined()
+    expect(params.sort_dir).toBeUndefined()
+  })
+
+  it('flags a consignment past its promised date', async () => {
+    // The whole point of the screen. A row that is late must say so in words -
+    // "3 days late" - rather than in a colour somebody has to know to read.
+    renderScreen(<DispatchPage />, {
+      permissions: [P.DISPATCH_VIEW],
+      routes: {
+        'GET /dispatch': page([
+          dispatch({ status: 'IN_TRANSIT', expected_delivery_date: '2026-08-01' }),
+        ]),
+      },
+    })
+
+    expect(await screen.findByText(/days late/)).toBeVisible()
+  })
+
+  it('does not call a settled consignment late', async () => {
+    // `delayDays` returns null once the consignment is settled: a delivery that
+    // arrived last month is history, not an outstanding delay to chase.
+    renderScreen(<DispatchPage />, {
+      permissions: [P.DISPATCH_VIEW],
+      routes: {
+        'GET /dispatch': page([
+          dispatch({
+            status: 'DELIVERED',
+            expected_delivery_date: '2026-08-01',
+            actual_delivery_date: '2026-08-03',
+          }),
+        ]),
+      },
+    })
+
+    expect(await screen.findByText('DSP-0001')).toBeVisible()
+    expect(screen.queryByText(/days late/)).toBeNull()
+  })
+
+  it('names a consignment with no tracking reference as untraceable', async () => {
+    // A blank cell reads as "nothing to see"; this one means nobody can answer
+    // the customer who rings to ask where their order is.
+    renderScreen(<DispatchPage />, {
+      permissions: [P.DISPATCH_VIEW],
+      routes: { 'GET /dispatch': page([dispatch({ tracking_id: null })]) },
+    })
+
+    expect(await screen.findByText('Not traceable')).toBeVisible()
+  })
+})
+
+describe('the lifecycle the row offers', () => {
+  it(
+    'stages a not-dispatched consignment, and posts the audited reason',
+    async () => {
+      const { user, fetch } = await openActions(
+        'NOT_DISPATCHED',
+        [P.DISPATCH_VIEW, P.DISPATCH_UPDATE],
+        { [`POST /dispatch/${DISPATCH_ID}/ready`]: ok(null) },
+      )
+
+      const items = menuItems()
+      expect(items).toContain('Mark ready')
+      expect(items).toContain('Cancel dispatch')
+      // The rule that makes the state machine worth having: there is no jump
+      // from not-dispatched to dispatched. The consignment is staged first.
+      expect(items).not.toContain('Dispatch')
+      expect(items).not.toContain('Mark in transit')
+
+      await user.click(screen.getByRole('menuitem', { name: 'Mark ready' }))
+      await user.click(await screen.findByRole('button', { name: 'Mark ready' }))
+
+      // Every transition is recorded, and the API refuses a bodyless one, so an
+      // empty reason is caught here rather than becoming a 422 nobody sees.
+      expect(await screen.findByText(/it needs a reason/i)).toBeVisible()
+      expect(fetch.calls.some((call) => call.path.endsWith('/ready'))).toBe(false)
+
+      await user.type(screen.getByLabelText(/reason/i), 'Staged at the gate')
+      await user.click(screen.getByRole('button', { name: 'Mark ready' }))
+
+      const body = (await waitFor(() =>
+        fetch.requestFor('POST', `/dispatch/${DISPATCH_ID}/ready`),
+      )) as Record<string, unknown>
+      expect(body).toEqual({ reason: 'Staged at the gate' })
+    },
+    POPPER,
+  )
+
+  it(
+    'releases only a consignment that has been staged',
+    async () => {
+      await openActions('READY_FOR_DISPATCH', [P.DISPATCH_VIEW, P.DISPATCH_UPDATE])
+
+      const items = menuItems()
+      expect(items).toContain('Dispatch')
+      // Staging it twice is not a transition the API has.
+      expect(items).not.toContain('Mark ready')
+      // Still cancellable: nothing has left, so nothing has to come back.
+      expect(items).toContain('Cancel dispatch')
+    },
+    POPPER,
+  )
+
+  it(
+    'confirms a delivery with the payload that endpoint actually takes',
+    async () => {
+      const { user, fetch } = await openActions(
+        'DISPATCHED',
+        [P.DISPATCH_VIEW, P.DISPATCH_UPDATE, P.DISPATCH_CONFIRM_DELIVERY],
+        { [`POST /dispatch/${DISPATCH_ID}/deliver`]: ok(null) },
+      )
+
+      const items = menuItems()
+      expect(items).toContain('Mark in transit')
+      expect(items).toContain('Confirm delivery')
+      // It has gone. There is stock outside the warehouse, so the abandonment
+      // path - which returns nothing, because nothing moved - is not offered.
+      expect(items).not.toContain('Cancel dispatch')
+
+      await user.click(screen.getByRole('menuitem', { name: 'Confirm delivery' }))
+      await user.click(await screen.findByRole('button', { name: 'Confirm delivery' }))
+
+      const body = (await waitFor(() =>
+        fetch.requestFor('POST', `/dispatch/${DISPATCH_ID}/deliver`),
+      )) as Record<string, unknown>
+
+      // The four transitions do NOT share a payload. This one records a note
+      // against the delivery and refuses a `reason`; an empty note is omitted
+      // rather than sent as an empty string, which the API bounds.
+      expect(body).toEqual({ source: 'MANUAL' })
+      expect(body).not.toHaveProperty('reason')
+      expect(body).not.toHaveProperty('delivery_note')
+    },
+    POPPER,
+  )
+
+  it(
+    'withholds the delivery confirmation from an account that may only update',
+    async () => {
+      // The gate that must not be folded into `dispatch.update`: attesting that
+      // a consignment arrived is a different act from editing it, and it is the
+      // one that closes the customer's claim window.
+      await openActions('DISPATCHED', [P.DISPATCH_VIEW, P.DISPATCH_UPDATE])
+
+      const items = menuItems()
+      expect(items).toContain('Mark in transit')
+      expect(items).not.toContain('Confirm delivery')
+    },
+    POPPER,
+  )
+
+  it(
+    'offers a settled consignment nothing but its history',
+    async () => {
+      // Delivered, received, GRN-completed and cancelled are terminal states on
+      // this screen. Anything further happens in quality or on the receipt.
+      await openActions('DELIVERED', [
+        P.DISPATCH_VIEW,
+        P.DISPATCH_UPDATE,
+        P.DISPATCH_CONFIRM_DELIVERY,
+      ])
+
+      expect(menuItems()).toEqual(['Tracking timeline'])
+    },
+    POPPER,
+  )
+
+  it(
+    'offers a reader the timeline and no transitions at all',
+    async () => {
+      await openActions('NOT_DISPATCHED', [P.DISPATCH_VIEW])
+
+      expect(menuItems()).toEqual(['Tracking timeline'])
+    },
+    POPPER,
+  )
+})
+
+describe('creating a consignment', () => {
+  async function openCreate() {
+    const rendered = renderScreen(<DispatchPage />, {
+      permissions: [P.DISPATCH_VIEW, P.DISPATCH_CREATE, P.WAREHOUSE_VIEW],
+      routes: {
+        'GET /dispatch': page([]),
+        'GET /warehouses': page([
+          { id: '01a00000-0000-7000-8000-0000000000w1', code: 'WH1', name: 'Main store' },
+        ]),
+      },
+    })
+    await rendered.user.click(await screen.findByRole('button', { name: /create dispatch/i }))
+    await screen.findByText('Create a dispatch')
+    return rendered
+  }
+
+  it('insists on something the consignment can be traced by', async () => {
+    // A consignment that leaves the gate with no tracking id, no LR number and
+    // no vehicle is one nobody can chase when the customer rings - and the
+    // tracking board downstream is only as good as what is captured here.
+    const { user, fetch } = await openCreate()
+
+    await user.click(screen.getByRole('button', { name: /^create dispatch$/i, hidden: false }))
+
+    expect(
+      await screen.findByText(/record a tracking id, an lr number or a vehicle number/i),
+    ).toBeVisible()
+    expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+  })
+
+  it('will not post a sales consignment with no customer', async () => {
+    const { user } = await openCreate()
+
+    await user.type(screen.getByRole('textbox', { name: 'Tracking id' }), 'BD-77123')
+    await user.click(screen.getByRole('button', { name: /^create dispatch$/i, hidden: false }))
+
+    expect(
+      await screen.findByText(/must name the customer it is going to/i),
+    ).toBeVisible()
+  })
+
+  it('explains itself rather than failing silently without warehouse access', async () => {
+    // `warehouse_id` is required by `DispatchCreate`, and the picker that
+    // supplies it needs `warehouse.view`. Rendering an empty select would look
+    // like a broken screen; saying who to ask is actionable.
+    const { user } = renderScreen(<DispatchPage />, {
+      permissions: [P.DISPATCH_VIEW, P.DISPATCH_CREATE],
+      routes: { 'GET /dispatch': page([]) },
+    })
+
+    await user.click(await screen.findByRole('button', { name: /create dispatch/i }))
+    expect(
+      await screen.findByText(/your role cannot read the warehouse list/i),
+    ).toBeVisible()
+  })
+
+})
+
+describe('the tracking board', () => {
+  it('names the party and the direction the movement is going', async () => {
+    // The board joins both directions - material out to a customer and material
+    // in from a vendor - which is why the party is typed rather than named
+    // "customer".
+    const { user } = renderScreen(<DispatchPage />, {
+      permissions: [P.DISPATCH_VIEW],
+      routes: {
+        'GET /dispatch': page([dispatch()]),
+        'GET /dispatch/tracking': page([
+          trackingRow({ party_type: 'VENDOR', party_name: 'Rolled Metals', qc_pending: true }),
+        ]),
+      },
+    })
+
+    await screen.findByText('DSP-0001')
+    await user.click(screen.getByRole('tab', { name: /tracking board/i }))
+
+    const row = (await screen.findByText('Rolled Metals')).closest('tr')
+    expect(row).not.toBeNull()
+    expect(within(row!).getByText(/Vendor - DSP-0001/)).toBeVisible()
+    expect(within(row!).getByText('QC pending')).toBeVisible()
+  })
+
+  it('says nothing is moving rather than showing a blank board', async () => {
+    const { user } = renderScreen(<DispatchPage />, {
+      permissions: [P.DISPATCH_VIEW],
+      routes: {
+        'GET /dispatch': page([dispatch()]),
+        'GET /dispatch/tracking': page([]),
+      },
+    })
+
+    await screen.findByText('DSP-0001')
+    await user.click(screen.getByRole('tab', { name: /tracking board/i }))
+
+    expect(await screen.findByText('Nothing in transit')).toBeVisible()
+  })
+})

@@ -1,0 +1,36 @@
+[
+  {
+    "id": "color-contrast",
+    "impact": "serious",
+    "help": "Elements must meet minimum color contrast ratio thresholds",
+    "helpUrl": "https://dequeuniversity.com/rules/axe/4.13/color-contrast?application=playwright",
+    "routes": [
+      "/inventory/reservations",
+      "/procurement/requisitions",
+      "/procurement/purchase-orders",
+      "/procurement/purchase-returns",
+      "/vendors",
+      "/dispatch",
+      "/finance",
+      "/finance/vendor-invoices",
+      "/admin/users",
+      "/profile"
+    ],
+    "nodes": 34,
+    "sample": "<span class=\"inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium transition-colors whitespace-nowrap border-transparent bg-warning/15 text-warning\">HARD</span>"
+  },
+  {
+    "id": "heading-order",
+    "impact": "moderate",
+    "help": "Heading levels should only increase by one",
+    "helpUrl": "https://dequeuniversity.com/rules/axe/4.13/heading-order?application=playwright",
+    "routes": [
+      "/",
+      "/mrp",
+      "/admin/organisation",
+      "/profile"
+    ],
+    "nodes": 4,
+    "sample": "<h3 class=\"font-semibold tracking-tight flex items-center gap-2 text-sm\">"
+  }
+]

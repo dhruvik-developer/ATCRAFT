@@ -1,0 +1,71 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# --- Node / Frontend ---
+node_modules/
+.vite/
+apps/web/dist/
+apps/web/.eslintcache
+*.tsbuildinfo
+
+# --- Environments (NEVER commit real secrets) ---
+.env
+.env.local
+.env.development
+.env.staging
+.env.production
+!.env.example
+
+# --- Storage (runtime artefacts, not source) ---
+storage/**
+!storage/**/.gitkeep
+
+# --- Tooling / OS ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log
+logs/
+
+# --- Test artefacts ---
+tests/e2e/test-results/
+tests/e2e/playwright-report/
+playwright/.cache/
+
+# --- Deployment env files (one per deployment, real secrets, NEVER committed)
+# The .example templates are committed; the populated files are not. Each
+# deployment gets its own generated secrets - see scripts/deploy.sh init.
+deploy/*.env
+!deploy/*.env.example
+
+# --- Database dumps -------------------------------------------------------
+# A dump is a full copy of the business, including every hashed password.
+# It must not reach a git remote, and a backup kept only on the box it was
+# taken from is not a backup (section 45).
+backups/
+*.dump
+*.sql.gz
+
+# --- TLS material ---------------------------------------------------------
+# Certificates now live on the host (/etc/letsencrypt); this directory is kept
+# only for a self-signed pair used in local testing.
+infrastructure/nginx/certs/*
+!infrastructure/nginx/certs/.gitignore

@@ -1,0 +1,157 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens.
+ *
+ * The palette is deliberately restrained: an ERP operator looks at these
+ * screens for eight hours, so colour is reserved for meaning (status, warning,
+ * error) rather than decoration. Neutrals carry the layout.
+ */
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 20% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 20% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 20% 12%;
+
+    /* Atcraft brand: architectural hardware - a brushed steel blue. */
+    --primary: 214 72% 34%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 214 20% 95%;
+    --secondary-foreground: 222 25% 20%;
+
+    --muted: 214 16% 96%;
+    --muted-foreground: 215 14% 45%;
+
+    --accent: 214 30% 94%;
+    --accent-foreground: 214 72% 28%;
+
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 58% 32%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 35 88% 42%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 214 18% 89%;
+    --input: 214 18% 86%;
+    --ring: 214 72% 44%;
+
+    --sidebar: 218 30% 15%;
+    --sidebar-foreground: 214 20% 82%;
+    --sidebar-accent: 214 60% 42%;
+    --sidebar-border: 218 26% 24%;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 222 24% 9%;
+    --foreground: 214 18% 92%;
+
+    --card: 222 22% 12%;
+    --card-foreground: 214 18% 92%;
+
+    --popover: 222 22% 12%;
+    --popover-foreground: 214 18% 92%;
+
+    --primary: 214 70% 56%;
+    --primary-foreground: 222 30% 10%;
+
+    --secondary: 218 18% 20%;
+    --secondary-foreground: 214 18% 92%;
+
+    --muted: 218 18% 18%;
+    --muted-foreground: 215 14% 62%;
+
+    --accent: 218 20% 22%;
+    --accent-foreground: 214 70% 70%;
+
+    --destructive: 0 62% 52%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 46% 44%;
+    --success-foreground: 222 30% 10%;
+
+    --warning: 35 76% 54%;
+    --warning-foreground: 222 30% 10%;
+
+    --border: 218 18% 22%;
+    --input: 218 18% 26%;
+    --ring: 214 70% 56%;
+
+    --sidebar: 222 26% 11%;
+    --sidebar-foreground: 214 18% 78%;
+    --sidebar-accent: 214 65% 50%;
+    --sidebar-border: 218 20% 20%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Numeric columns must line up digit-for-digit to be scannable. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Respect the OS setting - a warehouse terminal may be on a projector. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  /* Focus rings stay visible for keyboard users - data entry here is
+     keyboard-driven and losing focus position costs real time. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  ::-webkit-scrollbar {
+    @apply h-2.5 w-2.5;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-border;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/40;
+  }
+}
+
+@layer components {
+  /* Loading placeholder that matches the shape of the content it replaces. */
+  .skeleton {
+    @apply relative overflow-hidden rounded-md bg-muted;
+  }
+  .skeleton::after {
+    @apply absolute inset-0 -translate-x-full animate-shimmer bg-gradient-to-r from-transparent via-white/25 to-transparent;
+    content: '';
+  }
+}
