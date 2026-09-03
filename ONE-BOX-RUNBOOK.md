@@ -155,7 +155,12 @@ The local stack is a **third** stack, separate from both deployments. It is the
 only one that publishes a database port, because the host-run API, the host-run
 Vite server and pytest all need to reach Postgres.
 
-Its compose project is `atcraft-erp`, set by the Makefile and `make.ps1`.
+Its compose project is `atcraft-erp`, set by the Makefile and `make.ps1` —
+deliberately the historical name, so the volumes an existing checkout already
+has, and the demo data in them, stay where they are.
+
+Its containers are `atcraft-erp-postgres-1` and `atcraft-erp-redis-1`, publishing
+`127.0.0.1:5433` and `127.0.0.1:6380`.
 
 ### First time
 
@@ -233,6 +238,11 @@ make db-handover    # DESTROYS it, rebuilds with the BASELINE ONLY - no demo row
 joined by foreign keys and only the parents carry a recognisable `DM-` code —
 there is no reliable way to delete "just the demo data" afterwards. Run
 `db-handover` before giving the client a database.
+
+A full load registers **234 records across 34 kinds** and is idempotent: running
+it again creates nothing. It prints what it skipped and why, which is worth
+reading — several skips are the business rules refusing an unrealistic
+combination rather than a failure.
 
 ### Tests
 
@@ -721,6 +731,19 @@ or a compromised dependency would run from — and requires each attempt to fail
    tell you *which* database answered; a marker row can.
 6. **Tokens** — the two deployments sign with different secrets and declare
    different audiences.
+7. **A real session, replayed** — opt-in. Signs in to both deployments and
+   replays each token against the other, which must answer 401. Section 6
+   compares the inputs; this observes the outcome, and they are not the same
+   claim.
+
+```bash
+ATCRAFT_MAIN_PW='...' ATCRAFT_DEV_PW='...' ./scripts/verify-isolation.sh
+```
+
+The passwords are read from the environment and never printed. Without them
+section 7 reports SKIP — and a skip is not a pass.
+
+A clean run reports **22 passed, 0 failed, 0 skipped**.
 
 Run it after any change to a compose file, an env file or the host nginx.
 

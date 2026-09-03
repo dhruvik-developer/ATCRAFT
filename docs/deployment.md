@@ -6,6 +6,19 @@ Target: a single dedicated server, roughly 100 GB of storage, running the whole
 stack under Docker Compose. That is an appropriate starting point and should
 evolve only when measurement says it must.
 
+> **Read `ONE-BOX-RUNBOOK.md` first.** The box now runs **two independent
+> deployments** (main and dev), and the runbook is the operational document:
+> exact commands, the isolation model, and the verification script.
+>
+> Superseded here: the single-stack topology below, TLS terminating in the
+> compose nginx, and `make prod-up`. TLS now terminates in a **host** nginx that
+> routes two domains to two loopback ports, and deployments are driven only by
+> `./scripts/deploy.sh <main|dev> <command>`.
+>
+> Still current, and not repeated in the runbook: the storage sizing analysis,
+> what to look for when reviewing a migration before it goes near production,
+> and the rollback discussion.
+
 ---
 
 ## Topology

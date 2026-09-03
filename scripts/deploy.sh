@@ -442,7 +442,7 @@ case "$COMMAND" in
     live="$(dc exec -T postgres psql -U "$PG_USER" -d "$PG_DB" -tAc "$counts_sql" | tr -d '\r')"
     copy="$(dc exec -T postgres psql -U "$PG_USER" -d "$scratch" -tAc "$counts_sql" | tr -d '\r')"
     printf '  tables: live=%s restored=%s\n' "$live" "$copy"
-    for t in companies users items inventory_ledger audit_logs; do
+    for t in companies users items inventory_transactions audit_logs; do
       l="$(dc exec -T postgres psql -U "$PG_USER" -d "$PG_DB" -tAc "SELECT count(*) FROM \"$t\";" 2>/dev/null | tr -d '\r' || echo "-")"
       c="$(dc exec -T postgres psql -U "$PG_USER" -d "$scratch" -tAc "SELECT count(*) FROM \"$t\";" 2>/dev/null | tr -d '\r' || echo "-")"
       if [ "$l" = "$c" ]; then printf '  %-18s %s == %s\n' "$t" "$l" "$c"

@@ -286,15 +286,46 @@ section "4. Neither database is reachable from the host"
 # anything that can reach the box, addresses the database directly. The prod
 # overlay publishes no database port at all, and this is what proves it.
 
-for pair in "5432 postgres" "6379 redis"; do
-  set -- $pair
-  port="$1"; svc="$2"
-  published="$( (dc_main port "$svc" "$port" 2>/dev/null; dc_dev port "$svc" "$port" 2>/dev/null) | tr -d '[:space:]')"
-  if [ -z "$published" ]; then
+# Read the binding off the container rather than asking compose. `docker
+# compose port` prints "invalidIP:0" instead of nothing when a port is
+# unpublished on some platforms, so an emptiness test reports a leak that is
+# not there - which is how this check first "failed" against two deployments
+# that were correctly isolated. The container's own NetworkSettings.Ports is
+# unambiguous: null means nothing is published.
+host_bindings() {
+  docker inspect -f '{{range $p, $conf := .NetworkSettings.Ports}}{{range $conf}}{{$p}}->{{.HostIp}}:{{.HostPort}} {{end}}{{end}}' "$1" 2>/dev/null
+}
+
+for svc in postgres redis; do
+  leaked=""
+  for project_dc in main dev; do
+    if [ "$project_dc" = "main" ]; then cid="$(dc_main ps -q "$svc" 2>/dev/null)"; else cid="$(dc_dev ps -q "$svc" 2>/dev/null)"; fi
+    [ -n "$cid" ] || continue
+    bound="$(host_bindings "$cid")"
+    [ -n "$bound" ] && leaked="$leaked $project_dc:$bound"
+  done
+  if [ -z "$leaked" ]; then
     pass "$svc publishes no host port in either deployment"
   else
-    fail "$svc is published on the host: $published"
+    fail "$svc is published on the host:$leaked"
   fi
+done
+
+# The one published port per deployment must be loopback-bound. On 0.0.0.0 the
+# whole application is served unencrypted, bypassing the host nginx and its
+# TLS, to anything that can reach the box.
+for pair in "main $MAIN_PROJECT" "dev $DEV_PROJECT"; do
+  set -- $pair
+  name="$1"
+  if [ "$name" = "main" ]; then cid="$(dc_main ps -q nginx 2>/dev/null)"; else cid="$(dc_dev ps -q nginx 2>/dev/null)"; fi
+  [ -n "$cid" ] || { skip "$name: nginx container not found"; continue; }
+  bound="$(host_bindings "$cid")"
+  case "$bound" in
+    *0.0.0.0:*|*"[::]":*) fail "$name: nginx is published on all interfaces ($bound)" ;;
+    *127.0.0.1:*)         pass "$name: nginx published on loopback only ($bound)" ;;
+    "")                   fail "$name: nginx publishes no port - the host nginx has nothing to proxy to" ;;
+    *)                    fail "$name: unexpected nginx binding ($bound)" ;;
+  esac
 done
 
 # =============================================================================
@@ -314,7 +345,12 @@ done
 # Deployment 1's port must answer from deployment 1's database. Proven with a
 # marker row rather than a health check: both stacks are healthy either way,
 # and a health check cannot tell you which database answered.
-if [ "$FAILED" -eq 0 ]; then
+#
+# Runs regardless of earlier failures. Gating it on a clean run meant the one
+# check that actually reads both databases was skipped precisely when something
+# looked wrong - and a skip is not a pass. It writes one row to a table it
+# creates and drops.
+if true; then
   MARKER="isolation-probe-$$"
   dc_main exec -T postgres psql -U "$MAIN_USER" -d "$MAIN_DB" -q \
     -c "CREATE TABLE IF NOT EXISTS _isolation_probe(tag text primary key);" \
@@ -353,6 +389,68 @@ else
     note "So a cross-deployment token is rejected as wrong-audience, not merely unverifiable."
   else
     skip "JWT_AUDIENCE is shared or unset - the differing secret still separates them"
+  fi
+fi
+
+# =============================================================================
+section "7. A session from one deployment, replayed against the other"
+# Section 6 compares the inputs; this observes the outcome. They are not the
+# same claim - differing secrets prove nothing if a deployment were configured
+# to skip verification, and only a real request can show what the API does with
+# a foreign token.
+#
+# Needs the two administrator passwords, which nothing stores in plaintext, so
+# it is opt-in:
+#
+#   ATCRAFT_MAIN_PW='...' ATCRAFT_DEV_PW='...' ./scripts/verify-isolation.sh
+#
+# The passwords are read from the environment and never printed or logged.
+
+if [ -z "${ATCRAFT_MAIN_PW:-}" ] || [ -z "${ATCRAFT_DEV_PW:-}" ]; then
+  skip "set ATCRAFT_MAIN_PW and ATCRAFT_DEV_PW to replay a real session across deployments"
+else
+  login_token() {   # $1 = port, $2 = password
+    curl -s --max-time 15 -X POST "http://127.0.0.1:$1/api/v1/auth/login" \
+      -H 'Content-Type: application/json' \
+      -d "{\"email\":\"${ATCRAFT_ADMIN_EMAIL:-admin@atcraft.example}\",\"password\":\"$2\"}" \
+      | python -c "import json,sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+payload = d.get('data')
+if isinstance(payload, list):
+    payload = payload[0] if payload else {}
+print((payload or {}).get('access_token', ''))" 2>/dev/null
+  }
+  probe_me() {      # $1 = port, $2 = token
+    curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+      -H "Authorization: Bearer $2" "http://127.0.0.1:$1/api/v1/auth/me"
+  }
+
+  main_tok="$(login_token "$MAIN_PORT" "$ATCRAFT_MAIN_PW")"
+  dev_tok="$(login_token "$DEV_PORT" "$ATCRAFT_DEV_PW")"
+
+  if [ -z "$main_tok" ] || [ -z "$dev_tok" ]; then
+    skip "could not sign in to both deployments - check the passwords"
+  else
+    # The own-deployment probes must pass first. Without them, a token that is
+    # rejected everywhere - a typo, an expired session - reads as perfect
+    # isolation.
+    own_main="$(probe_me "$MAIN_PORT" "$main_tok")"
+    own_dev="$(probe_me "$DEV_PORT" "$dev_tok")"
+    if [ "$own_main" = "200" ] && [ "$own_dev" = "200" ]; then
+      pass "each deployment accepts its own session (200 / 200)"
+      cross_a="$(probe_me "$MAIN_PORT" "$dev_tok")"
+      cross_b="$(probe_me "$DEV_PORT" "$main_tok")"
+      if [ "$cross_a" = "401" ] && [ "$cross_b" = "401" ]; then
+        pass "and refuses the other's (401 / 401)"
+      else
+        fail "a cross-deployment token was not refused (dev->main $cross_a, main->dev $cross_b)"
+      fi
+    else
+      skip "own-deployment sign-in did not return 200 (main $own_main, dev $own_dev) - cross test would be meaningless"
+    fi
   fi
 fi
 

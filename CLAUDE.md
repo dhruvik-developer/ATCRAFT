@@ -222,6 +222,62 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
   spellings are real. `tests/unit/test_frontend_permission_gates.py` now fails
   the build on it; `test_frontend_permission_catalogue.py` guards the vocabulary
   the gates are drawn from.
+- **A health check that cannot fail is worse than none.** Six containers
+  reported the wrong status on the first real deployment, and every cause was
+  in the check rather than the service. `wget http://localhost/` resolves to
+  `::1` while nginx listens on IPv4 only, so two containers reported unhealthy
+  while serving every request correctly. `celery-beat` inherited the api
+  image's `HEALTHCHECK` - an HTTP probe - and serves no HTTP, so it was
+  permanently unhealthy; a service that overrides its image's command usually
+  needs to override the health check too. The worker's used exec-form `CMD`, so
+  `$HOSTNAME` reached celery as nine literal characters and it pinged a node
+  that cannot exist - `CMD-SHELL` is required for any expansion. And in the
+  other direction: `/health/live` and `/health/ready` are served at the app
+  root, not under `/api/v1`, so a probe through nginx fell through to
+  `location /` and was answered by the SPA with 200 and an HTML page. Point a
+  probe at something that goes wrong when the service is broken, then break the
+  service and watch it go red.
+- **Counting directories up from `__file__` works in a checkout and not in an
+  image.** `config.py` located the repository root with `parents[4]`, which is
+  right at `<repo>/apps/api/src/core/config.py` and raises `IndexError` at
+  `/app/src/core/config.py`, where `src/` is copied straight to `/app`. It
+  raised during import, before any logger existed, so gunicorn reported only
+  "Worker failed to boot" above a pathlib traceback mentioning neither
+  configuration nor a file. 3 600 tests, a clean lint and a green build all
+  passed over it because every one of them runs from a checkout: the layout is
+  an input, and only one value of it was ever supplied.
+  `tests/unit/test_config_roots.py` supplies both.
+- **nginx resolves an upstream hostname once and caches it forever.** A name in
+  an `upstream ... server` directive is resolved at configuration load, and
+  container addresses change every time a container is recreated - which is what
+  a deploy does. Compose does not restart dependents when a dependency is
+  replaced, so after a rebuild nginx proxied to an address nothing answered on:
+  502 for every API request, while nginx's own `/healthz` stayed 200 because it
+  touches no upstream. Total outage on an ordinary deploy, cured by an
+  `nginx -s reload` nobody knew to run. The fix is `resolver 127.0.0.11` plus a
+  *variable* in `proxy_pass`, which is re-resolved; it costs upstream keepalive
+  and buys correctness under any restart order.
+- **`protected-mode yes` on Redis means loopback only, whatever `bind` says.**
+  Redis 7 applies protected mode whenever no password is set, and a `bind`
+  directive does not exempt it. Every client here is a different container, so
+  it rejected all of them - and in the worst shape: the TCP connection is
+  accepted and the first command returns `-DENIED`, which client libraries
+  report as "Connection reset by peer", a network error for an authorisation
+  decision. Meanwhile `redis-cli ping` inside the container succeeds, because
+  that is loopback, so Redis reports healthy while being unusable. What
+  protected mode defends against is handled here by publishing no host port.
+- **`chown -R` does not traverse symlinks.** The frontend image ran
+  `chown -R nginx:nginx /var/run`, which is a symlink to `/run`: it retargeted
+  the link and left `/run` owned by root, so nginx logged its version and worker
+  method and then died on the last step before serving with
+  `open() "/run/nginx.pid" failed (13: Permission denied)`. Chown the file, not
+  the symlinked directory.
+- **A directive in an included file plus the same directive in the including
+  block is a duplicate, not an override.** `proxy_params.conf` set
+  `proxy_read_timeout` and was included inside locations that set it again, so
+  nginx refused to load at all. Defaults meant to be overridden belong one
+  context up - at `server` level - where a location value legally wins. Both
+  config sets had this and neither had ever been loaded by anything.
 - **A never-executed test accumulates drift silently.** `tests/e2e` had a
   297-line journey that could not pass its own login: it used
   `admin@atcraft.local`, the address `seed.py` documents at length as one
