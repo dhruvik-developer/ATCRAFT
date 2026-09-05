@@ -133,6 +133,14 @@ repos:
         always_run: true
         stages: [pre-push]
 
+      - id: postman-collection
+        name: Postman collection matches the contract (apps/api)
+        entry: python scripts/hooks/run_in_venv.py scripts.export_postman --check
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
       - id: typecheck-web
         name: tsc -b --noEmit (apps/web)
         entry: python scripts/hooks/run_in_web.py npm run typecheck

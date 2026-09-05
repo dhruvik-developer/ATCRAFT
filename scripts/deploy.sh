@@ -71,7 +71,8 @@ Database (this deployment's database only)
   seed            load baseline reference data (roles, permissions, UoM)
   demo-data       load the demo business on top of the baseline
   psql [args]     psql inside this deployment's postgres
-  shell           a shell in this deployment's backend container
+  shell [cmd...]  a shell in this deployment's backend container, or the
+                  given command run inside it
 
 Backup
   backup          pg_dump to backups/<deployment>/ (custom format)
@@ -695,7 +696,15 @@ case "$COMMAND" in
     ;;
 
   shell)
-    dc exec backend bash
+    # With no arguments, an interactive shell. With arguments, run exactly that
+    # command in the backend container - which is how a one-off maintenance or
+    # data check is run against a deployment without publishing a port or
+    # copying its credentials to the host.
+    if [ "$#" -eq 0 ]; then
+      dc exec backend bash
+    else
+      dc exec backend "$@"
+    fi
     ;;
 
   # --- Backup --------------------------------------------------------------

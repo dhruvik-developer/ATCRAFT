@@ -191,7 +191,7 @@ not duplicate them.
 | `test` / `test-unit` / `test-integration` / `test-cov` | Backend tests |
 | `test-web` / `test-e2e` / `test-load` | Frontend, Playwright, Locust |
 | `lint` / `format` / `typecheck` | Quality gates |
-| `contract` / `contract-check` | Regenerate the OpenAPI contract and frontend types / fail if they are stale |
+| `contract` / `contract-check` | Regenerate the OpenAPI contract, the frontend types and the Postman collection / fail if any is stale |
 | `check` | `contract-check` + `lint` + `test` + `test-web` — what CI runs |
 | `hooks` / `hooks-run` | Install the git hooks / run every hook on the whole tree |
 | `lock` | Regenerate the hash-locked Python requirements |

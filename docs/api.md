@@ -4,6 +4,40 @@ Base path `/api/v1`. Interactive documentation at `/docs` (disabled in
 production — the schema is an accurate map of every endpoint and its
 permissions).
 
+## Where the contract lives
+
+| Artefact | What it is |
+|---|---|
+| `openapi.json` | The contract. Generated from the running app by `make contract`, committed, and checked by CI and the pre-push hook, so it cannot drift from the code. |
+| `/docs`, `/redoc` | Swagger UI and ReDoc, served from that same schema in development. Both are **off in staging and production**: the schema lists every endpoint and the permission it needs, which is a map worth not publishing. Read it from the committed file instead. |
+| `apps/web/src/types/openapi.ts` | The frontend's types, generated from the contract. |
+| `postman_collection.json` | A Postman collection, generated from the contract. |
+
+All four are regenerated together:
+
+```bash
+make contract          # writes all of them
+make contract-check    # fails if any is stale — CI and the pre-push hook run this
+```
+
+### Using the Postman collection
+
+Import `postman_collection.json` (Postman v2.1 format, 491 requests in 27
+folders, one per tag). Then:
+
+1. Set the `base_url` variable if it is not `http://127.0.0.1:8000/api/v1`.
+2. Send **Sign in** under *Authentication*. Its post-response script stores the
+   access token and the CSRF value in collection variables.
+3. Send anything else — bearer auth is inherited from the collection root.
+
+The refresh token is deliberately absent from every response body: it is an
+HttpOnly cookie, and Postman's cookie jar replays it on `/auth/refresh`, which
+is why that request carries the `X-CSRF-Token` header. Request bodies are
+generated from each endpoint's own schema with required fields first, so they
+show the shape; the values are placeholders, not valid business data.
+
+Do not edit the file by hand — `make contract` overwrites it.
+
 ---
 
 ## Response envelope

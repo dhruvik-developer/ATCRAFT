@@ -658,6 +658,25 @@ Normal flow is dev first:
 feature branch → dev → deployment 2 → verify → merge to main → deployment 1
 ```
 
+### Once, when upgrading past the tax-identifier release
+
+GSTIN validation now verifies the check digit, which earlier releases did not.
+Reads are unaffected - lists, reports and documents all work - but the value is
+checked when a record is *saved*, and the customer and vendor forms resend the
+number they loaded. A row holding a figure that an earlier release accepted
+therefore cannot be saved again until it is corrected, and whoever edits it is
+stopped by a field they never touched.
+
+Find those rows before anybody meets one:
+
+```bash
+./scripts/deploy.sh main shell python -m scripts.check_tax_identifiers
+```
+
+It only reads. It prints the entity, the code and the reason for each value,
+and exits non-zero if there are any, so it can gate a deploy. A clean database
+prints "Every stored GSTIN and PAN is valid."
+
 ---
 
 ## Migrations

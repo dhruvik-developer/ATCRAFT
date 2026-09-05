@@ -37,6 +37,7 @@ jobs:
       - run: ruff format --check src tests migrations scripts ../../scripts/hooks
       - run: mypy src
       - run: python -m scripts.export_openapi --check
+      - run: python -m scripts.export_postman --check
       - run: pytest tests/unit -q
 
   backend-integration:

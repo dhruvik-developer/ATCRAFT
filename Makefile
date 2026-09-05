@@ -10,7 +10,7 @@
         deployment-guard deploy-init deploy-doctor deploy-up deploy-down \
         deploy-migrate deploy-health deploy-backup deploy-verify \
         test test-unit test-integration test-cov test-web test-e2e test-load lint format \
-        typecheck contract contract-check check lock hooks hooks-run \
+        typecheck contract contract-check postman check lock hooks hooks-run \
         shell-api shell-db backup clean install
 
 # The local development stack is a THIRD stack, separate from the two
@@ -141,13 +141,15 @@ typecheck: ## Type-check only
 	cd $(API_DIR) && mypy src
 	cd $(WEB_DIR) && npm run typecheck
 
-contract: ## Regenerate the OpenAPI contract and the frontend types from it
+contract: ## Regenerate the OpenAPI contract, the frontend types and the Postman collection
 	cd $(API_DIR) && python -m scripts.export_openapi
 	cd $(WEB_DIR) && npm run contract:types
+	cd $(API_DIR) && python -m scripts.export_postman
 
-contract-check: ## Fail if the contract or the generated types are stale
+contract-check: ## Fail if the contract, the generated types or the collection are stale
 	cd $(API_DIR) && python -m scripts.export_openapi --check
 	cd $(WEB_DIR) && npm run contract:check
+	cd $(API_DIR) && python -m scripts.export_postman --check
 
 check: contract-check lint test test-web ## Everything CI runs
 
