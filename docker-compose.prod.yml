@@ -13,7 +13,8 @@
 # Rules enforced here (section 48):
 #   - no source bind-mounts (images contain the built application)
 #   - production build targets, non-root users
-#   - bounded resources, restart policies, controlled log rotation
+#   - bounded resources - CPU as well as memory, so neither deployment can
+#     starve the other - restart policies, controlled log rotation
 #   - exactly ONE published port, bound to loopback, from nginx alone
 #
 # TLS, the public hostname and HSTS are NOT here. They belong to the host
@@ -32,6 +33,7 @@ services:
     deploy:
       resources:
         limits:
+          cpus: ${PG_CPU_LIMIT:-1.5}
           memory: ${PG_MEM_LIMIT:-2G}
     logging: &prod-logging
       driver: json-file
@@ -47,6 +49,7 @@ services:
     deploy:
       resources:
         limits:
+          cpus: ${REDIS_CPU_LIMIT:-0.5}
           memory: ${REDIS_MEM_LIMIT:-1500M}
     logging: *prod-logging
 
@@ -65,19 +68,45 @@ services:
     deploy:
       resources:
         limits:
+          cpus: ${BACKEND_CPU_LIMIT:-2}
           memory: ${BACKEND_MEM_LIMIT:-2G}
     logging: *prod-logging
 
   celery-worker:
     build:
       target: production
-    command: ["celery", "-A", "src.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=${CELERY_CONCURRENCY:-4}", "--max-tasks-per-child=200", "-Q", "default,mrp,reports,notifications"]
+    # Batch work only. `task_routes` already sorts tasks by shape, but one
+    # worker consuming every queue made that sorting decorative: with
+    # prefetch 1 and concurrency 4, four concurrent MRP runs fill every slot and
+    # a password-reset e-mail waits behind a ten-minute plan. The queues are
+    # split across two workers below so the separation actually separates.
+    command: ["celery", "-A", "src.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=${CELERY_CONCURRENCY:-4}", "--max-tasks-per-child=200", "-n", "batch@%h", "-Q", "default,mrp,reports"]
     environment:
       LOG_JSON: "true"
+      # A prefork child builds its own engine, so this is multiplied by
+      # CELERY_CONCURRENCY. Half the API's pool: a task holds one connection for
+      # its own work, where a web worker interleaves several requests.
+      DB_POOL_SIZE: ${WORKER_DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${WORKER_DB_MAX_OVERFLOW:-5}
     deploy:
       resources:
         limits:
+          cpus: ${WORKER_CPU_LIMIT:-1}
           memory: ${WORKER_MEM_LIMIT:-2G}
+    logging: *prod-logging
+
+  celery-notify:
+    build:
+      target: production
+    environment:
+      LOG_JSON: "true"
+      DB_POOL_SIZE: ${NOTIFY_DB_POOL_SIZE:-2}
+      DB_MAX_OVERFLOW: ${NOTIFY_DB_MAX_OVERFLOW:-2}
+    deploy:
+      resources:
+        limits:
+          cpus: ${NOTIFY_CPU_LIMIT:-0.5}
+          memory: ${NOTIFY_MEM_LIMIT:-512M}
     logging: *prod-logging
 
   celery-beat:
@@ -85,11 +114,28 @@ services:
       target: production
     environment:
       LOG_JSON: "true"
+      # Beat reads the schedule and publishes; it runs no business query, so a
+      # pool of one plus one is ample and returns 18 connections to the budget.
+      DB_POOL_SIZE: "1"
+      DB_MAX_OVERFLOW: "1"
+    # Beat schedules; it never executes a task. A quarter of a core is generous.
+    deploy:
+      resources:
+        limits:
+          cpus: ${BEAT_CPU_LIMIT:-0.25}
+          memory: ${BEAT_MEM_LIMIT:-256M}
     logging: *prod-logging
 
   frontend:
     build:
       target: production
+    # Static files behind the deployment's nginx: it needs almost nothing, and
+    # a ceiling means a runaway cannot take the box from the other deployment.
+    deploy:
+      resources:
+        limits:
+          cpus: ${FRONTEND_CPU_LIMIT:-0.5}
+          memory: ${FRONTEND_MEM_LIMIT:-128M}
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1/"]
       interval: 10s
@@ -105,4 +151,9 @@ services:
     # application, unencrypted, on a port nobody remembers opening.
     ports:
       - "127.0.0.1:${HTTP_PORT:?HTTP_PORT must be set - each deployment needs its own}:80"
+    deploy:
+      resources:
+        limits:
+          cpus: ${EDGE_CPU_LIMIT:-1}
+          memory: ${EDGE_MEM_LIMIT:-256M}
     logging: *prod-logging

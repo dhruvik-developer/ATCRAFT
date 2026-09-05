@@ -34,6 +34,11 @@ log = get_logger(__name__)
 
 KEY_PREFIX = "atcraft"
 
+#: How long a cache operation may take before it is treated as a miss. See
+#: the client below for why these are small and why nothing is retried.
+REDIS_COMMAND_TIMEOUT_SECONDS = 0.25
+REDIS_CONNECT_TIMEOUT_SECONDS = 1.0
+
 _redis: Redis | None = None
 
 
@@ -59,9 +64,18 @@ async def get_redis() -> Redis:
             encoding="utf-8",
             decode_responses=True,
             max_connections=32,
-            socket_connect_timeout=2,
-            socket_timeout=2,
-            retry_on_timeout=True,
+            # Fail fast, and do not retry. Every value here is on the path of a
+            # normal request, and the cache is explicitly allowed to degrade to
+            # a miss - so the only thing waiting buys is a slower miss. With the
+            # previous two-second timeout *and* a retry, a stalled Redis cost
+            # four seconds per cache read before giving up, turning a degraded
+            # cache into an unusable application. Redis sits on the same bridge
+            # network and answers in well under a millisecond; 250 ms is three
+            # orders of magnitude of headroom, and a connect is allowed longer
+            # because it may include DNS.
+            socket_connect_timeout=REDIS_CONNECT_TIMEOUT_SECONDS,
+            socket_timeout=REDIS_COMMAND_TIMEOUT_SECONDS,
+            retry_on_timeout=False,
             health_check_interval=30,
         )
     return _redis

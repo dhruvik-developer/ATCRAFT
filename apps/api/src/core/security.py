@@ -11,6 +11,7 @@ hashing, and adding JWT expiry. Concretely:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -88,6 +89,35 @@ def verify_password(plain: str, stored_hash: str) -> bool:
             return False
 
     return False
+
+
+# -----------------------------------------------------------------------------
+# The async wrappers - what a request path must use
+# -----------------------------------------------------------------------------
+#
+# Argon2id is deliberately expensive: measured at ~37 ms per hash and per verify
+# with the parameters above. That is the right cost for resisting offline
+# cracking, and exactly the wrong thing to run on the event loop - a login
+# freezes the whole worker for 37 ms, so a shift change where fifty people sign
+# in at once serialises into seconds during which no other request on that
+# worker progresses, including ones that touch no password at all.
+#
+# `asyncio.to_thread` moves it to the default executor. Argon2 releases the GIL
+# while it works, so the thread genuinely runs in parallel rather than merely
+# deferring the stall.
+#
+# The synchronous forms stay, unchanged and exported: `src/core/seed.py` and the
+# tests are not async, and a CLI blocking for 37 ms is not a problem.
+
+
+async def hash_password_async(plain: str) -> str:
+    """Hash off the event loop. Use this from any request path."""
+    return await asyncio.to_thread(hash_password, plain)
+
+
+async def verify_password_async(plain: str, stored_hash: str) -> bool:
+    """Verify off the event loop. Use this from any request path."""
+    return await asyncio.to_thread(verify_password, plain, stored_hash)
 
 
 def needs_rehash(stored_hash: str) -> bool:
@@ -462,10 +492,12 @@ __all__ = [
     "generate_secret_token",
     "generate_totp_secret",
     "hash_password",
+    "hash_password_async",
     "hash_secret_token",
     "matching_totp_step",
     "needs_rehash",
     "totp_provisioning_uri",
     "validate_password_policy",
     "verify_password",
+    "verify_password_async",
 ]

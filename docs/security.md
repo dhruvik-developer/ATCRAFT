@@ -271,6 +271,33 @@ observe "under the limit".
 It **fails open** if Redis is unavailable. A cache outage must not take
 authentication offline, and Nginx still provides a floor.
 
+### Sizing, and why the two layers are set so differently
+
+A client address is a *site*, not a person: every user in the plant reaches the
+ERP from one NAT address. So the Nginx layer cannot be a fair per-user budget,
+and sizing it as though it were is how you end up refusing the busiest, most
+legitimate office on the network. Fairness belongs to the application layer,
+which knows the authenticated user and can be both strict and fair.
+
+| Budget | Value | Keyed on | Reasoning |
+|---|---|---|---|
+| `api_general` (Nginx, both layers) | 3000 r/m, burst 300 | address | An office of 50 doing ~30 req/min of real navigation is 1500 r/m; this is twice that, and still an order of magnitude below a scraper. |
+| `api_auth` (Nginx) | 60 r/m, burst 30 | address | Deliberately looser than the application's own login budget, so that budget is the one that binds. |
+| `RATE_LIMIT_DEFAULT_PER_MINUTE` | 300 | authenticated user | A detail page fires ~5 queries and a dialog on it ~5 more, so a clerk moving through 15 documents a minute spends ~150. |
+| `RATE_LIMIT_AUTH_PER_MINUTE` | 20 (100 per 5-min window) | address | A shift change is 50 people signing in inside one window, some twice. Caps account *spraying* at 20 attempts a minute. |
+| `LOGIN_PER_EMAIL` | 5 per 5 min | account | Fixed security constant. This, with the lockout, is what stops credential stuffing — not the per-address budget. |
+
+Two of these were previously set as though the address budget were the fairness
+control: `api_general` at 120 r/m refused a single operator working properly, and
+`RATE_LIMIT_AUTH_PER_MINUTE` at 4 refused the twenty-first person at a shift
+change — before their password was ever checked, which from the floor is
+indistinguishable from the ERP being down.
+
+When raising the per-address login budget, note what it does and does not
+defend. It bounds how many *different* accounts one address may try. It is not
+what stops one account being guessed repeatedly; `LOGIN_PER_EMAIL` and the
+account lockout do that, and both are fixed constants that no deployment tunes.
+
 ---
 
 ## 9. Audit trail

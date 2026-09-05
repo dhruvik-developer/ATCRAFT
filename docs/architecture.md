@@ -40,6 +40,7 @@ HTTP request
    │
    ▼
 middleware      request id · access log · security headers · body limit · rate limit
+                (pure ASGI, never BaseHTTPMiddleware — see below)
    │
    ▼
 router          authorise, validate, delegate, return the envelope — and nothing else
@@ -56,6 +57,33 @@ models          SQLAlchemy: constraints and indexes that make bad states unrepre
    ▼
 PostgreSQL
 ```
+
+### Middleware is pure ASGI
+
+Every middleware in `src/core/middleware.py` implements the ASGI callable
+directly rather than subclassing Starlette's `BaseHTTPMiddleware`.
+
+`BaseHTTPMiddleware` is the comfortable spelling — it hands you a `Request` and
+a `call_next` — and it pays for that by running the rest of the application in a
+separate anyio task wired through a pair of memory object streams, for every
+request. Measured on a minimal app: 16.6 µs/request bare, 1171 µs with five
+no-op `BaseHTTPMiddleware` layers, 19.8 µs with five no-op pure-ASGI layers.
+That is 231 µs per layer against 0.6 µs, and this application had five of them —
+about 1.15 ms of overhead on every request before any application code ran.
+
+The pure-ASGI form also makes one thing possible that the other does not.
+`call_next` returns when the `http.response.start` message arrives — when the
+*headers* are settled — so anything timing a request around it is measuring
+time-to-first-byte. For JSON the difference is invisible; for the streaming
+download route it was the entire transfer, so the access log and the
+`atcraft_http_request_duration` histogram both reported the slowest route in the
+ERP as the fastest. Wrapping `send` instead lets the timing run to the final
+body message, which is what `is_final_body_message` is for.
+
+Cost of the choice: a middleware here reads and writes ASGI messages rather than
+request and response objects. That is the trade, and it is only worth making on
+the layers every single request passes through.
+
 
 Two rules keep this honest:
 

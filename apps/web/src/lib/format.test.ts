@@ -20,9 +20,10 @@
  */
 
 import Decimal from 'decimal.js'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  __resetFormatterCache,
   daysUntil,
   formatDate,
   formatFileSize,
@@ -35,6 +36,53 @@ import {
   toDateInput,
   toDecimal,
 } from './format'
+
+describe('the formatter cache', () => {
+  /**
+   * Constructing an `Intl.NumberFormat` costs about 42 microseconds and calling
+   * `.format()` on a cached one costs 0.8, so every money and quantity cell on
+   * a table row used to pay for a constructor. These cases pin the two things
+   * that could go wrong with caching them: a wrong cache key handing back a
+   * formatter configured for different options, and the cache not actually
+   * being used.
+   */
+  beforeEach(() => {
+    __resetFormatterCache()
+  })
+
+  it('keeps every option set distinct', () => {
+    // Same value, six option sets. If the key collided, two of these would match.
+    const rendered = [
+      formatMoney('1234.5'),
+      formatMoney('1234.5', { showSymbol: false }),
+      formatMoney('1234.5', { compact: true }),
+      formatMoney('1234.5', { currency: 'USD' }),
+      formatNumber(1234.5, 0),
+      formatNumber(1234.5, 3),
+    ]
+    expect(new Set(rendered).size).toBe(rendered.length)
+  })
+
+  it('returns the same instance for the same options, and a new one otherwise', () => {
+    const spy = vi.spyOn(Intl, 'NumberFormat')
+    formatNumber(1, 2)
+    formatNumber(2, 2)
+    formatNumber(3, 2)
+    expect(spy, 'three calls with identical options must construct once').toHaveBeenCalledTimes(1)
+
+    formatNumber(4, 4)
+    expect(spy, 'a different option set needs its own formatter').toHaveBeenCalledTimes(2)
+    spy.mockRestore()
+  })
+
+  it('formats identically before and after the cache is warm', () => {
+    const cold = formatMoney('1234567.891')
+    const warm = formatMoney('1234567.891')
+    expect(warm).toBe(cold)
+    __resetFormatterCache()
+    expect(formatMoney('1234567.891')).toBe(cold)
+  })
+})
 
 describe('toDecimal', () => {
   it('parses the decimal strings the API actually sends', () => {

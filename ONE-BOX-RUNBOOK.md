@@ -542,6 +542,47 @@ Both Postgres clusters share one box's RAM. Size them together: the sum of the
 two `PG_MEM_LIMIT`s plus both backends and both workers must fit, with room for
 the page cache.
 
+### Connections and memory
+
+Two sums have to be reconciled whenever any of these numbers change, and
+nothing enforces them, so check them by hand.
+
+**Connections.** Every gunicorn worker and every Celery prefork child builds
+its own SQLAlchemy pool, so the demand is per *process*, not per container:
+
+```
+  GUNICORN_WORKERS   x (DB_POOL_SIZE + DB_MAX_OVERFLOW)          4 x 20 =  80
+  CELERY_CONCURRENCY x (WORKER_DB_POOL_SIZE + ...OVERFLOW)       4 x 10 =  40
+  NOTIFY_CONCURRENCY x (NOTIFY_DB_POOL_SIZE + ...OVERFLOW)       2 x  4 =   8
+  celery-beat        x (1 + 1)                                            2
+                                                                        ---
+                                                          deployment 1   130   <= 150
+                                                          deployment 2    66   <=  80
+```
+
+Leave headroom above the total: `psql`, a backup and a monitoring probe all
+need a connection, and Postgres reserves three for superusers.
+
+**Memory.** `work_mem` is charged per sort or hash node, so the pathological
+case is `max_connections x work_mem`, and that has to leave room for
+`shared_buffers` inside `PG_MEM_LIMIT`:
+
+```
+  deployment 1   150 x 8MB + 1GB    = 2.2G   <= 4G
+  deployment 2    80 x 4MB + 256MB  = 0.6G   <= 1G
+```
+
+Raising `max_connections` means lowering `work_mem`, or the container reaches
+its limit and the kernel kills Postgres. A report that genuinely needs more can
+raise `work_mem` for its own session.
+
+**CPU.** Every service carries a `cpus` ceiling as well as a memory one
+(`*_CPU_LIMIT` in the env file). Memory was capped and CPU was not, which meant
+the busier deployment could take every core and starve the other - the one
+thing this architecture exists to prevent. A ceiling is not a reservation: keep
+the sum of both deployments at or below the core count for hard isolation, or
+above it if you would rather they share and neither can monopolise.
+
 ### Fixed by the compose files, not by env
 
 Set in `docker-compose.yml` / `docker-compose.prod.yml` so they cannot drift

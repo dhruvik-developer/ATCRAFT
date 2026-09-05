@@ -24,7 +24,7 @@
  * page would claim to search a ledger while reading fifty rows of it.
  */
 
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Lock, Scale } from 'lucide-react'
 import { useEffect, useId, useMemo, useState } from 'react'
@@ -102,6 +102,11 @@ export function PartyLedgerPanel({ kind, partyId, className }: PartyLedgerPanelP
     queryFn: () => api.get<LedgerStatement>(statementPath(kind, partyId), { params }),
     enabled: canViewLedger && Boolean(partyId),
     staleTime: staleTimes.transactional,
+    // Hold the current page on screen while the next one loads. Without it
+    // the table collapses to a skeleton on every page click - `useListQuery`
+    // sets this for every list that goes through it, and these four are the
+    // hand-rolled ones that did not.
+    placeholderData: keepPreviousData,
   })
 
   const data = statement.data

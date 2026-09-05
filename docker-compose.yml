@@ -57,6 +57,20 @@ x-api-env: &api-env
   DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-atcraft}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-atcraft_erp}
   DATABASE_SYNC_URL: postgresql+psycopg://${POSTGRES_USER:-atcraft}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-atcraft_erp}
   REDIS_URL: redis://redis:6379/0
+  # --- Database pool, per process -------------------------------------------
+  # Every gunicorn worker and every Celery child builds its own engine, so the
+  # ceiling is (processes x (pool + overflow)). Sized here rather than left to
+  # the application default because the arithmetic has to be reconcilable with
+  # PG_MAX_CONNECTIONS below, and it was not before: 4 workers + 4 Celery
+  # children + beat wanted 180 connections against a fallback of 100.
+  #
+  #   backend        GUNICORN_WORKERS x (10 + 10)
+  #   celery-worker  CELERY_CONCURRENCY x (5 + 5)     - overridden per service
+  #   celery-beat    1 x (1 + 1)                      - it schedules, it does not query
+  #
+  # See ONE-BOX-RUNBOOK.md, "Connections and memory".
+  DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+  DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
   CELERY_BROKER_URL: redis://redis:6379/1
   CELERY_RESULT_BACKEND: redis://redis:6379/2
   # Per deployment, and never shared: a token minted by one deployment must not
@@ -114,7 +128,9 @@ services:
       # share one box's RAM, and two clusters each claiming 1GB of
       # shared_buffers oversubscribe it between them.
       - -c
-      - max_connections=${PG_MAX_CONNECTIONS:-100}
+      # 150, not 100: the default pool sizing above wants 122 connections, so
+      # a deployment that never set this used to exhaust the ceiling under load.
+      - max_connections=${PG_MAX_CONNECTIONS:-150}
       - -c
       - shared_buffers=${PG_SHARED_BUFFERS:-256MB}
       - -c
@@ -123,6 +139,33 @@ services:
       - work_mem=${PG_WORK_MEM:-16MB}
       - -c
       - maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:-128MB}
+      # The planner's cost model still defaults to 1990s hardware: a random
+      # page read is priced at 4x a sequential one, which is roughly true of a
+      # spinning disk and roughly 40x too pessimistic on the NVMe this actually
+      # runs on. The effect is systematic and quiet - the planner keeps choosing
+      # a sequential scan over an index it has, on exactly the large tables
+      # where the index matters. This schema has 643 indexes; pricing them
+      # correctly is the cheapest performance work available.
+      #
+      # Measured on a 500k-row stand-in for the inventory ledger, one ordinary
+      # tenant-scoped list query: at 4.0 the planner picks a bitmap heap scan
+      # over 124k rows and hash-joins it, 84 ms; at 1.1 it picks a nested loop
+      # of 200 index lookups, 30 ms. Same query, same data, same index.
+      - -c
+      - random_page_cost=${PG_RANDOM_PAGE_COST:-1.1}
+      # How many concurrent reads the storage can usefully service. 1 is the
+      # single-spindle default; SSDs are queue devices and want a real number.
+      - -c
+      - effective_io_concurrency=${PG_EFFECTIVE_IO_CONCURRENCY:-200}
+      # Without this, pg_stat_statements' blk_read_time and blk_write_time are
+      # always zero and EXPLAIN (ANALYZE, BUFFERS) reports no I/O timings - so
+      # the question "is this query slow because of I/O or CPU" has no answer,
+      # which is the first question worth asking about a slow query. The cost is
+      # two clock reads per block access; on any host with a TSC clocksource
+      # that is tens of nanoseconds. Verify with `pg_test_timing` if a host
+      # behaves oddly, and set PG_TRACK_IO_TIMING=off if it does.
+      - -c
+      - track_io_timing=${PG_TRACK_IO_TIMING:-on}
       - -c
       - log_min_duration_statement=${PG_LOG_MIN_DURATION_MS:-500}
       - -c
@@ -228,6 +271,41 @@ services:
     networks: [internal]
     restart: unless-stopped
 
+  # ----------------------------------------------------------- celery-notify
+  # A second worker, for the queue whose latency a person notices.
+  #
+  # `task_routes` sorts tasks by shape into default/mrp/reports/notifications,
+  # but one worker consuming every queue made that sorting decorative: with
+  # prefetch 1 and concurrency 4, four concurrent MRP runs occupy every slot and
+  # a password-reset e-mail waits behind a ten-minute plan. Splitting the queues
+  # across two workers is what makes the routing mean something.
+  celery-notify:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+      labels:
+        org.opencontainers.image.revision: ${SOURCE_REVISION:-unknown}
+    image: ${IMAGE_PREFIX:-atcraft}/api:${IMAGE_TAG:-local}
+    command: ["celery", "-A", "src.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=${NOTIFY_CONCURRENCY:-2}", "--max-tasks-per-child=200", "-n", "notify@%h", "-Q", "notifications"]
+    environment: *api-env
+    volumes:
+      - storage-data:/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # CMD-SHELL for the $HOSTNAME expansion, and the node name must match the
+      # `-n notify@%h` above - see celery-worker for what a mismatch looks like.
+      test: ["CMD-SHELL", "celery -A src.workers.celery_app:celery_app inspect ping -d notify@$$HOSTNAME"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks: [internal]
+    restart: unless-stopped
+
   # ------------------------------------------------------------- celery-beat
   # Scheduled work: nightly summary-table refresh, stale-reservation sweep,
   # dispatch delay alerts. Present because section 35 scheduled calculations
@@ -286,9 +364,19 @@ services:
         VITE_APP_RELEASE: ${IMAGE_TAG:-local}
         VITE_ERROR_REPORT_URL: ${VITE_ERROR_REPORT_URL:-}
     image: ${IMAGE_PREFIX:-atcraft}/web:${IMAGE_TAG:-local}
-    depends_on:
-      backend:
-        condition: service_healthy
+    # Deliberately depends on nothing. This container serves the built bundle
+    # off its own filesystem; the browser talks to /api/v1 through the `nginx`
+    # service, never through this one, so it has no runtime dependency on the
+    # backend at all.
+    #
+    # Waiting for `backend: service_healthy` cost on both sides. It serialised
+    # startup - postgres, then the migrations, then the backend's readiness
+    # probe, and only then did a static file server begin its own wait - and it
+    # bought nothing back, because depends_on governs startup order and nothing
+    # else: a backend that goes unhealthy an hour later does not stop this
+    # container, which is the case the dependency looked like it covered. It
+    # also meant a backend that never became healthy served *nothing*, not even
+    # the SPA that would have shown the user a real error.
     networks: [internal]
     restart: unless-stopped
 

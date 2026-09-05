@@ -190,12 +190,32 @@ class Settings(BaseSettings):
     login_max_failed_attempts: Annotated[int, Field(ge=1)] = 5
     login_lockout_minutes: Annotated[int, Field(ge=1)] = 15
     rate_limit_enabled: bool = True
-    rate_limit_default_per_minute: Annotated[int, Field(ge=1)] = 120
+    # Per-principal API budget, keyed on the authenticated user where there is
+    # one (see ``RateLimitMiddleware``), so this is a budget for one person and
+    # not for an office. Sized from what the screens actually cost: a detail
+    # page fires about five queries and opening a dialog on it fires five more,
+    # so a clerk moving briskly through fifteen documents a minute spends ~150.
+    # The old 120 sat below that, which made a fast operator - the one doing the
+    # job properly - the first person to see "Too many requests".
+    rate_limit_default_per_minute: Annotated[int, Field(ge=1)] = 300
     # Per-address budget for unauthenticated sign-in attempts, expressed per
     # minute and applied by ``RateLimitPolicy.LOGIN_PER_IP`` over its
-    # five-minute sliding window (4/min -> 20 per 5 min). Raise it for a plant
-    # where many users share one NAT address; the per-account budget is fixed.
-    rate_limit_auth_per_minute: Annotated[int, Field(ge=1)] = 4
+    # five-minute sliding window (20/min -> 100 per 5 min).
+    #
+    # This is the budget an entire plant shares, because everyone behind one NAT
+    # arrives from one address, and a shift change is the worst case: fifty
+    # people signing in inside five minutes, some twice. At the previous 4/min
+    # (20 per window) the twenty-first person was refused, and refused *before*
+    # their password was ever checked - indistinguishable, from the floor, from
+    # the ERP being down. 100 per window covers that shift change with room for
+    # retries.
+    #
+    # Raising it does not weaken the defence that matters. Credential stuffing
+    # is stopped per account - ``LOGIN_PER_EMAIL`` (5 per 5 min) and the
+    # lockout after ``login_max_failed_attempts`` - and both are fixed security
+    # constants. What this budget bounds is *spraying* many accounts from one
+    # address, which it still caps at 20 distinct attempts a minute.
+    rate_limit_auth_per_minute: Annotated[int, Field(ge=1)] = 20
     # Comma-separated hostnames accepted by TrustedHostMiddleware.  Public
     # hostnames are normally listed explicitly by the deployment; CORS origins
     # are also folded in below so existing deployments fail closed rather than

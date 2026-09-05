@@ -3,17 +3,35 @@
 Master rules sections 51/54/55. Ordering matters and is set in ``main.py``:
 the request-context middleware must run outermost so that everything inside it,
 including the exception handlers, has a correlation id to report.
+
+Why these are pure ASGI and not ``BaseHTTPMiddleware``
+-----------------------------------------------------
+``BaseHTTPMiddleware`` is the comfortable spelling - it hands you a ``Request``
+and a ``call_next`` - and it pays for that comfort by running the rest of the
+application in a *separate anyio task*, wired to the caller through a pair of
+memory object streams, for every request. Five of those were stacked here.
+
+Measured, same machine, same endpoint, minimal app: 16.6 us/request bare,
+1171 us/request with five no-op ``BaseHTTPMiddleware`` layers, 19.8 us/request
+with five no-op pure-ASGI layers. That is 231 us per layer against 0.6 us -
+about 1.15 ms of pure overhead on every request before a line of application
+code runs, which on a cached reference lookup was most of the response time.
+
+The pure-ASGI form is a little more work to read: instead of returning a
+response you wrap ``send`` and act on the ``http.response.start`` message. In
+exchange it costs essentially nothing, and it makes one thing possible that the
+other form does not - see ``RequestContextMiddleware``, which can only measure a
+streamed response honestly because it sees the final body message.
 """
 
 from __future__ import annotations
 
 import time
-from collections.abc import Awaitable, Callable
 
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.datastructures import Headers, MutableHeaders
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
-from starlette.types import ASGIApp
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from src.core.config import settings
 from src.core.errors import AuthenticationError, ErrorCode
@@ -31,6 +49,77 @@ log = get_logger("http")
 _QUIET_PATHS = frozenset({"/health/live", "/health/ready", "/metrics", "/favicon.ico"})
 
 _BEARER_PREFIX = "bearer "
+
+#: Section 57's engineering target. Past this, a request is logged as slow so it
+#: surfaces before a user complains rather than after.
+SLOW_REQUEST_MS = 1000.0
+
+#: Set unless the response already carries them. Nginx sets the same values for
+#: browser traffic; these cover every other way the API is reached.
+SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("X-Frame-Options", "DENY"),
+    ("Referrer-Policy", "strict-origin-when-cross-origin"),
+    ("Cache-Control", "no-store"),
+)
+
+#: Only ever sent by something that terminates TLS, which in a deployment is the
+#: host nginx - this is the direct-access fallback.
+HSTS_VALUE = "max-age=31536000; includeSubDomains"
+
+
+def _request_id_from(scope: Scope) -> str | None:
+    """The correlation id ``RequestContextMiddleware`` put on the request.
+
+    Read off the scope rather than a ``Request``: the middlewares that need it
+    are building an error envelope on a path where constructing a request
+    object would be the most expensive thing they do. ``Request.state`` is
+    backed by ``scope["state"]``, so this is the same value by the same route.
+    """
+    state = scope.get("state")
+    return state.get("request_id") if isinstance(state, dict) else None
+
+
+class HttpMiddleware:
+    """Base for a pure-ASGI middleware that only cares about HTTP.
+
+    Anything that is not an HTTP request - a lifespan message, a websocket -
+    passes through untouched, which is the one piece of boilerplate every such
+    middleware needs and the one that is easy to forget.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        await self.handle(scope, receive, send)
+
+    async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
+        raise NotImplementedError
+
+
+def is_final_body_message(message: Message) -> bool:
+    """Whether this ASGI message is the last byte of the response.
+
+    The distinction the timing code turns on. A response is *started* when
+    ``http.response.start`` goes out - that is when the headers are settled and
+    when ``BaseHTTPMiddleware``'s ``call_next`` would have returned - and it is
+    *finished* only when a ``http.response.body`` arrives without ``more_body``.
+
+    For a JSON response the two are microseconds apart and the difference never
+    showed. For ``GET /documents/{id}/download``, which streams, the gap is the
+    entire transfer: timing to the start message recorded the row lookup and the
+    object open and excluded everything else, so a 40 MB drawing pulled over a
+    site VPN was logged at a few milliseconds. The slow-request warning could
+    never fire for a download and the ``atcraft_http_request_duration``
+    histogram reported the slowest route in the ERP as the fastest - the two
+    signals whose whole purpose is finding slow endpoints were blind to the
+    slowest one.
+    """
+    return message["type"] == "http.response.body" and not message.get("more_body", False)
 
 
 def _bearer_rate_limit_identity(authorization: str) -> str | None:
@@ -68,12 +157,12 @@ def _rate_limit_identity(request: Request) -> str:
     return f"ip:{request.headers.get('x-real-ip') or client_host}"
 
 
-class RequestContextMiddleware(BaseHTTPMiddleware):
+class RequestContextMiddleware(HttpMiddleware):
     """Establish the correlation id and emit one structured access log line."""
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
+    async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
+        request = Request(scope, receive)
+
         # Honour the id minted by Nginx so one identifier spans the whole hop
         # chain; generate one when the app is reached directly.
         request_id = request.headers.get("x-request-id") or new_request_id()
@@ -89,8 +178,66 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         request.state.request_id = request_id
 
         started = time.perf_counter()
+        status = 500
+        first_byte_ms = 0.0
+        accounted = False
+
+        def account() -> None:
+            """One access log line per request, once, after the last byte."""
+            nonlocal accounted
+            if accounted:
+                return
+            accounted = True
+            try:
+                if request.url.path in _QUIET_PATHS:
+                    return
+                duration_ms = round((time.perf_counter() - started) * 1000, 2)
+                principal = getattr(request.state, "principal", None)
+                log.info(
+                    "request.completed",
+                    method=request.method,
+                    path=request.url.path,
+                    route=_route_template(request),
+                    status=status,
+                    duration_ms=duration_ms,
+                    first_byte_ms=first_byte_ms,
+                    request_id=request_id,
+                    user_id=str(principal.user_id) if principal else None,
+                    company_id=str(principal.company_id) if principal else None,
+                )
+                # Section 57: flag anything materially past the engineering
+                # target so slow endpoints surface without waiting for a user
+                # complaint.
+                if duration_ms > SLOW_REQUEST_MS:
+                    log.warning(
+                        "request.slow",
+                        path=request.url.path,
+                        duration_ms=duration_ms,
+                        first_byte_ms=first_byte_ms,
+                        request_id=request_id,
+                    )
+            finally:
+                # The context belongs to the request, and this is the last thing
+                # the request does.
+                clear_request_context()
+
+        async def send_wrapper(message: Message) -> None:
+            nonlocal status, first_byte_ms
+            if message["type"] == "http.response.start":
+                status = message["status"]
+                # The header can only ever be time-to-first-byte: it goes out
+                # ahead of the body it would otherwise be describing. That is
+                # honest, and is what its name says.
+                first_byte_ms = round((time.perf_counter() - started) * 1000, 2)
+                headers = MutableHeaders(scope=message)
+                headers["X-Request-ID"] = request_id
+                headers["X-Response-Time-ms"] = str(first_byte_ms)
+            await send(message)
+            if is_final_body_message(message):
+                account()
+
         try:
-            response = await call_next(request)
+            await self.app(scope, receive, send_wrapper)
         except Exception:
             duration_ms = round((time.perf_counter() - started) * 1000, 2)
             log.exception(
@@ -99,73 +246,41 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
                 path=request.url.path,
                 duration_ms=duration_ms,
             )
-            raise
-        finally:
+            accounted = True
             clear_request_context()
-
-        duration_ms = round((time.perf_counter() - started) * 1000, 2)
-        response.headers["X-Request-ID"] = request_id
-        response.headers["X-Response-Time-ms"] = str(duration_ms)
-
-        if request.url.path not in _QUIET_PATHS:
-            principal = getattr(request.state, "principal", None)
-            log.info(
-                "request.completed",
-                method=request.method,
-                path=request.url.path,
-                route=_route_template(request),
-                status=response.status_code,
-                duration_ms=duration_ms,
-                request_id=request_id,
-                user_id=str(principal.user_id) if principal else None,
-                company_id=str(principal.company_id) if principal else None,
-            )
-            # Section 57: flag anything materially past the engineering target
-            # so slow endpoints surface without waiting for a user complaint.
-            if duration_ms > 1000:
-                log.warning(
-                    "request.slow",
-                    path=request.url.path,
-                    duration_ms=duration_ms,
-                    request_id=request_id,
-                )
-
-        return response
+            raise
+        # A client that disconnects mid-download leaves no final body message.
+        # That request is exactly the one worth accounting for, so account for
+        # it here; `account` is idempotent, so a normal response is unaffected.
+        account()
 
 
-def _route_template(request: Request) -> str:
-    """The parameterised path (``/items/{item_id}``) rather than the concrete one.
-
-    Raw paths would create unbounded log/metric cardinality, one series per id.
-    """
-    route = request.scope.get("route")
-    return getattr(route, "path", request.url.path)
-
-
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+class SecurityHeadersMiddleware(HttpMiddleware):
     """Defence in depth behind Nginx.
 
     Nginx sets these for browser traffic, but the API is also reached directly
     in development and by internal callers, and a header set in exactly one
     place is a header that silently disappears when the topology changes.
+
+    The ``setdefault`` semantics of the previous implementation are preserved: a
+    route that deliberately sets its own ``Cache-Control`` keeps it.
     """
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
-        response = await call_next(request)
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("X-Frame-Options", "DENY")
-        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        response.headers.setdefault("Cache-Control", "no-store")
-        if settings.is_production:
-            response.headers.setdefault(
-                "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
-            )
-        return response
+    async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
+        async def send_wrapper(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                for name, value in SECURITY_HEADERS:
+                    if name not in headers:
+                        headers[name] = value
+                if settings.is_production and "Strict-Transport-Security" not in headers:
+                    headers["Strict-Transport-Security"] = HSTS_VALUE
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
 
 
-class BodySizeLimitMiddleware(BaseHTTPMiddleware):
+class BodySizeLimitMiddleware(HttpMiddleware):
     """Reject oversized bodies before they are buffered.
 
     Nginx enforces the same ceiling, but a request that reaches the app in
@@ -177,12 +292,10 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.max_bytes = max_bytes
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
-        content_length = request.headers.get("content-length")
+    async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
+        content_length = Headers(scope=scope).get("content-length")
         if content_length and content_length.isdigit() and int(content_length) > self.max_bytes:
-            return JSONResponse(
+            response = JSONResponse(
                 status_code=413,
                 content={
                     "success": False,
@@ -192,13 +305,15 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
                             f"Request body exceeds the {self.max_bytes // (1024 * 1024)} MB limit."
                         ),
                     },
-                    "request_id": getattr(request.state, "request_id", None),
+                    "request_id": _request_id_from(scope),
                 },
             )
-        return await call_next(request)
+            await response(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
 
 
-class RateLimitMiddleware(BaseHTTPMiddleware):
+class RateLimitMiddleware(HttpMiddleware):
     """Coarse per-principal API budget.
 
     Keyed on the authenticated user where possible and on the client address
@@ -207,11 +322,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     inside the routes that need them.
     """
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
+    async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
+        request = Request(scope, receive)
         if not settings.rate_limit_enabled or request.url.path in _QUIET_PATHS:
-            return await call_next(request)
+            await self.app(scope, receive, send)
+            return
 
         from src.core.ratelimit import check_rate_limit
 
@@ -222,7 +337,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             scope="api",
         )
         if not result.allowed:
-            return JSONResponse(
+            response = JSONResponse(
                 status_code=429,
                 headers={
                     "Retry-After": str(result.retry_after_seconds),
@@ -236,19 +351,39 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                         "message": "Too many requests. Please slow down.",
                         "details": {"retry_after_seconds": result.retry_after_seconds},
                     },
-                    "request_id": getattr(request.state, "request_id", None),
+                    "request_id": _request_id_from(scope),
                 },
             )
+            await response(scope, receive, send)
+            return
 
-        response = await call_next(request)
-        response.headers["X-RateLimit-Limit"] = str(result.limit)
-        response.headers["X-RateLimit-Remaining"] = str(result.remaining)
-        return response
+        async def send_wrapper(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers["X-RateLimit-Limit"] = str(result.limit)
+                headers["X-RateLimit-Remaining"] = str(result.remaining)
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
+def _route_template(request: Request) -> str:
+    """The parameterised path (``/items/{item_id}``) rather than the concrete one.
+
+    Raw paths would create unbounded log/metric cardinality, one series per id.
+    """
+    route = request.scope.get("route")
+    return getattr(route, "path", request.url.path)
 
 
 __all__ = [
+    "HSTS_VALUE",
+    "SECURITY_HEADERS",
+    "SLOW_REQUEST_MS",
     "BodySizeLimitMiddleware",
+    "HttpMiddleware",
     "RateLimitMiddleware",
     "RequestContextMiddleware",
     "SecurityHeadersMiddleware",
+    "is_final_body_message",
 ]

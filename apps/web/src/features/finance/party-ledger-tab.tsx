@@ -18,7 +18,7 @@
  * reported as unknown rather than invented.
  */
 
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Scale } from 'lucide-react'
 import { useCallback, useMemo } from 'react'
@@ -107,6 +107,11 @@ export function PartyLedgerTab() {
     // and the API would reject the path outright.
     enabled: Boolean(partyId),
     staleTime: staleTimes.transactional,
+    // Hold the current page on screen while the next one loads. Without it
+    // the table collapses to a skeleton on every page click - `useListQuery`
+    // sets this for every list that goes through it, and these four are the
+    // hand-rolled ones that did not.
+    placeholderData: keepPreviousData,
   })
 
   const data = statement.data ?? null

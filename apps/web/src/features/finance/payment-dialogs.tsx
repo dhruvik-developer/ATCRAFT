@@ -20,7 +20,7 @@
  */
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import Decimal from 'decimal.js'
 import { Plus, Trash2 } from 'lucide-react'
@@ -997,6 +997,11 @@ export function PaymentAllocationDialog({
       api.getPage<VendorInvoiceSummary>('/finance/vendor-invoices', { params: invoiceParams }),
     enabled: Boolean(payment) && settles && canBrowseInvoices,
     staleTime: staleTimes.transactional,
+    // Hold the current page on screen while the next one loads. Without it
+    // the table collapses to a skeleton on every page click - `useListQuery`
+    // sets this for every list that goes through it, and these four are the
+    // hand-rolled ones that did not.
+    placeholderData: keepPreviousData,
   })
 
   /**

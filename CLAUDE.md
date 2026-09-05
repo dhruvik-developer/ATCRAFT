@@ -338,6 +338,32 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
   on CI), the run sat at 27% for an hour, and nothing said why. `timeout=` turns
   a hang into a failure with output; `stdin=DEVNULL` stops a child that reads
   stdin from waiting on the test runner's.
+- **`BaseHTTPMiddleware` costs 231 us a layer, and times the wrong thing.**
+  Starlette's convenient middleware base runs the rest of the application in a
+  separate anyio task joined by two memory object streams, per request. Measured
+  on a minimal app: 16.6 us bare, 1171 us with five no-op layers of it, 19.8 us
+  with five no-op pure-ASGI layers - 231 us against 0.6 us. Five were stacked
+  here, so every request paid about 1.15 ms before reaching a route. Worse, its
+  `call_next` returns on `http.response.start` - when the *headers* are settled -
+  so timing a request around it measures time to first byte. That is invisible
+  for JSON and it is the whole transfer for `GET /documents/{id}/download`: the
+  access log and the `atcraft_http_request_duration` histogram both reported the
+  slowest route in the ERP as the fastest, and `request.slow` could never fire
+  for a download. Middleware here is pure ASGI and wraps `send`; stop the clock
+  on `is_final_body_message`, not on the start message.
+- **A per-IP rate limit is per *site*, and a plant is one site.** Every user
+  behind the office NAT shares one `$binary_remote_addr`, so nothing keyed on it
+  can be a fair per-user budget - and two limits were set as though it could.
+  Nginx's `api_general` at 120 r/m refused a single operator working properly (a
+  detail page is ~5 requests, a dialog on it ~5 more), and
+  `RATE_LIMIT_AUTH_PER_MINUTE` at 4/min refused the twenty-first person at a
+  shift change, *before* their password was checked - which from the floor is
+  indistinguishable from the ERP being down. Fairness belongs to the application
+  limiter, which keys on the authenticated user; the Nginx layers are flood
+  guards and are sized well above any real office. Credential stuffing is stopped
+  per account by `LOGIN_PER_EMAIL` and the lockout, which are fixed constants -
+  raising the per-address budget does not weaken it. Sizing table in
+  `docs/security.md` section 8.
 - **`shrink-0` on a group that is itself `flex-wrap` defeats the wrap.** The
   `PageHeader` actions box was `flex shrink-0 flex-wrap`; `shrink-0` pins the
   box at its single-line max-content width, so the inner wrap never fires and

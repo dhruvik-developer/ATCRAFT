@@ -384,6 +384,28 @@ describe('creating a specification', () => {
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
   })
 
+  /**
+   * Slow on purpose, and the budget is not a guess.
+   *
+   * Timed step by step: opening the dialog, typing the code and name, and
+   * every assertion after the scope is chosen total about 1.2 s. One line
+   * costs the rest - `user.click` on the Radix Select trigger, measured at 36
+   * to 46 s depending on machine load, against 32 ms for the query that finds
+   * it and 130 ms for finding and clicking the option once it is open. The
+   * sibling test above does the same work minus the Select and runs in 450 ms.
+   *
+   * Ruled out, each by measurement rather than reasoning: userEvent's
+   * inter-keystroke delay (`delay: null`, no change), its pointer-events
+   * ancestor check (`pointerEventsCheck: 0`, no change), a missing
+   * IntersectionObserver for Floating UI's popper (polyfilled, no change), and
+   * DOM size (293 nodes with the dialog open). It is inside Radix's open
+   * handling under jsdom and needs its own investigation; `fireEvent` is not a
+   * substitute, because a bare pointerdown does not open the Select at all.
+   *
+   * The budget was 60 s, which this cleared by as little as 14 s - and duly
+   * failed the day a full run had the backend suite and Docker on the same
+   * box. 180 s is a timeout that catches a hang without catching a busy laptop.
+   */
   it('posts a stage-wide specification with the figures its plan does not use cleared', async () => {
     const { user, fetch } = await openCreate({
       'POST /quality/templates': ok(templateDetail({ code: 'QC-NEW' })),
@@ -436,5 +458,5 @@ describe('creating a specification', () => {
         is_mandatory: true,
       },
     ])
-  }, 60_000)
+  }, 180_000)
 })

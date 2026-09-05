@@ -77,12 +77,13 @@ from src.core.security import (
     generate_secret_token,
     generate_totp_secret,
     hash_password,
+    hash_password_async,
     hash_secret_token,
     matching_totp_step,
     needs_rehash,
     totp_provisioning_uri,
     validate_password_policy,
-    verify_password,
+    verify_password_async,
 )
 from src.core.state_machine import StateMachine, Transition
 from src.modules.audit.models import AuditAction
@@ -294,7 +295,7 @@ class AuthService:
 
         if account is None:
             # Same work, same answer, whether or not the address exists.
-            verify_password(payload.password, _TIMING_EQUALISER_HASH)
+            await verify_password_async(payload.password, _TIMING_EQUALISER_HASH)
             await self._record_unresolved_attempt(
                 candidates,
                 email=payload.email,
@@ -318,7 +319,7 @@ class AuthService:
         if not account.is_active:
             # Verified anyway so a deactivated account is not distinguishable by
             # response time from an active one with a wrong password.
-            verify_password(payload.password, _TIMING_EQUALISER_HASH)
+            await verify_password_async(payload.password, _TIMING_EQUALISER_HASH)
             await self._register_failure(
                 account,
                 reason=FAILURE_INACTIVE,
@@ -328,7 +329,7 @@ class AuthService:
             )
             raise InvalidCredentialsError()
 
-        if not verify_password(payload.password, account.password_hash):
+        if not await verify_password_async(payload.password, account.password_hash):
             locked = await self._register_failure(
                 account,
                 reason=FAILURE_BAD_PASSWORD,
@@ -359,7 +360,7 @@ class AuthService:
             # than postponing the upgrade forever for MFA-enabled accounts.
             if needs_rehash(account.password_hash):
                 async with transaction(self.session):
-                    account.password_hash = hash_password(payload.password)
+                    account.password_hash = await hash_password_async(payload.password)
 
             challenge_token, _ = create_mfa_challenge_token(
                 account.id,
@@ -405,7 +406,7 @@ class AuthService:
                 # credential change, and re-hashing the same secret is not one -
                 # moving it would sign the user out of their other devices for a
                 # maintenance detail they never asked for.
-                account.password_hash = hash_password(plain_password)
+                account.password_hash = await hash_password_async(plain_password)
                 log.info(
                     "auth.password_hash_upgraded",
                     user_id=str(account.id),
@@ -993,14 +994,14 @@ class AuthService:
             raise refused
 
         validate_password_policy(payload.new_password, email=account.email)
-        if verify_password(payload.new_password, account.password_hash):
+        if await verify_password_async(payload.new_password, account.password_hash):
             raise BusinessRuleError("The new password must be different from the current one.")
 
         tenant = _tenant_for(account.company_id, account.id)
         sessions = UserSessionRepository(self.session, tenant)
 
         async with transaction(self.session):
-            account.password_hash = hash_password(payload.new_password)
+            account.password_hash = await hash_password_async(payload.new_password)
             account.password_changed_at = utcnow()
             account.must_change_password = False
             # A user who changes their password has proved possession of the
@@ -1134,7 +1135,7 @@ class AuthService:
         reset_tokens = PasswordResetTokenRepository(self.session, tenant)
 
         async with transaction(self.session):
-            account.password_hash = hash_password(payload.new_password)
+            account.password_hash = await hash_password_async(payload.new_password)
             account.password_changed_at = utcnow()
             account.must_change_password = False
             # Mailbox recovery must also recover an account whose authenticator
@@ -1291,7 +1292,7 @@ class AuthService:
         (sign-in, MFA challenge, refresh) stay on 401.
         """
         await enforce_policy(RateLimitPolicy.LOGIN_PER_EMAIL, account.email)
-        if verify_password(current_password, account.password_hash):
+        if await verify_password_async(current_password, account.password_hash):
             return None
         locked = await self._register_failure(
             account,

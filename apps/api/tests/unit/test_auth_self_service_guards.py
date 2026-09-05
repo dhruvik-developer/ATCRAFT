@@ -131,11 +131,13 @@ def collaborators(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     async def enforce(policy: tuple[str, int, int], identifier: str) -> None:
         calls["policies"].append((policy, identifier))
 
-    def verify(password: str, password_hash: str) -> bool:
+    async def verify(password: str, password_hash: str) -> bool:
+        # Argon2 verification runs on a worker thread now - see
+        # test_password_hashing_offload - so the seam is the async form.
         return bool(calls["verify"])
 
     monkeypatch.setattr(auth_service, "enforce_policy", enforce)
-    monkeypatch.setattr(auth_service, "verify_password", verify)
+    monkeypatch.setattr(auth_service, "verify_password_async", verify)
     return calls
 
 
@@ -197,12 +199,12 @@ async def test_the_budget_is_consumed_before_the_password_is_checked(
     async def enforce(policy: tuple[str, int, int], identifier: str) -> None:
         order.append("throttle")
 
-    def verify(password: str, password_hash: str) -> bool:
+    async def verify(password: str, password_hash: str) -> bool:
         order.append("verify")
         return True
 
     monkeypatch.setattr(auth_service, "enforce_policy", enforce)
-    monkeypatch.setattr(auth_service, "verify_password", verify)
+    monkeypatch.setattr(auth_service, "verify_password_async", verify)
 
     await _service(collaborators, monkeypatch)._check_current_password(
         _account(), "x", purpose="Password change", ip_address=None, user_agent=None

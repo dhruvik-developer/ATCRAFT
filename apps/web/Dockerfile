@@ -95,7 +95,14 @@ EXPOSE 80
 # the probe was refused while the container was serving every request
 # correctly - the container reported unhealthy, `up --wait` failed, and nothing
 # was actually wrong with it.
-HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
+#
+# --start-period matters more than it looks. Without one, Docker runs the first
+# probe a full `interval` after the container starts - so this image, which is
+# serving in under a second, was reported "starting" for 30 s, and the `nginx`
+# service (which waits for it) sat idle for all of them. Measured: 31 s to
+# healthy before, 7 s after. Failures inside the start period do not count
+# against --retries, which is what makes the shorter interval safe here.
+HEALTHCHECK --interval=10s --timeout=3s --retries=3 --start-period=15s \
   CMD wget --spider -q http://127.0.0.1/ || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

@@ -34,7 +34,7 @@
  * so it is displayed with `formatUnitPrice` rather than `formatMoney`.
  */
 
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { FileSpreadsheet } from 'lucide-react'
 import { useCallback, useMemo } from 'react'
@@ -128,6 +128,11 @@ export function InventoryValuationTab() {
     queryKey: financeKeys.valuation(params),
     queryFn: () => api.get<InventoryValuationPage>('/finance/inventory-valuation', { params }),
     staleTime: staleTimes.transactional,
+    // Hold the current page on screen while the next one loads. Without it
+    // the table collapses to a skeleton on every page click - `useListQuery`
+    // sets this for every list that goes through it, and these four are the
+    // hand-rolled ones that did not.
+    placeholderData: keepPreviousData,
   })
 
   const data = valuation.data ?? null
