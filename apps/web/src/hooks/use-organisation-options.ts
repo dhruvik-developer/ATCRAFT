@@ -12,15 +12,19 @@
  * page is the whole list. Only active rows are offered, because the point of
  * these lists is choosing where something is filed next.
  *
- * A failure returns an empty list rather than propagating. The caller may hold
- * `warehouse.view` or `production_order.view` without `company.view`, and a
- * missing branch label is decoration on those screens, not the point of them -
- * an otherwise working page should not be replaced by an error state.
+ * A permission refusal returns an empty list rather than propagating. The
+ * caller may hold `warehouse.view` or `production_order.view` without
+ * `company.view`, and a missing branch label is decoration on those screens,
+ * not the point of them - an otherwise working page should not be replaced by
+ * an error state. Only that refusal is swallowed: an outage or a server fault
+ * still surfaces, because an empty picker after a 500 reads as "no branches
+ * exist" to the person filling in the form.
  */
 
 import { useQuery } from '@tanstack/react-query'
 
-import { api } from '@/lib/api-client'
+import { api, emptyOnPermissionError } from '@/lib/api-client'
+import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { staleTimes } from '@/lib/query-client'
 
 /** The fields every caller reads. Rows carry more; nothing here depends on it. */
@@ -36,7 +40,7 @@ export const organisationOptionKeys = {
   departments: ['organization', 'departments', 'options'] as const,
 } as const
 
-const OPTION_PARAMS = { limit: 200, is_active: true, with_total: false } as const
+const OPTION_PARAMS = { limit: LOOKUP_LIST_LIMIT, is_active: true, with_total: false } as const
 
 function useOrganisationOptions<T>(path: string, key: readonly unknown[], enabled: boolean) {
   return useQuery({
@@ -45,8 +49,8 @@ function useOrganisationOptions<T>(path: string, key: readonly unknown[], enable
       try {
         const page = await api.getPage<T>(path, { params: { ...OPTION_PARAMS } })
         return page.data
-      } catch {
-        return []
+      } catch (error) {
+        return emptyOnPermissionError<T>(error)
       }
     },
     staleTime: staleTimes.reference,

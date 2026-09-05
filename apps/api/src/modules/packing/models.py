@@ -74,7 +74,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.core.models import OptimisticLockMixin, TenantEntity
+from src.core.models import OptimisticLockMixin, TenantEntity, sql_in_list
 from src.core.types import GUID, Quantity
 
 #: A packing order with more lines than this is a bulk import or a data error,
@@ -154,16 +154,6 @@ OPEN_STATUSES: tuple[PackingOrderStatus, ...] = (
 )
 
 
-def _sql_in_list(values: tuple[StrEnum, ...] | type[StrEnum]) -> str:
-    """Render a status vocabulary as a SQL ``IN`` list.
-
-    Generated from the Python enum so a database CHECK cannot drift away from the
-    values the schemas and the state machine validate against.
-    """
-    members = values if isinstance(values, tuple) else tuple(values)
-    return ", ".join(f"'{member.value}'" for member in members)
-
-
 class PackingOrder(TenantEntity, OptimisticLockMixin):
     """One instruction to box a set of goods for one customer."""
 
@@ -231,9 +221,7 @@ class PackingOrder(TenantEntity, OptimisticLockMixin):
     #: The ``dispatches`` row that claimed this order. Bare UUID, no foreign key -
     #: see the module docstring.
     dispatch_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
-    handed_over_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    handed_over_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -242,9 +230,7 @@ class PackingOrder(TenantEntity, OptimisticLockMixin):
         # The packing bench's day: "what am I packing today, oldest first".
         Index("ix_packing_orders_company_status_planned", "company_id", "status", "planned_date"),
         Index("ix_packing_orders_company_customer", "company_id", "customer_id"),
-        Index(
-            "ix_packing_orders_company_warehouse_status", "company_id", "warehouse_id", "status"
-        ),
+        Index("ix_packing_orders_company_warehouse_status", "company_id", "warehouse_id", "status"),
         # The dispatch handover feed, and the reason it stays cheap: a partial
         # index over only the rows the feed can ever return. See
         # ``service.ready_for_dispatch``, whose predicate this mirrors exactly -
@@ -255,9 +241,7 @@ class PackingOrder(TenantEntity, OptimisticLockMixin):
             "packed_date",
             postgresql_where=text("status = 'PACKED' AND dispatch_id IS NULL"),
         ),
-        CheckConstraint(
-            f"status IN ({_sql_in_list(PackingOrderStatus)})", name="status_is_known"
-        ),
+        CheckConstraint(f"status IN ({sql_in_list(PackingOrderStatus)})", name="status_is_known"),
         CheckConstraint("total_cartons >= 0", name="total_cartons_non_negative"),
         CheckConstraint("total_gross_weight >= 0", name="total_gross_weight_non_negative"),
         CheckConstraint("total_net_weight >= 0", name="total_net_weight_non_negative"),
@@ -407,9 +391,7 @@ class Carton(TenantEntity):
             postgresql_where=text("is_sealed = false"),
         ),
         CheckConstraint("carton_number > 0", name="carton_number_positive"),
-        CheckConstraint(
-            f"carton_type IN ({_sql_in_list(CartonType)})", name="carton_type_is_known"
-        ),
+        CheckConstraint(f"carton_type IN ({sql_in_list(CartonType)})", name="carton_type_is_known"),
         # Structural shape of a generated barcode. Not the checksum - that is
         # verified in Python - but it stops anything empty or hand-written.
         CheckConstraint("barcode ~ '^[0-9A-Z-]{8,64}$'", name="barcode_is_scannable"),
@@ -417,13 +399,10 @@ class Carton(TenantEntity):
         CheckConstraint("net_weight_kg >= 0", name="net_weight_non_negative"),
         CheckConstraint("gross_weight_kg >= 0", name="gross_weight_non_negative"),
         CheckConstraint("gross_weight_kg >= net_weight_kg", name="gross_covers_net"),
-        CheckConstraint(
-            "packing_material_quantity > 0", name="packing_material_quantity_positive"
-        ),
+        CheckConstraint("packing_material_quantity > 0", name="packing_material_quantity_positive"),
         # All three sides or none. Two of three measures nothing.
         CheckConstraint(
-            "(length_cm IS NULL) = (width_cm IS NULL) "
-            "AND (width_cm IS NULL) = (height_cm IS NULL)",
+            "(length_cm IS NULL) = (width_cm IS NULL) AND (width_cm IS NULL) = (height_cm IS NULL)",
             name="dimensions_are_complete",
         ),
         CheckConstraint(

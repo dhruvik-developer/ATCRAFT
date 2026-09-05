@@ -130,9 +130,7 @@ def test_a_make_item_without_a_structure_cannot_be_exploded() -> None:
     assert is_explodable(item(ProductionType.MAKE), has_bom=False) is False
 
 
-@pytest.mark.parametrize(
-    "production_type", [ProductionType.MAKE, ProductionType.MAKE_OR_BUY]
-)
+@pytest.mark.parametrize("production_type", [ProductionType.MAKE, ProductionType.MAKE_OR_BUY])
 def test_manufactured_items_with_a_structure_are_exploded(production_type: str) -> None:
     assert is_explodable(item(production_type), has_bom=True) is True
 
@@ -143,31 +141,27 @@ def test_manufactured_items_with_a_structure_are_exploded(production_type: str) 
 
 
 def test_a_shortage_above_the_minimum_is_ordered_as_it_stands() -> None:
-    assert (
-        apply_order_policy(D("140"), min_order_quantity=D("50"), order_multiple=D("0"))
-        == D("140.0000")
+    assert apply_order_policy(D("140"), min_order_quantity=D("50"), order_multiple=D("0")) == D(
+        "140.0000"
     )
 
 
 def test_a_shortage_below_the_minimum_is_raised_to_it() -> None:
-    assert (
-        apply_order_policy(D("12"), min_order_quantity=D("50"), order_multiple=D("0"))
-        == D("50.0000")
+    assert apply_order_policy(D("12"), min_order_quantity=D("50"), order_multiple=D("0")) == D(
+        "50.0000"
     )
 
 
 def test_a_quantity_is_rounded_up_to_the_pack_multiple() -> None:
     """A vendor shipping in cartons of 50 cannot supply 51."""
-    assert (
-        apply_order_policy(D("51"), min_order_quantity=D("0"), order_multiple=D("50"))
-        == D("100.0000")
+    assert apply_order_policy(D("51"), min_order_quantity=D("0"), order_multiple=D("50")) == D(
+        "100.0000"
     )
 
 
 def test_an_exact_multiple_is_left_alone() -> None:
-    assert (
-        apply_order_policy(D("100"), min_order_quantity=D("0"), order_multiple=D("50"))
-        == D("100.0000")
+    assert apply_order_policy(D("100"), min_order_quantity=D("0"), order_multiple=D("50")) == D(
+        "100.0000"
     )
 
 
@@ -177,33 +171,28 @@ def test_the_minimum_is_applied_before_the_multiple() -> None:
     Rounding to the multiple first would leave 50 - a number the supplier cannot
     ship. The order of these two operations is the whole test.
     """
-    assert (
-        apply_order_policy(D("12"), min_order_quantity=D("50"), order_multiple=D("30"))
-        == D("60.0000")
+    assert apply_order_policy(D("12"), min_order_quantity=D("50"), order_multiple=D("30")) == D(
+        "60.0000"
     )
 
 
 def test_fractional_multiples_round_up_not_to_nearest() -> None:
     """Rounding a shortage *down* would ship a plan that knowingly under-orders."""
-    assert (
-        apply_order_policy(D("10.0001"), min_order_quantity=D("0"), order_multiple=D("2.5"))
-        == D("12.5000")
-    )
+    assert apply_order_policy(
+        D("10.0001"), min_order_quantity=D("0"), order_multiple=D("2.5")
+    ) == D("12.5000")
 
 
 def test_no_policy_leaves_the_shortage_untouched() -> None:
-    assert (
-        apply_order_policy(D("7.5"), min_order_quantity=D("0"), order_multiple=D("0"))
-        == D("7.5000")
+    assert apply_order_policy(D("7.5"), min_order_quantity=D("0"), order_multiple=D("0")) == D(
+        "7.5000"
     )
 
 
 def test_the_suggested_quantity_never_falls_below_the_shortage() -> None:
     """The property the database also enforces as a check constraint."""
     for shortage in ("1", "49", "50", "51", "999.9999"):
-        result = apply_order_policy(
-            D(shortage), min_order_quantity=D("25"), order_multiple=D("7")
-        )
+        result = apply_order_policy(D(shortage), min_order_quantity=D("25"), order_multiple=D("7"))
         assert result >= D(shortage)
 
 
@@ -266,9 +255,7 @@ def test_an_ignored_suggestion_cannot_be_converted() -> None:
 
 def test_conversion_is_marked_irreversible() -> None:
     """The UI demands confirmation for it because the flag says so."""
-    transition = SUGGESTION_LIFECYCLE.find(
-        MrpSuggestionStatus.OPEN, MrpSuggestionStatus.CONVERTED
-    )
+    transition = SUGGESTION_LIFECYCLE.find(MrpSuggestionStatus.OPEN, MrpSuggestionStatus.CONVERTED)
     assert transition is not None
     assert transition.is_irreversible is True
 
@@ -287,10 +274,7 @@ def test_each_suggestion_type_has_a_default_document() -> None:
         DEFAULT_CONVERSION_TARGET[MrpSuggestionType.MANUFACTURE]
         is ConversionTarget.PRODUCTION_ORDER
     )
-    assert (
-        DEFAULT_CONVERSION_TARGET[MrpSuggestionType.JOB_WORK]
-        is ConversionTarget.JOB_WORK_ORDER
-    )
+    assert DEFAULT_CONVERSION_TARGET[MrpSuggestionType.JOB_WORK] is ConversionTarget.JOB_WORK_ORDER
 
 
 def test_transfer_has_no_default_target() -> None:

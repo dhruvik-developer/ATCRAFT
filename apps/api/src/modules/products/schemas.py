@@ -24,6 +24,7 @@ from fastapi import Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.common.codes import normalise_code
+from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
 from src.modules.products.models import (
     ItemGroup,
     ItemLifecycleState,
@@ -509,7 +510,9 @@ class VariantOut(_Base):
 class PriceCreate(_Base):
     variant_id: uuid.UUID | None = None
     price_type: PriceType
-    currency: Annotated[str, Field(min_length=3, max_length=3)] = "INR"
+    currency: Annotated[
+        str, Field(min_length=CURRENCY_CODE_LENGTH, max_length=CURRENCY_CODE_LENGTH)
+    ] = DEFAULT_CURRENCY
     price: PriceField
     min_quantity: QuantityField = Decimal("0")
     valid_from: date
@@ -579,7 +582,9 @@ class VendorLinkCreate(_Base):
     order_multiple: QuantityField = Decimal("0")
     last_purchase_price: PriceField | None = None
     last_purchase_date: date | None = None
-    currency: Annotated[str, Field(min_length=3, max_length=3)] = "INR"
+    currency: Annotated[
+        str, Field(min_length=CURRENCY_CODE_LENGTH, max_length=CURRENCY_CODE_LENGTH)
+    ] = DEFAULT_CURRENCY
 
 
 class VendorLinkUpdate(_Base):

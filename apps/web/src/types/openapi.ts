@@ -645,6 +645,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/mfa/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm the staged TOTP seed and enable MFA */
+        post: operations["confirm_mfa_api_v1_auth_mfa_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/mfa/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable MFA after confirming the password and a current code */
+        post: operations["disable_mfa_api_v1_auth_mfa_disable_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/mfa/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate a TOTP seed after confirming the current password */
+        post: operations["setup_mfa_api_v1_auth_mfa_setup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/mfa/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete sign-in with a TOTP authentication code */
+        post: operations["verify_mfa_api_v1_auth_mfa_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/password-reset/confirm": {
         parameters: {
             query?: never;
@@ -1184,30 +1252,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/customers/{customer_id}/outstanding": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Apply a finance adjustment to the cached outstanding balance
-         * @description Finance-owned: an invoice raises the balance, a receipt reduces it.
-         *
-         *     Gated on ``payment.record`` rather than a customer permission - the field is
-         *     a financial figure, and the sales team that maintains the rest of the master
-         *     record must not be able to move it.
-         */
-        post: operations["adjust_outstanding_api_v1_customers__customer_id__outstanding_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/customers/{customer_id}/restore": {
         parameters: {
             query?: never;
@@ -1563,6 +1607,26 @@ export interface paths {
         get: operations["ageing_api_v1_finance_ageing_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/customer-adjustments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post a debit or credit note against a customer
+         * @description A charge raises what the customer owes; a credit lowers it. The receivable journal, the customer's cached outstanding balance and the audit row are written in one transaction, so the balance a credit check reads can always be explained by the ledger - the journal carries the same `reference_code` the balance change records. Gated on `payment.approve` rather than `payment.record`: a credit note is money the company agrees not to collect.
+         */
+        post: operations["post_customer_adjustment_api_v1_finance_customer_adjustments_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1966,7 +2030,7 @@ export interface paths {
         put?: never;
         /**
          * Draft a stock adjustment
-         * @description Lines are valued at what the position's FIFO cost layers say the stock cost. If the total exceeds the configured approval threshold the document must be approved by a second person before it can post.
+         * @description Lines are valued at what the position's FIFO cost layers say the stock cost. If the total exceeds the approval threshold - a fixed value, ADJUSTMENT_APPROVAL_VALUE_THRESHOLD in the inventory service, echoed in the error's details when posting is refused - the document must be approved by a second person before it can post.
          */
         post: operations["create_adjustment_api_v1_inventory_adjustments_post"];
         delete?: never;
@@ -2486,7 +2550,7 @@ export interface paths {
         };
         /**
          * Per-vendor job work charges for a period
-         * @description The figures finance posts to the vendor ledger. Charges accrue on receipt, so the period is applied to the receipt date: a vendor earns the fee when the processed goods come back. Net charges are the gross processing fee less the value of company material the vendor lost beyond the agreed allowance.
+         * @description The figures finance posts to the vendor ledger. Charges accrue on receipt, so the period is applied to the receipt date: a vendor earns the fee when the processed goods come back. Net charges are the gross processing fee less the value of company material the vendor lost beyond the agreed allowance. One vendor per row, largest spend first, paged - `has_next` says when there is more to post.
          */
         get: operations["vendor_charges_api_v1_job_work_charges_get"];
         put?: never;
@@ -2690,7 +2754,7 @@ export interface paths {
         put?: never;
         /**
          * Record one lot returning from the vendor
-         * @description Posts the processed output as its own item, draws the input it consumed out of the job-work pool, returns anything handed back untouched, and writes process loss off as scrap with a reason - all in one transaction. Loss beyond the line's agreed allowance is refused until `approve_excess_loss` is set, and its value is then debited to the vendor at the material's own moving-average cost. Receiving more output than the order expected is refused rather than clamped.
+         * @description Posts the processed output as its own item, draws the input it consumed out of the job-work pool, returns anything handed back untouched, and writes process loss off as scrap with a reason - all in one transaction. Loss beyond the line's agreed allowance is refused until `approve_excess_loss` is set, and its value is then debited to the vendor at the material's own moving-average cost. Approving the excess requires `job_work.close`. Receiving more output than the order expected is refused rather than clamped.
          */
         post: operations["receive_lot_api_v1_job_work__order_id__receive_post"];
         delete?: never;
@@ -6390,7 +6454,8 @@ export interface paths {
          * @description Set a new password, force a change at next sign-in and revoke sessions.
          *
          *     Omit ``new_password`` to have the server generate one; it is returned in this
-         *     response and nowhere else.
+         *     response and nowhere else. A super administrator's password can only be set
+         *     by another super administrator, whatever permissions the caller holds.
          */
         post: operations["reset_password_api_v1_users__user_id__reset_password_post"];
         delete?: never;
@@ -6940,6 +7005,25 @@ export interface components {
              */
             success: boolean;
         };
+        /**
+         * AccessTokenResponse
+         * @description Browser-visible half of a token pair; never contains a refresh secret.
+         */
+        AccessTokenResponse: {
+            /** Access Token */
+            access_token: string;
+            /** Expires In */
+            expires_in: number;
+            /** Refresh Expires In */
+            refresh_expires_in: number;
+            /** Session Id */
+            session_id: string;
+            /**
+             * Token Type
+             * @default bearer
+             */
+            token_type: string;
+        };
         /** AcknowledgeRequest */
         AcknowledgeRequest: {
             /** Expected Delivery Date */
@@ -7284,6 +7368,20 @@ export interface components {
              */
             replace: boolean;
         };
+        /** ApiResponse[AccessTokenResponse] */
+        ApiResponse_AccessTokenResponse_: {
+            data?: components["schemas"]["AccessTokenResponse"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
         /** ApiResponse[AcknowledgedResult] */
         ApiResponse_AcknowledgedResult_: {
             data?: components["schemas"]["AcknowledgedResult"] | null;
@@ -7480,6 +7578,20 @@ export interface components {
              */
             success: boolean;
         };
+        /** ApiResponse[BrowserLoginResponse] */
+        ApiResponse_BrowserLoginResponse_: {
+            data?: components["schemas"]["BrowserLoginResponse"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
         /** ApiResponse[BulkIgnoreResult] */
         ApiResponse_BulkIgnoreResult_: {
             data?: components["schemas"]["BulkIgnoreResult"] | null;
@@ -7651,6 +7763,20 @@ export interface components {
         /** ApiResponse[CreditStatus] */
         ApiResponse_CreditStatus_: {
             data?: components["schemas"]["CreditStatus"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[CustomerAdjustmentRead] */
+        ApiResponse_CustomerAdjustmentRead_: {
+            data?: components["schemas"]["CustomerAdjustmentRead"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -7998,20 +8124,6 @@ export interface components {
              */
             success: boolean;
         };
-        /** ApiResponse[LoginResponse] */
-        ApiResponse_LoginResponse_: {
-            data?: components["schemas"]["LoginResponse"] | null;
-            /**
-             * Message
-             * @default Operation completed successfully
-             */
-            message: string;
-            /**
-             * Success
-             * @default true
-             */
-            success: boolean;
-        };
         /** ApiResponse[LogoutResult] */
         ApiResponse_LogoutResult_: {
             data?: components["schemas"]["LogoutResult"] | null;
@@ -8113,6 +8225,34 @@ export interface components {
         /** ApiResponse[MeResponse] */
         ApiResponse_MeResponse_: {
             data?: components["schemas"]["MeResponse"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[MfaChangeResult] */
+        ApiResponse_MfaChangeResult_: {
+            data?: components["schemas"]["MfaChangeResult"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[MfaSetupResponse] */
+        ApiResponse_MfaSetupResponse_: {
+            data?: components["schemas"]["MfaSetupResponse"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -8867,20 +9007,6 @@ export interface components {
              */
             success: boolean;
         };
-        /** ApiResponse[TokenPair] */
-        ApiResponse_TokenPair_: {
-            data?: components["schemas"]["TokenPair"] | null;
-            /**
-             * Message
-             * @default Operation completed successfully
-             */
-            message: string;
-            /**
-             * Success
-             * @default true
-             */
-            success: boolean;
-        };
         /** ApiResponse[TrackingEventRead] */
         ApiResponse_TrackingEventRead_: {
             data?: components["schemas"]["TrackingEventRead"] | null;
@@ -8912,6 +9038,21 @@ export interface components {
         /** ApiResponse[TransporterRead] */
         ApiResponse_TransporterRead_: {
             data?: components["schemas"]["TransporterRead"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[Union[BrowserLoginResponse, MfaChallengeResponse]] */
+        ApiResponse_Union_BrowserLoginResponse__MfaChallengeResponse__: {
+            /** Data */
+            data?: components["schemas"]["BrowserLoginResponse"] | components["schemas"]["MfaChallengeResponse"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -9242,21 +9383,6 @@ export interface components {
         ApiResponse_list_TransporterOption__: {
             /** Data */
             data?: components["schemas"]["TransporterOption"][] | null;
-            /**
-             * Message
-             * @default Operation completed successfully
-             */
-            message: string;
-            /**
-             * Success
-             * @default true
-             */
-            success: boolean;
-        };
-        /** ApiResponse[list[VendorChargeRow]] */
-        ApiResponse_list_VendorChargeRow__: {
-            /** Data */
-            data?: components["schemas"]["VendorChargeRow"][] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -10408,6 +10534,29 @@ export interface components {
             state?: string | null;
             /** State Code */
             state_code?: string | null;
+        };
+        /** BrowserLoginResponse */
+        BrowserLoginResponse: {
+            /** Access Token */
+            access_token: string;
+            /** Expires In */
+            expires_in: number;
+            /**
+             * Mfa Required
+             * @default false
+             * @constant
+             */
+            mfa_required: false;
+            /** Refresh Expires In */
+            refresh_expires_in: number;
+            /** Session Id */
+            session_id: string;
+            /**
+             * Token Type
+             * @default bearer
+             */
+            token_type: string;
+            user: components["schemas"]["AuthenticatedUser"];
         };
         /**
          * BulkIgnoreRequest
@@ -11568,6 +11717,90 @@ export interface components {
             /** Next Cursor */
             next_cursor?: string | null;
         };
+        /**
+         * CustomerAdjustmentCreate
+         * @description A debit or credit note against a customer's account, posted by hand.
+         *
+         *     Nothing here names the receivable account: the receivable leg is always the
+         *     system control account, so a caller cannot post a "receivable" adjustment to
+         *     an account the ageing report does not read. ``account_id`` is the other leg -
+         *     the revenue, expense or write-off account the adjustment belongs to.
+         */
+        CustomerAdjustmentCreate: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            adjustment_type: components["schemas"]["CustomerAdjustmentType"];
+            /** Amount */
+            amount: number | string;
+            /**
+             * Customer Id
+             * Format: uuid
+             */
+            customer_id: string;
+            /**
+             * Entry Date
+             * @description Defaults to today
+             */
+            entry_date?: string | null;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * CustomerAdjustmentRead
+         * @description What one adjustment did: the journal it posted and the balance it left.
+         */
+        CustomerAdjustmentRead: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            adjustment_type: components["schemas"]["CustomerAdjustmentType"];
+            /** Amount */
+            amount: string;
+            /** Currency */
+            currency: string;
+            /** Customer Code */
+            customer_code: string;
+            /**
+             * Customer Id
+             * Format: uuid
+             */
+            customer_id: string;
+            /** Delta */
+            delta: string;
+            /**
+             * Entry Date
+             * Format: date
+             */
+            entry_date: string;
+            /** Entry Ids */
+            entry_ids?: string[];
+            /**
+             * Journal Id
+             * Format: uuid
+             */
+            journal_id: string;
+            /** Outstanding Amount */
+            outstanding_amount: string;
+            /** Reason */
+            reason: string;
+            /** Reference Code */
+            reference_code: string;
+        };
+        /**
+         * CustomerAdjustmentType
+         * @description Which way a manual posting against a customer's account moves the balance.
+         *
+         *     A Python-side vocabulary for ``POST /finance/customer-adjustments``; the
+         *     ledger rows it produces are ordinary entries with ``reference_type``
+         *     ``customer_adjustment``, so no column carries this value.
+         * @enum {string}
+         */
+        CustomerAdjustmentType: "CHARGE" | "CREDIT";
         /**
          * CustomerCreate
          * @description Payload for creating a customer, dealer, distributor or OEM account.
@@ -14361,38 +14594,6 @@ export interface components {
             /** Password */
             password: string;
         };
-        /** LoginResponse */
-        LoginResponse: {
-            /** Access Token */
-            access_token: string;
-            /** Expires In */
-            expires_in: number;
-            /** Refresh Expires In */
-            refresh_expires_in: number;
-            /** Refresh Token */
-            refresh_token: string;
-            /** Session Id */
-            session_id: string;
-            /**
-             * Token Type
-             * @default bearer
-             */
-            token_type: string;
-            user: components["schemas"]["AuthenticatedUser"];
-        };
-        /**
-         * LogoutRequest
-         * @description Optional body.
-         *
-         *     The session normally comes from the ``sid`` claim on the access token; the
-         *     refresh token is accepted too, so a client that has already discarded its
-         *     access token can still close the session properly instead of leaving it live
-         *     until expiry.
-         */
-        LogoutRequest: {
-            /** Refresh Token */
-            refresh_token?: string | null;
-        };
         /** LogoutResult */
         LogoutResult: {
             /** Revoked Sessions */
@@ -14934,6 +15135,60 @@ export interface components {
             photo_document_id?: string | null;
             /** Remark */
             remark?: string | null;
+        };
+        /**
+         * MfaChallengeResponse
+         * @description Password stage succeeded; no session exists until TOTP verification.
+         */
+        MfaChallengeResponse: {
+            /** Challenge Token */
+            challenge_token: string;
+            /** Expires In */
+            expires_in: number;
+            /**
+             * Mfa Required
+             * @default true
+             * @constant
+             */
+            mfa_required: true;
+        };
+        /** MfaChangeResult */
+        MfaChangeResult: {
+            /** Mfa Enabled */
+            mfa_enabled: boolean;
+            /** Revoked Sessions */
+            revoked_sessions: number;
+        };
+        /** MfaCodeRequest */
+        MfaCodeRequest: {
+            /** Code */
+            code: string;
+        };
+        /** MfaDisableRequest */
+        MfaDisableRequest: {
+            /** Code */
+            code: string;
+            /** Current Password */
+            current_password: string;
+        };
+        /** MfaSetupRequest */
+        MfaSetupRequest: {
+            /** Current Password */
+            current_password: string;
+        };
+        /** MfaSetupResponse */
+        MfaSetupResponse: {
+            /** Provisioning Uri */
+            provisioning_uri: string;
+            /** Secret */
+            secret: string;
+        };
+        /** MfaVerifyRequest */
+        MfaVerifyRequest: {
+            /** Challenge Token */
+            challenge_token: string;
+            /** Code */
+            code: string;
         };
         /**
          * MrpDemandRead
@@ -15516,26 +15771,6 @@ export interface components {
              * Format: uuid
              */
             warehouse_id: string;
-        };
-        /**
-         * OutstandingAdjustment
-         * @description A finance-owned change to the cached outstanding balance.
-         *
-         *     Signed: an invoice increases the balance, a receipt or credit note reduces
-         *     it. The reference fields tie the change back to the document that caused it,
-         *     so the cached figure can always be reconciled against the ledger.
-         */
-        OutstandingAdjustment: {
-            /** Delta */
-            delta: number | string;
-            /** Reason */
-            reason: string;
-            /** Reference Code */
-            reference_code?: string | null;
-            /** Reference Id */
-            reference_id?: string | null;
-            /** Reference Type */
-            reference_type?: string | null;
         };
         /**
          * OutstandingRow
@@ -16866,6 +17101,22 @@ export interface components {
         PaginatedResponse_VendorCategoryRead_: {
             /** Data */
             data?: components["schemas"]["VendorCategoryRead"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** PaginatedResponse[VendorChargeRow] */
+        PaginatedResponse_VendorChargeRow_: {
+            /** Data */
+            data?: components["schemas"]["VendorChargeRow"][];
             /**
              * Message
              * @default Operation completed successfully
@@ -18788,6 +19039,8 @@ export interface components {
             quantity: number | string;
             /** Reason */
             reason?: string | null;
+            /** Stock State */
+            stock_state?: ("AVAILABLE" | "DAMAGED") | null;
         };
         /** PurchaseReturnLineRead */
         PurchaseReturnLineRead: {
@@ -18827,6 +19080,11 @@ export interface components {
             quantity: string;
             /** Reason */
             reason: string | null;
+            /**
+             * Stock State
+             * @enum {string}
+             */
+            stock_state: "AVAILABLE" | "DAMAGED";
             /** Tax Amount */
             tax_amount: string;
             /** Tax Rate */
@@ -19004,20 +19262,14 @@ export interface components {
              * @default 0
              */
             freight_amount: number | string;
-            /**
-             * Lead Time Days
-             * @default 0
-             */
-            lead_time_days: number;
+            /** Lead Time Days */
+            lead_time_days?: number | null;
             /** Lines */
             lines: components["schemas"]["QuotationLineIn"][];
             /** Notes */
             notes?: string | null;
-            /**
-             * Payment Terms Days
-             * @default 0
-             */
-            payment_terms_days: number;
+            /** Payment Terms Days */
+            payment_terms_days?: number | null;
             /** Quotation Date */
             quotation_date?: string | null;
             /**
@@ -19268,6 +19520,8 @@ export interface components {
             payment_terms_days?: number | null;
             /** Quotation Date */
             quotation_date?: string | null;
+            /** Reason */
+            reason?: string | null;
             /** Terms */
             terms?: string | null;
             /** Valid Until */
@@ -19844,11 +20098,6 @@ export interface components {
             evaluation: components["schemas"]["ParameterEvaluationRead"];
             inspection: components["schemas"]["InspectionDetail"];
         };
-        /** RefreshRequest */
-        RefreshRequest: {
-            /** Refresh Token */
-            refresh_token: string;
-        };
         /**
          * RejectionAction
          * @description What happens to output the vendor produced badly.
@@ -19976,7 +20225,7 @@ export interface components {
          *     catalogue asserts at import that every member has exactly one definition.
          * @enum {string}
          */
-        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY";
+        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "PACKING_LIST";
         /** RequisitionCreate */
         RequisitionCreate: {
             /** Branch Id */
@@ -22309,30 +22558,6 @@ export interface components {
             /** Sample Size */
             sample_size?: number | null;
             sampling_plan?: components["schemas"]["SamplingPlan"] | null;
-        };
-        /**
-         * TokenPair
-         * @description Issued credentials.
-         *
-         *     ``expires_in`` is seconds rather than an absolute time: the client's clock
-         *     may be wrong, and a countdown does not care.
-         */
-        TokenPair: {
-            /** Access Token */
-            access_token: string;
-            /** Expires In */
-            expires_in: number;
-            /** Refresh Expires In */
-            refresh_expires_in: number;
-            /** Refresh Token */
-            refresh_token: string;
-            /** Session Id */
-            session_id: string;
-            /**
-             * Token Type
-             * @default bearer
-             */
-            token_type: string;
         };
         /** TrackedReceipt */
         TrackedReceipt: {
@@ -28312,7 +28537,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse_LoginResponse_"];
+                    "application/json": components["schemas"]["ApiResponse_Union_BrowserLoginResponse__MfaChallengeResponse__"];
                 };
             };
             /** @description Malformed request */
@@ -28396,11 +28621,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["LogoutRequest"] | null;
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -28593,6 +28814,390 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_MeResponse_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    confirm_mfa_api_v1_auth_mfa_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaCodeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_MfaChangeResult_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    disable_mfa_api_v1_auth_mfa_disable_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaDisableRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_MfaChangeResult_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    setup_mfa_api_v1_auth_mfa_setup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaSetupRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_MfaSetupResponse_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    verify_mfa_api_v1_auth_mfa_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MfaVerifyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_BrowserLoginResponse_"];
                 };
             };
             /** @description Malformed request */
@@ -28868,11 +29473,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RefreshRequest"];
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -28880,7 +29481,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse_TokenPair_"];
+                    "application/json": components["schemas"]["ApiResponse_AccessTokenResponse_"];
                 };
             };
             /** @description Malformed request */
@@ -32532,104 +33133,6 @@ export interface operations {
             };
         };
     };
-    adjust_outstanding_api_v1_customers__customer_id__outstanding_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                customer_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["OutstandingAdjustment"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiResponse_CustomerDetail_"];
-                };
-            };
-            /** @description Malformed request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Authentication required or token invalid */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Authenticated but missing the required permission */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Record not found in this tenant */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation or business-rule failure */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Rate limit exceeded */
-            429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unexpected server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
     restore_customer_api_v1_customers__customer_id__restore_post: {
         parameters: {
             query?: never;
@@ -35247,6 +35750,102 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_AgeingReport_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_customer_adjustment_api_v1_finance_customer_adjustments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomerAdjustmentCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_CustomerAdjustmentRead_"];
                 };
             };
             /** @description Malformed request */
@@ -41294,6 +41893,12 @@ export interface operations {
                 date_to: string;
                 /** @description Restrict to these vendors */
                 vendor_id?: string[] | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
             };
             header?: never;
             path?: never;
@@ -41307,7 +41912,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse_list_VendorChargeRow__"];
+                    "application/json": components["schemas"]["PaginatedResponse_VendorChargeRow_"];
                 };
             };
             /** @description Malformed request */
@@ -54632,7 +55237,10 @@ export interface operations {
     };
     delete_order_api_v1_production__order_id__delete: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Why the draft is being deleted */
+                reason: string;
+            };
             header?: never;
             path: {
                 order_id: string;

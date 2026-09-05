@@ -17,6 +17,7 @@ import {
   usePlantOptions as useSharedPlantOptions,
 } from '@/hooks/use-organisation-options'
 import { api } from '@/lib/api-client'
+import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
 // ------------------------------------------------------------- identity -----
@@ -261,7 +262,7 @@ export function useRoleOptions(enabled = true) {
     queryFn: async () => {
       const page = await api.getPage<RoleRow>('/roles', {
         params: {
-          limit: 200,
+          limit: LOOKUP_LIST_LIMIT,
           is_active: true,
           sort_by: 'name',
           sort_dir: 'asc',
@@ -269,38 +270,6 @@ export function useRoleOptions(enabled = true) {
         },
       })
       return page.data
-    },
-    staleTime: staleTimes.reference,
-    enabled,
-  })
-}
-
-/**
- * Staff names for the "head of department" picker.
- *
- * A directory is bounded in a way the transactional tables are not, so one page
- * of two hundred is the whole list for any realistic company. A caller without
- * `user.view` gets an empty list and a select that offers only "unassigned",
- * rather than a broken screen.
- */
-export function useUserOptions(enabled = true) {
-  return useQuery({
-    queryKey: ['users', 'options'] as const,
-    queryFn: async (): Promise<UserRow[]> => {
-      try {
-        const page = await api.getPage<UserRow>('/users', {
-          params: {
-            limit: 200,
-            is_active: true,
-            sort_by: 'full_name',
-            sort_dir: 'asc',
-            with_total: false,
-          },
-        })
-        return page.data
-      } catch {
-        return []
-      }
     },
     staleTime: staleTimes.reference,
     enabled,

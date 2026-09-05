@@ -35,8 +35,10 @@ import {
 } from '@/components/ui/overlays'
 import { Badge, Checkbox, Input, Label, Skeleton } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
-import { applyFieldErrors } from '@/lib/form-errors'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
+import { messages, success } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { GSTIN_PATTERN, PINCODE_PATTERN, STATE_CODE_PATTERN } from '@/lib/statutory'
 import { toast } from '@/lib/toast'
@@ -70,7 +72,10 @@ export function UnsavedCustomerNotice({ what }: { what: string }) {
  * A removal that the API records against the account.
  *
  * The reason is a required query parameter, so it is collected rather than
- * invented - an audit row reading "deleted" tells nobody anything.
+ * invented - an audit row reading "deleted" tells nobody anything. It is held
+ * to the API's own 3..255 bound before it is sent: a shorter one comes back as
+ * a 422 against `reason`, which the mutation cache stays quiet about, and this
+ * is a confirmation with no form to render it.
  */
 function DeleteWithReasonDialog({
   open,
@@ -91,6 +96,7 @@ function DeleteWithReasonDialog({
 }) {
   const [reason, setReason] = useState('')
   const [touched, setTouched] = useState(false)
+  const tooShort = reason.trim().length < REASON_MIN_LENGTH
 
   return (
     <ConfirmDialog
@@ -108,7 +114,7 @@ function DeleteWithReasonDialog({
       destructive
       loading={loading}
       onConfirm={() => {
-        if (reason.trim() === '') {
+        if (tooShort) {
           setTouched(true)
           return
         }
@@ -123,12 +129,19 @@ function DeleteWithReasonDialog({
           id="relation-delete-reason"
           value={reason}
           onChange={(event) => setReason(event.target.value)}
+          maxLength={REASON_MAX_LENGTH}
           autoComplete="off"
           className="mt-1.5"
-          aria-invalid={touched && reason.trim() === ''}
+          aria-invalid={touched && tooShort}
         />
-        {touched && reason.trim() === '' && (
-          <FieldError message="The API records this removal - it needs a reason" />
+        {touched && tooShort && (
+          <FieldError
+            message={
+              reason.trim() === ''
+                ? 'The API records this removal - it needs a reason'
+                : messages.errors.reasonTooShort
+            }
+          />
         )}
       </div>
     </ConfirmDialog>
@@ -291,9 +304,12 @@ export function AddressesPanel({ customerId, canEdit }: { customerId: string; ca
             is_default: values.is_default,
           })
     },
-    onSuccess: () => {
+    onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })
-      toast.success(editingId ? 'Address updated' : 'Address added')
+      toast.success(
+        editingId ? success.updated('Address') : success.created('Address'),
+        saved.label ?? saved.address_line1,
+      )
       setEditing(null)
     },
     onError: (error) => applyFieldErrors(error, setError),
@@ -302,20 +318,23 @@ export function AddressesPanel({ customerId, canEdit }: { customerId: string; ca
   const setDefault = useMutation({
     mutationFn: (address: CustomerAddress) =>
       api.post<CustomerAddress>(`/customers/${customerId}/addresses/${address.id}/set-default`, {}),
-    onSuccess: () => {
+    onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })
-      toast.success('Default address changed')
+      toast.success(success.changed('Default address'), saved.label ?? saved.address_line1)
     },
+    onError: (error) => reportFieldErrors(error, 'Could not change the default address'),
   })
 
   const remove = useMutation({
     mutationFn: ({ address, reason }: { address: CustomerAddress; reason: string }) =>
       api.delete(`/customers/${customerId}/addresses/${address.id}`, { params: { reason } }),
-    onSuccess: () => {
+    onSuccess: (_result, { address }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })
-      toast.success('Address removed')
+      toast.success('Address removed', address.label ?? address.address_line1)
       setPendingDelete(null)
     },
+    // The reason travels as a query parameter, so its 422 has no form control.
+    onError: (error) => reportFieldErrors(error, 'Could not remove this address'),
   })
 
   if (addresses.isLoading) return <PanelSkeleton />
@@ -761,9 +780,9 @@ export function ContactsPanel({ customerId, canEdit }: { customerId: string; can
             is_primary: values.is_primary,
           })
     },
-    onSuccess: () => {
+    onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })
-      toast.success(editingId ? 'Contact updated' : 'Contact added')
+      toast.success(editingId ? success.updated('Contact') : success.created('Contact'), saved.name)
       setEditing(null)
     },
     onError: (error) => applyFieldErrors(error, setError),
@@ -772,20 +791,22 @@ export function ContactsPanel({ customerId, canEdit }: { customerId: string; can
   const setPrimary = useMutation({
     mutationFn: (contact: CustomerContact) =>
       api.post<CustomerContact>(`/customers/${customerId}/contacts/${contact.id}/set-primary`, {}),
-    onSuccess: () => {
+    onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })
-      toast.success('Primary contact changed')
+      toast.success(success.changed('Primary contact'), saved.name)
     },
+    onError: (error) => reportFieldErrors(error, 'Could not change the primary contact'),
   })
 
   const remove = useMutation({
     mutationFn: ({ contact, reason }: { contact: CustomerContact; reason: string }) =>
       api.delete(`/customers/${customerId}/contacts/${contact.id}`, { params: { reason } }),
-    onSuccess: () => {
+    onSuccess: (_result, { contact }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })
-      toast.success('Contact removed')
+      toast.success('Contact removed', contact.name)
       setPendingDelete(null)
     },
+    onError: (error) => reportFieldErrors(error, 'Could not remove this contact'),
   })
 
   if (contacts.isLoading) return <PanelSkeleton />

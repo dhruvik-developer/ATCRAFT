@@ -18,23 +18,28 @@ import {
   BookCheck,
   ClipboardCheck,
   ClipboardList,
+  ClipboardPen,
   PackageCheck,
   Play,
   Plus,
+  RotateCcw,
   Scale,
   Send,
   ThumbsUp,
+  X,
 } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { ConfirmDialog, PageHeader, StatusBadge } from '@/components/shared'
+import { ConfirmDialog, FieldError, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/overlays'
+import { Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
+import { REASON_MIN_LENGTH } from '@/lib/constants'
 import {
   formatDate,
   formatMoney,
@@ -43,6 +48,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
+import { prompts, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -53,8 +59,10 @@ import {
   CreateAdjustmentDialog,
   CreatePhysicalCountDialog,
   CreateTransferDialog,
+  EnterCountsDialog,
 } from './movement-dialogs'
 import {
+  acceptsCountCancellation,
   acceptsCountConfirmation,
   type PhysicalCountRow,
   type StockAdjustmentRow,
@@ -76,7 +84,9 @@ const physicalCountsKey = (params: unknown) => ['inventory', 'physical-counts', 
  *
  * TRANSFER_FLOW  DRAFT -> APPROVED -> IN_TRANSIT -> RECEIVED
  * ADJUSTMENT_FLOW DRAFT -> POSTED, or DRAFT -> PENDING_APPROVAL -> APPROVED -> POSTED
- * COUNT_FLOW     DRAFT -> IN_PROGRESS -> COUNTED -> CONFIRMED
+ * COUNT_FLOW     DRAFT -> IN_PROGRESS -> COUNTED -> CONFIRMED, plus
+ *                COUNTED -> IN_PROGRESS (recount) and each of the three
+ *                unsettled statuses -> CANCELLED
  */
 const TRANSFER_APPROVABLE: TransferStatus = 'DRAFT'
 const TRANSFER_DISPATCHABLE: TransferStatus = 'APPROVED'
@@ -87,9 +97,17 @@ interface PendingAction {
   title: string
   description: string
   confirmLabel: string
+  cancelLabel?: string
   successTitle: string
   successBody?: string
   destructive?: boolean
+  /**
+   * Some transitions record why - cancelling a count, reopening one for a
+   * recount - and the API refuses them without it (`ReasonRequest`). The
+   * confirmation then collects the reason and posts `{ reason }` instead of an
+   * empty body.
+   */
+  requiresReason?: boolean
 }
 
 /** A transition offered on a row: the button, plus the confirmation behind it. */
@@ -126,7 +144,7 @@ function nextAdjustmentAction(
         ', which is over the threshold that can be posted without a second pair of eyes. ' +
         'Nothing moves until an approver signs it.',
       confirmLabel: 'Submit for approval',
-      successTitle: 'Adjustment submitted',
+      successTitle: success.submitted('Adjustment'),
       successBody: adjustment.code + ' is waiting for an approver.',
     }
   }
@@ -144,7 +162,7 @@ function nextAdjustmentAction(
         at +
         '. Stock does not move until it is posted.',
       confirmLabel: 'Approve adjustment',
-      successTitle: 'Adjustment approved',
+      successTitle: success.approved('Adjustment'),
       successBody: adjustment.code + ' is ready to post.',
     }
   }
@@ -164,7 +182,7 @@ function nextAdjustmentAction(
         formatNumber(adjustment.line_count) +
         ' line(s). The ledger entry cannot be deleted afterwards.',
       confirmLabel: 'Post adjustment',
-      successTitle: 'Adjustment posted',
+      successTitle: success.posted('Adjustment'),
       successBody: adjustment.code + ' is on the ledger.',
       destructive: true,
     }
@@ -182,34 +200,75 @@ function nextAdjustmentAction(
  */
 function ActionConfirm({ pending, onDone }: { pending: PendingAction | null; onDone: () => void }) {
   const queryClient = useQueryClient()
+  const [reason, setReason] = useState('')
+  const [reasonError, setReasonError] = useState<string | null>(null)
+
+  const close = () => {
+    setReason('')
+    setReasonError(null)
+    onDone()
+  }
 
   const run = useMutation({
-    mutationFn: (action: PendingAction) => api.post(action.path, {}),
-    onSuccess: (_result, action) => {
+    mutationFn: ({ action, why }: { action: PendingAction; why: string }) =>
+      api.post(action.path, action.requiresReason ? { reason: why } : {}),
+    onSuccess: (_result, { action }) => {
       toast.success(action.successTitle, action.successBody)
       void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
       // Stock arriving or leaving changes what can be promised, so reservations
       // and availability are stale too.
       void queryClient.invalidateQueries({ queryKey: queryKeys.allocation.all })
-      onDone()
+      close()
     },
   })
 
   if (!pending) return null
 
+  const confirm = () => {
+    if (pending.requiresReason && reason.trim().length < REASON_MIN_LENGTH) {
+      setReasonError(prompts.reasonRequired)
+      return
+    }
+    run.mutate({ action: pending, why: reason.trim() })
+  }
+
   return (
     <ConfirmDialog
       open
       onOpenChange={(next) => {
-        if (!next) onDone()
+        if (!next) close()
       }}
       title={pending.title}
       description={pending.description}
       confirmLabel={pending.confirmLabel}
+      cancelLabel={pending.cancelLabel}
       destructive={pending.destructive ?? false}
       loading={run.isPending}
-      onConfirm={() => run.mutate(pending)}
-    />
+      onConfirm={confirm}
+    >
+      {pending.requiresReason && (
+        <div>
+          <Label htmlFor="movement-action-reason" required>
+            Reason
+          </Label>
+          <Input
+            id="movement-action-reason"
+            value={reason}
+            onChange={(event) => {
+              setReason(event.target.value)
+              setReasonError(null)
+            }}
+            autoComplete="off"
+            aria-invalid={Boolean(reasonError)}
+            className="mt-1.5"
+          />
+          <FieldError message={reasonError ?? undefined} />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Recorded in the audit trail against the sheet.
+          </p>
+        </div>
+      )}
+    </ConfirmDialog>
   )
 }
 
@@ -303,7 +362,7 @@ function TransfersTab() {
                       (transfer.from_warehouse_code ?? 'the source warehouse') +
                       '. Stock does not move yet.',
                     confirmLabel: 'Approve transfer',
-                    successTitle: 'Transfer approved',
+                    successTitle: success.approved('Transfer'),
                     successBody: transfer.code + ' can now be dispatched.',
                   })
                 }
@@ -569,6 +628,7 @@ function PhysicalCountsTab() {
   const [createOpen, setCreateOpen] = useState(false)
   const [pending, setPending] = useState<PendingAction | null>(null)
   const [confirmTarget, setConfirmTarget] = useState<PhysicalCountRow | null>(null)
+  const [entryTarget, setEntryTarget] = useState<PhysicalCountRow | null>(null)
 
   const list = useListQuery<PhysicalCountRow>({
     path: '/inventory/physical-counts',
@@ -650,55 +710,134 @@ function PhysicalCountsTab() {
         meta: { align: 'right' },
         cell: ({ row }) => {
           const count = row.original
+          const at = count.warehouse_code ?? 'this warehouse'
+          const actions: ReactNode[] = []
 
-          // COUNT_FLOW: DRAFT -> IN_PROGRESS -> COUNTED -> CONFIRMED. Confirm was
-          // previously offered on every unsettled status, so it appeared on
-          // sheets nobody had counted yet and came back an invalid transition.
+          // COUNT_FLOW: DRAFT -> IN_PROGRESS -> COUNTED -> CONFIRMED, with a
+          // recount edge back to IN_PROGRESS and a cancel edge from each of the
+          // three. Confirm was previously offered on every unsettled status, so
+          // it appeared on sheets nobody had counted yet and came back an
+          // invalid transition; IN_PROGRESS previously offered nothing at all,
+          // which stranded every sheet that was started.
           //
-          // The two halves are gated separately - a reconciler with no
+          // The two rights are gated separately - a reconciler with no
           // `inventory.physical_count` still has to see Confirm, so this cannot
           // return early on `canCount` the way it used to.
-          if (acceptsCountConfirmation(count)) {
-            if (!canReconcile) return null
-            return (
-              <Button variant="outline" size="sm" onClick={() => setConfirmTarget(count)}>
+          if (acceptsCountConfirmation(count) && canReconcile) {
+            actions.push(
+              <Button
+                key="confirm"
+                variant="outline"
+                size="sm"
+                onClick={() => setConfirmTarget(count)}
+              >
                 <ClipboardCheck />
                 Confirm
-              </Button>
+              </Button>,
             )
           }
 
-          if (!canCount) return null
-
-          if (count.status === 'DRAFT') {
-            return (
+          if (canCount && count.status === 'DRAFT') {
+            actions.push(
               <Button
+                key="start"
                 variant="outline"
                 size="sm"
                 onClick={() =>
                   setPending({
                     path: '/inventory/physical-counts/' + count.id + '/start',
                     title: 'Start counting ' + count.code + '?',
+                    // The snapshot is taken when the sheet is created, not here.
                     description:
-                      'The sheet snapshots what the system believes is at ' +
-                      (count.warehouse_code ?? 'this warehouse') +
-                      ' right now. Counted figures are keyed against that snapshot.',
+                      'Starting opens ' +
+                      count.code +
+                      ' for keying counts against the snapshot of ' +
+                      at +
+                      ' taken when the sheet was opened. Nothing moves until the sheet is confirmed.',
                     confirmLabel: 'Start counting',
                     successTitle: 'Count started',
-                    successBody: count.code + ' is open for counting.',
+                    successBody: count.code + ' is open for keying counts.',
                   })
                 }
               >
                 <Play />
                 Start
-              </Button>
+              </Button>,
             )
           }
 
-          // IN_PROGRESS offers nothing here: the sheet moves to COUNTED by
-          // keying entries, which this screen does not do, and CONFIRMED and
-          // CANCELLED are terminal.
-          return null
+          if (canCount && count.status === 'IN_PROGRESS') {
+            actions.push(
+              <Button
+                key="entries"
+                variant="outline"
+                size="sm"
+                onClick={() => setEntryTarget(count)}
+              >
+                <ClipboardPen />
+                Key counts
+              </Button>,
+            )
+          }
+
+          if (canCount && count.status === 'COUNTED') {
+            actions.push(
+              <Button
+                key="recount"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setPending({
+                    path: '/inventory/physical-counts/' + count.id + '/recount',
+                    title: 'Recount ' + count.code + '?',
+                    description:
+                      'The sheet goes back to being counted. Figures already keyed stay in place ' +
+                      'to be corrected, and the snapshot is not retaken.',
+                    confirmLabel: 'Reopen for recount',
+                    successTitle: 'Count reopened',
+                    successBody: count.code + ' is open for recounting.',
+                    requiresReason: true,
+                  })
+                }
+              >
+                <RotateCcw />
+                Recount
+              </Button>,
+            )
+          }
+
+          if (canCount && acceptsCountCancellation(count)) {
+            actions.push(
+              <Button
+                key="cancel"
+                variant="ghost"
+                size="sm"
+                className="text-destructive"
+                onClick={() =>
+                  setPending({
+                    path: '/inventory/physical-counts/' + count.id + '/cancel',
+                    title: 'Cancel ' + count.code + '?',
+                    description:
+                      'The sheet is closed without posting anything, and ' +
+                      at +
+                      ' is free to open a new count. Figures keyed on it stay on record but never reach the ledger.',
+                    confirmLabel: 'Cancel count',
+                    cancelLabel: 'Keep the sheet',
+                    successTitle: success.cancelled('Count'),
+                    successBody: count.code + ' was cancelled without posting anything.',
+                    destructive: true,
+                    requiresReason: true,
+                  })
+                }
+              >
+                <X />
+                Cancel
+              </Button>,
+            )
+          }
+
+          if (actions.length === 0) return null
+          return <div className="flex flex-wrap justify-end gap-1.5">{actions}</div>
         },
       },
     ],
@@ -741,10 +880,11 @@ function PhysicalCountsTab() {
           because the variance has to be on screen before an irreversible
           posting is agreed to. */}
       {confirmTarget && (
-        <ConfirmPhysicalCountDialog
-          count={confirmTarget}
-          onClose={() => setConfirmTarget(null)}
-        />
+        <ConfirmPhysicalCountDialog count={confirmTarget} onClose={() => setConfirmTarget(null)} />
+      )}
+
+      {canCount && entryTarget && (
+        <EnterCountsDialog count={entryTarget} onClose={() => setEntryTarget(null)} />
       )}
     </>
   )

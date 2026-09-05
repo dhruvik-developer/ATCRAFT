@@ -11,13 +11,17 @@
 import Decimal from 'decimal.js'
 import { format, formatDistanceToNowStrict, isValid, parseISO } from 'date-fns'
 
+import {
+  DATE_FORMAT,
+  DATE_INPUT_FORMAT,
+  DATE_TIME_FORMAT,
+  DEFAULT_CURRENCY,
+  DEFAULT_LOCALE,
+} from '@/lib/constants'
 import type { DecimalString } from '@/types/api'
 
 // Enough precision for a multi-level BOM cost roll-up without surprises.
 Decimal.set({ precision: 28, rounding: Decimal.ROUND_HALF_UP })
-
-const DEFAULT_LOCALE = 'en-IN'
-const DEFAULT_CURRENCY = 'INR'
 
 export function toDecimal(value: DecimalString | number | null | undefined): Decimal {
   if (value === null || value === undefined || value === '') return new Decimal(0)
@@ -43,6 +47,43 @@ export function formatMoney(
     maximumFractionDigits: compact ? 1 : 2,
     notation: compact ? 'compact' : 'standard',
   }).format(amount.toNumber())
+}
+
+/**
+ * Money scale, and the scale a unit price carries.
+ *
+ * `to_money` in `apps/api/src/core/types.py` quantizes to two places and
+ * `to_unit_price` to six, so these are the API's own scales rather than a
+ * display preference. Exported from here because this module is where value
+ * display is defined; `finance-types.ts` imports them for its arithmetic so the
+ * two cannot drift apart.
+ */
+export const MONEY_PLACES = 2
+export const UNIT_PRICE_PLACES = 6
+
+/**
+ * A unit price as currency.
+ *
+ * Distinct from `formatMoney` because a unit price is not money at two places:
+ * a rate of 12.3456 per unit is a real value the API stores to six, and showing
+ * it as 12.35 loses the number the buyer agreed. Trailing zeros above two
+ * places are trimmed so a round rate still reads as a price, and never fewer
+ * than money's two are shown so a whole number still reads as one.
+ */
+export function formatUnitPrice(
+  value: DecimalString | number | null | undefined,
+  options: { currency?: string; showSymbol?: boolean } = {},
+): string {
+  const { currency = DEFAULT_CURRENCY, showSymbol = true } = options
+  const price = toDecimal(value)
+  const places = Math.max(MONEY_PLACES, Math.min(UNIT_PRICE_PLACES, price.decimalPlaces()))
+
+  return new Intl.NumberFormat(DEFAULT_LOCALE, {
+    style: showSymbol ? 'currency' : 'decimal',
+    currency,
+    minimumFractionDigits: MONEY_PLACES,
+    maximumFractionDigits: places,
+  }).format(price.toNumber())
 }
 
 /**
@@ -96,12 +137,12 @@ function parse(value: string | Date | null | undefined): Date | null {
 /** Date only. The API stores UTC; dates are shown in the browser's zone. */
 export function formatDate(value: string | Date | null | undefined): string {
   const parsed = parse(value)
-  return parsed ? format(parsed, 'dd MMM yyyy') : '-'
+  return parsed ? format(parsed, DATE_FORMAT) : '-'
 }
 
 export function formatDateTime(value: string | Date | null | undefined): string {
   const parsed = parse(value)
-  return parsed ? format(parsed, 'dd MMM yyyy, HH:mm') : '-'
+  return parsed ? format(parsed, DATE_TIME_FORMAT) : '-'
 }
 
 export function formatRelative(value: string | Date | null | undefined): string {
@@ -120,7 +161,7 @@ export function daysUntil(value: string | Date | null | undefined): number | nul
 /** yyyy-MM-dd for <input type="date"> and query parameters. */
 export function toDateInput(value: string | Date | null | undefined): string {
   const parsed = parse(value)
-  return parsed ? format(parsed, 'yyyy-MM-dd') : ''
+  return parsed ? format(parsed, DATE_INPUT_FORMAT) : ''
 }
 
 // ------------------------------------------------------------------ misc ----

@@ -61,6 +61,7 @@ from src.modules.mrp.schemas import (
     SuggestionFilters,
 )
 from src.modules.procurement import service as procurement_service
+from src.modules.procurement.models import PurchaseRequisition
 
 # Production is deployed, so the MANUFACTURE half of the conversion seam is live:
 # these tests read the order it actually created rather than trusting the hook.
@@ -77,7 +78,7 @@ from src.modules.products.models import (
 from src.modules.sales.models import SalesOrder, SalesOrderLine, SalesOrderStatus
 from src.modules.vendors.models import Vendor, VendorType
 from src.modules.warehouses.models import Warehouse, WarehouseType
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 from tests.seed_support import seed_company, seed_user
 
 pytestmark = pytest.mark.integration
@@ -146,7 +147,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID]]:
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, other_company_id, planner_id
     asyncio.run(teardown())
@@ -777,8 +778,7 @@ async def test_a_run_abandoned_by_a_dead_worker_does_not_block_planning(ctx: Ctx
         status=MrpRunStatus.RUNNING,
         mode=MrpRunMode.ASYNC,
         horizon_days=90,
-        started_at=service.utcnow()
-        - timedelta(seconds=service.RUN_STALE_AFTER_SECONDS + 60),
+        started_at=service.utcnow() - timedelta(seconds=service.RUN_STALE_AFTER_SECONDS + 60),
     )
     ctx.session.add(abandoned)
     await ctx.session.flush()
@@ -910,12 +910,26 @@ async def test_another_tenants_runs_are_invisible(ctx: Ctx) -> None:
 
 
 @pytest.mark.asyncio
-async def test_converting_a_suggestion_closes_it_and_returns_the_request(ctx: Ctx) -> None:
-    """Procurement is not deployed, so the seam hands the instruction back.
+async def test_an_undeployed_module_closes_the_suggestion_and_returns_the_request(
+    ctx: Ctx, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the target module absent, the seam hands the instruction back.
 
     ``handled`` is false and ``converted_to_id`` is NULL: the gap is visible in
     the payload rather than implied by a status that claims a document exists.
+
+    The absence is *forced*, by pointing the hook at a module that cannot be
+    imported. This test used to assert that procurement really was undeployed,
+    which stopped being true the day it shipped its hook - CLAUDE.md records
+    that rule: prove a seam's behaviour by resolving it to nothing, never by
+    asserting that a real module is missing.
     """
+    monkeypatch.setitem(
+        service.CONVERSION_HOOKS,
+        ConversionTarget.PURCHASE_REQUISITION,
+        ("src.modules.not_deployed", "create_requisition_from_mrp"),
+    )
+
     await add_sales_order(ctx, code="SO/0001", lines=[(ctx.screw, "100")])
     run = await run_plan(ctx)
     suggestion = await suggestion_for(ctx, run.id, ctx.screw)
@@ -932,6 +946,40 @@ async def test_converting_a_suggestion_closes_it_and_returns_the_request(ctx: Ct
     assert result.suggestion.status is MrpSuggestionStatus.CONVERTED
     assert result.suggestion.converted_to_type == "purchase_requisition"
     assert result.suggestion.converted_to_id is None
+
+
+@pytest.mark.asyncio
+async def test_a_buy_suggestion_becomes_a_draft_requisition(ctx: Ctx) -> None:
+    """The other half: procurement IS deployed, so the document is real.
+
+    Written against the module's own hook rather than a fake, because the pair
+    of tests is what pins the seam: one proves the fallback when nothing is
+    there, this one proves the wiring when something is.
+    """
+    await add_sales_order(ctx, code="SO/0001", lines=[(ctx.screw, "100")])
+    run = await run_plan(ctx)
+    suggestion = await suggestion_for(ctx, run.id, ctx.screw)
+    assert suggestion is not None
+
+    result = await service.convert_suggestion(
+        ctx.session, ctx.tenant, suggestion.id, SuggestionConvertRequest()
+    )
+
+    assert result.handled is True
+    assert result.created_document_type == "purchase_requisition"
+    assert result.created_document_id is not None
+    assert result.suggestion.status is MrpSuggestionStatus.CONVERTED
+    assert result.suggestion.converted_to_id == result.created_document_id
+
+    # The requisition exists in this transaction - the hook runs inside it, so
+    # the suggestion and the document it became commit together or not at all.
+    requisition = (
+        await ctx.session.execute(
+            select(PurchaseRequisition).where(PurchaseRequisition.id == result.created_document_id)
+        )
+    ).scalar_one()
+    assert requisition.code == result.created_document_code
+    assert requisition.source_id == suggestion.id
 
 
 @pytest.mark.asyncio
@@ -1044,6 +1092,31 @@ async def test_a_company_wide_run_receives_into_the_item_s_default_warehouse(ctx
             select(ProductionOrder).where(ProductionOrder.id == result.created_document_id)
         )
     ).scalar_one()
+    assert order.warehouse_id == ctx.main_warehouse.id
+
+
+@pytest.mark.asyncio
+async def test_a_multi_warehouse_run_receives_into_a_warehouse_inside_its_scope(ctx: Ctx) -> None:
+    """docs/assumptions.md section 31: the item default wins when it lies inside
+    the run's scope, even when listed second; otherwise the first warehouse the
+    run named."""
+    await add_sales_order(
+        ctx, code="SO/0002", lines=[(ctx.kit, "10")], warehouse=ctx.spare_warehouse
+    )
+    run = await run_plan(ctx, warehouse_ids=[ctx.spare_warehouse.id, ctx.main_warehouse.id])
+    suggestion = await suggestion_for(ctx, run.id, ctx.kit)
+    assert suggestion is not None
+
+    result = await service.convert_suggestion(
+        ctx.session, ctx.tenant, suggestion.id, SuggestionConvertRequest()
+    )
+
+    order = (
+        await ctx.session.execute(
+            select(ProductionOrder).where(ProductionOrder.id == result.created_document_id)
+        )
+    ).scalar_one()
+    assert ctx.kit.default_warehouse_id == ctx.main_warehouse.id
     assert order.warehouse_id == ctx.main_warehouse.id
 
 

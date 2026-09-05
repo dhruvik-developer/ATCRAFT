@@ -39,8 +39,11 @@ import {
   Skeleton,
 } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
+import { DEFAULT_CURRENCY } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
+import { asText } from '@/lib/utils'
 
 import { orgKeys, type CompanyRecord } from './admin-types'
 
@@ -87,8 +90,6 @@ const companySchema = z.object({
 })
 
 type CompanyValues = z.infer<typeof companySchema>
-
-const asText = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 
 function toValues(company: CompanyRecord): CompanyValues {
   return {
@@ -146,7 +147,7 @@ export function CompanyTab({ canManage }: { canManage: boolean }) {
       state_code: '',
       postal_code: '',
       country: 'India',
-      currency: 'INR',
+      currency: DEFAULT_CURRENCY,
       financial_year_start_month: '4',
       timezone: 'Asia/Kolkata',
     },
@@ -183,7 +184,7 @@ export function CompanyTab({ canManage }: { canManage: boolean }) {
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: orgKeys.all })
       reset(toValues(saved))
-      toast.success('Company updated', saved.name)
+      toast.success(success.updated('Company'), saved.name)
     },
     onError: (error) => applyFieldErrors(error, setError),
   })
@@ -259,11 +260,16 @@ export function CompanyTab({ canManage }: { canManage: boolean }) {
   return (
     <form onSubmit={handleSubmit((values) => mutation.mutate(values))} noValidate>
       <Card>
-        <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
-          <CardTitle>
+        <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+          <CardTitle className="min-w-0 break-words">
             {record.code} - {record.name}
           </CardTitle>
-          <Button type="submit" disabled={!isDirty} loading={mutation.isPending}>
+          <Button
+            type="submit"
+            className="ml-auto"
+            disabled={!isDirty}
+            loading={mutation.isPending}
+          >
             <Save />
             Save company
           </Button>
@@ -356,7 +362,7 @@ export function CompanyTab({ canManage }: { canManage: boolean }) {
             <FieldError message={errors.state?.message} />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <Label htmlFor="company-state-code">GST state code</Label>
               <Input id="company-state-code" {...register('state_code')} className="mt-1.5" />

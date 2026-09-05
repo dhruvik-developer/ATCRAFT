@@ -29,9 +29,9 @@
 
 import { useQuery } from '@tanstack/react-query'
 import Decimal from 'decimal.js'
-import type { FieldValues, Path, UseFormSetError } from 'react-hook-form'
 
-import { ApiError, api } from '@/lib/api-client'
+import { api } from '@/lib/api-client'
+import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { toDecimal } from '@/lib/format'
 import { staleTimes } from '@/lib/query-client'
 import type { DecimalString, SchemaOf } from '@/types/api'
@@ -127,13 +127,12 @@ export const QUANTITY_PATTERN = /^\d{1,14}(\.\d{1,4})?$/
 // ------------------------------------------------------------- reference ----
 
 /**
- * 200 is the API's maximum page size. Units and categories are reference data -
- * a company has tens of them - so one page is the whole set in practice, and a
- * picker that paged would be harder to use than one that does not. `has_next`
- * is carried back so a company that has outgrown that assumption is told,
- * rather than quietly shown a truncated parent list.
+ * Units and categories are reference data - a company has tens of them - so one
+ * page at the API's maximum size (`LOOKUP_LIST_LIMIT`) is the whole set in
+ * practice, and a picker that paged would be harder to use than one that does
+ * not. `has_next` is carried back so a company that has outgrown that
+ * assumption is told, rather than quietly shown a truncated parent list.
  */
-const REFERENCE_LIMIT = 200
 
 export interface ReferenceSet<T> {
   rows: T[]
@@ -155,7 +154,7 @@ export function useUomReference(enabled: boolean) {
     queryKey: mastersKeys.uomReference(),
     queryFn: async (): Promise<ReferenceSet<UomRow>> => {
       const page = await api.getPage<UomRow>('/products/uoms', {
-        params: { limit: REFERENCE_LIMIT, with_total: false },
+        params: { limit: LOOKUP_LIST_LIMIT, with_total: false },
       })
       return { rows: page.data, truncated: page.pagination.has_next }
     },
@@ -177,7 +176,7 @@ export function useCategoryReference(enabled: boolean) {
     queryKey: mastersKeys.categoryReference(),
     queryFn: async (): Promise<ReferenceSet<CategoryRow>> => {
       const page = await api.getPage<CategoryRow>('/products/categories', {
-        params: { limit: REFERENCE_LIMIT, with_total: false },
+        params: { limit: LOOKUP_LIST_LIMIT, with_total: false },
       })
       return { rows: page.data, truncated: page.pagination.has_next }
     },
@@ -200,7 +199,7 @@ export function useVariantOptions(itemId: string, enabled: boolean) {
     queryFn: async () =>
       (
         await api.getPage<VariantRow>(`/products/items/${itemId}/variants`, {
-          params: { limit: REFERENCE_LIMIT, with_total: false },
+          params: { limit: LOOKUP_LIST_LIMIT, with_total: false },
         })
       ).data,
     staleTime: staleTimes.master,
@@ -277,31 +276,4 @@ export function eligibleParents(
 /** Level as an operator counts it; the API's `depth` is 0-based. */
 export function levelLabel(depth: number): string {
   return depth === 0 ? 'Top level' : `Level ${depth + 1}`
-}
-
-// ---------------------------------------------------------------- errors ----
-
-/**
- * Puts a 422 back on the field that caused it instead of in a toast.
- *
- * FastAPI reports the location as `body.code` and a form knows the field as
- * `code`. Anything the form does not own is left alone so the caller's toast
- * still reports it - a business rule rejected by the service (an overlapping
- * price, a category that still has children) has no field to land on and must
- * not be swallowed.
- */
-export function applyFieldErrors<T extends FieldValues>(
-  error: unknown,
-  setError: UseFormSetError<T>,
-  fields: ReadonlySet<string>,
-): void {
-  if (!(error instanceof ApiError) || error.status !== 422) return
-  for (const [path, messages] of Object.entries(error.fieldErrors)) {
-    const field = path.split('.').pop() ?? path
-    if (!fields.has(field)) continue
-    setError(field as Path<T>, {
-      type: 'server',
-      message: Array.isArray(messages) ? messages.join('. ') : String(messages),
-    })
-  }
 }

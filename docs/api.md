@@ -108,14 +108,36 @@ Stable strings the frontend switches on. Renaming one is a breaking change.
 
 | Group | Codes |
 |---|---|
-| Auth | `UNAUTHENTICATED` `INVALID_CREDENTIALS` `TOKEN_EXPIRED` `TOKEN_INVALID` `TOKEN_REVOKED` `ACCOUNT_LOCKED` `ACCOUNT_INACTIVE` `PASSWORD_POLICY` |
-| Authz | `FORBIDDEN` `PERMISSION_DENIED` `TENANT_MISMATCH` `SCOPE_DENIED` |
+| Auth | `UNAUTHENTICATED` `INVALID_CREDENTIALS` `TOKEN_EXPIRED` `TOKEN_INVALID` `TOKEN_REVOKED` `ACCOUNT_LOCKED` `ACCOUNT_INACTIVE` `PASSWORD_POLICY` `MFA_INVALID` `PASSWORD_CHANGE_REQUIRED` |
+| Authz | `FORBIDDEN` `PERMISSION_DENIED` `TENANT_MISMATCH` `SCOPE_DENIED` `CSRF_VALIDATION_FAILED` |
 | Generic | `VALIDATION_ERROR` `NOT_FOUND` `CONFLICT` `RATE_LIMITED` `PAYLOAD_TOO_LARGE` `SERVICE_UNAVAILABLE` `INTERNAL_ERROR` |
 | Business | `BUSINESS_RULE_VIOLATION` `INVALID_STATE_TRANSITION` `APPROVAL_REQUIRED` `DUPLICATE_DOCUMENT` `REFERENCED_RECORD_IN_USE` |
-| Inventory | `INSUFFICIENT_AVAILABLE_STOCK` `STOCK_LOCK_TIMEOUT` `NEGATIVE_STOCK_BLOCKED` `BATCH_REQUIRED` `SERIAL_REQUIRED` `RESERVATION_NOT_FOUND` `RESERVATION_ALREADY_CONSUMED` |
+| Inventory | `INSUFFICIENT_STOCK` `INSUFFICIENT_AVAILABLE_STOCK` `STOCK_LOCK_TIMEOUT` `NEGATIVE_STOCK_BLOCKED` `BATCH_REQUIRED` `SERIAL_REQUIRED` `RESERVATION_NOT_FOUND` `RESERVATION_ALREADY_CONSUMED` |
 | BOM / MRP | `BOM_NOT_FOUND` `BOM_CYCLE_DETECTED` `BOM_DEPTH_EXCEEDED` `BOM_NOT_APPROVED` `MRP_RUN_IN_PROGRESS` |
 | Files | `FILE_TYPE_NOT_ALLOWED` `FILE_TOO_LARGE` `FILE_NOT_FOUND` |
 | Jobs | `JOB_NOT_FOUND` `JOB_FAILED` |
+
+Five of these are easy to mishandle:
+
+- `PASSWORD_CHANGE_REQUIRED` (403) is raised by the shared authentication
+  dependency on every route outside `/auth/me`, `/auth/change-password`,
+  `/auth/logout` and `/auth/logout-all` while `must_change_password` is set.
+- `MFA_INVALID` (401) is a wrong, replayed or unavailable authenticator code
+  during the MFA step. `MFA_REQUIRED` exists in `ErrorCode` but is never sent:
+  the MFA step is signalled by `mfa_required: true` in a 200 login response
+  (see Authentication below).
+- `INVALID_CREDENTIALS` and `MFA_INVALID` change status with the route. They
+  are 401 on the unauthenticated auth routes (`/auth/login`, `/auth/mfa/verify`,
+  `/auth/refresh`) and 422 with `details.fields` on the authenticated
+  self-service routes (`/auth/change-password`, `/auth/mfa/setup`,
+  `/auth/mfa/confirm`, `/auth/mfa/disable`), naming the control that was wrong
+  (`current_password`, `code`). The SPA treats any 401 on an authenticated route
+  as a dead session and signs the user out, which would hide the message.
+- `CSRF_VALIDATION_FAILED` (403) is the refresh double-submit check failing.
+  The session is retained; reload the CSRF cookie and retry.
+- `INSUFFICIENT_STOCK` (422) is an on-hand or pool shortfall at the moment of
+  an issue, an assembly consume or a job-work return. It is distinct from
+  `INSUFFICIENT_AVAILABLE_STOCK`, the reservation-aware check on allocation.
 
 Validation failures carry field paths so a form can map them onto controls:
 
@@ -133,22 +155,85 @@ Validation failures carry field paths so a form can map them onto controls:
 
 ## Authentication
 
+Sign in with an email address and password:
+
 ```http
 POST /api/v1/auth/login
-{ "email": "planner@atcraft.example", "password": "..." }
-
-→ { "access_token": "...", "refresh_token": "...", "expires_in": 900, "user": {...} }
+{ "email": "planner@atcraft.example", "password": "...", "device_label": "Chrome on the planning PC" }
 ```
 
-Then on every request:
+`data` takes one of two shapes. Without MFA on the account the sign-in
+completes:
+
+```json
+{
+  "access_token": "...",
+  "token_type": "bearer",
+  "expires_in": 900,
+  "refresh_expires_in": 604800,
+  "session_id": "...",
+  "mfa_required": false,
+  "user": { "id": "...", "email": "...", "full_name": "...", "company_id": "...",
+            "is_superuser": false, "must_change_password": false, "roles": ["planner"] }
+}
+```
+
+With MFA enabled, the password stage succeeded but no session exists yet:
+
+```json
+{ "mfa_required": true, "challenge_token": "...", "expires_in": 300 }
+```
+
+Complete it within five minutes with the six-digit code from the authenticator.
+The response is the first shape above:
+
+```http
+POST /api/v1/auth/mfa/verify
+{ "challenge_token": "...", "code": "123456" }
+```
+
+A wrong or replayed code answers 401 `MFA_INVALID`; an expired or malformed
+challenge answers 401 `TOKEN_INVALID`. Then on every request:
 
 ```http
 Authorization: Bearer <access_token>
 ```
 
-Access tokens last 15 minutes. Refresh with `POST /auth/refresh`; the refresh
-token **rotates** on every use — store the new one and discard the old. Reusing a
-replaced refresh token is treated as replay and revokes the entire session chain.
+**No refresh token is ever in JSON.** Alongside either successful response the
+server sets two cookies:
+
+| Cookie | Attributes | Purpose |
+|---|---|---|
+| `atcraft_refresh` | `HttpOnly`, `SameSite=Strict`, `Path=/api/v1/auth`, `Secure` when deployed | the refresh JWT itself; script cannot read it |
+| `atcraft_csrf` | readable, `SameSite=Strict`, `Path=/` | an HMAC of that JWT, not a secret; the double-submit value |
+
+Access tokens last 15 minutes. Refresh with a body-less `POST /auth/refresh`,
+sending the cookies plus the header `X-CSRF-Token: <value of atcraft_csrf>`.
+`data` is `{ "access_token", "token_type", "expires_in", "refresh_expires_in",
+"session_id" }` and both cookies are re-set: the refresh token **rotates** on
+every use, and presenting an already-replaced one is treated as replay and
+revokes the entire session chain. A missing refresh cookie answers 401
+`TOKEN_INVALID`; a missing or mismatched header answers 403
+`CSRF_VALIDATION_FAILED` and leaves the session intact.
+
+`POST /auth/logout` and `POST /auth/logout-all` take the bearer token, require
+the same `X-CSRF-Token` header whenever the refresh cookie is present, and clear
+both cookies.
+
+A non-browser client keeps a cookie jar and echoes `atcraft_csrf` in
+`X-CSRF-Token`. There is no body-based refresh.
+
+A user whose password was set by an administrator (`must_change_password:
+true`) may call only `/auth/me`, `/auth/change-password`, `/auth/logout` and
+`/auth/logout-all` until it is replaced; every other route answers 403
+`PASSWORD_CHANGE_REQUIRED`.
+
+MFA is enrolled by the signed-in user: `POST /auth/mfa/setup` (current
+password) returns the secret and a provisioning URI once, `POST
+/auth/mfa/confirm` (a code) activates it, `POST /auth/mfa/disable` (password
+and a code) removes it. Password reset is `POST /auth/password-reset/request`
+(email; always 200 with the same message) followed by `POST
+/auth/password-reset/confirm` (token from the emailed link, new password).
 
 Permissions are not carried in the token. `GET /auth/me` returns the current
 effective set, and the server re-resolves it per request so a revoked right takes
@@ -230,8 +315,8 @@ X-RateLimit-Remaining: 117
 Retry-After: 43          # on 429 only
 ```
 
-Tighter budgets apply to login, password reset, refresh, MRP runs, exports,
-uploads and bulk imports.
+Tighter budgets apply to login, MFA verification, password reset, refresh, MRP
+runs, exports, uploads and bulk imports.
 
 ---
 
@@ -253,7 +338,9 @@ download. No endpoint holds a connection open for a calculation.
 ## Endpoint map
 
 ```
-/auth                 login · refresh · logout · me · sessions · password
+/auth                 login · mfa/verify · refresh · logout · logout-all · me · sessions
+                      mfa/setup · mfa/confirm · mfa/disable · change-password
+                      password-reset/request · password-reset/confirm
 /users  /roles        users, roles, permission catalogue
 /organization         company · branches · plants · departments · financial years
 /warehouses           warehouses · storage locations

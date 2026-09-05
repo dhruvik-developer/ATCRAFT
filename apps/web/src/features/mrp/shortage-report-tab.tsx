@@ -26,7 +26,7 @@ import { useMemo } from 'react'
 import { DataTable } from '@/components/data-table'
 import { Card, CardContent } from '@/components/ui/primitives'
 import { useListQuery } from '@/hooks/use-list-query'
-import { formatDate, formatQuantity } from '@/lib/format'
+import { formatDate, formatQuantity, toDecimal } from '@/lib/format'
 import { queryKeys } from '@/lib/query-client'
 
 import type { MrpRequirementRow } from './mrp-types'
@@ -44,8 +44,9 @@ function LateInterval({
   to: string | null | undefined
   label: string
 }) {
-  const amount = Number(quantity ?? 0)
-  if (!Number.isFinite(amount) || amount <= 0) return null
+  // Decimal strings are compared as decimals; `Number()` is for the final
+  // formatting step only (lib/format).
+  if (!toDecimal(quantity).greaterThan(0)) return null
 
   // Older rows were planned before the closing date was computed and carry only
   // the opening one. Saying "from 30 Jul" is honest there; inventing a closing
@@ -125,7 +126,7 @@ export function ShortageReportTab({ runId }: { runId: string }) {
               <span className="tabular-nums">{formatQuantity(row.original.incoming_quantity)}</span>
               <span className="text-muted-foreground">on order</span>
             </div>
-            {Number(row.original.in_production_quantity ?? 0) > 0 && (
+            {toDecimal(row.original.in_production_quantity).greaterThan(0) && (
               <div className="flex items-baseline gap-1.5 text-xs">
                 <PackageCheck className="size-3 shrink-0 text-muted-foreground" aria-hidden />
                 <span className="tabular-nums">
@@ -144,8 +145,7 @@ export function ShortageReportTab({ runId }: { runId: string }) {
         enableSorting: false,
         cell: ({ row }) => {
           const r = row.original
-          const total = Number(r.late_supply_quantity ?? 0)
-          if (!Number.isFinite(total) || total <= 0) {
+          if (!toDecimal(r.late_supply_quantity).greaterThan(0)) {
             return <span className="text-xs text-muted-foreground">&mdash;</span>
           }
           return (
@@ -180,14 +180,16 @@ export function ShortageReportTab({ runId }: { runId: string }) {
     [],
   )
 
-  const lateRows = requirements.data.filter((r) => Number(r.late_supply_quantity ?? 0) > 0).length
+  const lateRows = requirements.data.filter((r) =>
+    toDecimal(r.late_supply_quantity).greaterThan(0),
+  ).length
 
   return (
     <div className="space-y-4">
       {lateRows > 0 && (
         <Card>
           <CardContent className="flex items-start gap-3 py-4">
-            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
             <div className="space-y-1 text-sm">
               <div className="font-medium">
                 {lateRows} shortage{lateRows === 1 ? '' : 's'} on this page have supply that arrives

@@ -52,14 +52,16 @@ import {
   Textarea,
 } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
-import { applyFieldErrors } from '@/lib/form-errors'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
+import { messages, success } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { GSTIN_PATTERN, PAN_PATTERN } from '@/lib/statutory'
 import { toast } from '@/lib/toast'
 
 import { AddressesPanel, ContactsPanel, UnsavedCustomerNotice } from './customer-relations'
-import { CUSTOMER_TYPES, PRICE_TYPES, type CustomerDetail } from './customer-types'
+import { CUSTOMER_TYPES, PRICE_TYPES, isDealerChannel, type CustomerDetail } from './customer-types'
 
 const MONEY = /^(\d{1,14}(\.\d{1,4})?)?$/
 const WHOLE_DAYS = /^\d{0,4}$/
@@ -180,7 +182,13 @@ type StandingAction = 'block' | 'unblock' | 'activate' | 'deactivate'
 
 const STANDING_COPY: Record<
   StandingAction,
-  { title: string; description: string; confirmLabel: string; destructive: boolean }
+  {
+    title: string
+    description: string
+    confirmLabel: string
+    destructive: boolean
+    successTitle: string
+  }
 > = {
   block: {
     title: 'Block this account?',
@@ -188,24 +196,28 @@ const STANDING_COPY: Record<
       'Order entry will refuse it and the reason is shown to whoever tries. Orders already in flight are not withdrawn.',
     confirmLabel: 'Block account',
     destructive: true,
+    successTitle: 'Customer blocked',
   },
   unblock: {
     title: 'Unblock this account?',
     description: 'New orders will be accepted for it again.',
     confirmLabel: 'Unblock account',
     destructive: false,
+    successTitle: 'Customer unblocked',
   },
   activate: {
     title: 'Activate this account?',
     description: 'It becomes selectable on new orders again.',
     confirmLabel: 'Activate',
     destructive: false,
+    successTitle: 'Customer activated',
   },
   deactivate: {
     title: 'Deactivate this account?',
     description: 'It stops being offered on new orders. Existing documents are unaffected.',
     confirmLabel: 'Deactivate',
     destructive: true,
+    successTitle: 'Customer deactivated',
   },
 }
 
@@ -214,17 +226,24 @@ function StandingPanel({ customer, canEdit }: { customer: CustomerDetail; canEdi
   const [action, setAction] = useState<StandingAction | null>(null)
   const [reason, setReason] = useState('')
   const [touched, setTouched] = useState(false)
+  // The API's own 3..255 bound on `Reason`. Checked here because this is a
+  // confirmation, not a form: a 422 against `reason` is a field error the
+  // mutation cache stays quiet about, and there would be nothing to render it.
+  const tooShort = reason.trim().length < REASON_MIN_LENGTH
 
   const run = useMutation({
     mutationFn: (next: StandingAction) =>
       api.post<CustomerDetail>(`/customers/${customer.id}/${next}`, { reason: reason.trim() }),
     onSuccess: (_saved, next) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })
-      toast.success(`Customer ${next}${next.endsWith('e') ? 'd' : 'ed'}`, customer.code)
+      toast.success(STANDING_COPY[next].successTitle, `${customer.code} - ${customer.name}`)
       setAction(null)
       setReason('')
       setTouched(false)
     },
+    // Fired from a confirm box, not a form: a 422 on `reason` has no control
+    // to land on, and the mutation cache stays quiet for it.
+    onError: (error) => reportFieldErrors(error, "Could not change this account's standing"),
   })
 
   const copy = action ? STANDING_COPY[action] : null
@@ -286,7 +305,7 @@ function StandingPanel({ customer, canEdit }: { customer: CustomerDetail; canEdi
         destructive={copy?.destructive}
         loading={run.isPending}
         onConfirm={() => {
-          if (reason.trim() === '') {
+          if (tooShort) {
             setTouched(true)
             return
           }
@@ -301,12 +320,19 @@ function StandingPanel({ customer, canEdit }: { customer: CustomerDetail; canEdi
             id="standing-reason"
             value={reason}
             onChange={(event) => setReason(event.target.value)}
+            maxLength={REASON_MAX_LENGTH}
             autoComplete="off"
             className="mt-1.5"
-            aria-invalid={touched && reason.trim() === ''}
+            aria-invalid={touched && tooShort}
           />
-          {touched && reason.trim() === '' && (
-            <FieldError message="The API records this against the account - it needs a reason" />
+          {touched && tooShort && (
+            <FieldError
+              message={
+                reason.trim() === ''
+                  ? 'The API records this against the account - it needs a reason'
+                  : messages.errors.reasonTooShort
+              }
+            />
           )}
         </div>
       </ConfirmDialog>
@@ -321,12 +347,23 @@ export function CustomerFormDialog({
   onOpenChange,
   customerId,
   canEdit,
+  canManageDealers,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Present for an edit, null for a create. */
   customerId: string | null
   canEdit: boolean
+  /**
+   * Whether the principal holds `dealer.manage`.
+   *
+   * The service wraps every write to a DEALER or DISTRIBUTOR account -
+   * `update_customer`, `set_active`, `block`, `unblock` - in
+   * `assert_channel_write_allowed`, which demands that right on top of
+   * `customer.update`. It gates no route of its own, so the list cannot know
+   * before the record is loaded; this dialog applies it once it is.
+   */
+  canManageDealers: boolean
 }) {
   const queryClient = useQueryClient()
   const isEdit = Boolean(customerId)
@@ -362,6 +399,13 @@ export function CustomerFormDialog({
 
   const unlimited = watch('unlimited_credit')
 
+  // Whether the details tab and the standing actions may write this record.
+  // The addresses and contacts tabs stay on `canEdit`: their endpoints are not
+  // behind the channel check. On a create there is no record yet, and the
+  // type select below keeps a principal without the right out of the channel.
+  const canEditRecord = canEdit && (canManageDealers || !loaded || !isDealerChannel(loaded))
+  const channelWithheld = isEdit && canEdit && !canEditRecord
+
   const save = useMutation({
     mutationFn: (values: CustomerFormValues) =>
       customerId
@@ -371,7 +415,7 @@ export function CustomerFormDialog({
       // One prefix invalidation covers every customer list and detail at once.
       void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })
       toast.success(
-        isEdit ? 'Customer updated' : 'Customer created',
+        isEdit ? success.updated('Customer') : success.created('Customer'),
         `${saved.code} - ${saved.name}`,
       )
       onOpenChange(false)
@@ -473,12 +517,26 @@ export function CustomerFormDialog({
                         control={control}
                         name="customer_type"
                         render={({ field }) => (
-                          <Select value={field.value} onValueChange={field.onChange}>
+                          <Select
+                            value={field.value}
+                            onValueChange={field.onChange}
+                            disabled={!canEditRecord}
+                          >
                             <SelectTrigger id="customer-type" className="mt-1.5">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {CUSTOMER_TYPES.map((type) => (
+                              {/* The dealer channels are offered only to a
+                                  holder of dealer.manage: the service refuses
+                                  to create or move an account into either
+                                  without it. The current value always stays
+                                  listed so a locked dealer row still reads. */}
+                              {CUSTOMER_TYPES.filter(
+                                (type) =>
+                                  canManageDealers ||
+                                  type === field.value ||
+                                  !isDealerChannel({ customer_type: type }),
+                              ).map((type) => (
                                 <SelectItem key={type} value={type}>
                                   {humanise(type)}
                                 </SelectItem>
@@ -590,7 +648,7 @@ export function CustomerFormDialog({
                   </div>
 
                   {isEdit && loaded ? (
-                    <StandingPanel customer={loaded} canEdit={canEdit} />
+                    <StandingPanel customer={loaded} canEdit={canEditRecord} />
                   ) : (
                     <fieldset className="rounded-lg border p-4">
                       <legend className="px-1 text-sm font-medium">Standing</legend>
@@ -617,7 +675,12 @@ export function CustomerFormDialog({
                   )}
                 </DialogBody>
 
-                <DialogFooter>
+                <DialogFooter className="sm:items-center">
+                  {channelWithheld && (
+                    <p className="text-xs text-muted-foreground sm:mr-auto">
+                      Dealer and distributor accounts are amended by the channel team.
+                    </p>
+                  )}
                   <Button
                     type="button"
                     variant="outline"
@@ -626,7 +689,7 @@ export function CustomerFormDialog({
                   >
                     Cancel
                   </Button>
-                  <Button type="submit" loading={save.isPending} disabled={!canEdit}>
+                  <Button type="submit" loading={save.isPending} disabled={!canEditRecord}>
                     {isEdit ? 'Save changes' : 'Create customer'}
                   </Button>
                 </DialogFooter>

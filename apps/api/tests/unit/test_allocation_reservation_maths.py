@@ -82,9 +82,9 @@ class TestRemaining:
     def test_remaining_keeps_quantity_scale_without_float_drift(self) -> None:
         """Four decimal places, exactly - a reservation that drifted by 1e-16
         would eventually refuse a release for "more than remains"."""
-        assert remaining_of(
-            Decimal("10.0001"), Decimal("3.3333"), Decimal("3.3333")
-        ) == Decimal("3.3335")
+        assert remaining_of(Decimal("10.0001"), Decimal("3.3333"), Decimal("3.3333")) == Decimal(
+            "3.3335"
+        )
 
 
 class TestPartialRelease:
@@ -142,9 +142,7 @@ class TestPartialRelease:
         "status",
         [ReservationStatus.CONSUMED, ReservationStatus.RELEASED, ReservationStatus.EXPIRED],
     )
-    def test_a_closed_reservation_cannot_be_released_again(
-        self, status: ReservationStatus
-    ) -> None:
+    def test_a_closed_reservation_cannot_be_released_again(self, status: ReservationStatus) -> None:
         with pytest.raises(BusinessRuleError) as exc:
             _release("100", released="100", status=status)
         assert exc.value.details["status"] == str(status)
@@ -282,9 +280,7 @@ class TestStateGraph:
         "terminal",
         [ReservationStatus.CONSUMED, ReservationStatus.RELEASED, ReservationStatus.EXPIRED],
     )
-    def test_nothing_leaves_a_terminal_reservation_state(
-        self, terminal: ReservationStatus
-    ) -> None:
+    def test_nothing_leaves_a_terminal_reservation_state(self, terminal: ReservationStatus) -> None:
         """Issued stock is not un-issued by editing a promise; the correction is
         a new movement."""
         assert RESERVATION_FLOW.is_terminal(terminal)
@@ -330,9 +326,7 @@ class TestRequesterPriorityRoundTrip:
         assert _parse_priority(value) == 10
 
     @pytest.mark.parametrize("value", [None, "", "not-a-number", True, -1, 3.5])
-    def test_an_absent_or_unusable_priority_falls_back_to_the_default(
-        self, value: object
-    ) -> None:
+    def test_an_absent_or_unusable_priority_falls_back_to_the_default(self, value: object) -> None:
         """Never aborts an approved reallocation, and never writes a value the
         ``priority >= 0`` check constraint would reject."""
         assert _parse_priority(value) == DEFAULT_RESERVATION_PRIORITY

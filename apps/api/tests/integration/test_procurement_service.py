@@ -46,8 +46,13 @@ from src.core.errors import (
 from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
-from src.modules.audit.models import AuditLog
-from src.modules.inventory.models import InventoryBalance, InventoryTransaction, TransactionType
+from src.modules.audit.models import AuditAction, AuditLog
+from src.modules.inventory.models import (
+    InventoryBalance,
+    InventoryTransaction,
+    StockState,
+    TransactionType,
+)
 from src.modules.organization.models import Company
 from src.modules.procurement import service
 from src.modules.procurement.models import (
@@ -56,6 +61,7 @@ from src.modules.procurement.models import (
     PurchaseOrderStatus,
     PurchaseReturnStatus,
     PurchaseSourceType,
+    QuotationStatus,
     ReceiptLineQcStatus,
     RequisitionStatus,
 )
@@ -70,14 +76,21 @@ from src.modules.procurement.schemas import (
     PurchaseOrderLineIn,
     PurchaseReturnCreate,
     PurchaseReturnLineIn,
+    QuotationCreate,
+    QuotationLineIn,
+    QuotationUpdate,
     RequisitionCreate,
     RequisitionLineIn,
+    RfqCreate,
+    RfqLineIn,
 )
 from src.modules.products.models import Item, ItemGroup, ProductionType, UnitOfMeasure, UomCategory
+from src.modules.quality import service as quality_service
+from src.modules.quality.schemas import DecideRequest
 from src.modules.users.models import User
 from src.modules.vendors.models import Vendor, VendorType
 from src.modules.warehouses.models import Warehouse, WarehouseType
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 
 pytestmark = pytest.mark.integration
 
@@ -161,7 +174,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, other_company_id, buyer_id, approver_id
     asyncio.run(teardown())
@@ -442,9 +455,7 @@ async def reload_line(db: AsyncSession, line_id) -> PurchaseOrderLine:
 # =============================================================================
 
 
-async def test_posting_a_receipt_moves_stock_and_completes_the_order(
-    db, tenant, buyer, masters
-):
+async def test_posting_a_receipt_moves_stock_and_completes_the_order(db, tenant, buyer, masters):
     order, lines, _ = await make_order(db, tenant, buyer, masters, quantity="100")
     await send_order(db, tenant, buyer, order)
 
@@ -470,7 +481,7 @@ async def test_posting_a_receipt_moves_stock_and_completes_the_order(
 async def test_the_ledger_records_a_purchase_receipt_pointing_back_at_the_grn(
     db, tenant, buyer, masters
 ):
-    """"What did this GRN post?" has to be answerable from the ledger alone."""
+    """ "What did this GRN post?" has to be answerable from the ledger alone."""
     order, lines, _ = await make_order(db, tenant, buyer, masters, quantity="60")
     await send_order(db, tenant, buyer, order)
     receipt, _ = await receive(db, tenant, buyer, order, lines[0], received="60")
@@ -525,9 +536,7 @@ async def test_a_second_delivery_completes_the_order_and_adds_to_the_same_positi
     assert line.status is PurchaseOrderLineStatus.RECEIVED
 
 
-async def test_rejected_quantity_is_recorded_but_never_taken_into_stock(
-    db, tenant, buyer, masters
-):
+async def test_rejected_quantity_is_recorded_but_never_taken_into_stock(db, tenant, buyer, masters):
     """Goods refused at the gate leave on the lorry they arrived on."""
     order, lines, _ = await make_order(db, tenant, buyer, masters, quantity="100")
     await send_order(db, tenant, buyer, order)
@@ -562,10 +571,14 @@ async def test_posting_writes_an_audit_row_for_the_receipt_and_the_order(
     assert any(entry.entity_code == receipt.code for entry in entries)
     assert "POSTED" in summaries or "posted" in summaries.lower()
 
-    order_stmt = select(func.count()).select_from(AuditLog).where(
-        AuditLog.company_id == tenant.company_id,
-        AuditLog.entity_id == order.id,
-        AuditLog.entity_type == "purchase_order",
+    order_stmt = (
+        select(func.count())
+        .select_from(AuditLog)
+        .where(
+            AuditLog.company_id == tenant.company_id,
+            AuditLog.entity_id == order.id,
+            AuditLog.entity_type == "purchase_order",
+        )
     )
     # Created, submitted, approved, sent, received, GRN completed.
     assert int((await db.execute(order_stmt)).scalar_one()) >= 6
@@ -678,9 +691,7 @@ async def test_the_quality_module_is_called_when_it_is_available(db, tenant, buy
     order, lines, _ = await make_order(db, tenant, buyer, masters, quantity="40", requires_qc=True)
     await send_order(db, tenant, buyer, order)
     receipt, _ = await receive(db, tenant, buyer, order, lines[0], received="40", post=False)
-    result = await service.post_goods_receipt(
-        db, tenant, buyer, receipt.id, quality=fake_quality
-    )
+    result = await service.post_goods_receipt(db, tenant, buyer, receipt.id, quality=fake_quality)
 
     assert result.qc_inspections_created is True
     assert len(raised) == 1
@@ -690,9 +701,7 @@ async def test_the_quality_module_is_called_when_it_is_available(db, tenant, buy
     assert result.receipt.lines[0].qc_inspection_id is not None
 
 
-async def test_a_receipt_with_no_inspection_skips_qc_pending_entirely(
-    db, tenant, buyer, masters
-):
+async def test_a_receipt_with_no_inspection_skips_qc_pending_entirely(db, tenant, buyer, masters):
     order, lines, _ = await make_order(db, tenant, buyer, masters, quantity="10")
     await send_order(db, tenant, buyer, order)
 
@@ -705,9 +714,7 @@ async def test_a_receipt_with_no_inspection_skips_qc_pending_entirely(
 # --- traceability ---------------------------------------------------------------
 
 
-async def test_a_batch_tracked_item_creates_and_posts_against_its_lot(
-    db, tenant, buyer, masters
-):
+async def test_a_batch_tracked_item_creates_and_posts_against_its_lot(db, tenant, buyer, masters):
     order, lines, _ = await make_order(
         db, tenant, buyer, masters, quantity="30", item=masters["batched_item"]
     )
@@ -942,9 +949,7 @@ async def test_a_return_against_an_unposted_receipt_is_refused(db, tenant, buyer
 # =============================================================================
 
 
-async def test_a_duplicate_order_is_refused_without_an_acknowledgement(
-    db, tenant, buyer, masters
-):
+async def test_a_duplicate_order_is_refused_without_an_acknowledgement(db, tenant, buyer, masters):
     required = today() + timedelta(days=10)
     await make_order(db, tenant, buyer, masters, expected_delivery_date=required)
 
@@ -1022,9 +1027,7 @@ async def test_a_cancelled_order_stops_being_a_duplicate_candidate(db, tenant, b
         db, tenant, buyer, first.id, PurchaseOrderStatus.CANCELLED, reason="Vendor cannot supply"
     )
 
-    _, _, candidates = await make_order(
-        db, tenant, buyer, masters, expected_delivery_date=required
-    )
+    _, _, candidates = await make_order(db, tenant, buyer, masters, expected_delivery_date=required)
     assert candidates == []
 
 
@@ -1102,9 +1105,7 @@ async def test_duplicates_are_scoped_to_the_tenant(db, tenant, other_tenant, buy
 # =============================================================================
 
 
-async def test_the_approver_may_not_be_the_person_who_raised_the_order(
-    db, tenant, buyer, masters
-):
+async def test_the_approver_may_not_be_the_person_who_raised_the_order(db, tenant, buyer, masters):
     """Segregation of duties (docs/assumptions.md section 2)."""
     order, _, _ = await make_order(db, tenant, buyer, masters)
     await service.transition_purchase_order(
@@ -1202,9 +1203,7 @@ async def test_totals_are_stored_on_the_header(db, tenant, buyer, masters):
 # =============================================================================
 
 
-async def test_the_tracking_view_reports_delay_qc_and_what_is_still_due(
-    db, tenant, buyer, masters
-):
+async def test_the_tracking_view_reports_delay_qc_and_what_is_still_due(db, tenant, buyer, masters):
     order, lines, _ = await make_order(
         db,
         tenant,
@@ -1274,9 +1273,7 @@ async def test_the_approvals_queue_merges_requisitions_and_orders(
             required_date=today() + timedelta(days=14),
             warehouse_id=masters["warehouse"].id,
             lines=[
-                RequisitionLineIn(
-                    line_number=1, item_id=masters["item"].id, quantity=Decimal("25")
-                )
+                RequisitionLineIn(line_number=1, item_id=masters["item"].id, quantity=Decimal("25"))
             ],
         ),
     )
@@ -1398,12 +1395,217 @@ async def test_a_receipt_updates_the_vendor_s_last_purchase_price(db, tenant, bu
     db.add(link)
     await db.flush()
 
-    order, lines, _ = await make_order(
-        db, tenant, buyer, masters, quantity="10", unit_price="77.5"
-    )
+    order, lines, _ = await make_order(db, tenant, buyer, masters, quantity="10", unit_price="77.5")
     await send_order(db, tenant, buyer, order)
     await receive(db, tenant, buyer, order, lines[0], received="10")
 
     await db.refresh(link)
     assert link.last_purchase_price == Decimal("77.500000")
     assert link.last_purchase_date == today()
+
+
+# =============================================================================
+# Quotations
+# =============================================================================
+
+
+async def make_rfq(db, tenant, masters, *, quantity: str = "100"):
+    rfq, _ = await service.create_rfq(
+        db,
+        tenant,
+        RfqCreate(
+            warehouse_id=masters["warehouse"].id,
+            lines=[
+                RfqLineIn(line_number=1, item_id=masters["item"].id, quantity=Decimal(quantity))
+            ],
+        ),
+    )
+    return rfq
+
+
+def quotation_payload(rfq, masters, *, unit_price: str = "50", **terms) -> QuotationCreate:
+    return QuotationCreate(
+        rfq_id=rfq.id,
+        vendor_id=masters["vendor"].id,
+        vendor_reference=f"Q-{uuid.uuid4().hex[:6].upper()}",
+        lines=[
+            QuotationLineIn(
+                line_number=1,
+                item_id=masters["item"].id,
+                quantity=Decimal("100"),
+                unit_price=Decimal(unit_price),
+            )
+        ],
+        **terms,
+    )
+
+
+async def test_a_quotation_takes_the_vendor_s_terms_when_omitted_and_keeps_an_explicit_zero(
+    db, tenant, masters
+):
+    """``None`` means "as agreed with the vendor"; ``0`` means ex-stock, or cash.
+    ``or`` would have quietly turned the second into the first."""
+    rfq = await make_rfq(db, tenant, masters)
+    as_agreed, _ = await service.create_quotation(db, tenant, quotation_payload(rfq, masters))
+    assert (as_agreed.payment_terms_days, as_agreed.lead_time_days) == (30, 7)
+
+    ex_stock = await make_rfq(db, tenant, masters)
+    cash, _ = await service.create_quotation(
+        db, tenant, quotation_payload(ex_stock, masters, payment_terms_days=0, lead_time_days=0)
+    )
+    assert (cash.payment_terms_days, cash.lead_time_days) == (0, 0)
+
+
+async def test_a_rejected_quotation_is_reopened_by_its_revision_not_by_a_second_one(
+    db, tenant, buyer, masters
+):
+    """The RFQ holds one row per vendor. A rejected offer is revised back to
+    RECEIVED - a state change with its own audit row - and recording a *second*
+    quotation for the same vendor is still a 409."""
+    rfq = await make_rfq(db, tenant, masters)
+    quotation, _ = await service.create_quotation(db, tenant, quotation_payload(rfq, masters))
+    await service.decide_quotation(
+        db, tenant, buyer, quotation.id, QuotationStatus.REJECTED, reason="Too dear"
+    )
+    assert QuotationStatus(quotation.status) is QuotationStatus.REJECTED
+
+    revised, _ = await service.update_quotation(
+        db,
+        tenant,
+        quotation.id,
+        QuotationUpdate(
+            reason="Vendor requoted at a lower price",
+            lines=[
+                QuotationLineIn(
+                    line_number=1,
+                    item_id=masters["item"].id,
+                    quantity=Decimal("100"),
+                    unit_price=Decimal("45"),
+                )
+            ],
+        ),
+    )
+    assert QuotationStatus(revised.status) is QuotationStatus.RECEIVED
+    assert revised.decision_reason is None
+    assert revised.selected_by_id is None
+
+    trail = (
+        (
+            await db.execute(
+                select(AuditLog)
+                .where(
+                    AuditLog.entity_type == service.AUDIT_QUOTATION,
+                    AuditLog.entity_id == quotation.id,
+                )
+                .order_by(AuditLog.created_at, AuditLog.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    reopened = [
+        row
+        for row in trail
+        if row.action == AuditAction.STATUS_CHANGE
+        and row.old_values == {"status": "REJECTED"}
+        and row.new_values == {"status": "RECEIVED"}
+    ]
+    assert len(reopened) == 1, [(row.action, row.old_values, row.new_values) for row in trail]
+    assert reopened[0].context == {"reason": "Vendor requoted at a lower price"}
+
+    with pytest.raises(BusinessRuleError) as excinfo:
+        await service.create_quotation(db, tenant, quotation_payload(rfq, masters))
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.code == ErrorCode.DUPLICATE_DOCUMENT
+
+
+# =============================================================================
+# Returns drawn against inspected lots
+# =============================================================================
+
+
+async def test_a_rejected_lot_is_returned_from_damaged_stock(db, tenant, buyer, masters):
+    """Receive on hold, fail the inspection, send the lot back.
+
+    The inspection moves the quantity from QC_HOLD to DAMAGED; the return then
+    leaves the DAMAGED pool the inspection put it in - not AVAILABLE, which it
+    never reached - and the position ends at nothing in either.
+    """
+    order, lines, _ = await make_order(db, tenant, buyer, masters, quantity="80", requires_qc=True)
+    await send_order(db, tenant, buyer, order)
+    _, posted = await receive(db, tenant, buyer, order, lines[0], received="80")
+    receipt_line = posted.receipt.lines[0]
+    assert receipt_line.qc_inspection_id is not None
+
+    await quality_service.decide_inspection(
+        db,
+        tenant,
+        receipt_line.qc_inspection_id,
+        DecideRequest(
+            rejected_quantity=Decimal("80"),
+            reason="Failed incoming inspection",
+            rejection_reason="Thread pitch out of specification across the lot",
+        ),
+    )
+    inspected = await balance_of(db, tenant, masters["item"].id, masters["warehouse"].id)
+    assert inspected.qc_hold_quantity == Decimal("0.0000")
+    assert inspected.damaged_quantity == Decimal("80.0000")
+
+    purchase_return, _ = await service.create_purchase_return(
+        db,
+        tenant,
+        PurchaseReturnCreate(
+            goods_receipt_id=posted.receipt.id,
+            reason="Rejected at incoming inspection",
+            lines=[
+                PurchaseReturnLineIn(
+                    line_number=1, goods_receipt_line_id=receipt_line.id, quantity=Decimal("80")
+                )
+            ],
+        ),
+    )
+    await service.post_purchase_return(db, tenant, buyer, purchase_return.id)
+
+    balance = await balance_of(db, tenant, masters["item"].id, masters["warehouse"].id)
+    assert balance.damaged_quantity == Decimal("0.0000")
+    assert balance.on_hand_quantity == Decimal("0.0000")
+
+    movement = (
+        await db.execute(
+            select(InventoryTransaction).where(
+                InventoryTransaction.reference_type == "purchase_return",
+                InventoryTransaction.reference_id == purchase_return.id,
+            )
+        )
+    ).scalar_one()
+    assert str(movement.stock_state) == str(StockState.DAMAGED)
+    assert movement.quantity == Decimal("-80.0000")
+
+
+async def test_a_return_against_a_line_still_on_qc_hold_is_refused(db, tenant, buyer, masters):
+    """Until the inspection decides, nobody knows which pool the goods are in -
+    so nothing can leave it."""
+    order, lines, _ = await make_order(db, tenant, buyer, masters, quantity="80", requires_qc=True)
+    await send_order(db, tenant, buyer, order)
+    _, posted = await receive(db, tenant, buyer, order, lines[0], received="80")
+
+    with pytest.raises(BusinessRuleError, match="still on QC hold"):
+        await service.create_purchase_return(
+            db,
+            tenant,
+            PurchaseReturnCreate(
+                goods_receipt_id=posted.receipt.id,
+                reason="Trying to return goods nobody has looked at",
+                lines=[
+                    PurchaseReturnLineIn(
+                        line_number=1,
+                        goods_receipt_line_id=posted.receipt.lines[0].id,
+                        quantity=Decimal("10"),
+                    )
+                ],
+            ),
+        )
+
+    balance = await balance_of(db, tenant, masters["item"].id, masters["warehouse"].id)
+    assert balance.qc_hold_quantity == Decimal("80.0000")
+    assert balance.on_hand_quantity == Decimal("80.0000")

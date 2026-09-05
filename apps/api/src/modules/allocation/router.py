@@ -70,9 +70,7 @@ def reservation_filters(
     demand_id: Annotated[uuid.UUID | None, Query()] = None,
     status_filter: Annotated[ReservationStatus | None, Query(alias="status")] = None,
     reservation_type: Annotated[ReservationType | None, Query()] = None,
-    open_only: Annotated[
-        bool, Query(description="Only reservations still holding stock")
-    ] = False,
+    open_only: Annotated[bool, Query(description="Only reservations still holding stock")] = False,
 ) -> ReservationFilters:
     return ReservationFilters(
         item_id=item_id,

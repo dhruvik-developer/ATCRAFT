@@ -14,6 +14,8 @@
 import { QueryCache, QueryClient, MutationCache } from '@tanstack/react-query'
 
 import { ApiError, clearTokens } from './api-client'
+import { partitionFieldErrors } from './form-errors'
+import { errorDescription, errorTitle, errors } from './messages'
 import { toast } from './toast'
 
 /** How long a domain's data may be served from cache before it is refetched. */
@@ -71,60 +73,44 @@ export const queryClient = new QueryClient({
       // actually waiting on.
       if (query.state.data !== undefined) return
       if (error.isPermissionError) {
-        toast.error('Not permitted', error.message)
+        toast.error(errors.notPermitted, error.message)
         return
       }
-      toast.error('Could not load data', describe(error))
+      // A query that renders its own expected rejection inline (the UoM
+      // conversion check, where a 422 is the business answer) opts out here.
+      if (query.meta?.suppressErrorToast) return
+      toast.error(errors.loadFailed, errorDescription(error))
     },
   }),
 
   mutationCache: new MutationCache({
     onError: (error) => {
       if (!(error instanceof ApiError)) {
-        toast.error('Something went wrong', 'An unexpected error occurred.')
+        toast.error(errors.unexpected, errors.unexpectedDetail)
         return
       }
       if (error.isAuthError) {
         clearTokens()
         return
       }
-      // 422 field errors are rendered inline on the form; a toast on top would
-      // be redundant noise.
-      if (error.status === 422 && Object.keys(error.fieldErrors).length > 0) return
-      toast.error(titleFor(error), describe(error))
+      if (error.status === 422) {
+        const { fields, orphans } = partitionFieldErrors(error)
+        // A model-level refusal (`_root`) or a query-parameter error has no
+        // control behind it, and not every form renders a root slot, so it is
+        // said here. `applyFieldErrors` puts the same text on `root` for the
+        // forms that do.
+        if (orphans.length > 0) {
+          toast.error(errors.checkTheForm, orphans.join('. '))
+          return
+        }
+        // Field errors are rendered inline on the form; a toast on top would
+        // be redundant noise.
+        if (Object.keys(fields).length > 0) return
+      }
+      toast.error(errorTitle(error), errorDescription(error))
     },
   }),
 })
-
-function titleFor(error: ApiError): string {
-  switch (error.code) {
-    case 'INSUFFICIENT_AVAILABLE_STOCK':
-      return 'Not enough stock'
-    case 'INVALID_STATE_TRANSITION':
-      return 'Action not allowed in this state'
-    case 'DUPLICATE_DOCUMENT':
-      return 'Duplicate detected'
-    case 'APPROVAL_REQUIRED':
-      return 'Approval required'
-    case 'CONFLICT':
-      return 'Changed by someone else'
-    case 'PERMISSION_DENIED':
-    case 'FORBIDDEN':
-      return 'Not permitted'
-    case 'RATE_LIMITED':
-      return 'Too many requests'
-    default:
-      return 'Could not complete'
-  }
-}
-
-function describe(error: ApiError): string {
-  // The correlation id is what support needs to find the request in the logs,
-  // so it is always shown on server-side failures.
-  return error.status >= 500 && error.requestId
-    ? `${error.message} (reference ${error.requestId.slice(0, 8)})`
-    : error.message
-}
 
 /**
  * Query keys.
@@ -227,14 +213,26 @@ export const queryKeys = {
     detail: (id: string) => ['users', 'detail', id] as const,
     roles: ['users', 'roles'] as const,
     permissionCatalogue: ['users', 'permission-catalogue'] as const,
+    /**
+     * The staff directory as a picker list. `activeOnly` is part of the key
+     * because the audit actor filter legitimately needs deactivated people -
+     * a historical actor is still an actor - while every other picker offers
+     * only staff who can be assigned something today. Both sit under `users`,
+     * so the `users.all` invalidation after a create or a deactivation reaches
+     * them.
+     */
+    options: (activeOnly: boolean) => ['users', 'options', activeOnly] as const,
   },
   reports: {
     dashboard: ['reports', 'dashboard'] as const,
+    catalogue: ['reports', 'catalogue'] as const,
     report: (key: string, params: unknown) => ['reports', key, params] as const,
   },
   audit: {
     logs: (params: unknown) => ['audit', 'logs', params] as const,
     entity: (type: string, id: string) => ['audit', 'entity', type, id] as const,
+    /** The approval queue. Under `audit` so an `['audit']` invalidation sweeps it too. */
+    approvals: (params: unknown) => ['audit', 'approvals', params] as const,
   },
   notifications: {
     all: ['notifications'] as const,

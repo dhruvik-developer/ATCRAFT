@@ -19,14 +19,18 @@ import pytest
 
 from src.core.clock import utcnow
 from src.core.deps import Principal, _resolve_permissions
-from src.core.errors import BusinessRuleError, PermissionDeniedError
+from src.core.errors import AuthorizationError, BusinessRuleError, ErrorCode, PermissionDeniedError
 from src.core.permissions import ALL_PERMISSIONS, PERMISSION_GROUPS, Permission
 from src.modules.users.service import (
+    PROTECT_SUPER_ADMIN_PASSWORDS,
+    SUPER_ADMIN_PASSWORD_PROTECTED,
     SUPER_ADMIN_ROLE_CODES,
     assert_can_grant,
     assert_grant_change_allowed,
+    assert_may_set_password_for,
     assert_role_assignment_allowed,
     assert_vendor_role_consistency,
+    caller_holds_super_admin,
     holds_super_admin,
     permission_catalogue,
     resolve_effective_permissions,
@@ -285,9 +289,7 @@ class TestVendorIsolation:
 
     def test_matching_combinations_pass(self) -> None:
         assert_vendor_role_consistency(None, [_role("STORE_KEEPER", Permission.INVENTORY_VIEW)])
-        assert_vendor_role_consistency(
-            uuid.uuid4(), [_role("VENDOR_OWNER", is_vendor_role=True)]
-        )
+        assert_vendor_role_consistency(uuid.uuid4(), [_role("VENDOR_OWNER", is_vendor_role=True)])
 
     def test_no_roles_is_always_consistent(self) -> None:
         # An account may exist before anybody decides what it is allowed to do.
@@ -363,3 +365,87 @@ class TestPermissionCatalogue:
         )
         assert (entry.resource, entry.action) == ("purchase_order", "approve")
         assert entry.group == "Procurement"
+
+
+# -----------------------------------------------------------------------------
+# Setting a super-administrator's password
+# -----------------------------------------------------------------------------
+
+
+class TestSuperAdminPasswordProtection:
+    """``user.reset_password`` alone must not be enough to take over a
+    super-administrator: the reset returns a temporary password in the
+    response, so a holder could sign in as them and lock them out."""
+
+    @staticmethod
+    def _principal_with_roles(*codes: str, superuser: bool = False) -> Principal:
+        return Principal(
+            user_id=uuid.uuid4(),
+            company_id=uuid.uuid4(),
+            email="admin@test.local",
+            full_name="Admin User",
+            is_superuser=superuser,
+            permissions=frozenset({str(Permission.USER_RESET_PASSWORD)}),
+            role_codes=codes,
+        )
+
+    def test_the_rule_is_switched_on(self) -> None:
+        assert PROTECT_SUPER_ADMIN_PASSWORDS is True
+
+    @pytest.mark.parametrize(
+        ("target_is_superuser", "target_roles"),
+        [
+            (True, []),
+            (False, [_role("SUPER_ADMIN", Permission.USER_VIEW)]),
+        ],
+        ids=["flagged target", "role-holding target"],
+    )
+    def test_a_permission_holder_cannot_set_a_super_admins_password(
+        self, target_is_superuser: bool, target_roles: list[SimpleNamespace]
+    ) -> None:
+        caller = self._principal_with_roles("USER_ADMIN")
+
+        with pytest.raises(AuthorizationError) as excinfo:
+            assert_may_set_password_for(
+                caller, target_is_superuser=target_is_superuser, target_roles=target_roles
+            )
+
+        assert excinfo.value.code == ErrorCode.PERMISSION_DENIED
+        assert excinfo.value.status_code == 403
+        assert excinfo.value.message == SUPER_ADMIN_PASSWORD_PROTECTED
+        assert excinfo.value.details["reason"] == SUPER_ADMIN_PASSWORD_PROTECTED
+        assert excinfo.value.details["required_permission"] == str(Permission.USER_RESET_PASSWORD)
+
+    @pytest.mark.parametrize(
+        "caller",
+        [
+            _principal_with_roles.__func__("USER_ADMIN", superuser=True),  # type: ignore[attr-defined]
+            _principal_with_roles.__func__("SUPER_ADMIN"),  # type: ignore[attr-defined]
+        ],
+        ids=["flagged caller", "role-holding caller"],
+    )
+    def test_a_super_admin_by_either_route_is_let_through(self, caller: Principal) -> None:
+        assert caller_holds_super_admin(caller)
+        assert_may_set_password_for(
+            caller, target_is_superuser=True, target_roles=[_role("SUPER_ADMIN")]
+        )
+        assert_may_set_password_for(
+            caller, target_is_superuser=False, target_roles=[_role("SUPER_ADMIN")]
+        )
+
+    def test_an_ordinary_target_needs_no_super_admin_caller(self) -> None:
+        caller = self._principal_with_roles("USER_ADMIN")
+        assert not caller_holds_super_admin(caller)
+        assert_may_set_password_for(
+            caller, target_is_superuser=False, target_roles=[_role("STORES", Permission.USER_VIEW)]
+        )
+
+    def test_a_suspended_super_admin_role_on_the_target_does_not_count(self) -> None:
+        """Consistent with holds_super_admin: an unusable role grants nothing,
+        so it protects nothing either."""
+        caller = self._principal_with_roles("USER_ADMIN")
+        assert_may_set_password_for(
+            caller,
+            target_is_superuser=False,
+            target_roles=[_role("SUPER_ADMIN", is_active=False)],
+        )

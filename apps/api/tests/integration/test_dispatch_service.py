@@ -73,7 +73,7 @@ from src.modules.sales.models import (
 )
 from src.modules.users.models import Role, User
 from src.modules.warehouses.models import Warehouse, WarehouseType
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 
 pytestmark = pytest.mark.integration
 
@@ -171,7 +171,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID]]:
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, other_company_id, user_id
     asyncio.run(teardown())
@@ -592,9 +592,9 @@ async def test_shipping_more_than_remains_is_refused_and_moves_nothing(ctx: Ctx)
 
     refused = (
         await ctx.session.execute(
-            select(Dispatch).where(Dispatch.id == detail.id).execution_options(
-                populate_existing=True
-            )
+            select(Dispatch)
+            .where(Dispatch.id == detail.id)
+            .execution_options(populate_existing=True)
         )
     ).scalar_one()
     assert refused.status == DispatchStatus.READY_FOR_DISPATCH
@@ -935,15 +935,11 @@ async def test_another_tenant_cannot_see_or_touch_the_consignment(ctx: Ctx) -> N
 async def test_a_draft_consignment_can_be_deleted_and_a_prepared_one_cannot(ctx: Ctx) -> None:
     bench = await seed_bench(ctx)
     draft = await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("10"))
-    await service.delete_draft_dispatch(
-        ctx.session, ctx.tenant, draft.id, reason="Raised in error"
-    )
+    await service.delete_draft_dispatch(ctx.session, ctx.tenant, draft.id, reason="Raised in error")
     with pytest.raises(NotFoundError):
         await service.get_dispatch_detail(ctx.session, ctx.tenant, draft.id)
 
     prepared = await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("10"))
     await service.mark_ready(ctx.session, ctx.tenant, prepared.id, reason="Loaded")
     with pytest.raises(BusinessRuleError):
-        await service.delete_draft_dispatch(
-            ctx.session, ctx.tenant, prepared.id, reason="Too late"
-        )
+        await service.delete_draft_dispatch(ctx.session, ctx.tenant, prepared.id, reason="Too late")

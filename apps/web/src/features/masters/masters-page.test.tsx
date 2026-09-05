@@ -323,9 +323,7 @@ describe('the category tree', () => {
         // different parameters: the picker asks for the whole tree
         // (`with_total=false`), the grid for the branch the user is inside.
         'GET /products/categories': ({ url }: { url: URL }) =>
-          url.searchParams.get('with_total') === 'false'
-            ? page(CATEGORIES)
-            : page([CATEGORIES[1]]),
+          url.searchParams.get('with_total') === 'false' ? page(CATEGORIES) : page([CATEGORIES[1]]),
         'GET /products/categories/cat-hw': ok(CATEGORIES[0]),
         'POST /products/categories': ok({ id: 'cat-knob', code: 'HW-KN', name: 'Knobs' }),
       },
@@ -435,7 +433,7 @@ describe('the category tree', () => {
       routes: {
         'GET /products/categories': page(CATEGORIES),
         'POST /products/categories': fail(422, 'VALIDATION_ERROR', 'Invalid category', {
-          fields: { 'body.code': ['A category with this code already exists'] },
+          fields: { code: ['A category with this code already exists'] },
         }),
       },
     })
@@ -563,9 +561,7 @@ describe('units of measure', () => {
     expect(
       within(dialog).getByRole('checkbox', { name: /base unit of this family/i }),
     ).toBeDisabled()
-    expect(
-      within(dialog).getByText(/promote another unit instead of clearing this/i),
-    ).toBeVisible()
+    expect(within(dialog).getByText(/promote another unit instead of clearing this/i)).toBeVisible()
   })
 
   it('patches a unit without its code or its measurement family', async () => {

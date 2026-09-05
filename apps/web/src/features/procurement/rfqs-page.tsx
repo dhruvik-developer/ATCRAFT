@@ -49,6 +49,7 @@ import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { useListQuery } from '@/hooks/use-list-query'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -69,9 +70,6 @@ import {
   type RfqCommand,
   type RfqRow,
 } from './rfq-model'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /** Every filter this screen owns, cleared as one write rather than five. */
 const FILTER_KEYS = ['status', 'vendor_id', 'item_id', 'warehouse_id', 'due_before'] as const
@@ -275,7 +273,11 @@ export default function RfqsPage() {
               )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon-sm" aria-label={`More actions for ${rfq.code}`}>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`More actions for ${rfq.code}`}
+                  >
                     <MoreHorizontal />
                   </Button>
                 </DropdownMenuTrigger>
@@ -357,14 +359,14 @@ export default function RfqsPage() {
         toolbar={
           <>
             <Select
-              value={status || ALL}
-              onValueChange={(next) => setParam('status', next === ALL ? undefined : next)}
+              value={status || SELECT_ALL}
+              onValueChange={(next) => setParam('status', next === SELECT_ALL ? undefined : next)}
             >
-              <SelectTrigger className="w-[11rem]" aria-label="Filter by status">
+              <SelectTrigger className="w-full sm:w-[11rem]" aria-label="Filter by status">
                 <SelectValue placeholder="Any status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any status</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any status</SelectItem>
                 {RFQ_STATUSES.map((entry) => (
                   <SelectItem key={entry} value={entry}>
                     {humanise(entry)}
@@ -379,6 +381,7 @@ export default function RfqsPage() {
             {can(P.VENDOR_VIEW) && (
               <VendorPicker
                 id="rfqs-vendor"
+                className="w-full sm:w-auto"
                 label="Vendor"
                 hideLabel
                 value={vendorId || null}
@@ -390,6 +393,7 @@ export default function RfqsPage() {
             {can(P.ITEM_VIEW) && (
               <ItemPicker
                 id="rfqs-item"
+                className="w-full sm:w-auto"
                 label="Item"
                 hideLabel
                 value={itemId || null}
@@ -401,6 +405,7 @@ export default function RfqsPage() {
             {can(P.WAREHOUSE_VIEW) && (
               <WarehouseSelect
                 id="rfqs-warehouse"
+                className="w-full sm:w-auto"
                 label="Warehouse"
                 hideLabel
                 includeAll

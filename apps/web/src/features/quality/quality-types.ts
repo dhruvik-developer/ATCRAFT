@@ -102,14 +102,12 @@ export const isInspectable = (status: string): boolean =>
   status === 'PENDING' || status === 'IN_PROGRESS' || status === 'REWORK' || status === 'HOLD'
 
 /**
- * The audit reason on `POST .../decide`.
- *
- * `DecideRequest.reason` is bounded 3..255 characters and `rejection_reason`
- * 3..2000. Anything outside those bands is a 422 against a field the dialog
- * does render, so it is caught before it is sent.
+ * `DecideRequest.rejection_reason` on `POST .../decide`: 3..2000 characters,
+ * wider than the audit `reason` beside it, which carries the shared
+ * `REASON_MIN_LENGTH`..`REASON_MAX_LENGTH`. Anything outside the band is a
+ * 422 against a field the dialog does render, so it is caught before it is
+ * sent.
  */
-export const REASON_MIN_LENGTH = 3
-export const REASON_MAX_LENGTH = 255
 export const REJECTION_REASON_MAX_LENGTH = 2000
 
 // ------------------------------------------------------------ parameters ----

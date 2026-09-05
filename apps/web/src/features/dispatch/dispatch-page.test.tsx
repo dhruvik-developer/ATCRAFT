@@ -134,9 +134,7 @@ async function openActions(
 
 /** The action names the open menu is offering. */
 function menuItems(): string[] {
-  return screen
-    .getAllByRole('menuitem')
-    .map((item) => item.textContent?.trim() ?? '')
+  return screen.getAllByRole('menuitem').map((item) => item.textContent?.trim() ?? '')
 }
 
 describe('who may raise a consignment', () => {
@@ -165,7 +163,8 @@ describe('the two lists', () => {
     const recorder = urlRecorder()
     renderScreen(<DispatchPage />, {
       permissions: [P.DISPATCH_VIEW],
-      route: '/dispatch?status=IN_TRANSIT&dispatch_type=SALES&delayed_only=true&in_flight_only=true',
+      route:
+        '/dispatch?status=IN_TRANSIT&dispatch_type=SALES&delayed_only=true&in_flight_only=true',
       routes: {
         'GET /dispatch': ({ url }) => {
           recorder.urls.push(url)
@@ -285,6 +284,16 @@ describe('the lifecycle the row offers', () => {
       expect(await screen.findByText(/it needs a reason/i)).toBeVisible()
       expect(fetch.calls.some((call) => call.path.endsWith('/ready'))).toBe(false)
 
+      // `Reason` is bounded 3..255 on the API. A two-character reason is a
+      // pydantic 422 keyed on `reason`, which the query client suppresses on
+      // the assumption the form shows it - so the form has to, or the dialog
+      // simply stays open with nothing said.
+      await user.type(screen.getByLabelText(/reason/i), 'ok')
+      await user.click(screen.getByRole('button', { name: 'Mark ready' }))
+      expect(await screen.findByText(/3 to 255 characters/i)).toBeVisible()
+      expect(fetch.calls.some((call) => call.path.endsWith('/ready'))).toBe(false)
+
+      await user.clear(screen.getByLabelText(/reason/i))
       await user.type(screen.getByLabelText(/reason/i), 'Staged at the gate')
       await user.click(screen.getByRole('button', { name: 'Mark ready' }))
 
@@ -299,7 +308,11 @@ describe('the lifecycle the row offers', () => {
   it(
     'releases only a consignment that has been staged',
     async () => {
-      await openActions('READY_FOR_DISPATCH', [P.DISPATCH_VIEW, P.DISPATCH_UPDATE])
+      await openActions('READY_FOR_DISPATCH', [
+        P.DISPATCH_VIEW,
+        P.DISPATCH_UPDATE,
+        P.DISPATCH_CREATE,
+      ])
 
       const items = menuItems()
       expect(items).toContain('Dispatch')
@@ -307,6 +320,23 @@ describe('the lifecycle the row offers', () => {
       expect(items).not.toContain('Mark ready')
       // Still cancellable: nothing has left, so nothing has to come back.
       expect(items).toContain('Cancel dispatch')
+    },
+    POPPER,
+  )
+
+  it(
+    'withholds the release from an account that may only update',
+    async () => {
+      // `POST /dispatch/{id}/dispatch` is guarded by `dispatch.create`, not
+      // `dispatch.update`: sending the goods is the stock-moving act
+      // (service.py `dispatch_consignment`), while staging, in-transit and
+      // cancel are edits. Gated on update, the holder of create never saw the
+      // only action that moves stock and the updater was refused with a 403.
+      await openActions('READY_FOR_DISPATCH', [P.DISPATCH_VIEW, P.DISPATCH_UPDATE])
+
+      const items = menuItems()
+      expect(items).toContain('Cancel dispatch')
+      expect(items).not.toContain('Dispatch')
     },
     POPPER,
   )
@@ -340,6 +370,43 @@ describe('the lifecycle the row offers', () => {
       expect(body).toEqual({ source: 'MANUAL' })
       expect(body).not.toHaveProperty('reason')
       expect(body).not.toHaveProperty('delivery_note')
+    },
+    POPPER,
+  )
+
+  it(
+    'asks for the delay reason the API insists on when the promised date has passed',
+    async () => {
+      // `confirm_delivery` refuses a late arrival without `delay_reason`, and
+      // `DeliveryConfirmation` is extra="forbid", so nothing else can carry it.
+      // Without a field for it the operator got the API's rejection on every
+      // attempt, and a late consignment could never be confirmed from here.
+      const { user, fetch } = await openActions(
+        'IN_TRANSIT',
+        [P.DISPATCH_VIEW, P.DISPATCH_CONFIRM_DELIVERY],
+        {
+          'GET /dispatch': page([
+            dispatch({ status: 'IN_TRANSIT', expected_delivery_date: '2026-08-01' }),
+          ]),
+          [`POST /dispatch/${DISPATCH_ID}/deliver`]: ok(null),
+        },
+      )
+
+      await user.click(screen.getByRole('menuitem', { name: 'Confirm delivery' }))
+      await user.click(await screen.findByRole('button', { name: 'Confirm delivery' }))
+
+      expect(await screen.findByText(/arrived after its promised date/i)).toBeVisible()
+      expect(fetch.calls.some((call) => call.path.endsWith('/deliver'))).toBe(false)
+
+      await user.type(screen.getByLabelText(/delay reason/i), 'Held at the transit hub')
+      await user.click(screen.getByRole('button', { name: 'Confirm delivery' }))
+
+      const body = (await waitFor(() =>
+        fetch.requestFor('POST', `/dispatch/${DISPATCH_ID}/deliver`),
+      )) as Record<string, unknown>
+      // The reason travels as `delay_reason`; the optional note, left empty,
+      // is still omitted rather than sent as an empty string.
+      expect(body).toEqual({ source: 'MANUAL', delay_reason: 'Held at the transit hub' })
     },
     POPPER,
   )
@@ -422,9 +489,7 @@ describe('creating a consignment', () => {
     await user.type(screen.getByRole('textbox', { name: 'Tracking id' }), 'BD-77123')
     await user.click(screen.getByRole('button', { name: /^create dispatch$/i, hidden: false }))
 
-    expect(
-      await screen.findByText(/must name the customer it is going to/i),
-    ).toBeVisible()
+    expect(await screen.findByText(/must name the customer it is going to/i)).toBeVisible()
   })
 
   it('explains itself rather than failing silently without warehouse access', async () => {
@@ -437,11 +502,8 @@ describe('creating a consignment', () => {
     })
 
     await user.click(await screen.findByRole('button', { name: /create dispatch/i }))
-    expect(
-      await screen.findByText(/your role cannot read the warehouse list/i),
-    ).toBeVisible()
+    expect(await screen.findByText(/your role cannot read the warehouse list/i)).toBeVisible()
   })
-
 })
 
 describe('the tracking board', () => {

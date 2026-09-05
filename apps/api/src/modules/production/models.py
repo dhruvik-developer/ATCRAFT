@@ -73,7 +73,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.core.models import OptimisticLockMixin, TenantEntity
+from src.core.models import OptimisticLockMixin, TenantEntity, sql_in_list
 from src.core.types import GUID, Money, Quantity, UnitPrice
 from src.modules.inventory.models import StatusEnum
 
@@ -194,17 +194,6 @@ POST_APPROVAL_STATUSES: tuple[ProductionOrderStatus, ...] = (
     ProductionOrderStatus.COMPLETED,
     ProductionOrderStatus.CLOSED,
 )
-
-
-def _sql_in_list(
-    values: tuple[ProductionOrderStatus, ...] | frozenset[ProductionOrderStatus],
-) -> str:
-    """Render a status vocabulary as a SQL ``IN`` list for a CHECK/partial index.
-
-    Generated from the enum rather than typed out so a new status cannot be
-    added in Python while the constraint still names the old set.
-    """
-    return ", ".join(f"'{value}'" for value in sorted(str(v) for v in values))
 
 
 # -----------------------------------------------------------------------------
@@ -335,7 +324,7 @@ class ProductionOrder(TenantEntity, OptimisticLockMixin):
             "company_id",
             "priority",
             "planned_end_date",
-            postgresql_where=text(f"status IN ({_sql_in_list(OPEN_PRODUCTION_STATUSES)})"),
+            postgresql_where=text(f"status IN ({sql_in_list(sorted(OPEN_PRODUCTION_STATUSES))})"),
         ),
         Index("ix_production_orders_status", "company_id", "status", "planned_start_date"),
         Index("ix_production_orders_item", "company_id", "item_id", "status"),
@@ -351,9 +340,7 @@ class ProductionOrder(TenantEntity, OptimisticLockMixin):
         CheckConstraint("total_material_cost >= 0", name="material_cost_non_negative"),
         CheckConstraint("total_operation_cost >= 0", name="operation_cost_non_negative"),
         CheckConstraint("total_cost >= 0", name="total_cost_non_negative"),
-        CheckConstraint(
-            "planned_end_date >= planned_start_date", name="planned_window_ordered"
-        ),
+        CheckConstraint("planned_end_date >= planned_start_date", name="planned_window_ordered"),
         CheckConstraint(
             "actual_end_date IS NULL OR actual_start_date IS NULL "
             "OR actual_end_date >= actual_start_date",
@@ -366,7 +353,7 @@ class ProductionOrder(TenantEntity, OptimisticLockMixin):
         ),
         # A job cannot be on the floor without somebody having approved it.
         CheckConstraint(
-            f"status NOT IN ({_sql_in_list(POST_APPROVAL_STATUSES)}) "
+            f"status NOT IN ({sql_in_list(sorted(POST_APPROVAL_STATUSES))}) "
             "OR approved_by_id IS NOT NULL",
             name="approved_orders_carry_approval_evidence",
         ),
@@ -454,9 +441,7 @@ class ProductionOrderComponent(TenantEntity):
         CheckConstraint("consumed_quantity >= 0", name="consumed_quantity_non_negative"),
         # Returning more than was ever issued would manufacture stock out of a
         # clerical error.
-        CheckConstraint(
-            "returned_quantity <= issued_quantity", name="returned_within_issued"
-        ),
+        CheckConstraint("returned_quantity <= issued_quantity", name="returned_within_issued"),
         # Consumption is limited to what is still with the job.
         CheckConstraint(
             "consumed_quantity <= issued_quantity - returned_quantity",
@@ -510,9 +495,7 @@ class WorkOrder(TenantEntity):
         DateTime(timezone=True), nullable=True
     )
     planned_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    actual_start_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    actual_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     actual_end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     planned_quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
@@ -572,9 +555,7 @@ class WorkOrder(TenantEntity):
             ondelete="RESTRICT",
         ),
         UniqueConstraint("company_id", "code", name="uq_work_orders_company_id_code"),
-        UniqueConstraint(
-            "production_order_id", "sequence", name="uq_work_orders_order_sequence"
-        ),
+        UniqueConstraint("production_order_id", "sequence", name="uq_work_orders_order_sequence"),
         # The work-centre load board: what is queued or running in this cell.
         Index("ix_work_orders_work_center", "company_id", "work_center_id", "status"),
         Index("ix_work_orders_order", "production_order_id", "sequence"),
@@ -595,8 +576,7 @@ class WorkOrder(TenantEntity):
             name="planned_window_ordered",
         ),
         CheckConstraint(
-            "actual_end_at IS NULL OR actual_start_at IS NULL "
-            "OR actual_end_at >= actual_start_at",
+            "actual_end_at IS NULL OR actual_start_at IS NULL OR actual_end_at >= actual_start_at",
             name="actual_window_ordered",
         ),
         # An operation cannot have finished before it started.
@@ -805,9 +785,7 @@ class ProductionEntry(TenantEntity):
     output_transaction_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
 
     __table_args__ = (
-        Index(
-            "ix_production_entries_order", "company_id", "production_order_id", "entry_date"
-        ),
+        Index("ix_production_entries_order", "company_id", "production_order_id", "entry_date"),
         Index("ix_production_entries_work_order", "company_id", "work_order_id", "entry_date"),
         # The daily production report, and the shift board.
         Index("ix_production_entries_date", "company_id", "entry_date", "shift"),

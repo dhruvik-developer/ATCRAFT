@@ -55,6 +55,7 @@ from src.modules.inventory.repository import (
     LedgerRepository,
 )
 from src.modules.inventory.schemas import (
+    AdjustmentFilters,
     BalanceFilters,
     PhysicalCountCreate,
     PhysicalCountEntry,
@@ -66,7 +67,7 @@ from src.modules.inventory.schemas import (
     StockTransferLineCreate,
 )
 from tests import seed_support
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 
 pytestmark = pytest.mark.integration
 
@@ -131,7 +132,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID]]:
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, user_id, approver_id
     asyncio.run(teardown())
@@ -425,26 +426,34 @@ class TestMovementPosting:
         ], "the exhausted layer should be closed and the dear one left open"
 
         exhausted = (
-            await session.execute(
-                select(InventoryCostLayer).where(
-                    InventoryCostLayer.balance_id == balance.id,
-                    InventoryCostLayer.remaining_quantity == 0,
+            (
+                await session.execute(
+                    select(InventoryCostLayer).where(
+                        InventoryCostLayer.balance_id == balance.id,
+                        InventoryCostLayer.remaining_quantity == 0,
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(exhausted) == 1, "an emptied layer is exhausted, not deleted"
         assert exhausted[0].original_quantity == Decimal("20.0000")
 
         drawn = (
-            await session.execute(
-                select(InventoryCostLayerConsumption)
-                .where(InventoryCostLayerConsumption.transaction_id == issue.id)
-                .order_by(
-                    InventoryCostLayerConsumption.created_at,
-                    InventoryCostLayerConsumption.id,
+            (
+                await session.execute(
+                    select(InventoryCostLayerConsumption)
+                    .where(InventoryCostLayerConsumption.transaction_id == issue.id)
+                    .order_by(
+                        InventoryCostLayerConsumption.created_at,
+                        InventoryCostLayerConsumption.id,
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert [(row.quantity, row.unit_cost) for row in drawn] == [
             (Decimal("20.0000"), Decimal("100.000000")),
             (Decimal("10.0000"), Decimal("120.000000")),
@@ -630,9 +639,7 @@ class TestMovementPosting:
         assert good_balance is not None
         assert good_balance.on_hand_quantity == Decimal("50.0000")
 
-    async def test_negative_stock_is_refused_even_where_the_warehouse_allows_it(
-        self, ctx
-    ) -> None:
+    async def test_negative_stock_is_refused_even_where_the_warehouse_allows_it(self, ctx) -> None:
         """The flag relaxes the availability pre-flight, never the database floor."""
         session, tenant, _ = ctx
         item_id = await seed_item(session, tenant.company_id, code=_code("RM"))
@@ -696,9 +703,7 @@ class TestMovementPosting:
 
     async def test_a_batch_tracked_item_cannot_move_without_its_batch(self, ctx) -> None:
         session, tenant, _ = ctx
-        item_id = await seed_item(
-            session, tenant.company_id, code=_code("BT"), batch_tracked=True
-        )
+        item_id = await seed_item(session, tenant.company_id, code=_code("BT"), batch_tracked=True)
         warehouse_id = await seed_warehouse(session, tenant.company_id, code=_code("WH"))
 
         with pytest.raises(BusinessRuleError) as excinfo:
@@ -710,9 +715,7 @@ class TestMovementPosting:
         )
         await receive(session, tenant, item_id, warehouse_id, "10", "1", batch_id=batch.id)
 
-        balance = await inv.get_balance(
-            session, tenant, item_id, warehouse_id, batch_id=batch.id
-        )
+        balance = await inv.get_balance(session, tenant, item_id, warehouse_id, batch_id=batch.id)
         assert balance is not None
         assert balance.on_hand_quantity == Decimal("10.0000")
         # Batch-less position for the same item/warehouse stays absent: the two
@@ -965,17 +968,60 @@ class TestStockAdjustment:
         assert balance.on_hand_quantity == Decimal("95.0000")
 
         audit = (
-            await session.execute(
-                select(AuditLog).where(
-                    AuditLog.entity_type == "stock_adjustment",
-                    AuditLog.entity_id == adjustment.id,
-                    AuditLog.action == AuditAction.STOCK_ADJUSTMENT,
-                    AuditLog.new_values.is_not(None),
+            (
+                await session.execute(
+                    select(AuditLog).where(
+                        AuditLog.entity_type == "stock_adjustment",
+                        AuditLog.entity_id == adjustment.id,
+                        AuditLog.action == AuditAction.STOCK_ADJUSTMENT,
+                        AuditLog.new_values.is_not(None),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         # Both the draft and the posting are audited as STOCK_ADJUSTMENT.
         assert len(audit) >= 1
+
+    async def test_the_list_serialises_a_row_whose_lines_are_not_loaded(self, ctx) -> None:
+        """The list endpoint answered 500 for every row it found.
+
+        `StockAdjustmentRead` declares a `lines` field, so
+        `model_validate(orm_row)` read the relationship - which the model
+        declares `lazy="raise"` - and the assignment that cleared it afterwards
+        came too late. The endpoint was clean only while the table was empty,
+        which is every automated run: the demo data raises no adjustments. It
+        broke the moment a person raised one.
+        """
+        session, tenant, _ = ctx
+        item_id = await seed_item(session, tenant.company_id, code=_code("RM"))
+        warehouse_id = await seed_warehouse(session, tenant.company_id, code=_code("WH"))
+        await receive(session, tenant, item_id, warehouse_id, "100", "10")
+
+        service = inv.StockAdjustmentService(session, tenant)
+        await service.create(
+            StockAdjustmentCreate(
+                warehouse_id=warehouse_id,
+                reason_code=AdjustmentReason.CORRECTION,
+                reason="found on the shelf after the cycle count",
+                lines=[StockAdjustmentLineCreate(item_id=item_id, quantity=Decimal("5"))],
+            )
+        )
+        # Expire everything, so the rows the list loads are fresh instances with
+        # the relationship genuinely unloaded - as they are in a real request.
+        session.expunge_all()
+
+        rows, pagination = await service.list_adjustments(
+            AdjustmentFilters(), PageParams(page=1, limit=50), SortParams()
+        )
+
+        assert pagination.total is not None and pagination.total >= 1
+        found = [row for row in rows if row.warehouse_id == warehouse_id]
+        assert len(found) == 1
+        # A list row carries no lines; the detail endpoint is what fills them.
+        assert found[0].lines == []
+        assert found[0].reason == "found on the shelf after the cycle count"
 
     async def test_a_large_adjustment_cannot_post_without_approval(self, ctx) -> None:
         session, tenant, approver = ctx
@@ -1020,9 +1066,7 @@ class TestStockAdjustment:
     async def test_a_write_down_is_valued_at_the_positions_average_cost(self, ctx) -> None:
         """A caller-quoted price must not be able to change the write-off value."""
         session, tenant, _ = ctx
-        item_id = await seed_item(
-            session, tenant.company_id, code=_code("RM"), standard_cost="1"
-        )
+        item_id = await seed_item(session, tenant.company_id, code=_code("RM"), standard_cost="1")
         warehouse_id = await seed_warehouse(session, tenant.company_id, code=_code("WH"))
         await receive(session, tenant, item_id, warehouse_id, "100", "37.5")
 
@@ -1070,9 +1114,7 @@ class TestStockAdjustment:
 
 
 class TestPhysicalCount:
-    async def test_a_count_posts_the_variance_and_lands_on_the_counted_figure(
-        self, ctx
-    ) -> None:
+    async def test_a_count_posts_the_variance_and_lands_on_the_counted_figure(self, ctx) -> None:
         session, tenant, _ = ctx
         item_id = await seed_item(session, tenant.company_id, code=_code("RM"))
         warehouse_id = await seed_warehouse(session, tenant.company_id, code=_code("WH"))
@@ -1092,9 +1134,7 @@ class TestPhysicalCount:
         counted = await service.enter_counts(
             count.id,
             PhysicalCountEntryRequest(
-                entries=[
-                    PhysicalCountEntry(line_id=lines[0].id, counted_quantity=Decimal("94"))
-                ]
+                entries=[PhysicalCountEntry(line_id=lines[0].id, counted_quantity=Decimal("94"))]
             ),
         )
         assert counted.status is PhysicalCountStatus.COUNTED
@@ -1108,9 +1148,7 @@ class TestPhysicalCount:
         assert balance is not None
         assert balance.on_hand_quantity == Decimal("94.0000")
 
-    async def test_the_variance_is_posted_from_current_stock_not_the_snapshot(
-        self, ctx
-    ) -> None:
+    async def test_the_variance_is_posted_from_current_stock_not_the_snapshot(self, ctx) -> None:
         """A movement made while the count was open must not be reversed by it.
 
         The sheet snapshots 100. A receipt of 10 is booked before the count is
@@ -1132,9 +1170,7 @@ class TestPhysicalCount:
         await service.enter_counts(
             count.id,
             PhysicalCountEntryRequest(
-                entries=[
-                    PhysicalCountEntry(line_id=lines[0].id, counted_quantity=Decimal("100"))
-                ]
+                entries=[PhysicalCountEntry(line_id=lines[0].id, counted_quantity=Decimal("100"))]
             ),
         )
 
@@ -1176,9 +1212,7 @@ class TestPhysicalCount:
         await service.enter_counts(
             count.id,
             PhysicalCountEntryRequest(
-                entries=[
-                    PhysicalCountEntry(line_id=lines[0].id, counted_quantity=Decimal("42"))
-                ]
+                entries=[PhysicalCountEntry(line_id=lines[0].id, counted_quantity=Decimal("42"))]
             ),
         )
         confirmed = await service.confirm(count.id)
@@ -1200,9 +1234,7 @@ class TestPhysicalCount:
         await receive(session, tenant, item_id, warehouse_id, "10", "1")
 
         service = inv.PhysicalCountService(session, tenant)
-        await service.create(
-            PhysicalCountCreate(warehouse_id=warehouse_id, reason="first sheet")
-        )
+        await service.create(PhysicalCountCreate(warehouse_id=warehouse_id, reason="first sheet"))
         with pytest.raises(BusinessRuleError, match="already open"):
             await service.create(
                 PhysicalCountCreate(warehouse_id=warehouse_id, reason="second sheet")

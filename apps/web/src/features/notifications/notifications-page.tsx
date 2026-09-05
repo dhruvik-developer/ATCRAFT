@@ -50,7 +50,10 @@ import {
   Skeleton,
 } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
+import { NOTIFICATION_POLL_MS, SELECT_ALL } from '@/lib/constants'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { formatDateTime, formatRelative, humanise } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
@@ -66,7 +69,6 @@ import {
 } from './notification-types'
 
 const PAGE_SIZE = 30
-const ALL = '__all__'
 
 const SEVERITY_ICONS = {
   INFO: Info,
@@ -217,7 +219,9 @@ function InboxTab() {
   const unread = useQuery({
     queryKey: queryKeys.notifications.unreadCount,
     queryFn: () => api.get<UnreadCount>('/notifications/unread-count'),
-    staleTime: 30_000,
+    // The same key the header bell polls, so the same staleness: half the poll
+    // interval, exactly as `app-layout.tsx` declares it.
+    staleTime: NOTIFICATION_POLL_MS / 2,
   })
 
   const unreadCount = unread.data?.unread_count ?? 0
@@ -253,7 +257,7 @@ function InboxTab() {
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Select value={readState} onValueChange={(value) => setFilter('state', value)}>
-          <SelectTrigger className="w-[170px]" aria-label="Filter by read state">
+          <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by read state">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -263,14 +267,14 @@ function InboxTab() {
         </Select>
 
         <Select
-          value={severity || ALL}
-          onValueChange={(value) => setFilter('severity', value === ALL ? undefined : value)}
+          value={severity || SELECT_ALL}
+          onValueChange={(value) => setFilter('severity', value === SELECT_ALL ? undefined : value)}
         >
-          <SelectTrigger className="w-[170px]" aria-label="Filter by severity">
+          <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by severity">
             <SelectValue placeholder="All severities" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>All severities</SelectItem>
+            <SelectItem value={SELECT_ALL}>All severities</SelectItem>
             {SEVERITIES.map((value) => (
               <SelectItem key={value} value={value}>
                 {humanise(value)}
@@ -280,14 +284,14 @@ function InboxTab() {
         </Select>
 
         <Select
-          value={type || ALL}
-          onValueChange={(value) => setFilter('type', value === ALL ? undefined : value)}
+          value={type || SELECT_ALL}
+          onValueChange={(value) => setFilter('type', value === SELECT_ALL ? undefined : value)}
         >
-          <SelectTrigger className="w-[220px]" aria-label="Filter by event type">
+          <SelectTrigger className="w-full sm:w-[220px]" aria-label="Filter by event type">
             <SelectValue placeholder="All event types" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>All event types</SelectItem>
+            <SelectItem value={SELECT_ALL}>All event types</SelectItem>
             {NOTIFICATION_TYPES.map((value) => (
               <SelectItem key={value} value={value}>
                 {humanise(value)}
@@ -296,7 +300,7 @@ function InboxTab() {
           </SelectContent>
         </Select>
 
-        <span className="ml-auto flex items-center gap-2">
+        <span className="ml-auto flex flex-wrap items-center gap-2">
           {unreadCount > 0 && (
             <span className="text-sm text-muted-foreground" role="status">
               {unreadLabel}
@@ -391,6 +395,7 @@ function InboxTab() {
 function PreferencesTab() {
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState<Record<string, NotificationPreference> | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const preferences = useQuery({
     queryKey: [...queryKeys.notifications.all, 'preferences'] as const,
@@ -426,10 +431,19 @@ function PreferencesTab() {
           email_enabled: row.email_enabled,
         })),
       }),
+    onMutate: () => setSaveError(null),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.notifications.all })
       setDraft(null)
-      toast.success('Preferences saved')
+      toast.success(success.saved('Preferences'))
+    },
+    onError: (error) => {
+      // The rows are one grid with no control to hang a field error on, so a
+      // 422 keyed on `preferences.N.*` is shown above it. The mutation cache
+      // stays quiet for a 422 with field detail on the understanding that the
+      // screen shows it.
+      const message = fieldErrorSummary(error)
+      if (message) setSaveError(message)
     },
   })
 
@@ -470,7 +484,7 @@ function PreferencesTab() {
         <p className="text-sm text-muted-foreground">
           In-app controls the bell in the header. Email is sent to the address on your profile.
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {dirty && (
             <Button variant="ghost" size="sm" onClick={() => setDraft(null)}>
               Discard
@@ -486,6 +500,13 @@ function PreferencesTab() {
           </Button>
         </div>
       </div>
+
+      {saveError && (
+        <Alert variant="destructive" className="mb-3">
+          <AlertTitle>The preferences were not saved</AlertTitle>
+          <AlertDescription>{saveError}</AlertDescription>
+        </Alert>
+      )}
 
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full text-sm">

@@ -1,0 +1,166 @@
+# =============================================================================
+# Git hooks - the same gates CI runs, before the commit and before the push.
+#
+#   pip install pre-commit            (or: pipx install pre-commit)
+#   pre-commit install --hook-type pre-commit --hook-type pre-push
+#   make hooks                        (does both; Windows: .\make.ps1 hooks)
+#
+# Two stages, on purpose:
+#   pre-commit  fast, mechanical: formatting, lint, secrets, file hygiene.
+#               Runs on the staged files only, so a commit costs seconds.
+#   pre-push    the slow proofs: type checks, unit tests, the OpenAPI
+#               contract, Compose config. Runs once, on the whole tree.
+#
+# The backend tools run from apps/api/.venv and the frontend tools from
+# apps/web/node_modules through the two wrappers in scripts/hooks/, so a hook
+# checks with exactly the versions requirements-dev.lock and package-lock.json
+# pin - the versions CI uses - rather than whatever happens to be on PATH.
+# =============================================================================
+
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
+minimum_pre_commit_version: "3.2.0"
+
+exclude: |
+  (?x)^(
+    apps/web/src/types/openapi\.ts|
+    openapi\.json|
+    apps/web/package-lock\.json|
+    tests/e2e/package-lock\.json|
+    apps/api/requirements(-dev)?\.lock
+  )$
+
+repos:
+  # --- file hygiene ---------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+        exclude: \.(ps1|bat|cmd)$
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: detect-private-key
+      - id: forbid-new-submodules
+
+  - repo: local
+    hooks:
+      # A populated env file is a credential set. Only the .example templates
+      # may be committed.
+      - id: forbid-env-files
+        name: forbid committed env files
+        entry: A populated .env file must never be committed (see .gitignore)
+        language: fail
+        files: (^|/)\.env(\.[a-z]+)?$|^deploy/[^/]+\.env$
+        exclude: \.example$
+
+      - id: forbid-runtime-storage
+        name: forbid committed runtime storage
+        entry: Runtime storage (uploads, exports, reports) is not source
+        language: fail
+        files: ^(apps/api/)?storage/
+        exclude: \.gitkeep$
+
+      # --- backend: format + lint on the staged files ------------------------
+      # `--config pyproject.toml` pins the backend's ruff configuration for the
+      # hook scripts under scripts/hooks too, which live outside apps/api.
+      - id: ruff-format
+        name: ruff format (apps/api, scripts/hooks)
+        entry: python scripts/hooks/run_in_venv.py ruff format --config pyproject.toml
+        language: system
+        types: [python]
+        files: ^(apps/api/(src|tests|scripts|migrations)|scripts/hooks)/
+
+      - id: ruff-check
+        name: ruff check --fix (apps/api, scripts/hooks)
+        entry: python scripts/hooks/run_in_venv.py ruff check --fix --exit-non-zero-on-fix --config pyproject.toml
+        language: system
+        types: [python]
+        files: ^(apps/api/(src|tests|scripts|migrations)|scripts/hooks)/
+
+      # --- frontend: format + lint on the staged files -----------------------
+      - id: prettier
+        name: prettier (apps/web)
+        entry: python scripts/hooks/run_in_web.py npx prettier --write --log-level warn
+        language: system
+        files: ^apps/web/src/.*\.(ts|tsx|css)$
+
+      - id: eslint
+        name: eslint (apps/web)
+        entry: python scripts/hooks/run_in_web.py npx eslint --max-warnings 0
+        language: system
+        files: ^apps/web/(src|scripts)/.*\.(ts|tsx|mjs|js)$
+
+      # --- shell syntax -----------------------------------------------------
+      - id: shell-syntax
+        name: bash -n (scripts)
+        entry: bash -n
+        language: system
+        files: ^scripts/.*\.sh$
+
+      # =====================================================================
+      # pre-push: the whole tree, the slow proofs
+      # =====================================================================
+      - id: mypy
+        name: mypy (apps/api)
+        entry: python scripts/hooks/run_in_venv.py mypy src
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: pytest-unit
+        name: pytest unit (apps/api)
+        entry: python scripts/hooks/run_in_venv.py pytest tests/unit -q -p no:cacheprovider
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: openapi-contract
+        name: OpenAPI contract is current (apps/api)
+        entry: python scripts/hooks/run_in_venv.py scripts.export_openapi --check
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: typecheck-web
+        name: tsc -b --noEmit (apps/web)
+        entry: python scripts/hooks/run_in_web.py npm run typecheck
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: contract-types-web
+        name: generated API types match the contract (apps/web)
+        entry: python scripts/hooks/run_in_web.py npm run contract:check
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: vitest
+        name: vitest (apps/web)
+        entry: python scripts/hooks/run_in_web.py npx vitest run --no-file-parallelism --maxWorkers=1
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: compose-config
+        name: docker compose config (prod overlay)
+        entry: python scripts/hooks/check_compose.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

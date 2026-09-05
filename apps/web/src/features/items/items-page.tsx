@@ -30,6 +30,7 @@ import {
 import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatMoney, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -45,8 +46,6 @@ import {
   useUomOptions,
   type ItemRow,
 } from './item-model'
-
-const ALL = '__all'
 
 /** Compact, scannable read-out of the six capabilities the list row carries. */
 function CapabilityRow({ item }: { item: ItemRow }) {
@@ -244,14 +243,16 @@ export default function ItemsPage() {
         toolbar={
           <>
             <Select
-              value={categoryId || ALL}
-              onValueChange={(value) => setParam('category_id', value === ALL ? undefined : value)}
+              value={categoryId || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('category_id', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[190px]" aria-label="Filter by category">
+              <SelectTrigger className="w-full sm:w-[190px]" aria-label="Filter by category">
                 <SelectValue placeholder="All categories" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All categories</SelectItem>
+                <SelectItem value={SELECT_ALL}>All categories</SelectItem>
                 {(categories.data ?? []).map((category) => (
                   <SelectItem key={category.id} value={category.id}>
                     {category.code} - {category.name}
@@ -261,14 +262,16 @@ export default function ItemsPage() {
             </Select>
 
             <Select
-              value={itemGroup || ALL}
-              onValueChange={(value) => setParam('item_group', value === ALL ? undefined : value)}
+              value={itemGroup || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('item_group', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[170px]" aria-label="Filter by item group">
+              <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by item group">
                 <SelectValue placeholder="All groups" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All groups</SelectItem>
+                <SelectItem value={SELECT_ALL}>All groups</SelectItem>
                 {ITEM_GROUPS.map((group) => (
                   <SelectItem key={group} value={group}>
                     {humanise(group)}
@@ -278,7 +281,7 @@ export default function ItemsPage() {
             </Select>
 
             <Select value={activeState} onValueChange={(value) => setParam('is_active', value)}>
-              <SelectTrigger className="w-[130px]" aria-label="Filter by status">
+              <SelectTrigger className="w-full sm:w-[130px]" aria-label="Filter by status">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

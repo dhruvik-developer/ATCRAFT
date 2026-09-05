@@ -6,7 +6,7 @@ screen that names ``P.USER_UPDATE`` on a button whose endpoint is declared
 ``require_permission(Permission.USER_RESET_PASSWORD)``. Both constants exist,
 both spellings are real, and TypeScript is perfectly happy.
 
-Five defects of exactly that shape have shipped in this codebase:
+Six defects of exactly that shape have shipped in this codebase:
 
 ===========================  ==========================  =========================
 Action                       Gated on                    Endpoint enforces
@@ -16,7 +16,14 @@ Sales order Confirm          ``sales_order.approve``     ``sales_order.update``
 Users Reset password         ``user.update``             ``user.reset_password``
 Packing Hand to dispatch     ``packing.manage``          ``dispatch.create``
 Notifications (whole route)  ungated                     ``notification.view``
+Dispatch Send                ``dispatch.update``         ``dispatch.create``
 ===========================  ==========================  =========================
+
+The last row is the one the satisfaction rule below cannot catch: the dispatch
+folder already names ``P.DISPATCH_CREATE`` for its Create button, so the folder
+has "heard of" the right and the Send control's wrong gate passes the loose
+condition. It is listed so nobody reads a green run as proof the class is
+closed.
 
 Each one fails in both directions at once, which is what makes the class worth a
 guard. Someone holding the right cannot see the control; someone without it sees
@@ -26,14 +33,18 @@ contract matches, and the backend is behaving exactly as designed.
 
 Scope: mutations only (POST/PATCH/PUT/DELETE). Read permissions are enforced at
 the route level in ``apps/web/src/app/router.tsx`` rather than restated at each
-call site, so a GET is satisfied by the route's own guard.
+call site, so a GET is satisfied by the route's own guard on a single-permission
+route; a route mounted with several rights (``canAny``) must gate each GET on
+its own right in the screen - see ``/admin/users``, where ``GET /users`` needs
+``user.view`` and ``GET /roles`` needs ``role.view``.
 
 Satisfaction rule: the enforced permission must be named *somewhere* in the
 feature folder that makes the call, or on the route that mounts it. This is
 deliberately loose. The test is not trying to prove the gate is on the correct
 button - it cannot know that - only that the folder has heard of the right at
-all. Every one of the five defects above is caught by that weak condition,
-because in each case the correct constant appeared nowhere near the screen.
+all. Every one of the first five defects above is caught by that weak
+condition, because in each case the correct constant appeared nowhere near the
+screen; the sixth is the shape it misses.
 
 Like the catalogue test, this lives in the backend suite because the backend
 owns the vocabulary and the enforcement. The frontend is the copy, and the copy
@@ -53,6 +64,13 @@ ROOT = Path(__file__).resolve().parents[3]
 API_MODULES = ROOT / "api" / "src" / "modules"
 WEB_SRC = ROOT / "web" / "src"
 ROUTER = WEB_SRC / "app" / "router.tsx"
+CATALOGUE = WEB_SRC / "lib" / "permissions.ts"
+DASHBOARD = WEB_SRC / "features" / "dashboard" / "dashboard-page.tsx"
+SALES_ORDER_FORM = WEB_SRC / "features" / "sales" / "sales-order-form-dialog.tsx"
+
+#: Every quoted `'domain.action'` string in the catalogue - the same regex
+#: :mod:`tests.unit.test_frontend_permission_catalogue` reads it with.
+_ENTRY = re.compile(r"'([a-z_]+\.[a-z_]+)'")
 
 #: Methods that change state. A GET is covered by its route guard.
 MUTATIONS = frozenset({"POST", "PATCH", "PUT", "DELETE"})
@@ -256,3 +274,38 @@ def test_every_mutation_is_gated_on_the_right_its_endpoint_enforces() -> None:
         "on the permission the endpoint declares - do not add the constant to the "
         "folder just to quiet this test."
     )
+
+
+# ------------------------------------------------ rules restated on a screen --
+
+
+def test_the_dashboard_approval_panel_uses_the_endpoints_own_rule() -> None:
+    """``APPROVAL_PERMISSIONS`` must be derived, not listed.
+
+    A hand-written list drifted in both directions: it named ``qc.decide``,
+    which ``GET /audit/approvals`` refuses, and omitted ``payment.approve``, so
+    a payment approver never saw their queue. The screen now applies the same
+    suffix rule the endpoint derives ``DECIDABLE_PERMISSIONS`` from; this pins
+    both the rule and its result against the backend's.
+    """
+    from src.modules.audit.query_service import DECIDABLE_PERMISSIONS
+
+    text = DASHBOARD.read_text(encoding="utf-8")
+    assert "endsWith('.approve') || value.endsWith('_approve')" in text, (
+        "dashboard-page.tsx no longer derives APPROVAL_PERMISSIONS by the endpoint's "
+        "suffix rule; a listed set drifts from GET /audit/approvals in both directions"
+    )
+    catalogue = set(_ENTRY.findall(CATALOGUE.read_text(encoding="utf-8")))
+    derived = {p for p in catalogue if p.endswith((".approve", "_approve"))}
+    assert derived == {str(p) for p in DECIDABLE_PERMISSIONS}
+
+
+def test_the_sales_order_create_submit_is_disabled_without_warehouse_view() -> None:
+    """Without ``warehouse.view`` there is no warehouse select on the form.
+
+    The submit would then fail zod against a field that is not on screen - a
+    press that visibly did nothing. The button is disabled on exactly that
+    right for a create; an edit keeps the order's own warehouse.
+    """
+    text = SALES_ORDER_FORM.read_text(encoding="utf-8")
+    assert "disabled={!isEdit && !can(P.WAREHOUSE_VIEW)}" in text

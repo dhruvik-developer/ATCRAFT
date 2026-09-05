@@ -102,9 +102,12 @@ import type {
   PurchaseOrderRow,
 } from '@/features/procurement/procurement-types'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
+import { PICKER_PAGE_SIZE, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatMoney, formatQuantity, toDateInput, toDecimal } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -144,12 +147,6 @@ const MONEY_OR_BLANK = /^$|^\d{1,14}(\.\d{1,4})?$/
 const SIGNED_MONEY_OR_BLANK = /^$|^-?\d{1,14}(\.\d{1,4})?$/
 const RATE_OR_BLANK = /^$|^\d{1,5}(\.\d{1,4})?$/
 const CURRENCY_OR_BLANK = /^$|^[A-Za-z]{3}$/
-
-/** How many receipts or orders a search offers before asking for a narrower term. */
-const PICKER_LIMIT = 20
-
-/** Radix Select forbids an empty option value, so "no unit" needs a sentinel. */
-const NO_UOM = '__none'
 
 const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 
@@ -414,17 +411,13 @@ function PurchaseOrderPicker({
 }) {
   const [open, setOpen] = useState(false)
   const [term, setTerm] = useState('')
-  const [debouncedTerm, setDebouncedTerm] = useState('')
 
   // One request per keystroke would put a scan of the order book behind every
   // character typed.
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedTerm(term.trim()), 300)
-    return () => clearTimeout(timer)
-  }, [term])
+  const debouncedTerm = useDebouncedValue(term)
 
   const params = {
-    limit: PICKER_LIMIT,
+    limit: PICKER_PAGE_SIZE,
     with_total: false,
     vendor_id: vendorId,
     sort_by: 'po_date',
@@ -465,7 +458,11 @@ function PurchaseOrderPicker({
           </Button>
         </PopoverTrigger>
 
-        <PopoverContent align="start" className="w-[26rem] p-0">
+        <PopoverContent
+          align="start"
+          collisionPadding={16}
+          className="w-[min(26rem,calc(100vw-2rem))] p-0"
+        >
           <div className="relative border-b p-2">
             <Search
               className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -570,15 +567,11 @@ function GoodsReceiptPicker({
 }) {
   const [open, setOpen] = useState(false)
   const [term, setTerm] = useState('')
-  const [debouncedTerm, setDebouncedTerm] = useState('')
 
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedTerm(term.trim()), 300)
-    return () => clearTimeout(timer)
-  }, [term])
+  const debouncedTerm = useDebouncedValue(term)
 
   const params = {
-    limit: PICKER_LIMIT,
+    limit: PICKER_PAGE_SIZE,
     with_total: false,
     status: 'POSTED',
     vendor_id: vendorId,
@@ -623,7 +616,11 @@ function GoodsReceiptPicker({
           </Button>
         </PopoverTrigger>
 
-        <PopoverContent align="start" className="w-[26rem] p-0">
+        <PopoverContent
+          align="start"
+          collisionPadding={16}
+          className="w-[min(26rem,calc(100vw-2rem))] p-0"
+        >
           <div className="relative border-b p-2">
             <Search
               className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -911,7 +908,7 @@ export function VendorInvoiceFormDialog({
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: financeKeys.all })
       toast.success(
-        amending ? 'Invoice amended' : 'Vendor invoice recorded',
+        amending ? success.updated('Invoice') : success.created('Vendor invoice'),
         amending
           ? `${saved.code} has to be matched again before it can be approved.`
           : `${saved.code} is a draft. Submit it for approval when the lines are right.`,
@@ -1134,7 +1131,13 @@ export function VendorInvoiceFormDialog({
                       or a receipt where nothing cleared QC, would replace the
                       set with an empty one the API refuses. */}
                   {seedSource && seedSource.lines.length > 0 && (
-                    <Button type="button" variant="outline" size="sm" onClick={copyLines}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-auto min-h-8 whitespace-normal text-left"
+                      onClick={copyLines}
+                    >
                       <ClipboardCopy />
                       Copy {seedSource.lines.length}{' '}
                       {seedSource.lines.length === 1 ? 'line' : 'lines'} from {seedSource.code}
@@ -1290,9 +1293,9 @@ export function VendorInvoiceFormDialog({
                             name={`lines.${index}.uom_id`}
                             render={({ field: uomField }) => (
                               <Select
-                                value={uomField.value || NO_UOM}
+                                value={uomField.value || SELECT_NONE}
                                 onValueChange={(next) =>
-                                  uomField.onChange(next === NO_UOM ? '' : next)
+                                  uomField.onChange(next === SELECT_NONE ? '' : next)
                                 }
                               >
                                 <SelectTrigger
@@ -1310,7 +1313,7 @@ export function VendorInvoiceFormDialog({
                                   />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value={NO_UOM}>None</SelectItem>
+                                  <SelectItem value={SELECT_NONE}>None</SelectItem>
                                   {(uoms.data ?? []).map((option) => (
                                     <SelectItem key={option.id} value={option.id}>
                                       {option.code} - {option.name}

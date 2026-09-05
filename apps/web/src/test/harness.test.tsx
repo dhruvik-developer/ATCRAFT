@@ -29,7 +29,6 @@ function Probe() {
   )
 }
 
-
 describe('renderScreen', () => {
   it('drives the real AuthProvider, so the signed-in user is genuinely restored', async () => {
     renderScreen(<Probe />, { permissions: [P.ITEM_VIEW] })
@@ -59,13 +58,18 @@ describe('the fetch boundary', () => {
   }
 
   it('unwraps the envelope through the real api client', async () => {
-    const { user } = renderScreen(<Consumer path="/products/items/1" />, {
+    renderScreen(<Consumer path="/products/items/1" />, {
       routes: { 'GET /products/items': ok({ id: '1', code: 'BRASS-ROD' }) },
     })
-    await user.click(screen.getByRole('button', { name: 'go' }))
-    // Reaching here without a throw means the longest-prefix match served the
-    // detail path from the list route, and the client parsed the envelope.
-    expect(true).toBe(true)
+    // Awaited here rather than fired through the button: the click handler
+    // discards the promise with `void`, so an assertion after it runs before the
+    // request settles and can only fail as an unhandled rejection - after the
+    // test has already reported a pass. Awaiting the call is what actually
+    // proves the two properties in this test's name: that the longest-prefix
+    // match served the detail path from the list route, and that the client
+    // returned the payload from inside the envelope rather than the envelope.
+    const result = await api.get('/products/items/1')
+    expect(result).toEqual({ id: '1', code: 'BRASS-ROD' })
   })
 
   it('records requests so a test can assert what a form actually sent', async () => {

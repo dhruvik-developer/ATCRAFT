@@ -49,6 +49,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useCategoryOptions } from '@/features/items/item-model'
 import { useListQuery } from '@/hooks/use-list-query'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -68,9 +69,6 @@ import {
   type QcTemplateRow,
 } from './qc-template-model'
 import { QC_STAGES } from './quality-types'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /**
  * Every filter key this screen owns, named once.
@@ -369,14 +367,17 @@ export default function QcTemplatesPage() {
         toolbar={
           <>
             <Select
-              value={stage || ALL}
-              onValueChange={(next) => setParam('qc_stage', next === ALL ? undefined : next)}
+              value={stage || SELECT_ALL}
+              onValueChange={(next) => setParam('qc_stage', next === SELECT_ALL ? undefined : next)}
             >
-              <SelectTrigger className="w-[11rem]" aria-label="Filter by inspection stage">
+              <SelectTrigger
+                className="w-full sm:w-[11rem]"
+                aria-label="Filter by inspection stage"
+              >
                 <SelectValue placeholder="Any stage" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any stage</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any stage</SelectItem>
                 {QC_STAGES.map((entry) => (
                   <SelectItem key={entry} value={entry}>
                     {humanise(entry)}
@@ -386,14 +387,16 @@ export default function QcTemplatesPage() {
             </Select>
 
             <Select
-              value={plan || ALL}
-              onValueChange={(next) => setParam('sampling_plan', next === ALL ? undefined : next)}
+              value={plan || SELECT_ALL}
+              onValueChange={(next) =>
+                setParam('sampling_plan', next === SELECT_ALL ? undefined : next)
+              }
             >
-              <SelectTrigger className="w-[11rem]" aria-label="Filter by sampling plan">
+              <SelectTrigger className="w-full sm:w-[11rem]" aria-label="Filter by sampling plan">
                 <SelectValue placeholder="Any sampling" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any sampling</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any sampling</SelectItem>
                 {QC_SAMPLING_PLANS.map((entry) => (
                   <SelectItem key={entry} value={entry}>
                     {SAMPLING_PLAN_LABEL[entry]}
@@ -413,16 +416,16 @@ export default function QcTemplatesPage() {
 
             {can(P.CATEGORY_VIEW) && (
               <Select
-                value={categoryId || ALL}
+                value={categoryId || SELECT_ALL}
                 onValueChange={(next) =>
-                  setParam('item_category_id', next === ALL ? undefined : next)
+                  setParam('item_category_id', next === SELECT_ALL ? undefined : next)
                 }
               >
-                <SelectTrigger className="w-[13rem]" aria-label="Filter by item category">
+                <SelectTrigger className="w-full sm:w-[13rem]" aria-label="Filter by item category">
                   <SelectValue placeholder="Any category" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL}>Any category</SelectItem>
+                  <SelectItem value={SELECT_ALL}>Any category</SelectItem>
                   {(categories.data ?? []).map((category) => (
                     <SelectItem key={category.id} value={category.id}>
                       {category.code} - {category.name}
@@ -436,7 +439,7 @@ export default function QcTemplatesPage() {
               value={activeState}
               onValueChange={(next) => setParam('active', next === 'true' ? undefined : next)}
             >
-              <SelectTrigger className="w-[12rem]" aria-label="Filter by state">
+              <SelectTrigger className="w-full sm:w-[12rem]" aria-label="Filter by state">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

@@ -49,8 +49,8 @@ class TestCustomerCreate:
             _customer(code=code)
 
     def test_gstin_is_upper_cased_and_format_checked(self) -> None:
-        payload = _customer(gstin=" 27abcde1234f1z5 ")
-        assert payload.gstin == "27ABCDE1234F1Z5"
+        payload = _customer(gstin=" 27abcde1234f1z0 ")
+        assert payload.gstin == "27ABCDE1234F1Z0"
 
     @pytest.mark.parametrize(
         "gstin",
@@ -58,6 +58,8 @@ class TestCustomerCreate:
             "27ABCDE1234F1Z",  # 14 characters
             "AB",  # nonsense
             "27ABCDE1234F1X5",  # the 14th character must be Z
+            "27ABCDE1234F1Z5",  # right shape, wrong check digit - a typo
+            "27ABCDE1234F0Z0",  # entity number 0 is never issued
         ],
     )
     def test_malformed_gstin_is_refused(self, gstin: str) -> None:
@@ -125,20 +127,48 @@ class TestAddressAndAdjustment:
             address_line1="1 Industrial Estate",
             city="Pune",
             state_code=" 27 ",
-            gstin="27abcde1234f1z5",
+            gstin="27abcde1234f1z0",
             label="   ",
         )
         assert address.state_code == "27"
-        assert address.gstin == "27ABCDE1234F1Z5"
+        assert address.gstin == "27ABCDE1234F1Z0"
         assert address.label is None
 
     def test_zero_outstanding_adjustment_is_refused(self) -> None:
         # It would write an audit row describing no change, in the one log a
         # reconciliation depends on.
         with pytest.raises(PydanticValidationError):
-            OutstandingAdjustment(delta=Decimal("0"), reason="Nothing happened")
+            OutstandingAdjustment(
+                delta=Decimal("0"),
+                reason="Nothing happened",
+                reference_type="payment",
+                reference_code="RCPT/2026-27/00012",
+            )
 
     def test_negative_adjustment_is_allowed(self) -> None:
         """A receipt or credit note reduces the balance; the field is signed."""
-        adjustment = OutstandingAdjustment(delta=Decimal("-500.25"), reason="Receipt 12")
+        adjustment = OutstandingAdjustment(
+            delta=Decimal("-500.25"),
+            reason="Receipt 12",
+            reference_type="payment",
+            reference_code="RCPT/2026-27/00012",
+        )
         assert adjustment.delta == Decimal("-500.25")
+        assert adjustment.reference_id is None
+
+    def test_adjustment_without_its_ledger_document_is_refused(self) -> None:
+        """The cached balance only moves alongside the document that explains it.
+
+        A delta with no reference could never be reconciled against the
+        receivable ledger, so the schema refuses it before a service can apply
+        it - the reference is how a reconciliation finds the journal.
+        """
+        with pytest.raises(PydanticValidationError) as exc:
+            OutstandingAdjustment(delta=Decimal("100"), reason="Invoice")
+        missing = {error["loc"][0] for error in exc.value.errors()}
+        assert missing == {"reference_type", "reference_code"}
+
+        with pytest.raises(PydanticValidationError):
+            OutstandingAdjustment(
+                delta=Decimal("100"), reason="Invoice", reference_type="", reference_code=""
+            )

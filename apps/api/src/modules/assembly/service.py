@@ -150,9 +150,7 @@ MOVEMENT_REFERENCE_ASSEMBLY = "assembly_order"
 #: Draft fields an explicit ``null`` in a PATCH body legitimately clears. Every
 #: other column on the update payload backs a NOT NULL column, where a null is a
 #: client mistake rather than an instruction - see :func:`update_order`.
-CLEARABLE_UPDATE_FIELDS = frozenset(
-    {"assembly_line", "planned_start", "planned_end", "notes"}
-)
+CLEARABLE_UPDATE_FIELDS = frozenset({"assembly_line", "planned_start", "planned_end", "notes"})
 
 #: Header fields snapshotted around an edit so the audit diff names what moved
 #: rather than reprinting the whole row.
@@ -469,9 +467,7 @@ def build_movements(
                 # The whole QC behaviour, in one argument: a held receipt raises
                 # qc_hold_quantity instead of the available pool, so the output
                 # exists and is countable but nothing can be promised from it.
-                stock_state=(
-                    StockState.QC_HOLD if order.requires_qc else StockState.AVAILABLE
-                ),
+                stock_state=(StockState.QC_HOLD if order.requires_qc else StockState.AVAILABLE),
                 occurred_at=occurred_at,
             )
         )
@@ -822,9 +818,7 @@ async def _persist_components(
     return components
 
 
-async def _assert_warehouses(
-    session: AsyncSession, tenant: TenantContext, *ids: uuid.UUID
-) -> None:
+async def _assert_warehouses(session: AsyncSession, tenant: TenantContext, *ids: uuid.UUID) -> None:
     """Both warehouses in one statement, and both must be able to hold stock."""
     found = await WarehouseLookupRepository(session, tenant).load(list(ids))
     for warehouse_id in ids:
@@ -851,9 +845,7 @@ async def list_orders(
     params: PageParams,
     sort: SortParams,
 ) -> tuple[list[AssemblyOrder], OffsetPagination]:
-    return await AssemblyOrderRepository(session, tenant).list_page_filtered(
-        filters, params, sort
-    )
+    return await AssemblyOrderRepository(session, tenant).list_page_filtered(filters, params, sort)
 
 
 async def get_order_detail(
@@ -943,9 +935,7 @@ async def create_order(
         output_warehouse_id = payload.output_warehouse_id or payload.warehouse_id
         await _assert_warehouses(session, tenant, payload.warehouse_id, output_warehouse_id)
 
-        bom = await _resolve_bom(
-            session, tenant, item_id=payload.item_id, bom_id=payload.bom_id
-        )
+        bom = await _resolve_bom(session, tenant, item_id=payload.item_id, bom_id=payload.bom_id)
         exploded = await _explode_components(
             session, tenant, bom=bom, planned_quantity=payload.planned_quantity
         )
@@ -1391,9 +1381,7 @@ async def _release_reservations(
     for component in sorted(components, key=lambda row: (row.item_id, row.line_number)):
         if component.reservation_id is None:
             continue
-        await port.release(
-            session, tenant, reservation_id=component.reservation_id, reason=reason
-        )
+        await port.release(session, tenant, reservation_id=component.reservation_id, reason=reason)
         component.reservation_id = None
         released += 1
     await session.flush()
@@ -1520,9 +1508,7 @@ async def complete_assembly(
             inspection_created = order.qc_inspection_id is not None
             await session.flush()
 
-        await _transition(
-            session, tenant, order, target, reason=payload.reason, repo=repo
-        )
+        await _transition(session, tenant, order, target, reason=payload.reason, repo=repo)
 
         await record_audit(
             session,
@@ -1539,9 +1525,7 @@ async def complete_assembly(
             new_values={
                 "assembled_quantity": assembled,
                 "rejected_quantity": rejected,
-                "consumed": {
-                    str(entry.component.line_number): entry.quantity for entry in plan
-                },
+                "consumed": {str(entry.component.line_number): entry.quantity for entry in plan},
                 "consumed_serials": {
                     str(entry.component.line_number): list(entry.serial_ids)
                     for entry in plan

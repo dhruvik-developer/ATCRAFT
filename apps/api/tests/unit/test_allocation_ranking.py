@@ -116,9 +116,7 @@ class TestEligibility:
     def test_the_requesting_demand_cannot_reallocate_from_itself(self) -> None:
         request = _request()
         facts = _facts(demand_type=request.demand_type, demand_id=request.demand_id, priority=900)
-        reason = candidate_eligibility(
-            facts, request=request, policy=DEFAULT_POLICY, as_of=TODAY
-        )
+        reason = candidate_eligibility(facts, request=request, policy=DEFAULT_POLICY, as_of=TODAY)
         assert reason == "belongs to the requesting demand"
 
     def test_a_donor_already_claimed_by_another_request_is_not_offered_twice(self) -> None:
@@ -248,9 +246,7 @@ class TestRanking:
 
     def test_nothing_is_suggested_when_nothing_is_needed(self) -> None:
         assert (
-            rank_candidates(
-                [_facts()], request=_request(quantity_needed=Decimal("0")), as_of=TODAY
-            )
+            rank_candidates([_facts()], request=_request(quantity_needed=Decimal("0")), as_of=TODAY)
             == []
         )
 
@@ -276,9 +272,7 @@ class TestRanking:
         ranking on its own."""
         capped = DEFAULT_POLICY.priority_gap_cap
         request = _request(priority=0)
-        at_cap, _ = score_candidate(
-            _facts(priority=capped), request=request, policy=DEFAULT_POLICY
-        )
+        at_cap, _ = score_candidate(_facts(priority=capped), request=request, policy=DEFAULT_POLICY)
         far_past_cap, _ = score_candidate(
             _facts(priority=9999), request=request, policy=DEFAULT_POLICY
         )
@@ -428,9 +422,9 @@ class TestNamedDonor:
         request = _request(quantity_needed=Decimal("50"))
 
         # Unnamed, the soft donor covers the whole shortfall on its own.
-        assert [c.reservation_id for c in rank_candidates(
-            [best, chosen], request=request, as_of=TODAY
-        )] == [best.id]
+        assert [
+            c.reservation_id for c in rank_candidates([best, chosen], request=request, as_of=TODAY)
+        ] == [best.id]
 
         ranked = rank_candidates(
             [best, chosen], request=request, as_of=TODAY, prefer_reservation_id=chosen.id
@@ -471,7 +465,5 @@ class TestNamedDonor:
         request = _request(quantity_needed=Decimal("250"))
         assert [c.reservation_id for c in rank_candidates(pool, request=request, as_of=TODAY)] == [
             c.reservation_id
-            for c in rank_candidates(
-                pool, request=request, as_of=TODAY, prefer_reservation_id=None
-            )
+            for c in rank_candidates(pool, request=request, as_of=TODAY, prefer_reservation_id=None)
         ]

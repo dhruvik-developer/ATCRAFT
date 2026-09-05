@@ -33,6 +33,7 @@ import {
 import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatMoney, formatQuantity, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -53,9 +54,6 @@ import {
   type RoutingRow,
   type WorkCenter,
 } from './routing-model'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 // ----------------------------------------------------------- routings ------
 
@@ -215,14 +213,16 @@ function RoutingsPanel({ canManage }: { canManage: boolean }) {
         toolbar={
           <>
             <Select
-              value={status || ALL}
-              onValueChange={(value) => setParam('status', value === ALL ? undefined : value)}
+              value={status || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('status', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[170px]" aria-label="Filter by status">
+              <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by status">
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All statuses</SelectItem>
+                <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
                 {ROUTING_STATUSES.map((value) => (
                   <SelectItem key={value} value={value}>
                     {humanise(value)}
@@ -559,14 +559,16 @@ function MachinesPanel({ canManage }: { canManage: boolean }) {
         toolbar={
           <>
             <Select
-              value={machineStatus || ALL}
-              onValueChange={(value) => setParam('status', value === ALL ? undefined : value)}
+              value={machineStatus || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('status', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[180px]" aria-label="Filter by condition">
+              <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by condition">
                 <SelectValue placeholder="Any condition" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any condition</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any condition</SelectItem>
                 {MACHINE_STATUSES.map((value) => (
                   <SelectItem key={value} value={value}>
                     {humanise(value)}

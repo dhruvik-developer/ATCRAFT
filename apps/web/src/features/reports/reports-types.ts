@@ -40,6 +40,7 @@ export type ReportKey =
   | 'DISPATCH'
   | 'COURIER_TRACKING'
   | 'VENDOR_DISPATCH_HISTORY'
+  | 'PACKING_LIST'
 
 /**
  * A rendering hint derived on the server from the row model's field type.

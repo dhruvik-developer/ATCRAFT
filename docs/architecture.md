@@ -93,6 +93,8 @@ Cross-cutting concerns every module depends on and none of them owns.
 | `permissions` | the permission registry and baseline roles |
 | `deps` | `Principal`, `TenantContext`, `require_permission` |
 | `errors` | the exception hierarchy and stable error codes |
+| `messages` | user-facing sentences raised from more than one module, so wording is decided once |
+| `constants` | schema-level decisions shared by models and schemas (default currency, code widths) |
 | `responses` | the response envelope |
 | `pagination` | offset and keyset pagination |
 | `cache` | tenant-scoped Redis cache-aside with explicit invalidation |
@@ -219,10 +221,10 @@ ticket quoting it finds the whole story.
 ## Frontend
 
 ```
-src/app/         shell: layout, routing, navigation
-src/components/  design system + DataTable + shared building blocks
+src/app/         shell: layout, routing, navigation, route-loaders (the one list of lazy pages)
+src/components/  design system + DataTable + shared building blocks (PageHeader, DateRangeFilter, ConfirmDialog)
 src/features/    one folder per business area
-src/lib/         api-client · query-client · format · permissions
+src/lib/         api-client · query-client · format · permissions · constants · messages
 src/hooks/       useListQuery and friends
 ```
 
@@ -232,6 +234,24 @@ view is shareable and survives the back button.
 
 `lib/api-client.ts` is the only place that calls `fetch`. Token refresh, the
 response envelope, error shaping and the correlation id are handled there once.
+
+`lib/constants.ts` holds every value that used to be repeated across feature
+folders - page sizes, the search debounce, browser-storage keys, date formats -
+and is the only place `import.meta.env` is read. `lib/messages.ts` holds the
+shared error headlines, empty-state sentences, confirmation prompts and the
+success builders for the standard verbs (`success.created('Purchase order')`);
+a confirmation whose wording is specific to one action ("Carton sealed") stays
+with its screen. Messages the API composes are shown verbatim, because the
+server knows why it refused. `app/route-loaders.ts` is the single list of lazily-loaded
+pages: `React.lazy` in the route table and the sidebar's hover prefetch both
+read it, so a chunk warmed on hover is the one the click resolves.
+
+Every screen is responsive down to a 360px phone. The shared primitives carry
+the safety nets - `DialogContent` scrolls its own overflow, `TabsList` wraps,
+`PageHeader` actions wrap, `DataTable` scrolls horizontally inside a `min-w-0`
+main - so a feature page cannot forget them; toolbars stack their controls with
+`flex-wrap` and `w-full sm:w-[..]` widths, and the sidebar's "collapsed"
+preference only applies at `lg`, where the control that undoes it exists.
 
 Permissions in the UI control affordances only. The API authorises every request
 independently — anyone can edit the browser's idea of their permissions, and the

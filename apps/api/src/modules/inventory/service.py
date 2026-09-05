@@ -79,8 +79,10 @@ from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from src.common.codes import DocTypes, next_document_number
 from src.core.clock import today, utcnow
@@ -89,6 +91,7 @@ from src.core.deps import TenantContext
 from src.core.errors import (
     AuthorizationError,
     BusinessRuleError,
+    DuplicateError,
     ErrorCode,
     InsufficientStockError,
     NotFoundError,
@@ -97,6 +100,8 @@ from src.core.errors import (
 )
 from src.core.ids import new_id
 from src.core.logging import get_logger
+from src.core.messages import NO_FIELDS_TO_UPDATE, inactive_record
+from src.core.observability import insufficient_stock_events, inventory_conflicts
 from src.core.pagination import CursorParams, PageParams, SortParams, paginate, paginate_keyset
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
@@ -1288,12 +1293,12 @@ def validate_movement(
     # stock behind a flag, which is worse than the thing the flag prevents.
     if gates_policy and not item.is_active:
         raise BusinessRuleError(
-            f"Item {item.code} is inactive and cannot receive stock.",
+            inactive_record("Item", item.code, "cannot receive stock"),
             details={"item_code": item.code},
         )
     if gates_policy and not warehouse.is_active:
         raise BusinessRuleError(
-            f"Warehouse {warehouse.code} is inactive and cannot receive stock.",
+            inactive_record("Warehouse", warehouse.code, "cannot receive stock"),
             details={"warehouse_code": warehouse.code},
         )
 
@@ -1318,7 +1323,7 @@ def validate_movement(
         # whatever is still in the bin behind the flag that retired it.
         if gates_policy and not location.is_active:
             raise BusinessRuleError(
-                f"Storage location {location.code} is inactive and cannot receive stock.",
+                inactive_record("Storage location", location.code, "cannot receive stock"),
                 details={
                     "location_id": str(movement.location_id),
                     "location_code": location.code,
@@ -1430,7 +1435,7 @@ def validate_movement(
 # -----------------------------------------------------------------------------
 
 TRANSFER_FLOW: StateMachine[TransferStatus] = StateMachine(
-    entity="StockTransfer",
+    entity="Stock transfer",
     initial=TransferStatus.DRAFT,
     transitions=(
         Transition(
@@ -1472,7 +1477,7 @@ TRANSFER_FLOW: StateMachine[TransferStatus] = StateMachine(
 )
 
 ADJUSTMENT_FLOW: StateMachine[AdjustmentStatus] = StateMachine(
-    entity="StockAdjustment",
+    entity="Stock adjustment",
     initial=AdjustmentStatus.DRAFT,
     transitions=(
         # Below the approval threshold a draft posts directly; above it the
@@ -1534,7 +1539,7 @@ ADJUSTMENT_FLOW: StateMachine[AdjustmentStatus] = StateMachine(
 )
 
 COUNT_FLOW: StateMachine[PhysicalCountStatus] = StateMachine(
-    entity="PhysicalCount",
+    entity="Physical count",
     initial=PhysicalCountStatus.DRAFT,
     transitions=(
         Transition(
@@ -1611,7 +1616,7 @@ COUNT_FLOW: StateMachine[PhysicalCountStatus] = StateMachine(
 #: unit's worth of stock against one physical object and the unit stayed
 #: cheerfully ``IN_STOCK``.
 SERIAL_FLOW: StateMachine[SerialStatus] = StateMachine(
-    entity="StockSerial",
+    entity="Stock serial",
     initial=SerialStatus.IN_STOCK,
     transitions=(
         Transition(
@@ -1952,6 +1957,7 @@ async def _lock_document(
     except DBAPIError as exc:
         if getattr(exc.orig, "sqlstate", None) == _LOCK_NOT_AVAILABLE:
             log.info("inventory.document_lock_timeout", entity=entity, entity_id=str(entity_id))
+            inventory_conflicts.labels(operation="document").inc()
             raise StockLockTimeoutError(
                 "This document is being updated by another operation. Please retry."
             ) from exc
@@ -2094,6 +2100,7 @@ class MovementEngine:
         except DBAPIError as exc:
             if getattr(exc.orig, "sqlstate", None) == _LOCK_NOT_AVAILABLE:
                 log.info("inventory.lock_timeout", grain_count=len(grains))
+                inventory_conflicts.labels(operation="balance").inc()
                 raise StockLockTimeoutError() from exc
             raise
 
@@ -2126,6 +2133,7 @@ class MovementEngine:
         except DBAPIError as exc:
             if getattr(exc.orig, "sqlstate", None) == _LOCK_NOT_AVAILABLE:
                 log.info("inventory.layer_lock_timeout", position_count=len(balance_ids))
+                inventory_conflicts.labels(operation="cost_layer").inc()
                 raise StockLockTimeoutError() from exc
             raise
 
@@ -2230,7 +2238,8 @@ class MovementEngine:
 
             # One flush for the whole batch: the ledger rows, the cost layers
             # and the consumption rows are inserted together and the balance
-            # updates go out as one UPDATE per row.
+            # updates go out as one UPDATE per row. The audit rows written
+            # below are flushed once as well.
             await self.session.flush()
 
             for step in applied:
@@ -2239,6 +2248,10 @@ class MovementEngine:
                 await self._audit_serial(serial_change)
             for entry in reconciled:
                 await self._audit_reconciliation(entry)
+            # One flush for the whole document's audit rows too - each _audit*
+            # passes flush=False - so a 500-line document costs one round-trip,
+            # not 500, while the balance, layer and serial row locks are held.
+            await self.session.flush()
 
         return transactions, locked
 
@@ -2587,12 +2600,12 @@ class MovementEngine:
 
         if receiving and not item.is_active:
             raise BusinessRuleError(
-                f"Item {item.code} is inactive and cannot receive stock.",
+                inactive_record("Item", item.code, "cannot receive stock"),
                 details={"item_code": item.code},
             )
         if receiving and not warehouse.is_active:
             raise BusinessRuleError(
-                f"Warehouse {warehouse.code} is inactive and cannot receive stock.",
+                inactive_record("Warehouse", warehouse.code, "cannot receive stock"),
                 details={"warehouse_code": warehouse.code},
             )
 
@@ -2616,7 +2629,7 @@ class MovementEngine:
             )
         if receiving and not location.is_active:
             raise BusinessRuleError(
-                f"Storage location {location.code} is inactive and cannot receive stock.",
+                inactive_record("Storage location", location.code, "cannot receive stock"),
                 details={
                     "location_id": str(grain.location_id),
                     "location_code": location.code,
@@ -2668,6 +2681,7 @@ class MovementEngine:
         except DBAPIError as exc:
             if getattr(exc.orig, "sqlstate", None) == _LOCK_NOT_AVAILABLE:
                 log.info("inventory.serial_lock_timeout", serial_count=len(serial_ids))
+                inventory_conflicts.labels(operation="serial").inc()
                 raise StockLockTimeoutError(
                     "That serial number is being posted by another operation. Please retry."
                 ) from exc
@@ -3065,6 +3079,9 @@ class MovementEngine:
         warehouse: WarehouseFacts,
         magnitude: Decimal,
     ) -> None:
+        # The one seam every "not enough stock" refusal passes through, so the
+        # counter an operator alerts on cannot miss a pool.
+        insufficient_stock_events.inc()
         if shortfall.rule in ("available", "on_hand", "reserved"):
             raise InsufficientStockError(
                 item_code=item.code,
@@ -3172,6 +3189,7 @@ class MovementEngine:
             ),
             user_id=self.tenant.user_id,
             context=context,
+            flush=False,
         )
 
     async def _audit_reconciliation(self, entry: _LayerReconciliation) -> None:
@@ -3219,6 +3237,7 @@ class MovementEngine:
                 "value_change": entry.value,
                 "origin": LAYER_ORIGIN_RECONCILIATION,
             },
+            flush=False,
         )
 
     async def _audit_serial(self, change: _SerialChange) -> None:
@@ -3255,6 +3274,7 @@ class MovementEngine:
                 to_status=to_status,
                 user_id=self.tenant.user_id,
                 reason=reason,
+                flush=False,
             )
             return
 
@@ -3269,6 +3289,7 @@ class MovementEngine:
             user_id=self.tenant.user_id,
             old_values=change.before,
             new_values=change.after,
+            flush=False,
         )
 
 
@@ -3662,9 +3683,8 @@ class TraceabilityService:
             if item is None:
                 raise NotFoundError("Item", payload.item_id)
             if await self.batches.by_number(payload.item_id, payload.batch_number) is not None:
-                raise BusinessRuleError(
+                raise DuplicateError(
                     f"Batch {payload.batch_number} already exists for item {item.code}.",
-                    code=ErrorCode.DUPLICATE_DOCUMENT,
                     details={"batch_number": payload.batch_number},
                 )
 
@@ -3713,9 +3733,8 @@ class TraceabilityService:
                 raise NotFoundError("Item", payload.item_id)
             existing = await self.serials.by_number(payload.item_id, payload.serial_number)
             if existing is not None:
-                raise BusinessRuleError(
+                raise DuplicateError(
                     f"Serial {payload.serial_number} already exists for item {item.code}.",
-                    code=ErrorCode.DUPLICATE_DOCUMENT,
                     details={"serial_number": payload.serial_number},
                 )
             if payload.batch_id is not None:
@@ -3796,6 +3815,26 @@ class TraceabilityService:
         )
         rows, pagination = await paginate(self.session, stmt, params)
         return [StockSerialRead.model_validate(row) for row in rows], pagination
+
+
+def _declare_lines_empty_if_unloaded(row: Any) -> None:
+    """Make a list row's `lines` readable without loading it.
+
+    `StockTransferRead` and `StockAdjustmentRead` both declare a `lines` field,
+    so `model_validate(row)` reads the relationship - and the models declare it
+    `lazy="raise"`. On a list row that is unloaded, so validation raised
+    `InvalidRequestError` and both endpoints answered 500 for every row they
+    found; they were clean only while the table was empty, which is every
+    automated run, because the demo data raises neither document. Clearing
+    `read.lines` afterwards cannot help: the read happens inside validation.
+
+    Declaring it loaded and empty first costs no query. The `unloaded` guard is
+    the load-bearing half: the detail, create and post paths return through the
+    same builder with the collection genuinely loaded, and overwriting it there
+    would blank the lines those responses are expected to carry.
+    """
+    if "lines" in sa_inspect(row).unloaded:
+        set_committed_value(row, "lines", [])
 
 
 # -----------------------------------------------------------------------------
@@ -3948,7 +3987,7 @@ class StockTransferService:
     ) -> StockTransferRead:
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             transfer = await self._locked(transfer_id)
@@ -4333,12 +4372,12 @@ class StockTransferService:
     def _to_read(
         transfer: StockTransfer, *, warehouses: dict[uuid.UUID, WarehouseFacts]
     ) -> StockTransferRead:
+        _declare_lines_empty_if_unloaded(transfer)
         read = StockTransferRead.model_validate(transfer)
         source = warehouses.get(transfer.from_warehouse_id)
         destination = warehouses.get(transfer.to_warehouse_id)
         read.from_warehouse_code = source.code if source else None
         read.to_warehouse_code = destination.code if destination else None
-        read.lines = []
         return read
 
 
@@ -4843,10 +4882,10 @@ class StockAdjustmentService:
     def _to_read(
         adjustment: StockAdjustment, warehouses: dict[uuid.UUID, WarehouseFacts]
     ) -> StockAdjustmentRead:
+        _declare_lines_empty_if_unloaded(adjustment)
         read = StockAdjustmentRead.model_validate(adjustment)
         warehouse = warehouses.get(adjustment.warehouse_id)
         read.warehouse_code = warehouse.code if warehouse else None
-        read.lines = []
         return read
 
 

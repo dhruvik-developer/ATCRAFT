@@ -59,6 +59,7 @@ import { CustomerPicker } from '@/features/customers/customer-picker'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatDateTime, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -75,9 +76,6 @@ import {
   type PartyKind,
 } from './ledger-model'
 import { PartyLedgerPanel } from './party-ledger-panel'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /**
  * The status control is three-valued, and the third value reaches the URL.
@@ -533,14 +531,16 @@ export default function AccountsPage() {
         toolbar={
           <>
             <Select
-              value={accountType || ALL}
-              onValueChange={(next) => setParam('account_type', next === ALL ? undefined : next)}
+              value={accountType || SELECT_ALL}
+              onValueChange={(next) =>
+                setParam('account_type', next === SELECT_ALL ? undefined : next)
+              }
             >
-              <SelectTrigger className="w-[11rem]" aria-label="Account class">
+              <SelectTrigger className="w-full sm:w-[11rem]" aria-label="Account class">
                 <SelectValue placeholder="Any class" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any class</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any class</SelectItem>
                 {ACCOUNT_TYPES.map((entry) => (
                   <SelectItem key={entry} value={entry}>
                     {humanise(entry)}
@@ -553,7 +553,7 @@ export default function AccountsPage() {
               value={activeState}
               onValueChange={(next) => setParam('is_active', next === 'true' ? undefined : next)}
             >
-              <SelectTrigger className="w-[12rem]" aria-label="Account status">
+              <SelectTrigger className="w-full sm:w-[12rem]" aria-label="Account status">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -564,29 +564,33 @@ export default function AccountsPage() {
             </Select>
 
             <Select
-              value={systemState || ALL}
-              onValueChange={(next) => setParam('is_system', next === ALL ? undefined : next)}
+              value={systemState || SELECT_ALL}
+              onValueChange={(next) =>
+                setParam('is_system', next === SELECT_ALL ? undefined : next)
+              }
             >
-              <SelectTrigger className="w-[12rem]" aria-label="Account kind">
+              <SelectTrigger className="w-full sm:w-[12rem]" aria-label="Account kind">
                 <SelectValue placeholder="Any kind" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any kind</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any kind</SelectItem>
                 <SelectItem value="true">Control accounts</SelectItem>
                 <SelectItem value="false">User-defined</SelectItem>
               </SelectContent>
             </Select>
 
             {parentId && (
-              <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-background px-3 text-xs">
-                <ListTree className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-                <span className="text-muted-foreground">Beneath</span>
-                <AccountName accountId={parentId} />
+              <div className="flex min-h-9 max-w-full items-center gap-2 rounded-md border border-input bg-background px-3 text-xs">
+                <ListTree className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="shrink-0 text-muted-foreground">Beneath</span>
+                <span className="min-w-0 truncate">
+                  <AccountName accountId={parentId} />
+                </span>
                 <button
                   type="button"
                   onClick={() => setParam('parent_id', undefined)}
                   aria-label="Show the whole chart again"
-                  className="rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="shrink-0 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>

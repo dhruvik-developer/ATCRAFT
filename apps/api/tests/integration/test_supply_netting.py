@@ -85,7 +85,7 @@ from src.modules.products.models import Item, ItemGroup, ProductionType, UnitOfM
 from src.modules.sales.models import SalesOrder, SalesOrderLine, SalesOrderStatus
 from src.modules.vendors.models import Vendor, VendorType
 from src.modules.warehouses.models import Warehouse, WarehouseType
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 from tests.seed_support import seed_company, seed_user
 
 pytestmark = pytest.mark.integration
@@ -200,13 +200,13 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]
 
     try:
         asyncio.run(setup())
-    except OSError as exc:  # pragma: no cover - environment, not a test failure
-        # Narrower than ``except Exception`` on purpose. A server that is not
-        # listening raises ``ConnectionRefusedError``, and skipping that is the
-        # right answer. Everything else - a model that will not create, a
-        # constraint the fixtures violate - is a failure this file must report,
-        # and a blanket skip would report it as "PostgreSQL is not available".
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+    except Exception as exc:  # pragma: no cover - environment, not a test failure
+        # Everything is caught, and the shared reporter decides what it means: a
+        # server that is not listening skips (fails under CI), while a model that
+        # will not create or a constraint the fixtures violate re-raises. Catching
+        # ``OSError`` here instead used to miss the common case, because SQLAlchemy
+        # wraps asyncpg's refusal in a ``DBAPIError``.
+        report_database_setup_failure(exc)
 
     yield schema, company_id, other_company_id, planner_id, other_user_id
     asyncio.run(teardown())

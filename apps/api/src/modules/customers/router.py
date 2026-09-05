@@ -54,10 +54,9 @@ from src.modules.customers.schemas import (
     CustomerFilters,
     CustomerSummary,
     CustomerUpdate,
-    OutstandingAdjustment,
     StatusChangeRequest,
 )
-from src.modules.customers.service import CustomerService, apply_outstanding_delta
+from src.modules.customers.service import CustomerService
 
 router = APIRouter(prefix="/customers", tags=["Customers"], responses=COMMON_ERROR_RESPONSES)
 
@@ -292,29 +291,6 @@ async def get_credit_status(
 ) -> ApiResponse[CreditStatus]:
     status_out = await CustomerService(session, tenant).get_credit_status(customer_id, order_value)
     return ApiResponse.ok(status_out)
-
-
-@router.post(
-    "/{customer_id}/outstanding",
-    response_model=ApiResponse[CustomerDetail],
-    summary="Apply a finance adjustment to the cached outstanding balance",
-    dependencies=[require_permission(Permission.PAYMENT_RECORD)],
-)
-async def adjust_outstanding(
-    session: DbSession,
-    tenant: Tenant,
-    customer_id: uuid.UUID,
-    payload: OutstandingAdjustment,
-) -> ApiResponse[CustomerDetail]:
-    """Finance-owned: an invoice raises the balance, a receipt reduces it.
-
-    Gated on ``payment.record`` rather than a customer permission - the field is
-    a financial figure, and the sales team that maintains the rest of the master
-    record must not be able to move it.
-    """
-    await apply_outstanding_delta(session, tenant, customer_id, payload)
-    detail = await CustomerService(session, tenant).get_customer(customer_id)
-    return ApiResponse.ok(detail, "Outstanding balance updated")
 
 
 @router.delete(

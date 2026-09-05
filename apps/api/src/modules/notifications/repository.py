@@ -33,6 +33,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.repository import BaseRepository
+from src.core.database import affected_rows
 from src.core.deps import TenantContext
 from src.core.logging import get_logger
 from src.core.pagination import Cursor, CursorParams
@@ -113,7 +114,7 @@ class NotificationRepository(BaseRepository[Notification]):
         """
         stmt = self._scoped().where(
             Notification.user_id == user_id,
-            Notification.channels.any(NotificationChannel.IN_APP.value),
+            Notification.channels.contains([NotificationChannel.IN_APP.value]),
         )
         if filters.unread_only:
             stmt = stmt.where(Notification.is_read.is_(False))
@@ -150,8 +151,9 @@ class NotificationRepository(BaseRepository[Notification]):
         position = params.decoded
 
         if position is not None:
-            older = tuple_(Notification.created_at, Notification.id) < tuple_(
-                position.created_at, position.id
+            older = tuple_(Notification.created_at, Notification.id) < (
+                position.created_at,
+                position.id,
             )
             if filters.unread_only or await self._cursor_partition_is_read(user_id, position):
                 # Already inside the read half (or there is only one half), so
@@ -206,7 +208,7 @@ class NotificationRepository(BaseRepository[Notification]):
                 Notification.company_id == self.tenant.company_id,
                 Notification.user_id == user_id,
                 Notification.is_read.is_(False),
-                Notification.channels.any(NotificationChannel.IN_APP.value),
+                Notification.channels.contains([NotificationChannel.IN_APP.value]),
             )
             .limit(ceiling)
             .subquery()
@@ -243,9 +245,9 @@ class NotificationRepository(BaseRepository[Notification]):
         written: list[Notification] = []
         for start in range(0, len(rows), INSERT_BATCH_SIZE):
             batch = list(rows[start : start + INSERT_BATCH_SIZE])
-            stmt = pg_insert(Notification).values(batch)
+            insert_stmt = pg_insert(Notification).values(batch)
             stmt = (
-                stmt.on_conflict_do_update(
+                insert_stmt.on_conflict_do_update(
                     index_elements=["company_id", "user_id", "notification_type", "group_key"],
                     # Must match the model's partial index predicate exactly, or
                     # PostgreSQL cannot infer the arbiter index.
@@ -253,16 +255,16 @@ class NotificationRepository(BaseRepository[Notification]):
                     set_={
                         # The newest wording wins: "PO-1042 is 6 days late"
                         # replaces "3 days late" rather than accumulating.
-                        "title": stmt.excluded.title,
-                        "body": stmt.excluded.body,
-                        "severity": stmt.excluded.severity,
-                        "entity_type": stmt.excluded.entity_type,
-                        "entity_id": stmt.excluded.entity_id,
-                        "action_url": stmt.excluded.action_url,
-                        "channels": stmt.excluded.channels,
-                        "delivered_at": stmt.excluded.delivered_at,
-                        "updated_at": stmt.excluded.updated_at,
-                        "updated_by_id": stmt.excluded.updated_by_id,
+                        "title": insert_stmt.excluded.title,
+                        "body": insert_stmt.excluded.body,
+                        "severity": insert_stmt.excluded.severity,
+                        "entity_type": insert_stmt.excluded.entity_type,
+                        "entity_id": insert_stmt.excluded.entity_id,
+                        "action_url": insert_stmt.excluded.action_url,
+                        "channels": insert_stmt.excluded.channels,
+                        "delivered_at": insert_stmt.excluded.delivered_at,
+                        "updated_at": insert_stmt.excluded.updated_at,
+                        "updated_by_id": insert_stmt.excluded.updated_by_id,
                         "occurrence_count": Notification.occurrence_count + 1,
                         # created_at is deliberately NOT refreshed: the feed is
                         # keyset-paginated on it, and moving a row's sort key
@@ -287,7 +289,7 @@ class NotificationRepository(BaseRepository[Notification]):
                 Notification.company_id == self.tenant.company_id,
                 Notification.user_id == user_id,
                 Notification.is_read.is_(False),
-                Notification.channels.any(NotificationChannel.IN_APP.value),
+                Notification.channels.contains([NotificationChannel.IN_APP.value]),
             )
             .order_by(Notification.created_at.desc(), Notification.id.desc())
             .limit(limit)
@@ -302,7 +304,7 @@ class NotificationRepository(BaseRepository[Notification]):
             .values(is_read=True, read_at=moment, updated_at=moment, updated_by_id=user_id)
             .execution_options(synchronize_session=False)
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
     # --- preferences --------------------------------------------------------
 
@@ -347,15 +349,15 @@ class NotificationRepository(BaseRepository[Notification]):
         """Write the submitted preference rows in one statement."""
         if not rows:
             return []
-        stmt = pg_insert(NotificationPreference).values(list(rows))
+        insert_stmt = pg_insert(NotificationPreference).values(list(rows))
         stmt = (
-            stmt.on_conflict_do_update(
+            insert_stmt.on_conflict_do_update(
                 index_elements=["company_id", "user_id", "notification_type"],
                 set_={
-                    "in_app_enabled": stmt.excluded.in_app_enabled,
-                    "email_enabled": stmt.excluded.email_enabled,
-                    "updated_at": stmt.excluded.updated_at,
-                    "updated_by_id": stmt.excluded.updated_by_id,
+                    "in_app_enabled": insert_stmt.excluded.in_app_enabled,
+                    "email_enabled": insert_stmt.excluded.email_enabled,
+                    "updated_at": insert_stmt.excluded.updated_at,
+                    "updated_by_id": insert_stmt.excluded.updated_by_id,
                 },
             )
             .returning(NotificationPreference)

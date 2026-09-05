@@ -21,8 +21,8 @@ from sqlalchemy import engine_from_config, pool
 # Make the application importable when Alembic is invoked from apps/api.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.core.config import settings  # noqa: E402
-from src.core.registry import get_metadata  # noqa: E402
+from src.core.config import settings
+from src.core.registry import get_metadata
 
 config = context.config
 
@@ -44,9 +44,7 @@ def include_object(obj, name, type_, reflected, compare_to):  # type: ignore[no-
     """
     if type_ == "table" and name in {"pg_stat_statements", "pg_stat_statements_info"}:
         return False
-    if type_ == "index" and name and name.startswith("pg_"):
-        return False
-    return True
+    return not (type_ == "index" and bool(name) and name.startswith("pg_"))
 
 
 def process_revision_directives(context_, revision, directives):  # type: ignore[no-untyped-def]

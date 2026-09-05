@@ -69,12 +69,16 @@ async function rejection(promise: Promise<unknown>): Promise<ApiError> {
 beforeEach(() => {
   fetchMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
+  localStorage.clear()
+  document.cookie = 'atcraft_csrf=; Max-Age=0; Path=/'
   clearTokens()
 })
 
 afterEach(() => {
   vi.unstubAllGlobals()
   clearTokens()
+  document.cookie = 'atcraft_csrf=; Max-Age=0; Path=/'
+  localStorage.clear()
 })
 
 describe('envelope unwrapping', () => {
@@ -144,7 +148,7 @@ describe('request construction', () => {
   })
 
   it('sends the bearer token once one is set, and stops after clearTokens', async () => {
-    setTokens('access-1', 'refresh-1')
+    setTokens('access-1')
     fetchMock.mockResolvedValueOnce(envelope(null))
     await api.get('/x')
     expect(new Headers(callAt(0)[1].headers).get('authorization')).toBe('Bearer access-1')
@@ -171,6 +175,37 @@ describe('request construction', () => {
     const init = callAt(0)[1]
     expect(new Headers(init.headers).get('content-type')).toBe('application/json')
     expect(init.body).toBe('{"code":"A"}')
+  })
+
+  it('sends cookies and the double-submit CSRF value on mutations', async () => {
+    document.cookie = 'atcraft_csrf=csrf-value; Path=/'
+    fetchMock.mockResolvedValueOnce(envelope(null))
+
+    await api.post('/auth/logout')
+
+    expect(callAt(0)[1].credentials).toBe('include')
+    expect(new Headers(callAt(0)[1].headers).get('x-csrf-token')).toBe('csrf-value')
+  })
+})
+
+describe('cookie-backed refresh', () => {
+  it('rotates through the HttpOnly cookie without sending a refresh token in JSON', async () => {
+    document.cookie = 'atcraft_csrf=csrf-value; Path=/'
+    localStorage.removeItem('atcraft.session_suppressed')
+    fetchMock
+      .mockResolvedValueOnce(failure(401, { error: { code: 'TOKEN_EXPIRED', message: 'Expired' } }))
+      .mockResolvedValueOnce(envelope({ access_token: 'new-access' }))
+      .mockResolvedValueOnce(envelope({ id: 'ok' }))
+
+    await expect(api.get<{ id: string }>('/protected')).resolves.toEqual({ id: 'ok' })
+
+    const refreshCall = callAt(1)
+    expect(String(refreshCall[0])).toContain('/auth/refresh')
+    expect(refreshCall[1].credentials).toBe('include')
+    expect(refreshCall[1].body).toBeUndefined()
+    expect(new Headers(refreshCall[1].headers).get('x-csrf-token')).toBe('csrf-value')
+    expect(JSON.stringify(localStorage)).not.toContain('new-access')
+    expect(new Headers(callAt(2)[1].headers).get('authorization')).toBe('Bearer new-access')
   })
 })
 
@@ -240,13 +275,13 @@ describe('ApiError', () => {
 })
 
 describe('token storage', () => {
-  it('keeps the access token out of storage but persists the refresh token', () => {
-    // The access token in localStorage is readable by any injected script after
-    // the fact; the refresh token is persisted only so F5 does not sign the user
-    // out, and the module docstring records the httpOnly-cookie hardening step.
-    setTokens('access-1', 'refresh-1')
+  it('keeps both credentials out of browser-readable storage', () => {
+    document.cookie = 'atcraft_csrf=non-secret-session-hint; Path=/'
+    localStorage.removeItem('atcraft.session_suppressed')
+    setTokens('access-1')
     const stored = JSON.stringify(window.localStorage)
     expect(stored).not.toContain('access-1')
+    expect(stored).not.toContain('refresh')
     expect(hasRefreshToken()).toBe(true)
 
     clearTokens()

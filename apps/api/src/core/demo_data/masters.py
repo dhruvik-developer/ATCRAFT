@@ -1179,19 +1179,26 @@ async def _price_exists(
     item_id: uuid.UUID,
     price_type: PriceType,
     min_quantity: Decimal,
-    valid_from: date,
 ) -> bool:
-    """Has this exact slab already been written?
+    """Is there already a live, open-ended price for this slab?
 
     A price list row has no code of its own, so idempotence is keyed on what
-    actually identifies a slab: item, channel, break quantity and start date.
+    actually identifies a slab: item, channel and break quantity. The start
+    date is deliberately NOT part of the key. It is computed from the day the
+    loader runs, so a re-run a day later used to look for a row dated one day
+    earlier, find nothing, and then collide with the open-ended row the first
+    run had written: ``create_price`` refused the overlap and the whole stage
+    failed. What makes the demo slab "present" is a live row that is still
+    open - which is exactly what ``create_price`` would reject a duplicate of.
     """
     stmt = select(ItemPrice.id).where(
         ItemPrice.company_id == ctx.company_id,
         ItemPrice.item_id == item_id,
+        ItemPrice.variant_id.is_(None),
         ItemPrice.price_type == price_type,
         ItemPrice.min_quantity == min_quantity,
-        ItemPrice.valid_from == valid_from,
+        ItemPrice.is_active.is_(True),
+        ItemPrice.valid_to.is_(None),
     )
     return (await ctx.session.execute(stmt)).first() is not None
 
@@ -1216,7 +1223,7 @@ async def _seed_prices(ctx: DemoContext, anchor: date) -> None:
             (PriceType.DISTRIBUTOR, zero, Decimal(distributor)),
         )
         for price_type, min_quantity, amount in slabs:
-            if await _price_exists(ctx, item_id, price_type, min_quantity, start):
+            if await _price_exists(ctx, item_id, price_type, min_quantity):
                 ctx.note(STAGE, existing=1)
                 continue
             await create_price(

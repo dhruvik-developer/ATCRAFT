@@ -23,6 +23,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from src.common.codes import clean_text
 from src.modules.allocation.models import (
     DEFAULT_RESERVATION_PRIORITY,
     DemandType,
@@ -37,13 +38,6 @@ NonNegativeQuantity = Annotated[Decimal, Field(ge=0, le=Decimal("99999999999999"
 #: Bounded so a client cannot express a priority the ranking cannot compare
 #: meaningfully, and so the column's integer range is never the limiting factor.
 Priority = Annotated[int, Field(ge=0, le=9999)]
-
-
-def _clean_text(value: str | None) -> str | None:
-    if value is None:
-        return None
-    collapsed = " ".join(value.split())
-    return collapsed or None
 
 
 # -----------------------------------------------------------------------------
@@ -92,7 +86,7 @@ class ReservationCreate(BaseModel):
     @field_validator("demand_code")
     @classmethod
     def _tidy_code(cls, value: str | None) -> str | None:
-        return _clean_text(value)
+        return clean_text(value)
 
 
 class ReservationRead(BaseModel):
@@ -222,7 +216,7 @@ class ReallocationRequestCreate(BaseModel):
     @field_validator("to_demand_code")
     @classmethod
     def _tidy_code(cls, value: str | None) -> str | None:
-        return _clean_text(value)
+        return clean_text(value)
 
 
 class ReallocationFilters(BaseModel):
@@ -240,7 +234,7 @@ class ReallocationDecision(BaseModel):
     @field_validator("decision_note")
     @classmethod
     def _tidy_note(cls, value: str | None) -> str | None:
-        return _clean_text(value)
+        return clean_text(value)
 
 
 class ReallocationRequestRead(BaseModel):

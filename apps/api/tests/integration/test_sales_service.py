@@ -34,7 +34,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from src.core.clock import today
+from src.core.clock import today, utcnow
 from src.core.config import settings
 from src.core.database import transaction
 from src.core.deps import Principal, TenantContext
@@ -84,7 +84,7 @@ from src.modules.sales.schemas import (
 )
 from src.modules.users.models import User
 from src.modules.warehouses.models import Warehouse, WarehouseType
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 
 pytestmark = pytest.mark.integration
 
@@ -176,7 +176,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, other_company_id, author_id, approver_id
     asyncio.run(teardown())
@@ -1018,6 +1018,90 @@ async def test_raising_a_confirmed_quantity_takes_more_stock(ctx: Ctx):
     assert await available_of(ctx, item, warehouse) == Decimal("30.0000")
     # The amounts follow the quantity at the agreed price.
     assert lines[0].line_total == Decimal("8260.00")
+
+
+async def _confirmed_order_of_forty(ctx: Ctx, customer: Customer, warehouse: Warehouse, item: Item):
+    """Forty units at 100 plus 18% GST: a 4,720.00 order, confirmed and reserved."""
+    order = await make_draft(ctx, customer, warehouse, [line(item, "40")])
+    await service.confirm_order(
+        ctx.session,
+        ctx.tenant,
+        ctx.principal,
+        order.id,
+        reason="Confirmed",
+        allocation=ctx.allocation,
+    )
+    return order.id
+
+
+async def _stored_total(ctx: Ctx, order_id: uuid.UUID) -> Decimal:
+    return Decimal(
+        (
+            await ctx.session.execute(
+                select(SalesOrder.total_amount).where(SalesOrder.id == order_id)
+            )
+        ).scalar_one()
+    )
+
+
+async def test_raising_a_confirmed_quantity_past_the_credit_limit_is_refused(ctx: Ctx):
+    """The credit check ran at confirmation for the total at that moment. Growing
+    the order afterwards is exposure it never saw, so it runs again - against
+    the full prospective total - and a refusal leaves the reservation and the
+    stored total exactly as they were."""
+    uom = await seed_uom(ctx)
+    warehouse = await seed_warehouse(ctx)
+    # 4,720.00 fits under the limit; 70 x 100 + 18% = 8,260.00 does not.
+    customer, _ = await seed_customer(ctx, credit_limit="5000")
+    item = await seed_item(ctx, uom, sale_price="100")
+    await seed_stock(ctx, item, warehouse, "100")
+    order_id = await _confirmed_order_of_forty(ctx, customer, warehouse, item)
+    reserve_calls_before = len(ctx.allocation.reserve_calls)
+
+    with pytest.raises(BusinessRuleError, match="credit limit"):
+        await service.update_order(
+            ctx.session,
+            ctx.tenant,
+            ctx.principal,
+            order_id,
+            SalesOrderUpdate(lines=[line(item, "70")]),
+            allocation=ctx.allocation,
+        )
+
+    assert len(ctx.allocation.reserve_calls) == reserve_calls_before
+    assert await _stored_total(ctx, order_id) == Decimal("4720.00")
+    assert await available_of(ctx, item, warehouse) == Decimal("60.0000")
+
+
+async def test_a_customer_put_on_hold_after_confirmation_cannot_grow_the_order(ctx: Ctx):
+    """A hold placed after confirmation is caught by the same re-check: the
+    growth is refused as a credit hold, and nothing about the order moves."""
+    uom = await seed_uom(ctx)
+    warehouse = await seed_warehouse(ctx)
+    customer, _ = await seed_customer(ctx)
+    item = await seed_item(ctx, uom, sale_price="100")
+    await seed_stock(ctx, item, warehouse, "100")
+    order_id = await _confirmed_order_of_forty(ctx, customer, warehouse, item)
+    reserve_calls_before = len(ctx.allocation.reserve_calls)
+
+    customer.is_blocked = True
+    customer.block_reason = "Overdue"
+    customer.blocked_at = utcnow()
+    await ctx.session.flush()
+
+    with pytest.raises(BusinessRuleError, match="credit hold"):
+        await service.update_order(
+            ctx.session,
+            ctx.tenant,
+            ctx.principal,
+            order_id,
+            SalesOrderUpdate(lines=[line(item, "70")]),
+            allocation=ctx.allocation,
+        )
+
+    assert len(ctx.allocation.reserve_calls) == reserve_calls_before
+    assert await _stored_total(ctx, order_id) == Decimal("4720.00")
+    assert await available_of(ctx, item, warehouse) == Decimal("60.0000")
 
 
 async def test_lowering_a_confirmed_quantity_gives_stock_back(ctx: Ctx):

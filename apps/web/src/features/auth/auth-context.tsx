@@ -19,7 +19,15 @@ import {
   type ReactNode,
 } from 'react'
 
-import { ApiError, api, clearTokens, hasRefreshToken, onAuthChange, setTokens } from '@/lib/api-client'
+import {
+  ApiError,
+  api,
+  clearTokens,
+  hasRefreshToken,
+  onAuthChange,
+  setTokens,
+} from '@/lib/api-client'
+import { setErrorReportingUser } from '@/lib/error-reporting'
 import { queryKeys } from '@/lib/query-client'
 
 /**
@@ -108,9 +116,9 @@ function toCurrentUser(me: MeResponse): CurrentUser {
  * `can()` answering false for everything until the next full page load, which
  * is why `login` follows it with `/auth/me`.
  */
-interface LoginResponse {
+interface BrowserLoginResponse {
+  mfa_required: false
   access_token: string
-  refresh_token: string
   token_type: string
   expires_in: number
   refresh_expires_in: number
@@ -126,12 +134,21 @@ interface LoginResponse {
   }
 }
 
+export interface MfaChallenge {
+  mfa_required: true
+  challenge_token: string
+  expires_in: number
+}
+
+export type LoginOutcome = CurrentUser | MfaChallenge
+
 interface AuthContextValue {
   user: CurrentUser | null
   isAuthenticated: boolean
   /** True only while the initial session restore is in flight. */
   isRestoring: boolean
-  login: (email: string, password: string) => Promise<CurrentUser>
+  login: (email: string, password: string) => Promise<LoginOutcome>
+  verifyMfa: (challengeToken: string, code: string) => Promise<CurrentUser>
   logout: () => Promise<void>
   refreshUser: () => Promise<void>
   can: (permission: string) => boolean
@@ -146,6 +163,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null)
   const [isRestoring, setIsRestoring] = useState(hasRefreshToken())
   const queryClient = useQueryClient()
+
+  // Keep the crash reporter's user id in step with the session, whichever path
+  // installed or cleared it (restore, login, the fallback below, refresh,
+  // logout, or the API client revoking tokens via `onAuthChange`). Tracking the
+  // state rather than each `setUser` call site means a new installer cannot
+  // miss it - and until this existed, no installer called it at all, so every
+  // report arrived with `user_id: null`.
+  useEffect(() => {
+    setErrorReportingUser(user?.id ?? null)
+  }, [user])
 
   // Restore the session on a hard reload. The access token is memory-only, so
   // after F5 there is a refresh token and nothing else; /auth/me triggers the
@@ -197,14 +224,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [queryClient],
   )
 
-  const login = useCallback(async (email: string, password: string): Promise<CurrentUser> => {
-    const result = await api.post<LoginResponse>(
-      '/auth/login',
-      { email, password },
-      { anonymous: true },
-    )
-    setTokens(result.access_token, result.refresh_token)
-
+  const completeLogin = useCallback(async (result: BrowserLoginResponse): Promise<CurrentUser> => {
+    setTokens(result.access_token)
     // The login payload has no permission set, so the signed-in user is read
     // back from /auth/me. Without this every permission-gated control - the
     // whole sidebar included - stays hidden until the next hard reload.
@@ -223,10 +244,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // only way out is to find the logout button. The failure has to be
       // re-raised so the login form shows it and the user can try again.
       //
-      // `hasRefreshToken()` is checked as well as the status, because the
-      // tokens are what actually decide whether a session exists; a refresh
-      // that cleared them behind a differently-shaped error must not slip past.
-      if (!hasRefreshToken() || (error instanceof ApiError && error.isAuthError)) {
+      if (error instanceof ApiError && error.isAuthError) {
         clearTokens()
         setUser(null)
         throw error
@@ -261,6 +279,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const login = useCallback(
+    async (email: string, password: string): Promise<LoginOutcome> => {
+      const result = await api.post<BrowserLoginResponse | MfaChallenge>(
+        '/auth/login',
+        { email, password },
+        { anonymous: true },
+      )
+      return result.mfa_required ? result : completeLogin(result)
+    },
+    [completeLogin],
+  )
+
+  const verifyMfa = useCallback(
+    async (challengeToken: string, code: string): Promise<CurrentUser> => {
+      const result = await api.post<BrowserLoginResponse>(
+        '/auth/mfa/verify',
+        { challenge_token: challengeToken, code },
+        { anonymous: true },
+      )
+      return completeLogin(result)
+    },
+    [completeLogin],
+  )
+
   const logout = useCallback(async () => {
     try {
       await api.post('/auth/logout')
@@ -293,6 +335,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: Boolean(user),
       isRestoring,
       login,
+      verifyMfa,
       logout,
       refreshUser,
       can,
@@ -300,7 +343,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       canAll: (...permissions) => permissions.every(can),
       isVendorUser: Boolean(user?.vendor_id),
     }),
-    [user, isRestoring, login, logout, refreshUser, can],
+    [user, isRestoring, login, verifyMfa, logout, refreshUser, can],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
@@ -310,9 +353,4 @@ export function useAuth(): AuthContextValue {
   const context = useContext(AuthContext)
   if (!context) throw new Error('useAuth must be used inside <AuthProvider>')
   return context
-}
-
-/** Convenience for conditional rendering: `const canApprove = usePermission(P.PO_APPROVE)`. */
-export function usePermission(permission: string): boolean {
-  return useAuth().can(permission)
 }

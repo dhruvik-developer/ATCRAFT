@@ -81,12 +81,7 @@ export function ok<T>(data: T): RouteBody {
 }
 
 /** An error body in the shape `toApiError` parses. */
-export function fail(
-  status: number,
-  code: string,
-  message: string,
-  details?: unknown,
-): RouteBody {
+export function fail(status: number, code: string, message: string, details?: unknown): RouteBody {
   return { __status: status, success: false, error: { code, message, details }, request_id: 'test' }
 }
 
@@ -101,8 +96,10 @@ export function meResponse(
     email: 'tester@atcraft.example',
     full_name: 'Test User',
     is_superuser: false,
+    must_change_password: false,
+    mfa_enabled: false,
     permissions,
-    role_codes: [],
+    roles: [],
     ...overrides,
   })
 }
@@ -216,6 +213,8 @@ export interface RenderScreenOptions {
   user?: Record<string, unknown>
   /** Let unrouted requests return an empty page instead of throwing. */
   allowUnrouted?: boolean
+  /** Set false for public pages that must not attempt cookie-backed session restoration. */
+  restoreSession?: boolean
 }
 
 export interface ScreenResult extends RenderResult {
@@ -232,6 +231,7 @@ export function renderScreen(ui: ReactElement, options: RenderScreenOptions = {}
     path,
     user: userOverrides = {},
     allowUnrouted = false,
+    restoreSession = true,
   } = options
 
   const table: RouteTable = {
@@ -240,10 +240,17 @@ export function renderScreen(ui: ReactElement, options: RenderScreenOptions = {}
   }
   const recorder = installFetch(table, allowUnrouted ? 'empty' : 'throw')
 
-  // A refresh token is what makes `AuthProvider` attempt the restore at all;
-  // without one it decides immediately that nobody is signed in and every
-  // permission-gated control stays hidden for the wrong reason.
-  setTokens(null, 'test-refresh-token')
+  // The readable CSRF cookie is the non-secret hint that makes `AuthProvider`
+  // attempt a cookie-backed restore. The actual refresh credential is HttpOnly
+  // and therefore cannot be represented by this browser test harness.
+  if (restoreSession) {
+    document.cookie = 'atcraft_csrf=test-csrf-token; Path=/'
+    localStorage.removeItem('atcraft.session_suppressed')
+  } else {
+    document.cookie = 'atcraft_csrf=; Path=/; Max-Age=0'
+    localStorage.setItem('atcraft.session_suppressed', '1')
+  }
+  setTokens(null)
 
   // Retries turn a deliberate 4xx into a multi-second test, and `gcTime: 0`
   // stops one test's cache from answering the next one's query.

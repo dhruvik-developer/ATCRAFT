@@ -183,9 +183,7 @@ def is_explodable(line: BomLine) -> bool:
     return line.substitute_for_line_id is None and not line.is_optional
 
 
-def operation_cost_per_run(
-    operations: Sequence[BomOperation], output_quantity: Decimal
-) -> Decimal:
+def operation_cost_per_run(operations: Sequence[BomOperation], output_quantity: Decimal) -> Decimal:
     """Total operation cost for one run yielding ``output_quantity`` units.
 
     ASSUMPTION: setup time and fixed charges are per *run* and are therefore
@@ -203,9 +201,7 @@ def operation_cost_per_run(
             per_run = operation.fixed_cost + (
                 operation.setup_time_minutes / Decimal(60) * operation.cost_per_hour
             )
-            per_unit = (
-                operation.run_time_minutes_per_unit / Decimal(60) * operation.cost_per_hour
-            )
+            per_unit = operation.run_time_minutes_per_unit / Decimal(60) * operation.cost_per_hour
             total += per_run + per_unit * output_quantity
     return to_money(total)
 
@@ -350,9 +346,7 @@ class DatabaseBomSource:
     ) -> dict[uuid.UUID, Bom]:
         return await self._boms.effective_boms_for_items(item_ids, as_of)
 
-    async def lines_for_boms(
-        self, bom_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, list[BomLine]]:
+    async def lines_for_boms(self, bom_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, list[BomLine]]:
         return await self._lines.lines_for_boms(bom_ids)
 
     async def items(self, item_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, ItemInfo]:
@@ -363,9 +357,7 @@ class DatabaseBomSource:
     ) -> dict[uuid.UUID, list[BomOperation]]:
         return await self._operations.operations_for_boms(bom_ids)
 
-    async def last_purchase_prices(
-        self, item_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, Decimal]:
+    async def last_purchase_prices(self, item_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, Decimal]:
         return await self._items.last_purchase_prices(item_ids)
 
 
@@ -742,9 +734,7 @@ async def explode(
     ordered = tuple(sorted(components, key=lambda c: (c.level, c.item_code)))
 
     phantom_codes = tuple(
-        sorted(
-            walk.item_info[i].code for i in walk.phantom_item_ids if i in walk.item_info
-        )
+        sorted(walk.item_info[i].code for i in walk.phantom_item_ids if i in walk.item_info)
     )
 
     return BomExplosion(
@@ -905,9 +895,7 @@ async def cost_roll_up(
     leaf_ids = [i for i in walk.item_info if i not in walk.bom_by_item]
     fallback_prices = await data.last_purchase_prices(sorted(leaf_ids, key=str))
 
-    unit_costs, sources, missing = _roll_up_unit_costs(
-        walk, operations_by_bom, fallback_prices
-    )
+    unit_costs, sources, missing = _roll_up_unit_costs(walk, operations_by_bom, fallback_prices)
 
     return _build_cost_result(
         walk,

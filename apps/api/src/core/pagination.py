@@ -29,6 +29,7 @@ from typing import Annotated, Any, Literal, TypeVar
 
 from fastapi import Query
 from pydantic import BaseModel, Field, field_validator
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import Select, func, select
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +39,7 @@ from sqlalchemy.sql.elements import UnaryExpression
 
 from src.core.errors import ValidationError
 from src.core.logging import get_logger
+from src.core.messages import FIELDS_NEED_ATTENTION
 from src.core.responses import (
     CursorPaginatedResponse,
     CursorPagination,
@@ -120,6 +122,36 @@ def sort_params(
 ) -> SortParams:
     """FastAPI dependency for sorting."""
     return SortParams(sort_by=sort_by, sort_dir=sort_dir)
+
+
+FilterT = TypeVar("FilterT", bound=BaseModel)
+
+
+def bind_query_filters(model: type[FilterT], **values: object) -> FilterT:
+    """Build a filter model from query values FastAPI has already bound.
+
+    Each parameter's *type* is validated by the framework before this runs, so
+    ``?date_from=31/12/2024`` is answered 422 with the field named before the
+    dependency body starts. What can still fail here is a rule spanning two
+    fields - ``date_to`` earlier than ``date_from``. Pydantic raises its own
+    error for that, and an error raised inside a dependency body is not one the
+    framework translates: it would reach the client as 500 INTERNAL_ERROR,
+    asking them to quote a request id for a typo. It is reshaped here into the
+    envelope the request validator emits - ``VALIDATION_ERROR`` with
+    ``query.<field>`` paths - so a client sees one shape for one condition.
+
+    A rule written as a ``field_validator`` on the upper-bound field reports
+    against ``query.<field>``; a ``model_validator`` reports against ``query``.
+    """
+    try:
+        return model(**values)
+    except PydanticValidationError as exc:
+        fields: dict[str, list[str]] = {}
+        for error in exc.errors():
+            location = ".".join(str(part) for part in error.get("loc", ()))
+            key = f"query.{location}" if location else "query"
+            fields.setdefault(key, []).append(error.get("msg", "Invalid value"))
+        raise ValidationError(FIELDS_NEED_ATTENTION, details={"fields": fields}) from exc
 
 
 def _order_key(clause: Any) -> Any:
@@ -397,7 +429,7 @@ async def paginate_keyset(
     if position is not None:
         from sqlalchemy import tuple_
 
-        stmt = stmt.where(tuple_(created_at_col, id_col) < tuple_(position.created_at, position.id))
+        stmt = stmt.where(tuple_(created_at_col, id_col) < (position.created_at, position.id))
 
     stmt = stmt.order_by(created_at_col.desc(), id_col.desc()).limit(params.limit + 1)
     rows = list((await session.execute(stmt)).scalars().unique().all())
@@ -425,6 +457,7 @@ __all__ = [
     "CursorParams",
     "PageParams",
     "SortParams",
+    "bind_query_filters",
     "cursor_paginated",
     "cursor_params",
     "page_params",

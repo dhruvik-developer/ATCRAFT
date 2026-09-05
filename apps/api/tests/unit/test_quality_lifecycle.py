@@ -95,9 +95,7 @@ def test_every_verdict_name_exists_in_both_vocabularies() -> None:
         (InspectionStatus.CLOSED, InspectionStatus.ACCEPTED),
     ],
 )
-def test_skipping_a_step_is_refused(
-    current: InspectionStatus, target: InspectionStatus
-) -> None:
+def test_skipping_a_step_is_refused(current: InspectionStatus, target: InspectionStatus) -> None:
     assert not FLOW.can_transition(current, target)
     with pytest.raises(InvalidStateTransitionError):
         FLOW.assert_transition(current, target)
@@ -146,8 +144,7 @@ def test_measuring_and_deciding_need_different_permissions() -> None:
     )
     for verdict in DECIDED_STATUSES:
         assert (
-            FLOW.required_permission(InspectionStatus.IN_PROGRESS, verdict)
-            is Permission.QC_DECIDE
+            FLOW.required_permission(InspectionStatus.IN_PROGRESS, verdict) is Permission.QC_DECIDE
         )
 
 

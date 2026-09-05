@@ -40,6 +40,7 @@ from src.core.errors import (
     NotFoundError,
 )
 from src.core.logging import get_logger
+from src.core.messages import NO_FIELDS_TO_UPDATE
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -183,7 +184,7 @@ def _lifecycle(entity: str, manage: Permission) -> StateMachine[MasterLifecycleS
 
 
 WAREHOUSE_LIFECYCLE = _lifecycle("Warehouse", Permission.WAREHOUSE_MANAGE)
-LOCATION_LIFECYCLE = _lifecycle("StorageLocation", Permission.LOCATION_MANAGE)
+LOCATION_LIFECYCLE = _lifecycle("Storage location", Permission.LOCATION_MANAGE)
 
 
 def lifecycle_state(record: Warehouse | StorageLocation) -> MasterLifecycleState:
@@ -334,7 +335,7 @@ class WarehouseService:
     ) -> WarehouseRead:
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             warehouse = await self.repo.get_or_404(warehouse_id)
@@ -354,7 +355,6 @@ class WarehouseService:
                 setattr(warehouse, field, value)
             self.repo.touch(warehouse)
             await self.session.flush()
-            await self._refresh(warehouse)
 
             if changes.get("allow_negative_stock") and not before["allow_negative_stock"]:
                 self._log_negative_stock_enabled(warehouse)
@@ -393,7 +393,6 @@ class WarehouseService:
                 warehouse.is_default = True
                 self.repo.touch(warehouse)
                 await self.session.flush()
-                await self._refresh(warehouse)
 
                 await record_audit(
                     self.session,
@@ -431,7 +430,6 @@ class WarehouseService:
             warehouse.is_active = active
             self.repo.touch(warehouse)
             await self.session.flush()
-            await self._refresh(warehouse)
 
             await record_status_change(
                 self.session,
@@ -534,7 +532,6 @@ class WarehouseService:
             warehouse.is_default = False
             self.repo.touch(warehouse)
             await self.session.flush()
-            await self._refresh(warehouse)
 
             await record_status_change(
                 self.session,
@@ -585,17 +582,6 @@ class WarehouseService:
             raise NotFoundError("Plant", plant_id)
         if manager_user_id is not None and not await self.repo.user_exists(manager_user_id):
             raise NotFoundError("User", manager_user_id)
-
-    async def _refresh(self, instance: Warehouse) -> None:
-        """Reload server-maintained columns after an UPDATE.
-
-        ``updated_at`` is set by ``onupdate=func.now()``, so SQLAlchemy expires
-        the attribute on flush and would have to lazy-load it when the response
-        model reads it. Under asyncio that implicit load raises MissingGreenlet
-        at serialisation time, which is a confusing 500 for what is really a
-        missing round trip - so take the round trip explicitly, here.
-        """
-        await self.session.refresh(instance)
 
     def _log_negative_stock_enabled(self, warehouse: Warehouse) -> None:
         """Surface the flag in the operational log as well as the audit trail.
@@ -694,7 +680,7 @@ class StorageLocationService:
     ) -> StorageLocationRead:
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             location = await self.repo.get_or_404(location_id)
@@ -712,7 +698,6 @@ class StorageLocationService:
                 setattr(location, field, value)
             self.repo.touch(location)
             await self.session.flush()
-            await self._refresh(location)
 
             await record_audit(
                 self.session,
@@ -742,7 +727,6 @@ class StorageLocationService:
             location.is_active = active
             self.repo.touch(location)
             await self.session.flush()
-            await self._refresh(location)
 
             await record_status_change(
                 self.session,
@@ -795,10 +779,6 @@ class StorageLocationService:
             )
 
     # --- internals ----------------------------------------------------------
-
-    async def _refresh(self, instance: StorageLocation) -> None:
-        """See :meth:`WarehouseService._refresh` - same reason, same fix."""
-        await self.session.refresh(instance)
 
     async def _assert_parent(
         self, *, node_id: uuid.UUID | None, parent_id: uuid.UUID, warehouse_id: uuid.UUID

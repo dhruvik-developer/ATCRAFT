@@ -61,25 +61,43 @@ NEW_CONSTRAINTS = (
 )
 
 DB_NAME = "atcraft_mrp_late_closing_mig"
+
+#: libpq parameters appended to every connection string here. A throwaway
+#: database reached through Docker Desktop's port proxy on a loaded laptop has
+#: had its connection dropped mid-query with no server-side session left to
+#: cancel; without keepalives the client waits on the dead socket forever and
+#: the whole integration run stalls. With them, the loss surfaces as an
+#: OperationalError inside a minute.
+CONNECTION_GUARDS = (
+    "connect_timeout=10&keepalives=1&keepalives_idle=15&keepalives_interval=5&keepalives_count=3"
+)
+
+#: Upper bound on one Alembic step. See :func:`alembic`.
+ALEMBIC_TIMEOUT_SECONDS = 600
 API_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _admin_dsn() -> str:
     from tests.conftest import _pg_host, _pg_password, _pg_port, _pg_user
 
-    return f"postgresql://{_pg_user}:{_pg_password}@{_pg_host}:{_pg_port}/postgres"
+    return (
+        f"postgresql://{_pg_user}:{_pg_password}@{_pg_host}:{_pg_port}/postgres?{CONNECTION_GUARDS}"
+    )
 
 
 def _target_dsn(driver: str) -> str:
     from tests.conftest import _pg_host, _pg_password, _pg_port, _pg_user
 
-    return f"postgresql+{driver}://{_pg_user}:{_pg_password}@{_pg_host}:{_pg_port}/{DB_NAME}"
+    # The guards are libpq parameters: right for psycopg (which Alembic uses),
+    # unknown to asyncpg, which is only named so Settings validates.
+    query = f"?{CONNECTION_GUARDS}" if driver == "psycopg" else ""
+    return f"postgresql+{driver}://{_pg_user}:{_pg_password}@{_pg_host}:{_pg_port}/{DB_NAME}{query}"
 
 
 def _plain_dsn() -> str:
     from tests.conftest import _pg_host, _pg_password, _pg_port, _pg_user
 
-    return f"postgresql://{_pg_user}:{_pg_password}@{_pg_host}:{_pg_port}/{DB_NAME}"
+    return f"postgresql://{_pg_user}:{_pg_password}@{_pg_host}:{_pg_port}/{DB_NAME}?{CONNECTION_GUARDS}"
 
 
 @pytest.fixture(scope="module")
@@ -105,13 +123,18 @@ def alembic(*args: str) -> subprocess.CompletedProcess[str]:
     environment = dict(os.environ)
     environment["DATABASE_URL"] = _target_dsn("asyncpg")
     environment["DATABASE_SYNC_URL"] = _target_dsn("psycopg")
+    # Bounded, and with no inherited stdin: the initial-schema upgrade took over
+    # two minutes on a loaded laptop, and an unbounded wait turned a stuck
+    # child into a silent hang of the whole run.
     result = subprocess.run(
         [sys.executable, "-m", "alembic", *args],
         cwd=API_ROOT,
         env=environment,
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
         check=False,
+        timeout=ALEMBIC_TIMEOUT_SECONDS,
     )
     assert result.returncode == 0, (
         f"alembic {' '.join(args)} failed:\n{result.stdout}\n{result.stderr}"

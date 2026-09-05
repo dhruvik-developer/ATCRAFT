@@ -43,8 +43,8 @@ const SIGNED_OUT: RouteTable = {
 /** A successful `POST /auth/login` body, in the `TokenPair` shape. */
 function tokenPair(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
+    mfa_required: false,
     access_token: 'a-token',
-    refresh_token: 'r-token',
     token_type: 'bearer',
     expires_in: 900,
     refresh_expires_in: 86400,
@@ -229,8 +229,37 @@ describe('what the form sends', () => {
     // forced out of use at once. Landing on the dashboard instead leaves it
     // live for as long as the user cares to ignore it.
     await waitFor(() =>
-      expect(screen.getByTestId('location')).toHaveTextContent('/profile?change-password=1'),
+      expect(screen.getByTestId('location')).toHaveTextContent('/change-password'),
     )
+  })
+
+  it('completes the TOTP challenge before creating a browser session', async () => {
+    let meCalls = 0
+    const { user, fetch } = renderLogin({
+      'GET /auth/me': () => {
+        meCalls += 1
+        return meCalls === 1
+          ? fail(401, 'UNAUTHENTICATED', 'Not authenticated')
+          : meResponse(['item.view'])
+      },
+      'POST /auth/login': ok({
+        mfa_required: true,
+        challenge_token: 'signed-mfa-challenge',
+        expires_in: 300,
+      }),
+      'POST /auth/mfa/verify': ok(tokenPair()),
+    })
+
+    await signIn(user, 'mfa@atcraft.example', 'correct horse battery')
+    expect(await screen.findByRole('heading', { name: 'Authentication code' })).toBeVisible()
+    await user.type(screen.getByLabelText(/Authentication code/), '123456')
+    await user.click(screen.getByRole('button', { name: 'Verify and sign in' }))
+
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/'))
+    expect(fetch.requestFor('POST', '/auth/mfa/verify')).toEqual({
+      challenge_token: 'signed-mfa-challenge',
+      code: '123456',
+    })
   })
 })
 

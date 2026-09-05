@@ -1,0 +1,31 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /apps/web
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /apps/api
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /apps/api
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /apps/web
+    schedule:
+      interval: weekly
+  # docker-compose, not docker: the docker ecosystem reads Dockerfiles, and
+  # there is none at the root. This is the ecosystem that parses the `image:`
+  # references (digest included) in docker-compose*.yml, so the postgres,
+  # redis and nginx pins there get the reviewed digest updates the Dockerfile
+  # and deploy.sh comments promise.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

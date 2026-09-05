@@ -23,10 +23,8 @@
 import { chromium } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 
-const BASE = process.env.SWEEP_BASE ?? 'http://localhost:4173'
-const API = process.env.SWEEP_API ?? 'http://localhost:8000/api/v1'
-const EMAIL = process.env.E2E_ADMIN_EMAIL ?? 'admin@atcraft.example'
-const PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'ChangeMe!Atcraft2026'
+import { API_URL as API, BASE_URL as BASE } from '../lib/env.mjs'
+import { readyAdminToken, signInThroughForm } from '../lib/session.mjs'
 
 /** route -> the API list endpoint whose rows it is supposed to be showing. */
 const SCREENS = [
@@ -75,18 +73,11 @@ const context = await browser.newContext({ viewport: { width: 1600, height: 1000
 const page = await context.newPage()
 
 // --- log in, and keep the token so the API can be asked the same question ---
-await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' })
-await page.getByRole('textbox', { name: /email/i }).fill(EMAIL)
-await page.getByRole('textbox', { name: /password/i }).fill(PASSWORD)
-await page.getByRole('button', { name: /sign in|log ?in/i }).click()
-await page.waitForURL((u) => !u.pathname.includes('/login'), { timeout: 20000 })
-
-const loginResponse = await fetch(`${API}/auth/login`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
-})
-const token = (await loginResponse.json()).data.access_token
+// The seeded administrator is forced through a password change before it can
+// reach any screen; `readyAdminToken` completes that through the API on a
+// fresh database, and is one successful login otherwise.
+const token = await readyAdminToken()
+await signInThroughForm(page)
 
 async function apiCount(path) {
   const response = await fetch(`${API}${path}?page=1&limit=100`, {

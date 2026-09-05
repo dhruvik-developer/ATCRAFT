@@ -28,15 +28,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import {
-  ArrowDown,
-  ArrowUp,
-  GitBranch,
-  Pencil,
-  Plus,
-  ShieldAlert,
-  Trash2,
-} from 'lucide-react'
+import { ArrowDown, ArrowUp, GitBranch, Pencil, Plus, ShieldAlert, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import {
   Controller,
@@ -82,8 +74,10 @@ import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useCategoryOptions } from '@/features/items/item-model'
 import { ApiError, api } from '@/lib/api-client'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDateTime, humanise, toDecimal } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -103,8 +97,6 @@ import {
   PARAMETER_TYPE_LABEL,
   PERCENTAGE,
   QC_SAMPLING_PLANS,
-  REASON_MAX_LENGTH,
-  REASON_MIN_LENGTH,
   SAMPLE_SIZE,
   SAMPLING_PLAN_HINT,
   SAMPLING_PLAN_LABEL,
@@ -560,7 +552,7 @@ function ParameterRow({
 
   return (
     <div className={cn('rounded-md border p-3', isCritical && 'border-destructive/40')}>
-      <div className="flex items-start gap-2">
+      <div className="flex flex-wrap items-start gap-2">
         <span
           className="mt-2 w-6 shrink-0 text-center text-xs tabular text-muted-foreground"
           aria-hidden
@@ -568,7 +560,7 @@ function ParameterRow({
           {index + 1}
         </span>
 
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[10rem] flex-1">
           <Label htmlFor={`qc-param-name-${index}`} className="sr-only">
             {`Name of ${position}`}
           </Label>
@@ -581,7 +573,7 @@ function ParameterRow({
           <FieldError message={rowErrors?.parameter_name?.message} />
         </div>
 
-        <div className="w-[9.5rem] shrink-0">
+        <div className="w-full shrink-0 sm:w-[9.5rem]">
           <Label htmlFor={`qc-param-type-${index}`} className="sr-only">
             {`Type of ${position}`}
           </Label>
@@ -608,7 +600,7 @@ function ParameterRow({
           />
         </div>
 
-        <div className="flex shrink-0 items-center gap-0.5 pt-0.5">
+        <div className="ml-auto flex shrink-0 items-center gap-0.5 pt-0.5">
           <Button
             type="button"
             variant="ghost"
@@ -645,7 +637,7 @@ function ParameterRow({
       </div>
 
       {isNumeric && (
-        <div className="mt-3 grid gap-3 pl-8 sm:grid-cols-4">
+        <div className="mt-3 grid gap-3 pl-0 sm:grid-cols-4 sm:pl-8">
           <div>
             <Label htmlFor={`qc-param-min-${index}`} className="text-xs">
               Minimum
@@ -705,7 +697,7 @@ function ParameterRow({
       )}
 
       {hasValueList && (
-        <div className="mt-3 pl-8">
+        <div className="mt-3 pl-0 sm:pl-8">
           <Label htmlFor={`qc-param-values-${index}`} className="text-xs">
             {parameterType === 'SELECT' ? 'Answers it accepts' : 'Suggested answers (optional)'}
           </Label>
@@ -723,7 +715,7 @@ function ParameterRow({
         </div>
       )}
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 pl-8">
+      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 pl-0 sm:pl-8">
         <div className="flex items-center gap-2">
           <Controller
             control={control}
@@ -780,8 +772,8 @@ function ParameterSheetEditor({
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
           <Label>Characteristics</Label>
           <p className="mt-0.5 text-xs text-muted-foreground">
             The order is the order they are worked on the shop floor.
@@ -1148,7 +1140,7 @@ export function QcTemplateFormDialog({
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: qcTemplateKeys.all })
       toast.success(
-        mode === 'CREATE' ? 'Specification created' : 'Specification updated',
+        mode === 'CREATE' ? success.created('Specification') : success.updated('Specification'),
         `${templateTitle(saved)} - ${saved.name}`,
       )
       onOpenChange(false)
@@ -1422,7 +1414,7 @@ export function QcTemplateVersionDialog({
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: qcTemplateKeys.all })
       toast.success(
-        `${templateTitle(created)} created`,
+        success.created(templateTitle(created)),
         'The previous version is retired. Inspections already recorded still name the version they followed.',
       )
       onOpenChange(false)
@@ -1589,7 +1581,10 @@ export function QcTemplateRetireDialog({
       api.delete(`/quality/templates/${id}`, { params: { reason: text } }),
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({ queryKey: qcTemplateKeys.all })
-      toast.success('Specification retired', `${variables.label} is no longer resolved for new inspections.`)
+      toast.success(
+        success.retired('Specification'),
+        `${variables.label} is no longer resolved for new inspections.`,
+      )
       onOpenChange(false)
     },
   })
@@ -1798,9 +1793,20 @@ function VersionHistory({
   return (
     <ul className="divide-y rounded-md border">
       {versions.map((version) => (
-        <li key={version.id} className="flex items-center gap-3 px-3 py-2">
-          <span className="w-12 shrink-0 tabular text-sm font-medium">v{version.version}</span>
-          <span className="min-w-0 flex-1 truncate text-sm">{version.name}</span>
+        <li key={version.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+          {/* Below `sm` the version and name take a whole line (basis-full)
+              with the date beneath the name, and the badge and control drop to
+              a second line; from `sm` up the basis returns to 0 and the row is
+              the single line it always was. */}
+          <span className="flex min-w-0 flex-1 basis-full items-center gap-3 sm:basis-0">
+            <span className="w-9 shrink-0 tabular text-sm font-medium">v{version.version}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm">{version.name}</span>
+              <span className="block text-xs text-muted-foreground sm:hidden">
+                {formatDateTime(version.updated_at)}
+              </span>
+            </span>
+          </span>
           {version.is_active ? (
             <Badge variant="success">In force</Badge>
           ) : (
@@ -1810,12 +1816,14 @@ function VersionHistory({
             {formatDateTime(version.updated_at)}
           </span>
           {version.id === template.id ? (
-            <span className="w-16 shrink-0 text-right text-xs text-muted-foreground">Shown</span>
+            <span className="ml-auto w-16 shrink-0 text-right text-xs text-muted-foreground">
+              Shown
+            </span>
           ) : (
             <Button
               variant="ghost"
               size="sm"
-              className="w-16 shrink-0"
+              className="ml-auto w-16 shrink-0"
               onClick={() => onOpenVersion(version.id)}
             >
               Open
@@ -1869,7 +1877,9 @@ export function QcTemplateDetailDialog({
       <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>
-            {template ? `${templateTitle(template)} - ${template.name}` : 'Inspection specification'}
+            {template
+              ? `${templateTitle(template)} - ${template.name}`
+              : 'Inspection specification'}
           </DialogTitle>
           <DialogDescription>
             An inspection records against one version of a specification, so this check sheet is the

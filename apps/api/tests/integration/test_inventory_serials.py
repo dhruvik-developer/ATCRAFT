@@ -57,7 +57,7 @@ from src.modules.inventory.models import SerialStatus, StockSerial, TransactionT
 from src.modules.inventory.schemas import StockSerialCreate
 from src.modules.warehouses.models import StorageLocation, StorageLocationType
 from tests import seed_support
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 
 pytestmark = pytest.mark.integration
 
@@ -146,7 +146,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, user_id, other_company_id, other_user_id
     asyncio.run(teardown())

@@ -89,6 +89,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, aliased
 
 from src.common.repository import BaseRepository
+from src.core.constants import DEFAULT_CURRENCY
+from src.core.database import affected_rows
 from src.core.pagination import COUNT_CEILING, PageParams, SortParams
 from src.core.responses import OffsetPagination
 from src.core.types import ZERO
@@ -101,7 +103,6 @@ from src.modules.dispatch.models import (
 )
 from src.modules.finance.models import (
     AGEING_BUCKET_BOUNDARIES,
-    DEFAULT_CURRENCY,
     INPUT_TAX_STATUSES,
     OPEN_INVOICE_STATUSES,
     LedgerAccount,
@@ -271,9 +272,7 @@ class LedgerAccountRepository(BaseRepository[LedgerAccount]):
     async def get_by_code(self, code: str) -> LedgerAccount | None:
         return await self.get_by_field("code", code)
 
-    async def by_system_codes(
-        self, codes: Sequence[SystemAccount]
-    ) -> dict[str, LedgerAccount]:
+    async def by_system_codes(self, codes: Sequence[SystemAccount]) -> dict[str, LedgerAccount]:
         """Resolve the control accounts an automatic posting needs, in one read."""
         if not codes:
             return {}
@@ -472,15 +471,19 @@ class LedgerEntryRepository(BaseRepository[LedgerEntry]):
         if date_from is not None:
             window.append(LedgerEntry.entry_date >= date_from)
 
-        opening_expr = func.coalesce(
-            func.sum(
-                case(
-                    (LedgerEntry.entry_date < date_from, self._signed(direction)),
-                    else_=ZERO,
-                )
-            ),
-            ZERO,
-        ) if date_from is not None else literal(ZERO)
+        opening_expr = (
+            func.coalesce(
+                func.sum(
+                    case(
+                        (LedgerEntry.entry_date < date_from, self._signed(direction)),
+                        else_=ZERO,
+                    )
+                ),
+                ZERO,
+            )
+            if date_from is not None
+            else literal(ZERO)
+        )
 
         in_window = and_(*window)
         stmt = select(
@@ -532,7 +535,7 @@ class LedgerEntryRepository(BaseRepository[LedgerEntry]):
     async def entries_for_reference(
         self, reference_type: str, reference_id: uuid.UUID
     ) -> list[LedgerEntry]:
-        """"What did this invoice/payment post?" - one indexed lookup."""
+        """ "What did this invoice/payment post?" - one indexed lookup."""
         stmt = (
             self._scoped()
             .where(
@@ -713,9 +716,7 @@ class LedgerEntryRepository(BaseRepository[LedgerEntry]):
                 )
             )
             .where(open_items.c.open_amount > 0)
-            .group_by(
-                open_items.c.party_id, open_items.c.currency, Customer.code, Customer.name
-            )
+            .group_by(open_items.c.party_id, open_items.c.currency, Customer.code, Customer.name)
             .order_by(
                 open_items.c.currency.asc(),
                 func.sum(open_items.c.open_amount).desc(),
@@ -1095,9 +1096,7 @@ class VendorInvoiceRepository(BaseRepository[VendorInvoice]):
                 VendorInvoice.status.in_(OPEN_INVOICE_STATUSES),
                 _outstanding() > ZERO,
             )
-            .group_by(
-                VendorInvoice.vendor_id, VendorInvoice.currency, Vendor.code, Vendor.name
-            )
+            .group_by(VendorInvoice.vendor_id, VendorInvoice.currency, Vendor.code, Vendor.name)
             .order_by(
                 VendorInvoice.currency.asc(),
                 func.sum(_outstanding()).desc(),
@@ -1153,7 +1152,7 @@ class VendorInvoiceLineRepository(BaseRepository[VendorInvoiceLine]):
             VendorInvoiceLine.company_id == self.tenant.company_id,
             VendorInvoiceLine.vendor_invoice_id == invoice_id,
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 # -----------------------------------------------------------------------------
@@ -1190,9 +1189,7 @@ class PaymentRepository(BaseRepository[Payment]):
             stmt = stmt.where(Payment.payment_date <= filters.date_to)
         if filters.unallocated_only:
             stmt = stmt.where(
-                Payment.status.in_(
-                    (PaymentStatus.APPROVED, PaymentStatus.PARTIALLY_ALLOCATED)
-                ),
+                Payment.status.in_((PaymentStatus.APPROVED, PaymentStatus.PARTIALLY_ALLOCATED)),
                 Payment.allocated_amount < Payment.amount,
             )
         return stmt
@@ -1267,7 +1264,7 @@ class PaymentAllocationRepository(BaseRepository[PaymentAllocation]):
             PaymentAllocation.company_id == self.tenant.company_id,
             PaymentAllocation.payment_id == payment_id,
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 # -----------------------------------------------------------------------------
@@ -1399,9 +1396,7 @@ class PurchaseOrderLookupRepository(BaseRepository[PurchaseOrder]):
 class PurchaseOrderLineLookupRepository(BaseRepository[PurchaseOrderLine]):
     model = PurchaseOrderLine
 
-    async def load(
-        self, line_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, PurchaseOrderLineFacts]:
+    async def load(self, line_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, PurchaseOrderLineFacts]:
         """Every ordered line an invoice references, in one query."""
         if not line_ids:
             return {}
@@ -1514,9 +1509,7 @@ class FinancialYearRepository(BaseRepository[FinancialYear]):
     model = FinancialYear
 
     async def containing(self, on: date) -> FinancialYear | None:
-        stmt = self._scoped().where(
-            FinancialYear.start_date <= on, FinancialYear.end_date >= on
-        )
+        stmt = self._scoped().where(FinancialYear.start_date <= on, FinancialYear.end_date >= on)
         return (await self.session.execute(stmt.limit(1))).scalar_one_or_none()
 
 
@@ -1610,9 +1603,7 @@ class InventoryValuationRepository(BaseRepository[InventoryBalance]):
         layer_value = (
             select(
                 func.coalesce(
-                    func.sum(
-                        InventoryCostLayer.remaining_quantity * InventoryCostLayer.unit_cost
-                    ),
+                    func.sum(InventoryCostLayer.remaining_quantity * InventoryCostLayer.unit_cost),
                     ZERO,
                 )
             )

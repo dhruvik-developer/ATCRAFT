@@ -25,7 +25,7 @@ import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { EmptyState, PageHeader } from '@/components/shared'
+import { DateRangeFilter, EmptyState, PageHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -52,6 +52,8 @@ import {
   Skeleton,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { useUserOptions } from '@/hooks/use-user-options'
+import { DEFAULT_PAGE_SIZE, SELECT_ALL } from '@/lib/constants'
 import { formatDateTime, humanise, toDateInput } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -64,13 +66,13 @@ import {
   entityLink,
   fetchAuditPage,
   formatAuditValue,
-  useAuditActorOptions,
   useAuditLogDetail,
+  type AuditActorOption,
   type AuditLogRow,
 } from './audit-types'
 
-const PAGE_SIZE = 50
-const ALL = '__all__'
+/** Rows per cursor page - the same size a list screen shows by default. */
+const PAGE_SIZE = DEFAULT_PAGE_SIZE
 const UUID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
 
 type Mode = 'activity' | 'entity'
@@ -114,15 +116,15 @@ function AuditDetail({ row }: { row: AuditLogRow }) {
             <dd className="text-foreground">{row.actor_label ?? 'System'}</dd>
           </div>
           {full?.ip_address && (
-            <div className="flex gap-1.5">
-              <dt>From</dt>
-              <dd className="font-mono text-foreground">{full.ip_address}</dd>
+            <div className="flex min-w-0 gap-1.5">
+              <dt className="shrink-0">From</dt>
+              <dd className="break-all font-mono text-foreground">{full.ip_address}</dd>
             </div>
           )}
           {row.request_id && (
-            <div className="flex gap-1.5">
-              <dt>Request</dt>
-              <dd className="font-mono text-foreground">{row.request_id}</dd>
+            <div className="flex min-w-0 gap-1.5">
+              <dt className="shrink-0">Request</dt>
+              <dd className="break-all font-mono text-foreground">{row.request_id}</dd>
             </div>
           )}
           {link && (
@@ -402,7 +404,7 @@ function AuditTable({
         searchPlaceholder="Find by request id..."
         toolbar={toolbar}
         virtualise={rows.length > 150}
-        maxHeight="65vh"
+        maxHeight="65svh"
         emptyTitle={emptyTitle}
         emptyDescription={emptyDescription}
       />
@@ -491,10 +493,10 @@ function EntityHistory({
           onEntityIdChange(draftId.trim())
         }}
       >
-        <div className="space-y-1.5">
+        <div className="w-full space-y-1.5 sm:w-auto">
           <Label htmlFor="history-entity-type">Record type</Label>
           <Select value={entityType} onValueChange={onEntityTypeChange}>
-            <SelectTrigger id="history-entity-type" className="w-[220px]">
+            <SelectTrigger id="history-entity-type" className="w-full sm:w-[220px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -507,7 +509,7 @@ function EntityHistory({
           </Select>
         </div>
 
-        <div className="space-y-1.5">
+        <div className="w-full space-y-1.5 sm:w-auto">
           <Label htmlFor="history-entity-id">Record id</Label>
           <Input
             id="history-entity-id"
@@ -516,7 +518,7 @@ function EntityHistory({
             placeholder="0193f2a1-0000-7000-8000-000000000000"
             autoComplete="off"
             spellCheck={false}
-            className="w-[24rem] max-w-full font-mono text-xs"
+            className="w-full max-w-full font-mono text-xs sm:w-[24rem]"
           />
         </div>
 
@@ -613,7 +615,13 @@ export default function AuditPage() {
   const dateFrom = searchParams.get('from') || defaultFrom
   const dateTo = searchParams.get('to') || today
 
-  const actors = useAuditActorOptions(mode === 'activity' && can(P.USER_VIEW))
+  // `activeOnly: false` on purpose: a log entry written by someone who has
+  // since left the company still needs their name against it, so the actor
+  // filter is the one picker that must offer deactivated staff.
+  const actors = useUserOptions<AuditActorOption>({
+    activeOnly: false,
+    enabled: mode === 'activity' && can(P.USER_VIEW),
+  })
 
   const filters = useMemo(
     () => ({
@@ -714,16 +722,16 @@ export default function AuditPage() {
             toolbar={
               <div className="flex flex-1 flex-wrap items-end gap-2">
                 <Select
-                  value={entityType || ALL}
+                  value={entityType || SELECT_ALL}
                   onValueChange={(value) =>
-                    setParam('entity_type', value === ALL ? undefined : value)
+                    setParam('entity_type', value === SELECT_ALL ? undefined : value)
                   }
                 >
-                  <SelectTrigger className="min-w-[170px]" aria-label="Filter by record type">
+                  <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by record type">
                     <SelectValue placeholder="All record types" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ALL}>All record types</SelectItem>
+                    <SelectItem value={SELECT_ALL}>All record types</SelectItem>
                     {AUDIT_ENTITY_TYPES.map((type) => (
                       <SelectItem key={type} value={type}>
                         {humanise(type)}
@@ -733,14 +741,16 @@ export default function AuditPage() {
                 </Select>
 
                 <Select
-                  value={action || ALL}
-                  onValueChange={(value) => setParam('action', value === ALL ? undefined : value)}
+                  value={action || SELECT_ALL}
+                  onValueChange={(value) =>
+                    setParam('action', value === SELECT_ALL ? undefined : value)
+                  }
                 >
-                  <SelectTrigger className="min-w-[170px]" aria-label="Filter by action">
+                  <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by action">
                     <SelectValue placeholder="All actions" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ALL}>All actions</SelectItem>
+                    <SelectItem value={SELECT_ALL}>All actions</SelectItem>
                     {AUDIT_ACTIONS.map((value) => (
                       <SelectItem key={value} value={value}>
                         {humanise(value)}
@@ -751,16 +761,16 @@ export default function AuditPage() {
 
                 {can(P.USER_VIEW) && (
                   <Select
-                    value={userId || ALL}
+                    value={userId || SELECT_ALL}
                     onValueChange={(value) =>
-                      setParam('user_id', value === ALL ? undefined : value)
+                      setParam('user_id', value === SELECT_ALL ? undefined : value)
                     }
                   >
-                    <SelectTrigger className="min-w-[180px]" aria-label="Filter by user">
+                    <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by user">
                       <SelectValue placeholder="All users" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={ALL}>All users</SelectItem>
+                      <SelectItem value={SELECT_ALL}>All users</SelectItem>
                       {(actors.data ?? []).map((actor) => (
                         <SelectItem key={actor.id} value={actor.id}>
                           {actor.full_name}
@@ -770,38 +780,17 @@ export default function AuditPage() {
                   </Select>
                 )}
 
-                <div className="flex items-center gap-1.5">
-                  <Label htmlFor="audit-from" className="text-xs text-muted-foreground">
-                    From
-                  </Label>
-                  <Input
-                    id="audit-from"
-                    type="date"
-                    required
-                    value={dateFrom}
-                    max={dateTo}
-                    // Clearing the field falls back to the default window
-                    // rather than sending an open-ended query.
-                    onChange={(event) => setParam('from', event.target.value || defaultFrom)}
-                    className="w-[9.5rem]"
-                  />
-                </div>
-
-                <div className="flex items-center gap-1.5">
-                  <Label htmlFor="audit-to" className="text-xs text-muted-foreground">
-                    To
-                  </Label>
-                  <Input
-                    id="audit-to"
-                    type="date"
-                    required
-                    value={dateTo}
-                    min={dateFrom}
-                    max={today}
-                    onChange={(event) => setParam('to', event.target.value || today)}
-                    className="w-[9.5rem]"
-                  />
-                </div>
+                {/* Clearing a field falls back to the default window rather
+                    than sending an open-ended query. */}
+                <DateRangeFilter
+                  id="audit"
+                  from={dateFrom}
+                  to={dateTo}
+                  onFromChange={(value) => setParam('from', value || defaultFrom)}
+                  onToChange={(value) => setParam('to', value || today)}
+                  fromInputProps={{ required: true, max: dateTo }}
+                  toInputProps={{ required: true, min: dateFrom, max: today }}
+                />
 
                 {hasFilters && (
                   <Button
@@ -812,9 +801,9 @@ export default function AuditPage() {
                       // functional update in a tick from the same captured value, so a loop of
                       // `setParam` calls clears exactly the last one and looks like it did nothing.
                       setParams({
-                    entity_type: undefined,
-                    action: undefined,
-                    user_id: undefined,
+                        entity_type: undefined,
+                        action: undefined,
+                        user_id: undefined,
                       })
                     }}
                   >

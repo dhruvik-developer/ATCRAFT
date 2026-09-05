@@ -27,7 +27,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useEffect } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -54,14 +54,17 @@ import {
   AlertTitle,
   Input,
   Label,
+  Skeleton,
   Textarea,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { useDepartmentOptions } from '@/hooks/use-organisation-options'
 import { api } from '@/lib/api-client'
+import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatMoney, toDateInput, toDecimal } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -77,9 +80,6 @@ import {
   type RequisitionLinePayload,
   type RequisitionUpdatePayload,
 } from './procurement-types'
-
-/** Radix Select forbids an empty option value, so "no department" needs one. */
-const NO_DEPARTMENT = '__none'
 
 // The API's own precision: a requisition quantity is NUMERIC(18,4) and an
 // estimated price NUMERIC(18,6). Refusing a seventh decimal here is kinder than
@@ -326,7 +326,7 @@ export function RequisitionFormDialog({
       // the requester it had gone for approval would send them looking for a
       // decision nobody has been asked to make.
       toast.success(
-        isAmend ? 'Requisition updated' : 'Requisition raised',
+        isAmend ? success.updated('Requisition') : success.created('Requisition'),
         isAmend
           ? `${saved.code} is still a draft. Submit it when the lines are right.`
           : `${saved.code} is saved as a draft with ${saved.lines?.length ?? 0} line(s). Submit it for approval when the lines are right.`,
@@ -348,7 +348,11 @@ export function RequisitionFormDialog({
   // The draft may have been submitted or decided by somebody else while this was
   // open. Saying so beats letting the save earn a refusal.
   const noLongerDraft = Boolean(loaded && requisitionId && !isRequisitionAmendable(loaded.status))
-  const canSave = can(P.WAREHOUSE_VIEW) && !noLongerDraft && !detail.isLoading
+  // An amend saves `lines` as the whole set, so it is only ever offered over
+  // the draft that actually loaded. A blank form after a failed load is not an
+  // empty requisition - saving it would replace every line the draft has.
+  const canSave =
+    can(P.WAREHOUSE_VIEW) && !noLongerDraft && !detail.isLoading && (!isAmend || Boolean(loaded))
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -363,296 +367,327 @@ export function RequisitionFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form
-          onSubmit={handleSubmit((values) => save.mutate(values))}
-          className="flex min-h-0 flex-col gap-4"
-          noValidate
-        >
-          <DialogBody className="space-y-5">
-            {noLongerDraft && (
-              <Alert variant="warning">
-                <AlertTitle>This requisition is no longer a draft</AlertTitle>
-                <AlertDescription>
-                  {loaded?.code} has moved on and can no longer be edited. Close this and raise a
-                  new requisition for anything still needed.
-                </AlertDescription>
-              </Alert>
-            )}
+        {isAmend && detail.isLoading && (
+          <DialogBody className="space-y-3" aria-hidden>
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-2/3" />
+            <Skeleton className="h-24 w-full" />
+          </DialogBody>
+        )}
 
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div>
-                <Label htmlFor="req-date" required>
-                  Raised on
-                </Label>
-                <Input
-                  id="req-date"
-                  type="date"
-                  {...register('requisition_date')}
-                  // Absent from `RequisitionUpdate`: the raised date is what the
-                  // document number was issued against and cannot move.
-                  disabled={isAmend}
-                  className="mt-1.5"
-                  aria-invalid={Boolean(errors.requisition_date)}
-                />
-                <FieldError message={errors.requisition_date?.message} />
-                {isAmend && (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Fixed once the requisition has a number.
-                  </p>
-                )}
-              </div>
+        {isAmend && !detail.isLoading && detail.error && (
+          <DialogBody>
+            <Alert variant="destructive">
+              <AlertTitle>Could not load this requisition</AlertTitle>
+              <AlertDescription>{detail.error.message}</AlertDescription>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                loading={detail.isFetching}
+                onClick={() => void detail.refetch()}
+              >
+                <RefreshCw />
+                Try again
+              </Button>
+            </Alert>
+          </DialogBody>
+        )}
 
-              <div>
-                <Label htmlFor="req-required" required>
-                  Required by
-                </Label>
-                <Input
-                  id="req-required"
-                  type="date"
-                  {...register('required_date')}
-                  className="mt-1.5"
-                  aria-invalid={Boolean(errors.required_date)}
-                />
-                <FieldError message={errors.required_date?.message} />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  What the queue is worked against, and what marks the demand late.
-                </p>
-              </div>
-
-              {/* Required by the API, and only offered to a principal who can
-                  read warehouses: firing the lookup regardless would earn a 403
-                  they cannot act on. */}
-              {can(P.WAREHOUSE_VIEW) ? (
-                <div>
-                  <Controller
-                    control={control}
-                    name="warehouse_id"
-                    render={({ field }) => (
-                      <WarehouseSelect
-                        id="req-warehouse"
-                        label="Needed at"
-                        value={field.value}
-                        onChange={field.onChange}
-                        invalid={Boolean(errors.warehouse_id)}
-                      />
-                    )}
-                  />
-                  <FieldError message={errors.warehouse_id?.message} />
-                </div>
-              ) : (
-                // The API requires a warehouse, so without the right to read the
-                // list there is nothing to choose and the form would fail on a
-                // field that was never shown. Say so instead.
-                <div className="sm:col-span-2">
-                  <Alert variant="warning">
-                    <AlertTitle>You cannot save a requisition from here</AlertTitle>
-                    <AlertDescription>
-                      A requisition has to state the warehouse the material is needed at, and your
-                      account cannot read the warehouse list. Ask somebody who can to raise it.
-                    </AlertDescription>
-                  </Alert>
-                </div>
+        {(!isAmend || (!detail.isLoading && !detail.error)) && (
+          <form
+            onSubmit={handleSubmit((values) => save.mutate(values))}
+            className="flex min-h-0 flex-col gap-4"
+            noValidate
+          >
+            <DialogBody className="space-y-5">
+              {noLongerDraft && (
+                <Alert variant="warning">
+                  <AlertTitle>This requisition is no longer a draft</AlertTitle>
+                  <AlertDescription>
+                    {loaded?.code} has moved on and can no longer be edited. Close this and raise a
+                    new requisition for anything still needed.
+                  </AlertDescription>
+                </Alert>
               )}
 
-              {/* Optional on the contract, and left out entirely when the lookup
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div>
+                  <Label htmlFor="req-date" required>
+                    Raised on
+                  </Label>
+                  <Input
+                    id="req-date"
+                    type="date"
+                    {...register('requisition_date')}
+                    // Absent from `RequisitionUpdate`: the raised date is what the
+                    // document number was issued against and cannot move.
+                    disabled={isAmend}
+                    className="mt-1.5"
+                    aria-invalid={Boolean(errors.requisition_date)}
+                  />
+                  <FieldError message={errors.requisition_date?.message} />
+                  {isAmend && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Fixed once the requisition has a number.
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <Label htmlFor="req-required" required>
+                    Required by
+                  </Label>
+                  <Input
+                    id="req-required"
+                    type="date"
+                    {...register('required_date')}
+                    className="mt-1.5"
+                    aria-invalid={Boolean(errors.required_date)}
+                  />
+                  <FieldError message={errors.required_date?.message} />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    What the queue is worked against, and what marks the demand late.
+                  </p>
+                </div>
+
+                {/* Required by the API, and only offered to a principal who can
+                  read warehouses: firing the lookup regardless would earn a 403
+                  they cannot act on. */}
+                {can(P.WAREHOUSE_VIEW) ? (
+                  <div>
+                    <Controller
+                      control={control}
+                      name="warehouse_id"
+                      render={({ field }) => (
+                        <WarehouseSelect
+                          id="req-warehouse"
+                          label="Needed at"
+                          value={field.value}
+                          onChange={field.onChange}
+                          invalid={Boolean(errors.warehouse_id)}
+                        />
+                      )}
+                    />
+                    <FieldError message={errors.warehouse_id?.message} />
+                  </div>
+                ) : (
+                  // The API requires a warehouse, so without the right to read the
+                  // list there is nothing to choose and the form would fail on a
+                  // field that was never shown. Say so instead.
+                  <div className="sm:col-span-2">
+                    <Alert variant="warning">
+                      <AlertTitle>You cannot save a requisition from here</AlertTitle>
+                      <AlertDescription>
+                        A requisition has to state the warehouse the material is needed at, and your
+                        account cannot read the warehouse list. Ask somebody who can to raise it.
+                      </AlertDescription>
+                    </Alert>
+                  </div>
+                )}
+
+                {/* Optional on the contract, and left out entirely when the lookup
                   comes back empty - which is what happens without company.view.
                   An empty picker is worse than no picker, and the API files the
                   requisition under the requester's own department anyway. */}
-              {(departments.data?.length ?? 0) > 0 && (
+                {(departments.data?.length ?? 0) > 0 && (
+                  <div>
+                    <Controller
+                      control={control}
+                      name="department_id"
+                      render={({ field }) => (
+                        <div className="space-y-1.5">
+                          <Label htmlFor="req-department">Department</Label>
+                          <Select
+                            value={field.value || SELECT_NONE}
+                            onValueChange={(next) =>
+                              field.onChange(next === SELECT_NONE ? '' : next)
+                            }
+                          >
+                            <SelectTrigger id="req-department">
+                              <SelectValue placeholder="Your own department" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={SELECT_NONE}>Your own department</SelectItem>
+                              {(departments.data ?? []).map((department) => (
+                                <SelectItem key={department.id} value={department.id}>
+                                  {department.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    />
+                    <FieldError message={errors.department_id?.message} />
+                  </div>
+                )}
+
                 <div>
-                  <Controller
-                    control={control}
-                    name="department_id"
-                    render={({ field }) => (
-                      <div className="space-y-1.5">
-                        <Label htmlFor="req-department">Department</Label>
-                        <Select
-                          value={field.value || NO_DEPARTMENT}
-                          onValueChange={(next) =>
-                            field.onChange(next === NO_DEPARTMENT ? '' : next)
-                          }
-                        >
-                          <SelectTrigger id="req-department">
-                            <SelectValue placeholder="Your own department" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={NO_DEPARTMENT}>Your own department</SelectItem>
-                            {(departments.data ?? []).map((department) => (
-                              <SelectItem key={department.id} value={department.id}>
-                                {department.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    )}
+                  <Label htmlFor="req-priority">Priority</Label>
+                  <Input
+                    id="req-priority"
+                    type="number"
+                    min={MIN_PRIORITY}
+                    max={MAX_PRIORITY}
+                    step={1}
+                    {...register('priority')}
+                    className="mt-1.5"
+                    aria-invalid={Boolean(errors.priority)}
                   />
-                  <FieldError message={errors.department_id?.message} />
+                  <FieldError message={errors.priority?.message} />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {MIN_PRIORITY} is the most urgent, {MAX_PRIORITY} the least. {DEFAULT_PRIORITY}{' '}
+                    is routine.
+                  </p>
                 </div>
-              )}
+
+                <div className="sm:col-span-2">
+                  <Label htmlFor="req-purpose">Purpose</Label>
+                  <Input
+                    id="req-purpose"
+                    {...register('purpose')}
+                    autoComplete="off"
+                    maxLength={255}
+                    className="mt-1.5"
+                    aria-invalid={Boolean(errors.purpose)}
+                  />
+                  <FieldError message={errors.purpose?.message} />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    What the material is for. It is usually what decides the approval.
+                  </p>
+                </div>
+              </div>
 
               <div>
-                <Label htmlFor="req-priority">Priority</Label>
-                <Input
-                  id="req-priority"
-                  type="number"
-                  min={MIN_PRIORITY}
-                  max={MAX_PRIORITY}
-                  step={1}
-                  {...register('priority')}
-                  className="mt-1.5"
-                  aria-invalid={Boolean(errors.priority)}
-                />
-                <FieldError message={errors.priority?.message} />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {MIN_PRIORITY} is the most urgent, {MAX_PRIORITY} the least. {DEFAULT_PRIORITY} is
-                  routine.
-                </p>
-              </div>
-
-              <div className="sm:col-span-2">
-                <Label htmlFor="req-purpose">Purpose</Label>
-                <Input
-                  id="req-purpose"
-                  {...register('purpose')}
-                  autoComplete="off"
-                  maxLength={255}
-                  className="mt-1.5"
-                  aria-invalid={Boolean(errors.purpose)}
-                />
-                <FieldError message={errors.purpose?.message} />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  What the material is for. It is usually what decides the approval.
-                </p>
-              </div>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-medium">Lines</h3>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => append(emptyLine())}
-                >
-                  <Plus />
-                  Add line
-                </Button>
-              </div>
-              <FieldError message={errors.lines?.root?.message ?? errors.lines?.message} />
-
-              <div className="mt-3 space-y-3">
-                {fields.map((field, index) => (
-                  <div
-                    key={field.id}
-                    className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto]"
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-medium">Lines</h3>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => append(emptyLine())}
                   >
-                    <div>
-                      <Controller
-                        control={control}
-                        name={`lines.${index}.item_id`}
-                        render={({ field: itemField }) => (
-                          <ItemPicker
-                            id={`req-line-item-${index}`}
-                            label={`Line ${index + 1} item`}
-                            value={itemField.value || null}
-                            onChange={(itemId) => {
-                              itemField.onChange(itemId ?? '')
-                              // The description and unit carried on the line
-                              // belong to the item that was on it. Kept across a
-                              // change they would label the new item with the old
-                              // one's name and buy it in the old one's unit;
-                              // cleared, the API fills both from the new item.
-                              setValue(`lines.${index}.description`, '')
-                              setValue(`lines.${index}.uom_id`, '')
-                            }}
-                            placeholder="Search purchasable items"
-                            // Narrowed by the API rather than here: a
-                            // non-purchasable item is refused outright by
-                            // `create_requisition`, so it should never be offered
-                            // in the first place.
-                            filters={{ can_purchase: true }}
-                            emptyMessage="No purchasable item matches that search."
-                            invalid={Boolean(errors.lines?.[index]?.item_id)}
-                          />
-                        )}
-                      />
-                      <FieldError message={errors.lines?.[index]?.item_id?.message} />
-                    </div>
+                    <Plus />
+                    Add line
+                  </Button>
+                </div>
+                <FieldError message={errors.lines?.root?.message ?? errors.lines?.message} />
 
-                    <div>
-                      <Label htmlFor={`req-line-qty-${index}`} required>
-                        Quantity
-                      </Label>
-                      <Input
-                        id={`req-line-qty-${index}`}
-                        {...register(`lines.${index}.quantity`)}
-                        inputMode="decimal"
-                        className="mt-1.5"
-                        aria-invalid={Boolean(errors.lines?.[index]?.quantity)}
-                      />
-                      <FieldError message={errors.lines?.[index]?.quantity?.message} />
-                    </div>
+                <div className="mt-3 space-y-3">
+                  {fields.map((field, index) => (
+                    <div
+                      key={field.id}
+                      className="grid gap-3 rounded-lg border p-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto]"
+                    >
+                      <div className="sm:col-span-2 lg:col-span-1">
+                        <Controller
+                          control={control}
+                          name={`lines.${index}.item_id`}
+                          render={({ field: itemField }) => (
+                            <ItemPicker
+                              id={`req-line-item-${index}`}
+                              label={`Line ${index + 1} item`}
+                              value={itemField.value || null}
+                              onChange={(itemId) => {
+                                itemField.onChange(itemId ?? '')
+                                // The description and unit carried on the line
+                                // belong to the item that was on it. Kept across a
+                                // change they would label the new item with the old
+                                // one's name and buy it in the old one's unit;
+                                // cleared, the API fills both from the new item.
+                                setValue(`lines.${index}.description`, '')
+                                setValue(`lines.${index}.uom_id`, '')
+                              }}
+                              placeholder="Search purchasable items"
+                              // Narrowed by the API rather than here: a
+                              // non-purchasable item is refused outright by
+                              // `create_requisition`, so it should never be offered
+                              // in the first place.
+                              filters={{ can_purchase: true }}
+                              emptyMessage="No purchasable item matches that search."
+                              invalid={Boolean(errors.lines?.[index]?.item_id)}
+                            />
+                          )}
+                        />
+                        <FieldError message={errors.lines?.[index]?.item_id?.message} />
+                      </div>
 
-                    <div>
-                      <Label htmlFor={`req-line-price-${index}`}>Estimated price</Label>
-                      <Input
-                        id={`req-line-price-${index}`}
-                        {...register(`lines.${index}.estimated_unit_price`)}
-                        inputMode="decimal"
-                        className="mt-1.5"
-                        aria-invalid={Boolean(errors.lines?.[index]?.estimated_unit_price)}
-                      />
-                      <FieldError message={errors.lines?.[index]?.estimated_unit_price?.message} />
-                    </div>
+                      <div>
+                        <Label htmlFor={`req-line-qty-${index}`} required>
+                          Quantity
+                        </Label>
+                        <Input
+                          id={`req-line-qty-${index}`}
+                          {...register(`lines.${index}.quantity`)}
+                          inputMode="decimal"
+                          className="mt-1.5"
+                          aria-invalid={Boolean(errors.lines?.[index]?.quantity)}
+                        />
+                        <FieldError message={errors.lines?.[index]?.quantity?.message} />
+                      </div>
 
-                    <div className="flex items-end">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Remove line ${index + 1}`}
-                        disabled={fields.length === 1}
-                        onClick={() => remove(index)}
-                      >
-                        <Trash2 className="text-destructive" />
-                      </Button>
+                      <div>
+                        <Label htmlFor={`req-line-price-${index}`}>Estimated price</Label>
+                        <Input
+                          id={`req-line-price-${index}`}
+                          {...register(`lines.${index}.estimated_unit_price`)}
+                          inputMode="decimal"
+                          className="mt-1.5"
+                          aria-invalid={Boolean(errors.lines?.[index]?.estimated_unit_price)}
+                        />
+                        <FieldError
+                          message={errors.lines?.[index]?.estimated_unit_price?.message}
+                        />
+                      </div>
+
+                      <div className="flex items-end sm:col-span-2 sm:justify-end lg:col-span-1 lg:justify-start">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Remove line ${index + 1}`}
+                          disabled={fields.length === 1}
+                          onClick={() => remove(index)}
+                        >
+                          <Trash2 className="text-destructive" />
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
+
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Indicative value{' '}
+                  <span className="tabular font-medium text-foreground">
+                    {formatMoney(indicativeTotal.toFixed(4))}
+                  </span>{' '}
+                  at the estimates entered. Nothing is committed until a purchase order is raised.
+                </p>
               </div>
 
-              <p className="mt-3 text-sm text-muted-foreground">
-                Indicative value{' '}
-                <span className="tabular font-medium text-foreground">
-                  {formatMoney(indicativeTotal.toFixed(4))}
-                </span>{' '}
-                at the estimates entered. Nothing is committed until a purchase order is raised.
-              </p>
-            </div>
+              <div>
+                <Label htmlFor="req-notes">Notes</Label>
+                <Textarea id="req-notes" {...register('notes')} className="mt-1.5" />
+                <FieldError message={errors.notes?.message} />
+              </div>
+            </DialogBody>
 
-            <div>
-              <Label htmlFor="req-notes">Notes</Label>
-              <Textarea id="req-notes" {...register('notes')} className="mt-1.5" />
-              <FieldError message={errors.notes?.message} />
-            </div>
-          </DialogBody>
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={save.isPending}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" loading={save.isPending} disabled={!canSave}>
-              {isAmend ? 'Save draft' : 'Raise draft requisition'}
-            </Button>
-          </DialogFooter>
-        </form>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={save.isPending}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" loading={save.isPending} disabled={!canSave}>
+                {isAmend ? 'Save draft' : 'Raise draft requisition'}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   )

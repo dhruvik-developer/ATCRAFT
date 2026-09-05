@@ -41,7 +41,8 @@
 import { useQuery } from '@tanstack/react-query'
 import Decimal from 'decimal.js'
 
-import { api } from '@/lib/api-client'
+import { api, emptyOnPermissionError } from '@/lib/api-client'
+import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { toDecimal } from '@/lib/format'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { DecimalString, SchemaOf } from '@/types/api'
@@ -103,9 +104,6 @@ export const MAX_SHIFT_LENGTH = 16
 
 /** `WorkOrderUpdate.notes`. */
 export const MAX_NOTES_LENGTH = 4000
-
-/** `WorkOrderTransitionRequest.reason`. Optional on the wire. */
-export const MAX_REASON_LENGTH = 255
 
 // ------------------------------------------------------------ vocabulary ----
 
@@ -297,7 +295,7 @@ export const optionLabel = (option: { code: string; name: string }): string =>
  * grids fall back to saying so rather than printing a raw uuid.
  */
 const WORK_CENTRE_OPTION_PARAMS = {
-  limit: 200,
+  limit: LOOKUP_LIST_LIMIT,
   is_active: true,
   with_total: false,
   sort_by: 'code',
@@ -313,8 +311,8 @@ export function useWorkCentreOptions(enabled = true) {
           params: { ...WORK_CENTRE_OPTION_PARAMS },
         })
         return page.data
-      } catch {
-        return []
+      } catch (error) {
+        return emptyOnPermissionError<WorkCentreOption>(error)
       }
     },
     staleTime: staleTimes.reference,
@@ -323,7 +321,7 @@ export function useWorkCentreOptions(enabled = true) {
 }
 
 const MACHINE_OPTION_PARAMS = {
-  limit: 200,
+  limit: LOOKUP_LIST_LIMIT,
   is_active: true,
   with_total: false,
   sort_by: 'code',
@@ -337,8 +335,14 @@ const MACHINE_OPTION_PARAMS = {
  * that does not belong to the operation's own centre, so an unscoped list would
  * offer choices the API rejects. Retired machines are excluded for the same
  * reason a picker exists at all - the list is for choosing what runs next.
+ *
+ * Named for the scoping rather than `useMachineOptions`, which is the whole
+ * register in `production-model.ts`. The two used to share that name one
+ * directory apart with different signatures and different semantics, so an
+ * import of the wrong one compiled wherever the argument happened to fit -
+ * and here the wrong one silently drops the constraint the API enforces.
  */
-export function useMachineOptions(workCentreId: string | null | undefined) {
+export function useWorkCentreMachineOptions(workCentreId: string | null | undefined) {
   const params = { ...MACHINE_OPTION_PARAMS, work_center_id: workCentreId ?? '' }
   return useQuery({
     queryKey: queryKeys.routing.machines(params),
@@ -346,8 +350,8 @@ export function useMachineOptions(workCentreId: string | null | undefined) {
       try {
         const page = await api.getPage<MachineOption>('/routing/machines', { params })
         return page.data
-      } catch {
-        return []
+      } catch (error) {
+        return emptyOnPermissionError<MachineOption>(error)
       }
     },
     staleTime: staleTimes.reference,

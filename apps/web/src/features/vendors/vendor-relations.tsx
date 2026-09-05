@@ -33,8 +33,10 @@ import {
 import { Badge, Checkbox, Input, Label, Skeleton, Textarea } from '@/components/ui/primitives'
 import { useCategoryOptions } from '@/features/items/item-model'
 import { api } from '@/lib/api-client'
-import { applyFieldErrors } from '@/lib/form-errors'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
+import { messages, success } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -84,7 +86,7 @@ function RemovalDialog({
 }) {
   const [reason, setReason] = useState('')
   const [touched, setTouched] = useState(false)
-  const tooShort = reason.trim().length < 3
+  const tooShort = reason.trim().length < REASON_MIN_LENGTH
 
   useEffect(() => {
     if (!open) {
@@ -118,11 +120,12 @@ function RemovalDialog({
           id="vendor-removal-reason"
           value={reason}
           onChange={(event) => setReason(event.target.value)}
+          maxLength={REASON_MAX_LENGTH}
           autoComplete="off"
           className="mt-1.5"
           aria-invalid={touched && tooShort}
         />
-        {touched && tooShort && <FieldError message="Record at least three characters of reason" />}
+        {touched && tooShort && <FieldError message={messages.errors.reasonTooShort} />}
       </div>
     </ConfirmDialog>
   )
@@ -243,9 +246,9 @@ export function VendorContactsPanel({ vendorId, canEdit }: { vendorId: string; c
       }
       return updated
     },
-    onSuccess: () => {
+    onSuccess: (saved) => {
       void invalidate()
-      toast.success(editingId ? 'Contact updated' : 'Contact added')
+      toast.success(editingId ? success.updated('Contact') : success.created('Contact'), saved.name)
       setEditing(null)
     },
     onError: (error) => applyFieldErrors(error, setError),
@@ -254,11 +257,13 @@ export function VendorContactsPanel({ vendorId, canEdit }: { vendorId: string; c
   const remove = useMutation({
     mutationFn: ({ contact, reason }: { contact: VendorContact; reason: string }) =>
       api.delete(`/vendors/contacts/${contact.id}`, { params: { reason } }),
-    onSuccess: () => {
+    onSuccess: (_result, { contact }) => {
       void invalidate()
-      toast.success('Contact removed')
+      toast.success('Contact removed', contact.name)
       setPendingDelete(null)
     },
+    // The reason travels as a query parameter, so its 422 has no form control.
+    onError: (error) => reportFieldErrors(error, 'Could not remove this contact'),
   })
 
   if (contacts.isLoading) return <PanelSkeleton />
@@ -466,7 +471,7 @@ export function VendorContactsPanel({ vendorId, canEdit }: { vendorId: string; c
             </div>
           </div>
 
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button
               type="button"
               variant="outline"
@@ -568,9 +573,12 @@ export function VendorCategoriesPanel({
             is_preferred: values.is_preferred,
             notes: orNull(values.notes),
           }),
-    onSuccess: () => {
+    onSuccess: (saved) => {
       void invalidate()
-      toast.success(editingId ? 'Qualification updated' : 'Vendor qualified for category')
+      toast.success(
+        editingId ? success.updated('Qualification') : 'Vendor qualified for category',
+        saved.item_category_name ?? saved.item_category_code ?? undefined,
+      )
       setEditing(null)
     },
     onError: (error) => applyFieldErrors(error, setError),
@@ -579,11 +587,15 @@ export function VendorCategoriesPanel({
   const remove = useMutation({
     mutationFn: ({ link, reason }: { link: VendorCategoryLink; reason: string }) =>
       api.delete(`/vendors/categories/${link.id}`, { params: { reason } }),
-    onSuccess: () => {
+    onSuccess: (_result, { link }) => {
       void invalidate()
-      toast.success('Qualification revoked')
+      toast.success(
+        success.revoked('Qualification'),
+        link.item_category_name ?? link.item_category_code ?? undefined,
+      )
       setPendingDelete(null)
     },
+    onError: (error) => reportFieldErrors(error, 'Could not revoke this qualification'),
   })
 
   if (links.isLoading) return <PanelSkeleton />
@@ -751,7 +763,7 @@ export function VendorCategoriesPanel({
             </div>
           </div>
 
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <Button
               type="button"
               variant="outline"

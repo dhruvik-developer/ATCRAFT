@@ -30,10 +30,11 @@ import { Lock, Scale } from 'lucide-react'
 import { useEffect, useId, useMemo, useState } from 'react'
 
 import { DataTable } from '@/components/data-table'
-import { EmptyState, StatTile } from '@/components/shared'
-import { Badge, Input, Label } from '@/components/ui/primitives'
+import { DateRangeFilter, EmptyState, StatTile } from '@/components/shared'
+import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
+import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 import { formatDate, formatMoney, humanise, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -51,8 +52,6 @@ import {
   type PartyKind,
 } from './ledger-model'
 
-const DEFAULT_LIMIT = 50
-
 export interface PartyLedgerPanelProps {
   /** Which endpoint answers for this party: customers and vendors have one each. */
   kind: PartyKind
@@ -65,7 +64,7 @@ export function PartyLedgerPanel({ kind, partyId, className }: PartyLedgerPanelP
   const fieldId = useId()
 
   const [page, setPage] = useState(1)
-  const [limit, setLimit] = useState(DEFAULT_LIMIT)
+  const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
 
@@ -107,7 +106,9 @@ export function PartyLedgerPanel({ kind, partyId, className }: PartyLedgerPanelP
 
   const data = statement.data
   const rows = statementRows(data)
-  const closing = describeClosingBalance(kind, data?.closing_balance)
+  // Only a loaded statement has a closing balance to describe; with nothing
+  // loaded the tile would otherwise read "settled", which a failed read is not.
+  const closing = data ? describeClosingBalance(kind, data.closing_balance) : null
 
   const columns = useMemo<ColumnDef<LedgerStatementRow, unknown>[]>(
     () => [
@@ -254,71 +255,52 @@ export function PartyLedgerPanel({ kind, partyId, className }: PartyLedgerPanelP
           </div>
         </div>
 
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="space-y-1.5">
-            <Label htmlFor={`${fieldId}-from`} className="text-xs">
-              From
-            </Label>
-            <Input
-              id={`${fieldId}-from`}
-              type="date"
-              className="w-[11rem]"
-              value={dateFrom}
-              max={dateTo || undefined}
-              onChange={(event) => {
-                setDateFrom(event.target.value)
-                // A narrower window is a different statement; page 3 of the old
-                // one addresses rows this one may not contain.
-                setPage(1)
-              }}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor={`${fieldId}-to`} className="text-xs">
-              To
-            </Label>
-            <Input
-              id={`${fieldId}-to`}
-              type="date"
-              className="w-[11rem]"
-              value={dateTo}
-              min={dateFrom || undefined}
-              onChange={(event) => {
-                setDateTo(event.target.value)
-                setPage(1)
-              }}
-            />
-          </div>
-        </div>
+        <DateRangeFilter
+          id={fieldId}
+          from={dateFrom}
+          to={dateTo}
+          fromInputProps={{ max: dateTo || undefined }}
+          toInputProps={{ min: dateFrom || undefined }}
+          onFromChange={(value) => {
+            setDateFrom(value)
+            // A narrower window is a different statement; page 3 of the old
+            // one addresses rows this one may not contain.
+            setPage(1)
+          }}
+          onToChange={(value) => {
+            setDateTo(value)
+            setPage(1)
+          }}
+        />
       </div>
 
       {/* The statement's own figures. They cover the whole filtered period, not
           the page on screen, which is why they are read from the header rather
           than summed from the rows in hand. */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
           label="Opening balance"
-          value={formatMoney(data?.opening_balance)}
+          value={data ? formatMoney(data.opening_balance) : '-'}
           hint="Carried in from before this window"
           isLoading={statement.isLoading}
         />
         <StatTile
           label="Debits"
-          value={formatMoney(data?.total_debit)}
+          value={data ? formatMoney(data.total_debit) : '-'}
           hint={periodLabel}
           isLoading={statement.isLoading}
         />
         <StatTile
           label="Credits"
-          value={formatMoney(data?.total_credit)}
+          value={data ? formatMoney(data.total_credit) : '-'}
           hint={periodLabel}
           isLoading={statement.isLoading}
         />
         <StatTile
           label="Closing balance"
-          value={formatMoney(data?.closing_balance)}
-          hint={closing.label}
-          tone={closing.tone}
+          value={data ? formatMoney(data.closing_balance) : '-'}
+          hint={closing?.label}
+          tone={closing?.tone ?? 'default'}
           isLoading={statement.isLoading}
         />
       </div>

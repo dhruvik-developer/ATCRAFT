@@ -159,11 +159,7 @@ function baseRoutes(overrides: Record<string, unknown> = {}) {
 }
 
 /** Render the detail screen for `ITEM_ID`, with the route param bound. */
-function renderDetail(options: {
-  permissions: string[]
-  routes: RouteTable
-  tab?: string
-}) {
+function renderDetail(options: { permissions: string[]; routes: RouteTable; tab?: string }) {
   return renderScreen(<ItemDetailPage />, {
     permissions: options.permissions,
     route: `/items/${ITEM_ID}${options.tab ? `?tab=${options.tab}` : ''}`,
@@ -359,9 +355,7 @@ describe('the tab panels', () => {
     await screen.findByRole('heading', { name: /RM-001/ })
     await user.click(screen.getByRole('tab', { name: /stock/i }))
 
-    expect(
-      await screen.findByText('Stock balances are not visible to your account'),
-    ).toBeVisible()
+    expect(await screen.findByText('Stock balances are not visible to your account')).toBeVisible()
   })
 
   it('explains rather than queries when the BOM right is missing', async () => {
@@ -437,9 +431,7 @@ describe('the variants panel', () => {
       routes: baseRoutes({ [`GET /products/items/${ITEM_ID}/variants`]: page([VARIANT]) }),
     })
 
-    expect(
-      await screen.findByRole('button', { name: 'Retire variant RM-001-BR' }),
-    ).toBeVisible()
+    expect(await screen.findByRole('button', { name: 'Retire variant RM-001-BR' })).toBeVisible()
   })
 
   it('offers none to a principal who may only view', async () => {
@@ -579,13 +571,14 @@ describe('what the edit dialog sends', () => {
   })
 
   it('puts a 422 back on the field that caused it', async () => {
-    // FastAPI reports the location as `body.gst_rate`; a message shown in a
-    // toast instead leaves the user hunting for which of twenty fields is wrong.
+    // The API reports the location as `gst_rate` (the `body` prefix is stripped
+    // server-side); a message shown in a toast instead leaves the user hunting
+    // for which of twenty fields is wrong.
     const { user } = renderDetail({
       permissions: [P.ITEM_VIEW, P.ITEM_UPDATE, P.CATEGORY_VIEW, P.UOM_VIEW],
       routes: baseRoutes({
         [`PATCH /products/items/${ITEM_ID}`]: fail(422, 'VALIDATION_ERROR', 'Invalid item', {
-          fields: { 'body.gst_rate': ['GST rate cannot exceed 100'] },
+          fields: { gst_rate: ['GST rate cannot exceed 100'] },
         }),
       }),
     })
@@ -595,9 +588,7 @@ describe('what the edit dialog sends', () => {
     const dialog = await screen.findByRole('dialog')
     await user.click(within(dialog).getByRole('button', { name: /save changes/i }))
 
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
-      'GST rate cannot exceed 100',
-    )
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('GST rate cannot exceed 100')
     // The dialog stays open: the user has to correct the field, and a closed
     // form would discard the twenty other values they had already entered.
     expect(within(dialog).getByRole('button', { name: /save changes/i })).toBeVisible()
@@ -725,9 +716,7 @@ describe('retiring the item', () => {
     await user.click(screen.getByRole('button', { name: /^retire$/i }))
     const dialog = await screen.findByRole('dialog')
 
-    expect(
-      within(dialog).getByText(/could not be checked from this account/),
-    ).toBeInTheDocument()
+    expect(within(dialog).getByText(/could not be checked from this account/)).toBeInTheDocument()
     expect(within(dialog).queryByText('This item is still in use')).not.toBeInTheDocument()
   })
 })

@@ -469,8 +469,7 @@ export function JobWorkReceiveDialog({
           <DialogTitle>Receive output on {orderCode}</DialogTitle>
           <DialogDescription>
             Good output returns to stock. Rejection and unworked returns are recorded separately:
-            what the vendor spoiled and what simply came back untouched are different
-            conversations.
+            what the vendor spoiled and what simply came back untouched are different conversations.
           </DialogDescription>
         </DialogHeader>
 

@@ -38,6 +38,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
 from src.core.clock import today, utcnow
+from src.core.database import affected_rows
 from src.core.pagination import COUNT_CEILING, PageParams, SortParams
 from src.core.responses import OffsetPagination
 from src.modules.inventory.models import InventoryBalance
@@ -253,7 +254,7 @@ class JobWorkOrderLineRepository(BaseRepository[JobWorkOrderLine]):
             )
             .execution_options(synchronize_session=False)
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 class JobWorkChallanRepository(BaseRepository[JobWorkChallan]):
@@ -394,7 +395,9 @@ class JobWorkReceiptRepository(BaseRepository[JobWorkReceipt]):
             )
             .group_by(JobWorkReceipt.vendor_id)
         )
-        if vendor_ids:
+        # ``None`` means every vendor; an empty restriction must match nobody
+        # rather than silently widen to everybody.
+        if vendor_ids is not None:
             stmt = stmt.where(JobWorkReceipt.vendor_id.in_(list(dict.fromkeys(vendor_ids))))
         # Largest spend first: the number a finance team acts on is at the top.
         return stmt.order_by(
@@ -410,10 +413,52 @@ class JobWorkReceiptRepository(BaseRepository[JobWorkReceipt]):
         vendor_ids: Sequence[uuid.UUID] | None = None,
         limit: int,
     ) -> list[VendorChargeRow]:
-        stmt = self.charges_stmt(
-            date_from=date_from, date_to=date_to, vendor_ids=vendor_ids
-        ).limit(limit)
+        """Bounded feed for the service-level contract other modules call."""
+        stmt = self.charges_stmt(date_from=date_from, date_to=date_to, vendor_ids=vendor_ids).limit(
+            limit
+        )
         return [_charge_row(row) for row in (await self.session.execute(stmt)).all()]
+
+    async def charges_page(
+        self,
+        *,
+        date_from: date,
+        date_to: date,
+        vendor_ids: Sequence[uuid.UUID] | None,
+        params: PageParams,
+    ) -> tuple[list[VendorChargeRow], OffsetPagination]:
+        """Paginate the aggregate, as ``pending_at_vendor_page`` does.
+
+        ``core.pagination.paginate`` reads ``.scalars()`` and would keep only the
+        first column of an aggregate row, so the semantics are reproduced here:
+        one extra row decides ``has_next``, and a bounded count of vendors is
+        run only when the caller asked for a total.
+        """
+        stmt = self.charges_stmt(date_from=date_from, date_to=date_to, vendor_ids=vendor_ids)
+        rows = (
+            await self.session.execute(stmt.limit(params.limit + 1).offset(params.offset))
+        ).all()
+
+        has_next = len(rows) > params.limit
+        rows = rows[: params.limit]
+
+        total: int | None = None
+        total_pages: int | None = None
+        if params.with_total:
+            count_stmt = select(func.count()).select_from(
+                stmt.order_by(None).limit(COUNT_CEILING).subquery()
+            )
+            total = int((await self.session.execute(count_stmt)).scalar_one())
+            total_pages = max(1, -(-total // params.limit))
+
+        return [_charge_row(row) for row in rows], OffsetPagination(
+            page=params.page,
+            limit=params.limit,
+            total=total,
+            total_pages=total_pages,
+            has_next=has_next,
+            has_previous=params.page > 1,
+        )
 
 
 class JobWorkOrderRepository(BaseRepository[JobWorkOrder]):
@@ -534,9 +579,7 @@ class JobWorkOrderRepository(BaseRepository[JobWorkOrder]):
                 JobWorkOrder.status.in_(MATERIAL_AT_VENDOR_STATUSES),
                 JobWorkOrderLine.issued_quantity > JobWorkOrderLine.received_quantity,
             )
-            .group_by(
-                JobWorkOrder.vendor_id, JobWorkOrderLine.item_id, JobWorkOrder.warehouse_id
-            )
+            .group_by(JobWorkOrder.vendor_id, JobWorkOrderLine.item_id, JobWorkOrder.warehouse_id)
             .having(outstanding > 0)
         )
 
@@ -552,9 +595,7 @@ class JobWorkOrderRepository(BaseRepository[JobWorkOrder]):
         # Oldest despatch first: the material that has been out longest is the
         # material somebody needs to chase. ``vendor_id`` breaks ties so a page
         # boundary cannot repeat or drop a group.
-        return stmt.order_by(
-            func.min(JobWorkOrder.issued_at).asc(), JobWorkOrder.vendor_id.asc()
-        )
+        return stmt.order_by(func.min(JobWorkOrder.issued_at).asc(), JobWorkOrder.vendor_id.asc())
 
     async def pending_at_vendor(
         self,

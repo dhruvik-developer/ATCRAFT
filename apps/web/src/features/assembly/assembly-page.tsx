@@ -13,7 +13,7 @@ import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { PageHeader, StatusBadge } from '@/components/shared'
+import { DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -22,19 +22,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/overlays'
-import { Badge, Input, Label } from '@/components/ui/primitives'
+import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useListQuery } from '@/hooks/use-list-query'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatQuantity, humanise, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
 import { AssemblyDetailDialog } from './assembly-detail-dialog'
 import { ASSEMBLY_STATUSES, assemblyKeys, type AssemblyOrderRow } from './assembly-model'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /** Every URL key the toolbar owns, so "Clear" can drop them in one write. */
 const FILTER_KEYS = ['status', 'item_id', 'date_from', 'date_to'] as const
@@ -250,14 +248,16 @@ export default function AssemblyPage() {
         toolbar={
           <>
             <Select
-              value={status || ALL}
-              onValueChange={(value) => setParam('status', value === ALL ? undefined : value)}
+              value={status || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('status', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[190px]" aria-label="Filter by status">
+              <SelectTrigger className="w-full sm:w-[190px]" aria-label="Filter by status">
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All statuses</SelectItem>
+                <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
                 {ASSEMBLY_STATUSES.map((value) => (
                   <SelectItem key={value} value={value}>
                     {humanise(value)}
@@ -275,28 +275,13 @@ export default function AssemblyPage() {
               placeholder="All items"
             />
 
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="assembly-date-from" className="text-xs text-muted-foreground">
-                From
-              </Label>
-              <Input
-                id="assembly-date-from"
-                type="date"
-                value={dateFrom}
-                onChange={(event) => setParam('date_from', event.target.value || undefined)}
-                className="w-[9.5rem]"
-              />
-              <Label htmlFor="assembly-date-to" className="text-xs text-muted-foreground">
-                To
-              </Label>
-              <Input
-                id="assembly-date-to"
-                type="date"
-                value={dateTo}
-                onChange={(event) => setParam('date_to', event.target.value || undefined)}
-                className="w-[9.5rem]"
-              />
-            </div>
+            <DateRangeFilter
+              id="assembly-date"
+              from={dateFrom}
+              to={dateTo}
+              onFromChange={(value) => setParam('date_from', value || undefined)}
+              onToChange={(value) => setParam('date_to', value || undefined)}
+            />
 
             {filterCount > 0 && (
               <Button variant="ghost" size="sm" onClick={clearFilters}>

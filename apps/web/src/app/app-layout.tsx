@@ -12,10 +12,17 @@ import {
   X,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 import { navigation, type NavItem } from '@/app/navigation'
+import { prefetchRoute } from '@/app/route-loaders'
 import { Button } from '@/components/ui/button'
+// Imported from the specific modules, not the `overlays` barrel: the barrel
+// re-exports six Radix families, and every component in them is a top-level
+// `forwardRef(...)` call, which Rollup cannot prove side-effect-free and so
+// cannot tree-shake away. Going through it from the eager shell therefore
+// pulled Select, Dialog, Popover and Tabs into the entry chunk every visitor
+// downloads before anything renders. Lazy screens may keep using the barrel.
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,17 +30,19 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  TooltipProvider,
-} from '@/components/ui/overlays'
+} from '@/components/ui/dropdown-menu'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { Badge, Separator } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
-import { P } from '@/lib/permissions'
 import { api } from '@/lib/api-client'
+import { NOTIFICATION_POLL_MS, STORAGE_KEYS } from '@/lib/constants'
+import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { cn, initials } from '@/lib/utils'
 import type { SchemaOf } from '@/types/api'
 
-const THEME_KEY = 'atcraft.theme'
+const THEME_KEY = STORAGE_KEYS.theme
+const SIDEBAR_KEY = STORAGE_KEYS.sidebar
 
 function useTheme() {
   const [theme, setTheme] = useState<'light' | 'dark'>(
@@ -54,9 +63,11 @@ export function AppLayout() {
   const { user, logout, can, canAny } = useAuth()
   const { theme, toggle } = useTheme()
   const location = useLocation()
+  const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
   const [collapsed, setCollapsed] = useState(
-    () => localStorage.getItem('atcraft.sidebar') === 'collapsed',
+    () => localStorage.getItem(SIDEBAR_KEY) === 'collapsed',
   )
 
   // Close the mobile drawer on navigation, otherwise it covers the page the
@@ -64,7 +75,7 @@ export function AppLayout() {
   useEffect(() => setMobileOpen(false), [location.pathname])
 
   useEffect(() => {
-    localStorage.setItem('atcraft.sidebar', collapsed ? 'collapsed' : 'expanded')
+    localStorage.setItem(SIDEBAR_KEY, collapsed ? 'collapsed' : 'expanded')
   }, [collapsed])
 
   /**
@@ -88,12 +99,16 @@ export function AppLayout() {
   // on every page they opened - once on load and again every minute - which is
   // invisible to an administrator, who holds every permission by construction.
   const maySeeNotifications = can(P.NOTIFICATION_VIEW)
+  // The one search the shell can honour: it opens the items list on the term
+  // (`useListQuery` reads `q` from the URL), so it is offered only to someone
+  // who may open that list.
+  const maySearchItems = can(P.ITEM_VIEW)
   const unread = useQuery({
     queryKey: queryKeys.notifications.unreadCount,
     queryFn: () => api.get<SchemaOf<'UnreadCountRead'>>('/notifications/unread-count'),
     enabled: maySeeNotifications,
-    refetchInterval: 60_000,
-    staleTime: 30_000,
+    refetchInterval: NOTIFICATION_POLL_MS,
+    staleTime: NOTIFICATION_POLL_MS / 2,
   })
 
   const unreadCount = unread.data?.unread_count ?? 0
@@ -114,11 +129,16 @@ export function AppLayout() {
     <TooltipProvider delayDuration={300}>
       <div className="flex h-full">
         {/* ------------------------------------------------------ sidebar -- */}
+        {/* "Collapsed" is a desktop preference, and it only takes effect at lg,
+            where the toggle that undoes it exists. Below lg this same element
+            is the drawer: always full width, always labelled, whatever the
+            persisted value says. */}
         <aside
           className={cn(
             'fixed inset-y-0 left-0 z-40 flex flex-col bg-sidebar text-sidebar-foreground transition-all duration-200',
             'lg:static lg:translate-x-0',
-            collapsed ? 'w-[68px]' : 'w-64',
+            'w-64',
+            collapsed && 'lg:w-[68px]',
             mobileOpen ? 'translate-x-0' : '-translate-x-full',
           )}
         >
@@ -126,14 +146,12 @@ export function AppLayout() {
             <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-sidebar-accent font-bold text-white">
               A
             </div>
-            {!collapsed && (
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-white">Atcraft ERP</p>
-                <p className="truncate text-2xs text-sidebar-foreground/60">
-                  {user?.company_name ?? ''}
-                </p>
-              </div>
-            )}
+            <div className={cn('min-w-0 flex-1', collapsed && 'lg:hidden')}>
+              <p className="truncate text-sm font-semibold text-white">Atcraft ERP</p>
+              <p className="truncate text-2xs text-sidebar-foreground/60">
+                {user?.company_name ?? ''}
+              </p>
+            </div>
             <button
               type="button"
               className="ml-auto rounded p-1 text-sidebar-foreground/70 hover:text-white lg:hidden"
@@ -147,11 +165,14 @@ export function AppLayout() {
           <nav className="flex-1 space-y-4 overflow-y-auto px-2.5 py-4" aria-label="Main">
             {visibleSections.map((section) => (
               <div key={section.label}>
-                {!collapsed && (
-                  <p className="px-2.5 pb-1.5 text-2xs font-semibold uppercase tracking-wider text-sidebar-foreground/70">
-                    {section.label}
-                  </p>
-                )}
+                <p
+                  className={cn(
+                    'px-2.5 pb-1.5 text-2xs font-semibold uppercase tracking-wider text-sidebar-foreground/70',
+                    collapsed && 'lg:hidden',
+                  )}
+                >
+                  {section.label}
+                </p>
                 <ul className="space-y-0.5">
                   {section.items.map((item) => (
                     <SidebarLink key={item.to} item={item} collapsed={collapsed} />
@@ -195,14 +216,27 @@ export function AppLayout() {
               <Menu className="h-5 w-5" />
             </button>
 
-            <div className="relative hidden max-w-md flex-1 md:block">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="search"
-                placeholder="Search items, orders, vendors..."
-                className="h-9 w-full rounded-md border border-input bg-background pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-            </div>
+            {maySearchItems && (
+              <form
+                role="search"
+                className="relative hidden max-w-md flex-1 md:block"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  const term = searchTerm.trim()
+                  if (term) navigate(`/items?q=${encodeURIComponent(term)}`)
+                }}
+              >
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="search"
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  placeholder="Search items..."
+                  aria-label="Search items"
+                  className="h-9 w-full rounded-md border border-input bg-background pl-8 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </form>
+            )}
 
             <div className="ml-auto flex items-center gap-1">
               <Button variant="ghost" size="icon-sm" onClick={toggle} aria-label="Toggle theme">
@@ -226,6 +260,8 @@ export function AppLayout() {
                 >
                   <Link
                     to="/notifications"
+                    onMouseEnter={() => prefetchRoute('/notifications')}
+                    onFocus={() => prefetchRoute('/notifications')}
                     className="relative"
                     title={
                       unreadUnavailable
@@ -285,7 +321,11 @@ export function AppLayout() {
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
-                    <Link to="/profile">
+                    <Link
+                      to="/profile"
+                      onMouseEnter={() => prefetchRoute('/profile')}
+                      onFocus={() => prefetchRoute('/profile')}
+                    >
                       <UserIcon />
                       Profile & sessions
                     </Link>
@@ -311,10 +351,17 @@ export function AppLayout() {
 
 function SidebarLink({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
   const Icon = item.icon
+  // Warm the screen's chunk on intent - pointer over, keyboard focus, or the
+  // touch that precedes a tap - so the click that follows paints from cache
+  // instead of showing the route spinner. Idempotent; see route-loaders.ts.
+  const warm = () => prefetchRoute(item.to)
   return (
     <li>
       <NavLink
         to={item.to}
+        onMouseEnter={warm}
+        onFocus={warm}
+        onTouchStart={warm}
         // `end` on the dashboard only: without it "/" would match every route.
         end={item.to === '/'}
         className={({ isActive }) =>
@@ -323,13 +370,15 @@ function SidebarLink({ item, collapsed }: { item: NavItem; collapsed: boolean })
             isActive
               ? 'bg-sidebar-accent font-medium text-white'
               : 'text-sidebar-foreground/80 hover:bg-white/5 hover:text-white',
-            collapsed && 'justify-center px-0',
+            collapsed && 'lg:justify-center lg:px-0',
           )
         }
         title={collapsed ? item.label : undefined}
       >
         <Icon className="h-4 w-4 shrink-0" aria-hidden />
-        {!collapsed && <span className="truncate">{item.label}</span>}
+        {/* sr-only rather than hidden when collapsed: the icon-only desktop
+            link keeps its accessible name, and the drawer keeps its label. */}
+        <span className={cn('truncate', collapsed && 'lg:sr-only')}>{item.label}</span>
       </NavLink>
     </li>
   )

@@ -13,7 +13,6 @@ Two conventions applied throughout:
 
 from __future__ import annotations
 
-import re
 import uuid
 from datetime import datetime
 from decimal import Decimal
@@ -21,39 +20,11 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from src.common.codes import normalise_code
+from src.common.codes import strip_optional, validate_code
 from src.modules.warehouses.models import StorageLocationType, WarehouseType
-
-# A code goes into document references and barcodes; punctuation beyond dot,
-# dash, slash and underscore makes those ambiguous to scan and to parse.
-CODE_PATTERN = r"^[A-Z0-9][A-Z0-9._\-/ ]*$"
 
 Code = Annotated[str, Field(min_length=1, max_length=32)]
 Name = Annotated[str, Field(min_length=1, max_length=255)]
-
-
-def _normalise_code(value: str) -> str:
-    normalised = normalise_code(value)
-    if not normalised:
-        raise ValueError("Code cannot be blank.")
-    if not re.match(CODE_PATTERN, normalised):
-        raise ValueError(
-            "Code may contain only letters, digits, dot, dash, slash, underscore and spaces, "
-            "and must start with a letter or digit."
-        )
-    return normalised
-
-
-def _strip_optional(value: str | None) -> str | None:
-    """Collapse a whitespace-only optional field to NULL.
-
-    An empty string and NULL must not both mean "not supplied", or a filter on
-    ``city IS NULL`` misses half the rows.
-    """
-    if value is None:
-        return None
-    stripped = value.strip()
-    return stripped or None
 
 
 # -----------------------------------------------------------------------------
@@ -76,7 +47,7 @@ class WarehouseAddress(BaseModel):
 
     _strip = field_validator(
         "address_line1", "address_line2", "city", "state", "state_code", "postal_code", "phone"
-    )(_strip_optional)
+    )(strip_optional)
 
 
 class WarehouseCreate(WarehouseAddress):
@@ -105,7 +76,7 @@ class WarehouseCreate(WarehouseAddress):
     )
     notes: str | None = None
 
-    _code = field_validator("code")(_normalise_code)
+    _code = field_validator("code")(validate_code)
 
     @field_validator("name")
     @classmethod
@@ -148,7 +119,7 @@ class WarehouseUpdate(BaseModel):
 
     _strip = field_validator(
         "address_line1", "address_line2", "city", "state", "state_code", "postal_code", "phone"
-    )(_strip_optional)
+    )(strip_optional)
 
     @field_validator("name")
     @classmethod
@@ -239,8 +210,8 @@ class StorageLocationCreate(BaseModel):
     barcode: str | None = Field(default=None, max_length=64)
     notes: str | None = None
 
-    _code = field_validator("code")(_normalise_code)
-    _strip = field_validator("capacity_uom", "barcode")(_strip_optional)
+    _code = field_validator("code")(validate_code)
+    _strip = field_validator("capacity_uom", "barcode")(strip_optional)
 
     @field_validator("name")
     @classmethod
@@ -266,7 +237,7 @@ class StorageLocationUpdate(BaseModel):
     barcode: str | None = Field(default=None, max_length=64)
     notes: str | None = None
 
-    _strip = field_validator("capacity_uom", "barcode")(_strip_optional)
+    _strip = field_validator("capacity_uom", "barcode")(strip_optional)
 
     @field_validator("name")
     @classmethod
@@ -339,7 +310,6 @@ class StatusChangeRequest(BaseModel):
 
 
 __all__ = [
-    "CODE_PATTERN",
     "StatusChangeRequest",
     "StorageLocationCreate",
     "StorageLocationFilters",

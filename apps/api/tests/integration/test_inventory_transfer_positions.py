@@ -66,7 +66,7 @@ from src.modules.inventory.repository import BalanceGrain
 from src.modules.inventory.schemas import StockTransferCreate, StockTransferLineCreate
 from src.modules.warehouses.models import StorageLocation, StorageLocationType
 from tests import seed_support
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 
 pytestmark = pytest.mark.integration
 
@@ -119,9 +119,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]
                     user_id=user_id,
                     email=f"xfer-{uuid.uuid4().hex[:8]}@atcraft.test",
                 )
-                await seed_support.seed_company(
-                    session, company_id=other_company_id, prefix="OTH"
-                )
+                await seed_support.seed_company(session, company_id=other_company_id, prefix="OTH")
                 await seed_support.seed_user(
                     session,
                     company_id=other_company_id,
@@ -142,7 +140,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, user_id, other_company_id, other_user_id
     asyncio.run(teardown())
@@ -228,9 +226,7 @@ class Bench:
         self.destination = destination
 
 
-async def seed_bench(
-    session: AsyncSession, tenant: TenantContext, *, on_hand: str = "10"
-) -> Bench:
+async def seed_bench(session: AsyncSession, tenant: TenantContext, *, on_hand: str = "10") -> Bench:
     async with seeded(session):
         item = await seed_support.seed_item(
             session,
@@ -435,13 +431,17 @@ class TestADestinationBinIsCheckedAtCreate:
             )
 
         transfers = (
-            await session.execute(
-                select(StockTransfer).where(
-                    StockTransfer.company_id == tenant.company_id,
-                    StockTransfer.from_warehouse_id == bench.source,
+            (
+                await session.execute(
+                    select(StockTransfer).where(
+                        StockTransfer.company_id == tenant.company_id,
+                        StockTransfer.from_warehouse_id == bench.source,
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert transfers == []
 
 
@@ -485,15 +485,10 @@ class TestADestinationBinIsCheckedAtDispatch:
         source = await inv.get_balance(session, tenant, bench.item_id, bench.source)
         assert source is not None
         assert source.on_hand_quantity == Decimal("10.0000")
-        assert (
-            await inv.get_balance(session, tenant, bench.item_id, bench.destination)
-        ) is None
+        assert (await inv.get_balance(session, tenant, bench.item_id, bench.destination)) is None
         posted = (
             await session.execute(
-                text(
-                    "SELECT count(*) FROM inventory_transactions "
-                    "WHERE reference_id = :ref"
-                ),
+                text("SELECT count(*) FROM inventory_transactions WHERE reference_id = :ref"),
                 {"ref": transfer_id},
             )
         ).scalar_one()
@@ -550,9 +545,7 @@ class TestADestinationBinIsCheckedAtDispatch:
                 deleted=True,
             )
             retired_id = retired.id
-        transfer_id = await self._approved_with_bad_destination(
-            session, tenant, bench, retired_id
-        )
+        transfer_id = await self._approved_with_bad_destination(session, tenant, bench, retired_id)
 
         with pytest.raises(NotFoundError, match="Storage location"):
             await inv.StockTransferService(session, tenant).dispatch(transfer_id)
@@ -581,9 +574,7 @@ class TestADestinationBinIsCheckedAtDispatch:
 
         rows = (
             await session.execute(
-                text(
-                    "SELECT count(*) FROM inventory_balances WHERE location_id = :bin"
-                ),
+                text("SELECT count(*) FROM inventory_balances WHERE location_id = :bin"),
                 {"bin": foreign_bin_id},
             )
         ).scalar_one()

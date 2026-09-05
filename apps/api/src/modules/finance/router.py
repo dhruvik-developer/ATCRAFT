@@ -5,8 +5,8 @@ standard envelope. No rule, query or audit write lives here (master rules
 section 74).
 
 Route ordering note: every literal segment below (``/accounts``, ``/ledger``,
-``/vendor-invoices``, ``/payments``, ``/outstanding``, ``/ageing``,
-``/inventory-valuation``, ``/gst-summary``) is distinct, and no path parameter
+``/vendor-invoices``, ``/payments``, ``/customer-adjustments``, ``/outstanding``,
+``/ageing``, ``/inventory-valuation``, ``/gst-summary``) is distinct, and no path parameter
 sits at the router root - so nothing here can capture a sibling's literal
 segment and reject it as a malformed UUID.
 
@@ -26,7 +26,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from src.core.deps import CurrentUser, DbSession, Tenant, require_permission
-from src.core.pagination import PageParams, SortParams, page_params, sort_params
+from src.core.pagination import (
+    PageParams,
+    SortParams,
+    bind_query_filters,
+    page_params,
+    sort_params,
+)
 from src.core.permissions import Permission
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
@@ -47,6 +53,8 @@ from src.modules.finance.models import (
 from src.modules.finance.schemas import (
     AgeingReport,
     AllocationRequest,
+    CustomerAdjustmentCreate,
+    CustomerAdjustmentRead,
     DisputeRequest,
     GstSummary,
     InventoryValuationPage,
@@ -72,6 +80,7 @@ from src.modules.finance.schemas import (
     VendorInvoiceSummary,
     VendorInvoiceUpdate,
 )
+from src.modules.reports import service as reports_service
 
 router = APIRouter(prefix="/finance", tags=["Finance"], responses=COMMON_ERROR_RESPONSES)
 
@@ -201,7 +210,7 @@ def statement_filters(
     date_from: Annotated[date | None, Query(description="Statement period start")] = None,
     date_to: Annotated[date | None, Query(description="Statement period end")] = None,
 ) -> StatementFilters:
-    return StatementFilters(date_from=date_from, date_to=date_to)
+    return bind_query_filters(StatementFilters, date_from=date_from, date_to=date_to)
 
 
 StatementDep = Annotated[StatementFilters, Depends(statement_filters)]
@@ -658,6 +667,38 @@ async def allocate_payment(
 
 
 # -----------------------------------------------------------------------------
+# Customer adjustments
+# -----------------------------------------------------------------------------
+
+
+@router.post(
+    "/customer-adjustments",
+    response_model=ApiResponse[CustomerAdjustmentRead],
+    status_code=status.HTTP_201_CREATED,
+    summary="Post a debit or credit note against a customer",
+    description=(
+        "A charge raises what the customer owes; a credit lowers it. The receivable journal, "
+        "the customer's cached outstanding balance and the audit row are written in one "
+        "transaction, so the balance a credit check reads can always be explained by the "
+        "ledger - the journal carries the same `reference_code` the balance change records. "
+        "Gated on `payment.approve` rather than `payment.record`: a credit note is money the "
+        "company agrees not to collect."
+    ),
+    dependencies=[require_permission(Permission.PAYMENT_APPROVE)],
+)
+async def post_customer_adjustment(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    payload: CustomerAdjustmentCreate,
+) -> ApiResponse[CustomerAdjustmentRead]:
+    adjustment = await service.post_customer_adjustment(
+        session, tenant, principal, payload.customer_id, payload
+    )
+    return ApiResponse[CustomerAdjustmentRead].ok(adjustment, "Customer adjustment posted")
+
+
+# -----------------------------------------------------------------------------
 # Reports
 # -----------------------------------------------------------------------------
 
@@ -782,9 +823,7 @@ async def inventory_valuation(
     item_id: Annotated[uuid.UUID | None, Query()] = None,
     category_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> ApiResponse[InventoryValuationPage]:
-    filters = ValuationFilters(
-        warehouse_id=warehouse_id, item_id=item_id, category_id=category_id
-    )
+    filters = ValuationFilters(warehouse_id=warehouse_id, item_id=item_id, category_id=category_id)
     rows, summary, pagination = await service.inventory_valuation(
         session, tenant, filters=filters, params=params
     )
@@ -818,7 +857,7 @@ async def export_inventory_valuation(
     )
     return AcceptedJobResponse.create(
         job_id=job_id,
-        status_url=f"/api/v1/jobs/{job_id}",
+        status_url=reports_service.job_status_url(job_id),
         message="The inventory valuation is being generated",
     )
 

@@ -30,9 +30,7 @@ def q(value: str) -> Decimal:
 
 
 def test_a_partial_dispatch_leaves_the_balance_open() -> None:
-    balance = dispatch_balance(
-        ordered=q("100"), dispatched_before=q("0"), dispatching_now=q("40")
-    )
+    balance = dispatch_balance(ordered=q("100"), dispatched_before=q("0"), dispatching_now=q("40"))
 
     assert balance.dispatched_after == q("40")
     assert balance.balance == q("60")
@@ -52,9 +50,7 @@ def test_a_second_consignment_picks_up_where_the_first_stopped() -> None:
 
 
 def test_the_final_consignment_closes_the_line_exactly() -> None:
-    balance = dispatch_balance(
-        ordered=q("100"), dispatched_before=q("75"), dispatching_now=q("25")
-    )
+    balance = dispatch_balance(ordered=q("100"), dispatched_before=q("75"), dispatching_now=q("25"))
 
     assert balance.dispatched_after == q("100")
     assert balance.balance == q("0")
@@ -63,9 +59,7 @@ def test_the_final_consignment_closes_the_line_exactly() -> None:
 
 
 def test_shipping_the_whole_line_in_one_go_is_complete_immediately() -> None:
-    balance = dispatch_balance(
-        ordered=q("100"), dispatched_before=q("0"), dispatching_now=q("100")
-    )
+    balance = dispatch_balance(ordered=q("100"), dispatched_before=q("0"), dispatching_now=q("100"))
 
     assert balance.is_complete is True
     assert balance.balance == q("0")
@@ -92,9 +86,7 @@ def test_a_fully_dispatched_line_cannot_take_another_consignment() -> None:
 def test_a_zero_or_negative_quantity_is_refused() -> None:
     for quantity in (q("0"), q("-5")):
         with pytest.raises(BusinessRuleError):
-            dispatch_balance(
-                ordered=q("100"), dispatched_before=q("0"), dispatching_now=quantity
-            )
+            dispatch_balance(ordered=q("100"), dispatched_before=q("0"), dispatching_now=quantity)
 
 
 def test_fractional_quantities_do_not_drift() -> None:

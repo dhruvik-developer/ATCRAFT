@@ -15,7 +15,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import type { ColumnDef } from '@tanstack/react-table'
 import { KeyRound, LogOut, Monitor, ShieldCheck, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { useForm, type FieldPath } from 'react-hook-form'
+import { useForm } from 'react-hook-form'
 import { useSearchParams } from 'react-router-dom'
 import { z } from 'zod'
 
@@ -36,7 +36,9 @@ import {
   Label,
 } from '@/components/ui/primitives'
 import { api, ApiError } from '@/lib/api-client'
+import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDateTime, formatRelative } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -65,6 +67,16 @@ interface SessionRow {
 }
 
 interface ChangePasswordResult {
+  revoked_sessions: number
+}
+
+interface MfaSetupResult {
+  secret: string
+  provisioning_uri: string
+}
+
+interface MfaChangeResult {
+  mfa_enabled: boolean
   revoked_sessions: number
 }
 
@@ -123,7 +135,7 @@ const changePasswordSchema = z
 
 type ChangePasswordValues = z.infer<typeof changePasswordSchema>
 
-function ChangePasswordCard({ autoFocus }: { autoFocus: boolean }) {
+export function ChangePasswordCard({ autoFocus }: { autoFocus: boolean }) {
   const { refreshUser } = useAuth()
   const queryClient = useQueryClient()
   const currentRef = useRef<HTMLInputElement | null>(null)
@@ -156,27 +168,19 @@ function ChangePasswordCard({ autoFocus }: { autoFocus: boolean }) {
       reset({ current_password: '', new_password: '', confirm_password: '' })
       void queryClient.invalidateQueries({ queryKey: queryKeys.auth.sessions })
       toast.success(
-        'Password changed',
+        success.changed('Password'),
         `${result.revoked_sessions} other session(s) were signed out.`,
       )
       // Clears `must_change_password` so the shell stops nagging.
       await refreshUser()
     },
-    onError: (error) => {
-      if (!(error instanceof ApiError)) return
-      for (const [field, messages] of Object.entries(error.fieldErrors)) {
-        setError(field as FieldPath<ChangePasswordValues>, {
-          type: 'server',
-          message: messages.join('. '),
-        })
-      }
-      // The policy failure carries its reasons in `details.requirements` rather
-      // than as a field path, so it is put on the field it describes.
-      const requirements = error.details?.requirements
-      if (error.code === 'PASSWORD_POLICY' && Array.isArray(requirements)) {
-        setError('new_password', { type: 'server', message: requirements.join('; ') })
-      }
-    },
+    // The one shared 422 mapping, so this form stays in step with the mutation
+    // cache's rule of staying quiet on a 422 that carries field detail. A
+    // policy failure keyed on `new_password` renders once, under the control;
+    // one that arrives without field detail is announced by the toast alone.
+    // The previous copy here read `details.requirements` as well and put the
+    // same sentence on the field beside the toast, so the user saw it twice.
+    onError: (error) => applyFieldErrors(error, setError),
   })
 
   const { ref: registerCurrentRef, ...currentField } = register('current_password')
@@ -283,6 +287,231 @@ function ChangePasswordCard({ autoFocus }: { autoFocus: boolean }) {
   )
 }
 
+// ---------------------------------------------------- two-factor auth ------
+
+function MfaCard() {
+  const { user, refreshUser } = useAuth()
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [code, setCode] = useState('')
+  const [setupResult, setSetupResult] = useState<MfaSetupResult | null>(null)
+
+  const setup = useMutation({
+    mutationFn: () =>
+      api.post<MfaSetupResult>('/auth/mfa/setup', { current_password: currentPassword }),
+    onSuccess: (result) => {
+      setSetupResult(result)
+      setCode('')
+    },
+  })
+
+  const confirm = useMutation({
+    mutationFn: () => api.post<MfaChangeResult>('/auth/mfa/confirm', { code }),
+    onSuccess: async (result) => {
+      setCurrentPassword('')
+      setCode('')
+      setSetupResult(null)
+      toast.success(
+        'Two-factor authentication enabled',
+        `${result.revoked_sessions} other session(s) were signed out.`,
+      )
+      await refreshUser()
+    },
+  })
+
+  const disable = useMutation({
+    mutationFn: () =>
+      api.post<MfaChangeResult>('/auth/mfa/disable', {
+        current_password: currentPassword,
+        code,
+      }),
+    onSuccess: async (result) => {
+      setCurrentPassword('')
+      setCode('')
+      toast.success(
+        'Two-factor authentication disabled',
+        `${result.revoked_sessions} other session(s) were signed out.`,
+      )
+      await refreshUser()
+    },
+  })
+
+  const activeMutation = user?.mfa_enabled ? disable : setupResult ? confirm : setup
+  const error = activeMutation.error
+  const errorMessage =
+    error instanceof ApiError
+      ? error.message
+      : error instanceof Error
+        ? error.message
+        : error
+          ? 'The request could not be completed.'
+          : null
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-muted-foreground" aria-hidden />
+          Two-factor authentication
+        </CardTitle>
+        <CardDescription>
+          {user?.mfa_enabled
+            ? 'A time-based code is required after your password when you sign in.'
+            : 'Add an authenticator app code to protect the account if your password is exposed.'}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {errorMessage && (
+          <Alert variant="destructive" className="mb-4" role="alert">
+            <AlertTitle>Two-factor request failed</AlertTitle>
+            <AlertDescription>{errorMessage}</AlertDescription>
+          </Alert>
+        )}
+
+        {!user?.mfa_enabled && !setupResult && (
+          <form
+            className="max-w-md space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              setup.mutate()
+            }}
+          >
+            <div>
+              <Label htmlFor="mfa-setup-password" required>
+                Current password for two-factor setup
+              </Label>
+              <Input
+                id="mfa-setup-password"
+                type="password"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                className="mt-1.5"
+                required
+              />
+            </div>
+            <Button type="submit" loading={setup.isPending}>
+              Set up two-factor
+            </Button>
+          </form>
+        )}
+
+        {!user?.mfa_enabled && setupResult && (
+          <form
+            className="max-w-xl space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              confirm.mutate()
+            }}
+          >
+            <Alert>
+              <AlertTitle>Enter this secret in your authenticator app</AlertTitle>
+              <AlertDescription>
+                <code className="mt-2 block break-all rounded bg-muted p-2 font-mono text-sm text-foreground">
+                  {setupResult.secret}
+                </code>
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs">Show provisioning URI</summary>
+                  <code className="mt-1 block break-all text-xs">
+                    {setupResult.provisioning_uri}
+                  </code>
+                </details>
+              </AlertDescription>
+            </Alert>
+            <div className="max-w-xs">
+              <Label htmlFor="mfa-confirm-code" required>
+                Authenticator code
+              </Label>
+              <Input
+                id="mfa-confirm-code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                value={code}
+                onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="mt-1.5 font-mono tracking-widest"
+                required
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" loading={confirm.isPending} disabled={code.length !== 6}>
+                Enable two-factor
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setSetupResult(null)
+                  setCode('')
+                  setup.reset()
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {user?.mfa_enabled && (
+          <form
+            className="max-w-md space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              disable.mutate()
+            }}
+          >
+            <Alert variant="warning">
+              <AlertTitle>Disabling reduces account protection</AlertTitle>
+              <AlertDescription>
+                Confirm both your password and a current authenticator code. Other sessions will be
+                signed out.
+              </AlertDescription>
+            </Alert>
+            <div>
+              <Label htmlFor="mfa-disable-password" required>
+                Current password for two-factor removal
+              </Label>
+              <Input
+                id="mfa-disable-password"
+                type="password"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                className="mt-1.5"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="mfa-disable-code" required>
+                Current authenticator code
+              </Label>
+              <Input
+                id="mfa-disable-code"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                value={code}
+                onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                className="mt-1.5 font-mono tracking-widest"
+                required
+              />
+            </div>
+            <Button
+              type="submit"
+              variant="destructive"
+              loading={disable.isPending}
+              disabled={code.length !== 6}
+            >
+              Disable two-factor
+            </Button>
+          </form>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 // ------------------------------------------------------------- sessions -----
 
 function SessionsCard() {
@@ -311,7 +540,7 @@ function SessionsCard() {
         void logout()
         return
       }
-      toast.success('Session revoked', describeDevice(session))
+      toast.success(success.revoked('Session'), describeDevice(session))
     },
   })
 
@@ -549,6 +778,8 @@ export default function ProfilePage() {
         </Card>
 
         <ChangePasswordCard autoFocus={focusPassword} />
+
+        <MfaCard />
 
         <SessionsCard />
       </div>

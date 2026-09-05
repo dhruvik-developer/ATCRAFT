@@ -6,7 +6,7 @@
 # =============================================================================
 
 # ------------------------------------------------------------------- deps ---
-FROM node:22.12-alpine AS deps
+FROM node:22.23.2-alpine3.24@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS deps
 
 WORKDIR /app
 
@@ -15,7 +15,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 # ----------------------------------------------------------- development ----
-FROM node:22.12-alpine AS development
+FROM node:22.23.2-alpine3.24@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS development
 
 WORKDIR /app
 ENV NODE_ENV=development
@@ -27,7 +27,7 @@ EXPOSE 5173
 CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
 
 # ------------------------------------------------------------------ build ---
-FROM node:22.12-alpine AS build
+FROM node:22.23.2-alpine3.24@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS build
 
 WORKDIR /app
 ENV NODE_ENV=production
@@ -61,7 +61,7 @@ ENV VITE_ERROR_REPORT_URL=$VITE_ERROR_REPORT_URL
 RUN npm run build
 
 # ------------------------------------------------------------- production ---
-FROM nginx:1.27-alpine AS production
+FROM nginx:1.30.4-alpine3.24@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c AS production
 
 # Serve as an unprivileged user. nginx:alpine already defines the `nginx` user;
 # it needs write access to its runtime directories to start without root.

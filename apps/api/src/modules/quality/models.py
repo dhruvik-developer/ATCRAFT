@@ -66,7 +66,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.core.models import TenantEntity, TenantMasterEntity
+from src.core.models import TenantEntity, TenantMasterEntity, sql_in_list
 from src.core.types import GUID, Percentage, Quantity
 
 # Shared VARCHAR-backed status type. It stores exactly what a plain
@@ -223,15 +223,6 @@ REOPENABLE_STATUSES: tuple[InspectionStatus, ...] = (
 )
 
 
-def _sql_in_list(values: tuple[StrEnum, ...]) -> str:
-    """Render a status vocabulary as a SQL ``IN`` list.
-
-    Generated from the Python enum so a database CHECK cannot drift away from
-    the values the schemas and the state machine validate against.
-    """
-    return ", ".join(f"'{member.value}'" for member in values)
-
-
 class QcTemplate(TenantMasterEntity):
     """A reusable inspection specification: what to measure, and how much to look at.
 
@@ -315,8 +306,7 @@ class QcTemplate(TenantMasterEntity):
             "qc_stage",
             unique=True,
             postgresql_where=text(
-                "is_active AND deleted_at IS NULL "
-                "AND item_id IS NULL AND item_category_id IS NULL"
+                "is_active AND deleted_at IS NULL AND item_id IS NULL AND item_category_id IS NULL"
             ),
         ),
         # The template picker, and the covering index for resolution.
@@ -324,11 +314,9 @@ class QcTemplate(TenantMasterEntity):
         CheckConstraint(
             "item_id IS NULL OR item_category_id IS NULL", name="scope_is_item_or_category"
         ),
+        CheckConstraint(f"qc_stage IN ({sql_in_list(tuple(QcStage))})", name="qc_stage_vocabulary"),
         CheckConstraint(
-            f"qc_stage IN ({_sql_in_list(tuple(QcStage))})", name="qc_stage_vocabulary"
-        ),
-        CheckConstraint(
-            f"sampling_plan IN ({_sql_in_list(tuple(SamplingPlan))})",
+            f"sampling_plan IN ({sql_in_list(tuple(SamplingPlan))})",
             name="sampling_plan_vocabulary",
         ),
         # A plan without the number it needs is not a plan. Enforced here rather
@@ -407,7 +395,7 @@ class QcTemplateParameter(TenantEntity):
         # The check sheet, in the order it is worked.
         Index("ix_qc_template_parameters_order", "company_id", "template_id", "sequence"),
         CheckConstraint(
-            f"parameter_type IN ({_sql_in_list(tuple(ParameterType))})",
+            f"parameter_type IN ({sql_in_list(tuple(ParameterType))})",
             name="parameter_type_vocabulary",
         ),
         CheckConstraint("sequence >= 1", name="sequence_positive"),
@@ -567,7 +555,7 @@ class QcInspection(TenantEntity):
             "company_id",
             "qc_stage",
             "created_at",
-            postgresql_where=text(f"status IN ({_sql_in_list(OPEN_STATUSES)})"),
+            postgresql_where=text(f"status IN ({sql_in_list(OPEN_STATUSES)})"),
         ),
         # Product quality history: rejection rate for one item over a window.
         Index("ix_qc_inspections_item_history", "company_id", "item_id", "inspected_at"),
@@ -592,14 +580,12 @@ class QcInspection(TenantEntity):
             "item_id",
             postgresql_where=text("rework_quantity > 0 AND status <> 'CLOSED'"),
         ),
+        CheckConstraint(f"qc_stage IN ({sql_in_list(tuple(QcStage))})", name="qc_stage_vocabulary"),
         CheckConstraint(
-            f"qc_stage IN ({_sql_in_list(tuple(QcStage))})", name="qc_stage_vocabulary"
+            f"status IN ({sql_in_list(tuple(InspectionStatus))})", name="status_vocabulary"
         ),
         CheckConstraint(
-            f"status IN ({_sql_in_list(tuple(InspectionStatus))})", name="status_vocabulary"
-        ),
-        CheckConstraint(
-            f"result IN ({_sql_in_list(tuple(InspectionResult))})", name="result_vocabulary"
+            f"result IN ({sql_in_list(tuple(InspectionResult))})", name="result_vocabulary"
         ),
         CheckConstraint("inspected_quantity > 0", name="inspected_quantity_positive"),
         CheckConstraint(
@@ -630,8 +616,8 @@ class QcInspection(TenantEntity):
         # status and result answer different questions, but may never disagree
         # about whether a decision has been taken at all.
         CheckConstraint(
-            f"(status IN ({_sql_in_list(OPEN_STATUSES)}) AND result = 'PENDING') "
-            f"OR (status NOT IN ({_sql_in_list(OPEN_STATUSES)}) AND result <> 'PENDING')",
+            f"(status IN ({sql_in_list(OPEN_STATUSES)}) AND result = 'PENDING') "
+            f"OR (status NOT IN ({sql_in_list(OPEN_STATUSES)}) AND result <> 'PENDING')",
             name="status_and_result_agree",
         ),
         CheckConstraint(
@@ -641,7 +627,7 @@ class QcInspection(TenantEntity):
         # A decided inspection has an inspector and a time. Without them the
         # quality history is a set of numbers nobody signed.
         CheckConstraint(
-            f"status IN ({_sql_in_list(OPEN_STATUSES)}) "
+            f"status IN ({sql_in_list(OPEN_STATUSES)}) "
             "OR (inspector_user_id IS NOT NULL AND inspected_at IS NOT NULL)",
             name="decision_is_attributed",
         ),
@@ -702,9 +688,7 @@ class QcInspectionResult(TenantEntity):
         # The check sheet as recorded, and the failure scan behind the verdict.
         Index("ix_qc_inspection_results_sheet", "company_id", "inspection_id"),
         # Parameter-level trend: "how often does plating thickness fail?"
-        Index(
-            "ix_qc_inspection_results_parameter", "company_id", "parameter_id", "is_within_spec"
-        ),
+        Index("ix_qc_inspection_results_parameter", "company_id", "parameter_id", "is_within_spec"),
         # Exactly one value column carries the reading. A row with none is not a
         # measurement, and a row with two cannot be judged: the evaluator would
         # have to guess which one the parameter's type meant.

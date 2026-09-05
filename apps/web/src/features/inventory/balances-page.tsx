@@ -214,8 +214,7 @@ export default function InventoryBalancesPage() {
     // for anything else - which is how the screen came to open on a 422 - so a
     // column added later has to opt in rather than inherit the table's default.
     return base.map((column) => {
-      const id =
-        column.id ?? ('accessorKey' in column ? String(column.accessorKey) : undefined)
+      const id = column.id ?? ('accessorKey' in column ? String(column.accessorKey) : undefined)
       return id !== undefined && BALANCE_SORT_FIELDS.includes(id)
         ? column
         : { ...column, enableSorting: false }
@@ -247,7 +246,7 @@ export default function InventoryBalancesPage() {
         // 200-row pages of a 12-column grid are where the DOM node count starts
         // to hurt scrolling on a warehouse terminal.
         virtualise={list.data.length > 150}
-        maxHeight="65vh"
+        maxHeight="65svh"
         emptyTitle="No stock matches these filters"
         emptyDescription="Change the warehouse or clear the toggles to widen the search."
         toolbar={
@@ -257,6 +256,7 @@ export default function InventoryBalancesPage() {
               label="Warehouse"
               hideLabel
               includeAll
+              className="w-full sm:w-auto"
               value={warehouseId}
               onChange={(next) => list.setParam('warehouse_id', next || undefined)}
             />
@@ -285,7 +285,10 @@ export default function InventoryBalancesPage() {
                   list.setParam('only_in_stock', checked === true ? 'true' : undefined)
                 }
               />
-              <Label htmlFor="balances-only-in-stock" className="cursor-pointer text-xs font-normal">
+              <Label
+                htmlFor="balances-only-in-stock"
+                className="cursor-pointer text-xs font-normal"
+              >
                 Has stock
               </Label>
             </div>

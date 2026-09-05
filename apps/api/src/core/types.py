@@ -12,6 +12,10 @@ Scale choices
                that two places lose real money on a BOM roll-up.
 ``Quantity``   18,4 - supports grams/millimetres without float drift.
 ``Percentage`` 9,4  - tax rates, yields, scrap percentages.
+``ConversionFactor`` 18,8 - a unit ratio (1 BOX = 12 NOS, so NOS -> BOX is
+               0.08333333). Neither money nor a price: rounding it to the
+               unit-price scale made ``input * factor`` disagree with the
+               converted quantity by a whole unit at large quantities.
 """
 
 from __future__ import annotations
@@ -54,10 +58,12 @@ Money = Numeric(18, 4)
 UnitPrice = Numeric(18, 6)
 Quantity = Numeric(18, 4)
 Percentage = Numeric(9, 4)
+ConversionFactor = Numeric(18, 8)
 
 MONEY_QUANTUM = Decimal("0.01")
 QUANTITY_QUANTUM = Decimal("0.0001")
 UNIT_PRICE_QUANTUM = Decimal("0.000001")
+FACTOR_QUANTUM = Decimal("0.00000001")
 
 ZERO = Decimal("0")
 
@@ -77,6 +83,11 @@ def to_quantity(value: Decimal | int | str) -> Decimal:
 
 def to_unit_price(value: Decimal | int | str) -> Decimal:
     return Decimal(value).quantize(UNIT_PRICE_QUANTUM, rounding=ROUND_HALF_UP)
+
+
+def to_factor(value: Decimal | int | str) -> Decimal:
+    """Round a unit-conversion ratio to the scale its column stores."""
+    return Decimal(value).quantize(FACTOR_QUANTUM, rounding=ROUND_HALF_UP)
 
 
 class GUID(TypeDecorator[uuid.UUID]):
@@ -129,17 +140,20 @@ class CIText(TypeDecorator[str]):
 JSONBType = JSONB(astext_type=String())
 
 __all__ = [
+    "FACTOR_QUANTUM",
     "GUID",
     "MONEY_QUANTUM",
     "QUANTITY_QUANTUM",
     "UNIT_PRICE_QUANTUM",
     "ZERO",
     "CIText",
+    "ConversionFactor",
     "JSONBType",
     "Money",
     "Percentage",
     "Quantity",
     "UnitPrice",
+    "to_factor",
     "to_money",
     "to_quantity",
     "to_unit_price",

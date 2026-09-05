@@ -63,7 +63,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.core.models import ImmutableLedgerEntity, OptimisticLockMixin, TenantEntity
+from src.core.models import ImmutableLedgerEntity, OptimisticLockMixin, TenantEntity, sql_in_list
 from src.core.types import GUID, Money, Quantity
 
 #: Lines on one consignment. More distinct items than this is a container
@@ -183,16 +183,6 @@ EDITABLE_STATUSES: tuple[DispatchStatus, ...] = (
 )
 
 
-def _sql_in_list(values: tuple[StrEnum, ...] | type[StrEnum]) -> str:
-    """Render a status vocabulary as a SQL ``IN`` list.
-
-    Generated from the Python enum so a database CHECK cannot drift away from
-    the values the schemas validate against.
-    """
-    members = values if isinstance(values, tuple) else tuple(values)
-    return ", ".join(f"'{member.value}'" for member in members)
-
-
 class Dispatch(TenantEntity, OptimisticLockMixin):
     """One consignment: what is going out, to whom, on whose lorry."""
 
@@ -257,9 +247,7 @@ class Dispatch(TenantEntity, OptimisticLockMixin):
     #: Distinct from ``dispatch_date``, which is planned when the consignment is
     #: raised: "we said Tuesday, it went out Wednesday 19:40" is a real question
     #: and one column cannot answer it.
-    dispatched_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     #: What we promised the receiver. Nullable: a walk-in collection has no
     #: delivery commitment, and the delay sweep must not invent one.
     expected_delivery_date: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -292,9 +280,7 @@ class Dispatch(TenantEntity, OptimisticLockMixin):
     # Frozen onto the header rather than aggregated from the packing order on
     # read: they are what the transporter quotes and bills against, and a later
     # carton correction must not retroactively restate a figure already invoiced.
-    total_boxes: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default="0"
-    )
+    total_boxes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     total_weight_kg: Mapped[Decimal] = mapped_column(
         Quantity, nullable=False, default=Decimal("0"), server_default="0"
     )
@@ -361,16 +347,16 @@ class Dispatch(TenantEntity, OptimisticLockMixin):
             "company_id",
             "expected_delivery_date",
             postgresql_where=text(
-                f"status IN ({_sql_in_list(IN_FLIGHT_STATUSES)}) "
+                f"status IN ({sql_in_list(IN_FLIGHT_STATUSES)}) "
                 "AND expected_delivery_date IS NOT NULL"
             ),
         ),
-        CheckConstraint(f"status IN ({_sql_in_list(DispatchStatus)})", name="status_is_known"),
+        CheckConstraint(f"status IN ({sql_in_list(DispatchStatus)})", name="status_is_known"),
         CheckConstraint(
-            f"dispatch_type IN ({_sql_in_list(DispatchType)})", name="dispatch_type_is_known"
+            f"dispatch_type IN ({sql_in_list(DispatchType)})", name="dispatch_type_is_known"
         ),
         CheckConstraint(
-            f"freight_paid_by IS NULL OR freight_paid_by IN ({_sql_in_list(FreightPaidBy)})",
+            f"freight_paid_by IS NULL OR freight_paid_by IN ({sql_in_list(FreightPaidBy)})",
             name="freight_paid_by_is_known",
         ),
         CheckConstraint("total_boxes >= 0", name="total_boxes_non_negative"),
@@ -389,7 +375,7 @@ class Dispatch(TenantEntity, OptimisticLockMixin):
         # on-time-delivery figure is computed over rows that silently have no
         # arrival date, which reads as 100% on time.
         CheckConstraint(
-            f"status NOT IN ({_sql_in_list(DELIVERED_STATUSES)}) "
+            f"status NOT IN ({sql_in_list(DELIVERED_STATUSES)}) "
             "OR actual_delivery_date IS NOT NULL",
             name="delivered_dispatch_has_arrival_date",
         ),
@@ -540,11 +526,9 @@ class DispatchTrackingEvent(ImmutableLedgerEntity):
         # the pair is a total order even when a batch import shares a timestamp.
         Index("ix_dispatch_tracking_events_keyset", "company_id", "created_at", "id"),
         CheckConstraint(
-            f"event_status IN ({_sql_in_list(DispatchStatus)})", name="event_status_is_known"
+            f"event_status IN ({sql_in_list(DispatchStatus)})", name="event_status_is_known"
         ),
-        CheckConstraint(
-            f"source IN ({_sql_in_list(TrackingEventSource)})", name="source_is_known"
-        ),
+        CheckConstraint(f"source IN ({sql_in_list(TrackingEventSource)})", name="source_is_known"),
     )
 
 

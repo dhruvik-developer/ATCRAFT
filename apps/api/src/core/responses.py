@@ -18,6 +18,8 @@ from typing import Annotated, Any, Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.core.config import settings
+
 T = TypeVar("T")
 
 
@@ -111,6 +113,17 @@ class AcceptedJobResponse(BaseModel):
         )
 
 
+def api_path(path: str) -> str:
+    """Absolute API path under the mounted prefix, for URLs returned in bodies.
+
+    Read from ``settings`` on every call rather than at import so a test - or a
+    deployment that sets ``API_V1_PREFIX`` - sees the prefix the routers were
+    actually mounted under. A literal ``/api/v1`` in a service would point at a
+    route that stops existing the day an operator changes the prefix.
+    """
+    return f"{settings.api_v1_prefix.rstrip('/')}/{path.lstrip('/')}"
+
+
 # Reusable OpenAPI responses map so every route documents its failure modes
 # without repeating the schema (section 68).
 COMMON_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
@@ -140,4 +153,5 @@ __all__ = [
     "ErrorResponse",
     "OffsetPagination",
     "PaginatedResponse",
+    "api_path",
 ]

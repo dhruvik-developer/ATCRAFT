@@ -233,9 +233,7 @@ def offer(
 
 
 def test_the_cheapest_offer_wins_when_everything_else_is_equal():
-    ranked = rank_offers(
-        [offer(DEAR_FAST, "120", 7, "4.0"), offer(CHEAP_SLOW, "100", 7, "4.0")]
-    )
+    ranked = rank_offers([offer(DEAR_FAST, "120", 7, "4.0"), offer(CHEAP_SLOW, "100", 7, "4.0")])
     assert ranked[0].offer.vendor_id == CHEAP_SLOW
     assert ranked[0].rank == 1
     assert ranked[0].is_lowest_price is True
@@ -243,9 +241,7 @@ def test_the_cheapest_offer_wins_when_everything_else_is_equal():
 
 def test_a_far_shorter_lead_time_can_beat_a_slightly_higher_price():
     """A part that arrives four weeks late stops a line; the weights say so."""
-    ranked = rank_offers(
-        [offer(CHEAP_SLOW, "100", 60, "4.0"), offer(DEAR_FAST, "103", 3, "4.0")]
-    )
+    ranked = rank_offers([offer(CHEAP_SLOW, "100", 60, "4.0"), offer(DEAR_FAST, "103", 3, "4.0")])
     assert ranked[0].offer.vendor_id == DEAR_FAST
     assert ranked[0].is_fastest is True
     assert ranked[0].is_lowest_price is False
@@ -253,9 +249,7 @@ def test_a_far_shorter_lead_time_can_beat_a_slightly_higher_price():
 
 def test_a_small_lead_time_advantage_does_not_beat_a_large_price_gap():
     """Price carries 60%; delivery must not quietly become the deciding factor."""
-    ranked = rank_offers(
-        [offer(CHEAP_SLOW, "100", 14, "4.0"), offer(DEAR_FAST, "180", 10, "4.0")]
-    )
+    ranked = rank_offers([offer(CHEAP_SLOW, "100", 14, "4.0"), offer(DEAR_FAST, "180", 10, "4.0")])
     assert ranked[0].offer.vendor_id == CHEAP_SLOW
 
 
@@ -273,9 +267,7 @@ def test_an_unrated_vendor_is_scored_neutrally_not_badly():
     unrated = score_offer(
         offer(MIDDLE, "100", 7, None), best_price=Decimal("100"), best_lead_time=7
     )
-    poor = score_offer(
-        offer(MIDDLE, "100", 7, "0.5"), best_price=Decimal("100"), best_lead_time=7
-    )
+    poor = score_offer(offer(MIDDLE, "100", 7, "0.5"), best_price=Decimal("100"), best_lead_time=7)
     excellent = score_offer(
         offer(MIDDLE, "100", 7, "5.0"), best_price=Decimal("100"), best_lead_time=7
     )

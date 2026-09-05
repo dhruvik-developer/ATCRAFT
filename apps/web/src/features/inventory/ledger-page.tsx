@@ -16,7 +16,7 @@ import { useCallback, useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { PageHeader } from '@/components/shared'
+import { DateRangeFilter, PageHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -25,8 +25,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/overlays'
-import { Badge, Input, Label } from '@/components/ui/primitives'
+import { Badge, Label } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
+import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 import { formatDateTime, formatQuantity, humanise, toDateInput, toDecimal } from '@/lib/format'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { CursorEnvelope } from '@/types/api'
@@ -34,7 +35,6 @@ import type { CursorEnvelope } from '@/types/api'
 import { ItemPicker, WarehouseSelect } from './pickers'
 import { TRANSACTION_TYPES, type InventoryLedgerRow, type StockState } from './types'
 
-const PAGE_SIZE = 50
 const ALL = '__all__'
 
 /** Makes a date-only upper bound inclusive of the whole day. */
@@ -148,7 +148,7 @@ export default function InventoryLedgerPage() {
       // operator opens this screen to see.
       occurred_from: dateFrom,
       occurred_to: dateTo + END_OF_DAY,
-      limit: PAGE_SIZE,
+      limit: DEFAULT_PAGE_SIZE,
     }),
     [itemId, warehouseId, transactionType, dateFrom, dateTo],
   )
@@ -305,7 +305,7 @@ export default function InventoryLedgerPage() {
         onRefresh={() => void ledger.refetch()}
         getRowId={(row) => row.id}
         virtualise={rows.length > 150}
-        maxHeight="65vh"
+        maxHeight="65svh"
         emptyTitle="No movements in this window"
         emptyDescription="Widen the date range or clear the item and warehouse filters."
         emptyAction={
@@ -320,6 +320,7 @@ export default function InventoryLedgerPage() {
               id="ledger-item"
               label="Item"
               hideLabel
+              className="w-full sm:w-auto"
               value={itemId}
               onChange={(next) => setFilter('item_id', next ?? undefined)}
             />
@@ -329,11 +330,12 @@ export default function InventoryLedgerPage() {
               label="Warehouse"
               hideLabel
               includeAll
+              className="w-full sm:w-auto"
               value={warehouseId}
               onChange={(next) => setFilter('warehouse_id', next || undefined)}
             />
 
-            <div className="space-y-1.5">
+            <div className="w-full space-y-1.5 sm:w-auto">
               <Label htmlFor="ledger-type" className="sr-only">
                 Transaction type
               </Label>
@@ -346,7 +348,7 @@ export default function InventoryLedgerPage() {
                 <SelectTrigger
                   id="ledger-type"
                   aria-label="Transaction type"
-                  className="min-w-[190px]"
+                  className="sm:min-w-[190px]"
                 >
                   <SelectValue placeholder="All movement types" />
                 </SelectTrigger>
@@ -361,33 +363,15 @@ export default function InventoryLedgerPage() {
               </Select>
             </div>
 
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="ledger-from" className="text-xs text-muted-foreground">
-                From
-              </Label>
-              <Input
-                id="ledger-from"
-                type="date"
-                value={dateFrom}
-                max={dateTo}
-                onChange={(event) => setFilter('from', event.target.value || undefined)}
-                className="w-[9.5rem]"
-              />
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="ledger-to" className="text-xs text-muted-foreground">
-                To
-              </Label>
-              <Input
-                id="ledger-to"
-                type="date"
-                value={dateTo}
-                min={dateFrom}
-                onChange={(event) => setFilter('to', event.target.value || undefined)}
-                className="w-[9.5rem]"
-              />
-            </div>
+            <DateRangeFilter
+              id="ledger"
+              from={dateFrom}
+              to={dateTo}
+              onFromChange={(value) => setFilter('from', value || undefined)}
+              onToChange={(value) => setFilter('to', value || undefined)}
+              fromInputProps={{ max: dateTo }}
+              toInputProps={{ min: dateFrom }}
+            />
           </div>
         }
       />

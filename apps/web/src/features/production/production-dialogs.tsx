@@ -40,9 +40,12 @@ import {
 import { Alert, AlertDescription, Input, Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
+import { useUserOptions } from '@/hooks/use-user-options'
 import { api } from '@/lib/api-client'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatQuantity, humanise, toDateInput, toDecimal } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -54,11 +57,11 @@ import {
   outstandingQuantity,
   returnableQuantity,
   useMachineOptions,
-  useOperatorOptions,
   type MaterialIssueDetail,
   type MaterialIssuePostResult,
   type ProductionComponent,
   type ProductionEntryResult,
+  type OperatorOption,
   type ProductionOrderRow,
 } from './production-model'
 
@@ -67,9 +70,6 @@ const WHOLE = /^\d{1,6}$/
 const OPTIONAL_QUANTITY = /^(\d{1,14}(\.\d{1,4})?)?$/
 /** Minutes are a measured value on the wire, so decimals are legitimate. */
 const MINUTES = /^(\d{1,6}(\.\d{1,4})?)?$/
-
-/** Radix Select forbids an empty option value, so "not chosen" needs a sentinel. */
-const NONE = '__none'
 
 const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 /** Decimals stay strings all the way to the wire - never parsed into a double. */
@@ -189,7 +189,10 @@ export function ProductionOrderFormDialog({
       }),
     onSuccess: (order) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.production.all })
-      toast.success('Production order raised', `${order.code} is a draft awaiting approval.`)
+      toast.success(
+        success.created('Production order'),
+        `${order.code} is a draft awaiting approval.`,
+      )
       onOpenChange(false)
       navigate(`/production/${order.id}`)
     },
@@ -258,8 +261,8 @@ export function ProductionOrderFormDialog({
                   name="bom_id"
                   render={({ field }) => (
                     <Select
-                      value={field.value || NONE}
-                      onValueChange={(value) => field.onChange(value === NONE ? '' : value)}
+                      value={field.value || SELECT_NONE}
+                      onValueChange={(value) => field.onChange(value === SELECT_NONE ? '' : value)}
                       disabled={!itemId || bomRows.length === 0}
                     >
                       <SelectTrigger
@@ -272,7 +275,7 @@ export function ProductionOrderFormDialog({
                         />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NONE}>The item&apos;s default BOM</SelectItem>
+                        <SelectItem value={SELECT_NONE}>The item&apos;s default BOM</SelectItem>
                         {bomRows.map((bom) => (
                           <SelectItem key={bom.id} value={bom.id}>
                             {bom.code} - v{bom.version}
@@ -403,8 +406,11 @@ const issueSchema = z.object({
     .trim()
     // `MaterialIssueCreate.reason` is min 3 / max 255. A shorter one is a 422,
     // not a shrug.
-    .min(3, 'Every stock movement is recorded with a reason of at least 3 characters')
-    .max(255, 'At most 255 characters'),
+    .min(
+      REASON_MIN_LENGTH,
+      `Every stock movement is recorded with a reason of at least ${REASON_MIN_LENGTH} characters`,
+    )
+    .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
   lines: z.array(
     z.object({
       component_id: z.string(),
@@ -491,20 +497,17 @@ export function IssueMaterialDialog({
       // moves until it is posted", which is what lets a storekeeper review the
       // kit. Stopping after it left the dialog claiming stock had left the store
       // while the ledger was untouched.
-      const draft = await api.post<MaterialIssueDetail>(
-        `/production/${orderId}/material-issues`,
-        {
-          warehouse_id: orNull(values.warehouse_id),
-          reason: values.reason.trim(),
-          lines: values.lines
-            .filter((line) => toDecimal(line.quantity).greaterThan(0))
-            .map((line) => ({
-              component_id: line.component_id,
-              line_number: line.line_number,
-              quantity: asDecimal(line.quantity),
-            })),
-        },
-      )
+      const draft = await api.post<MaterialIssueDetail>(`/production/${orderId}/material-issues`, {
+        warehouse_id: orNull(values.warehouse_id),
+        reason: values.reason.trim(),
+        lines: values.lines
+          .filter((line) => toDecimal(line.quantity).greaterThan(0))
+          .map((line) => ({
+            component_id: line.component_id,
+            line_number: line.line_number,
+            quantity: asDecimal(line.quantity),
+          })),
+      })
 
       try {
         // The body is required even though there is nothing to say in it.
@@ -709,8 +712,11 @@ const returnSchema = z.object({
     .trim()
     // The same `MaterialIssueCreate` body the issue posts, so the same
     // min 3 / max 255. A shorter one is a 422.
-    .min(3, 'Every stock movement is recorded with a reason of at least 3 characters')
-    .max(255, 'At most 255 characters'),
+    .min(
+      REASON_MIN_LENGTH,
+      `Every stock movement is recorded with a reason of at least ${REASON_MIN_LENGTH} characters`,
+    )
+    .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
   lines: z.array(
     z
       .object({
@@ -1152,7 +1158,7 @@ export function RecordProductionDialog({
   const queryClient = useQueryClient()
 
   const machines = useMachineOptions(open && can(P.MACHINE_VIEW))
-  const operators = useOperatorOptions(open && can(P.USER_VIEW))
+  const operators = useUserOptions<OperatorOption>({ enabled: open && can(P.USER_VIEW) })
   const machineRows = machines.data ?? []
   const operatorRows = operators.data ?? []
 
@@ -1253,8 +1259,8 @@ export function RecordProductionDialog({
                   name="operator_user_id"
                   render={({ field }) => (
                     <Select
-                      value={field.value || NONE}
-                      onValueChange={(value) => field.onChange(value === NONE ? '' : value)}
+                      value={field.value || SELECT_NONE}
+                      onValueChange={(value) => field.onChange(value === SELECT_NONE ? '' : value)}
                       disabled={operatorRows.length === 0}
                     >
                       <SelectTrigger id="entry-operator" className="mt-1.5" aria-label="Operator">
@@ -1269,7 +1275,7 @@ export function RecordProductionDialog({
                         />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NONE}>Not recorded</SelectItem>
+                        <SelectItem value={SELECT_NONE}>Not recorded</SelectItem>
                         {operatorRows.map((operator) => (
                           <SelectItem key={operator.id} value={operator.id}>
                             {operator.full_name}
@@ -1288,8 +1294,8 @@ export function RecordProductionDialog({
                   name="machine_id"
                   render={({ field }) => (
                     <Select
-                      value={field.value || NONE}
-                      onValueChange={(value) => field.onChange(value === NONE ? '' : value)}
+                      value={field.value || SELECT_NONE}
+                      onValueChange={(value) => field.onChange(value === SELECT_NONE ? '' : value)}
                       disabled={machineRows.length === 0}
                     >
                       <SelectTrigger id="entry-machine" className="mt-1.5" aria-label="Machine">
@@ -1304,7 +1310,7 @@ export function RecordProductionDialog({
                         />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NONE}>Not recorded</SelectItem>
+                        <SelectItem value={SELECT_NONE}>Not recorded</SelectItem>
                         {machineRows.map((machine) => (
                           <SelectItem key={machine.id} value={machine.id}>
                             {machine.code} - {machine.name}

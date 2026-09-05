@@ -67,7 +67,7 @@ function dealer(overrides: Partial<Dealer> = {}): Dealer {
     legal_name: 'Northline Distributors LLP',
     customer_type: 'DEALER',
     price_list_type: 'DEALER',
-    gstin: '27AAAAA0000A1Z5',
+    gstin: '27AAAAA0000A1Z2',
     credit_limit: '5000.0000',
     credit_days: 45,
     outstanding_amount: '1000.0000',

@@ -11,7 +11,9 @@ Three conventions carry through this file:
   ``credit_limit`` would silently clear it.
 * **Statutory identifiers are validated, not merely length-checked.** A GSTIN
   carries a mod-36 check digit and embeds the PAN; verifying both here stops a
-  transposed character from reaching a GST return, where it is expensive.
+  transposed character from reaching a GST return, where it is expensive. The
+  validators live in :mod:`src.common.tax_ids` and are the same ones the
+  customer and organisation masters apply.
 """
 
 from __future__ import annotations
@@ -24,31 +26,29 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
-from src.common.codes import normalise_code
+from src.common.codes import clean_name, strip_optional, validate_code
+from src.common.tax_ids import (
+    gstin_check_digit,
+    pan_from_gstin,
+    state_code_from_gstin,
+    validate_gstin,
+    validate_pan,
+)
+from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
 from src.modules.vendors.models import (
+    DEFAULT_RATING_WINDOW_DAYS,
+    MAX_RATING_WINDOW_DAYS,
     MAX_VENDOR_RATING,
+    MIN_RATING_WINDOW_DAYS,
     TransporterType,
     VendorContactRole,
     VendorType,
 )
 
-# A code reaches purchase orders, printed labels and vendor-portal URLs;
-# punctuation beyond dot, dash, slash and underscore makes those ambiguous.
-CODE_PATTERN = r"^[A-Z0-9][A-Z0-9._\-/ ]*$"
-
-# 2-digit state code, 10-character PAN, entity number, 'Z', check digit.
-GSTIN_PATTERN = r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$"
-PAN_PATTERN = r"^[A-Z]{5}[0-9]{4}[A-Z]$"
 # 4-letter bank code, a reserved '0', 6-character branch code.
 IFSC_PATTERN = r"^[A-Z]{4}0[A-Z0-9]{6}$"
 SWIFT_PATTERN = r"^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$"
 
-#: Alphabet the GSTIN check digit is computed over: 0-9 then A-Z, value = index.
-_GSTIN_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
-#: Where the PAN sits inside a GSTIN. A GSTIN whose embedded PAN disagrees with
-#: the PAN recorded separately means one of the two was mistyped.
-_GSTIN_PAN_SLICE = slice(2, 12)
 
 #: The literal a transporter's tracking template must contain. Kept as a
 #: constant because the model's check constraint and the URL builder in the
@@ -60,102 +60,22 @@ Name = Annotated[str, Field(min_length=1, max_length=255)]
 Rating = Annotated[Decimal, Field(ge=0, le=MAX_VENDOR_RATING, max_digits=3, decimal_places=2)]
 
 
-def gstin_check_digit(first_fourteen: str) -> str:
-    """Compute the 15th character of a GSTIN from the first fourteen.
-
-    The published algorithm: each character's alphabet index is multiplied by an
-    alternating factor of 1 and 2, the quotient and remainder of that product
-    over 36 are both added to a running sum, and the check digit is the
-    character whose index is ``(36 - sum % 36) % 36``.
-    """
-    total = 0
-    for position, char in enumerate(first_fourteen):
-        value = _GSTIN_ALPHABET.index(char)
-        product = value * (2 if position % 2 else 1)
-        total += product // 36 + product % 36
-    return _GSTIN_ALPHABET[(36 - total % 36) % 36]
-
-
-def validate_gstin(value: str) -> str:
-    """Normalise and fully validate a GSTIN, check digit included."""
-    candidate = value.strip().upper().replace(" ", "")
-    if not re.match(GSTIN_PATTERN, candidate):
-        raise ValueError(
-            "GSTIN must be 15 characters: 2-digit state code, 10-character PAN, "
-            "entity number, 'Z' and a check digit."
-        )
-    if gstin_check_digit(candidate[:14]) != candidate[14]:
-        # Catches the transposition and single-character typos that a pattern
-        # match cannot: those produce a structurally valid but non-existent
-        # GSTIN, which is only discovered when a GST return is rejected.
-        raise ValueError("GSTIN check digit is wrong; the number was mistyped.")
-    return candidate
-
-
-def validate_pan(value: str) -> str:
-    candidate = value.strip().upper().replace(" ", "")
-    if not re.match(PAN_PATTERN, candidate):
-        raise ValueError("PAN must be 5 letters, 4 digits and 1 letter, e.g. AAPFU0939F.")
-    return candidate
-
-
-def pan_from_gstin(gstin: str) -> str:
-    """The PAN embedded in a GSTIN, positions 3-12."""
-    return gstin[_GSTIN_PAN_SLICE]
-
-
-def state_code_from_gstin(gstin: str) -> str:
-    """The GST state code a GSTIN begins with."""
-    return gstin[:2]
-
-
-def _normalise_code(value: str) -> str:
-    normalised = normalise_code(value)
-    if not normalised:
-        raise ValueError("Code cannot be blank.")
-    if not re.match(CODE_PATTERN, normalised):
-        raise ValueError(
-            "Code may contain only letters, digits, dot, dash, slash, underscore and spaces, "
-            "and must start with a letter or digit."
-        )
-    return normalised
-
-
-def _clean_name(value: str) -> str:
-    cleaned = " ".join(value.split())
-    if not cleaned:
-        raise ValueError("Name cannot be blank.")
-    return cleaned
-
-
 def _clean_optional_name(value: str | None) -> str | None:
-    return None if value is None else _clean_name(value)
-
-
-def _strip_optional(value: str | None) -> str | None:
-    """Collapse a whitespace-only optional field to NULL.
-
-    An empty string and NULL must not both mean "not supplied", or a report
-    filtering on ``gstin IS NULL`` misses half the unregistered vendors.
-    """
-    if value is None:
-        return None
-    stripped = value.strip()
-    return stripped or None
+    return None if value is None else clean_name(value)
 
 
 def _upper_optional(value: str | None) -> str | None:
-    stripped = _strip_optional(value)
+    stripped = strip_optional(value)
     return stripped.upper().replace(" ", "") if stripped else None
 
 
 def _optional_gstin(value: str | None) -> str | None:
-    stripped = _strip_optional(value)
+    stripped = strip_optional(value)
     return validate_gstin(stripped) if stripped else None
 
 
 def _optional_pan(value: str | None) -> str | None:
-    stripped = _strip_optional(value)
+    stripped = strip_optional(value)
     return validate_pan(stripped) if stripped else None
 
 
@@ -192,7 +112,7 @@ def _validate_tracking_template(value: str | None) -> str | None:
     rendered for customers and an unencrypted carrier page is an easy downgrade
     target.
     """
-    stripped = _strip_optional(value)
+    stripped = strip_optional(value)
     if stripped is None:
         return None
     if not stripped.lower().startswith("https://"):
@@ -277,7 +197,9 @@ class VendorCreate(_StatutoryConsistency):
     payment_terms_days: int = Field(default=0, ge=0, le=365)
     credit_limit: Decimal | None = Field(default=None, ge=0, max_digits=18, decimal_places=4)
     lead_time_days: int = Field(default=0, ge=0, le=999)
-    currency: str = Field(default="INR", min_length=3, max_length=3)
+    currency: str = Field(
+        default=DEFAULT_CURRENCY, min_length=CURRENCY_CODE_LENGTH, max_length=CURRENCY_CODE_LENGTH
+    )
 
     bank_name: str | None = Field(default=None, max_length=120)
     bank_branch: str | None = Field(default=None, max_length=120)
@@ -303,8 +225,8 @@ class VendorCreate(_StatutoryConsistency):
     is_active: bool = True
     notes: str | None = None
 
-    _code = field_validator("code")(_normalise_code)
-    _name = field_validator("name")(_clean_name)
+    _code = field_validator("code")(validate_code)
+    _name = field_validator("name")(clean_name)
     _legal_name = field_validator("legal_name")(_clean_optional_name)
     _types = field_validator("vendor_types")(_normalise_vendor_types)
     _gstin = field_validator("gstin")(_optional_gstin)
@@ -326,7 +248,7 @@ class VendorCreate(_StatutoryConsistency):
         "bank_branch",
         "bank_account_name",
         "bank_account_number",
-    )(_strip_optional)
+    )(strip_optional)
 
 
 class VendorUpdate(_StatutoryConsistency):
@@ -399,7 +321,7 @@ class VendorUpdate(_StatutoryConsistency):
         "bank_branch",
         "bank_account_name",
         "bank_account_number",
-    )(_strip_optional)
+    )(strip_optional)
 
     @field_validator("vendor_types")
     @classmethod
@@ -510,8 +432,8 @@ class VendorContactCreate(BaseModel):
     is_active: bool = True
     notes: str | None = None
 
-    _name = field_validator("name")(_clean_name)
-    _strip = field_validator("designation", "phone", "mobile")(_strip_optional)
+    _name = field_validator("name")(clean_name)
+    _strip = field_validator("designation", "phone", "mobile")(strip_optional)
 
     @model_validator(mode="after")
     def _reachable(self) -> VendorContactCreate:
@@ -542,7 +464,7 @@ class VendorContactUpdate(BaseModel):
     notes: str | None = None
 
     _name = field_validator("name")(_clean_optional_name)
-    _strip = field_validator("designation", "phone", "mobile")(_strip_optional)
+    _strip = field_validator("designation", "phone", "mobile")(strip_optional)
 
 
 class VendorContactRead(BaseModel):
@@ -632,7 +554,9 @@ class VendorRatingRequest(BaseModel):
     client would let a buyer type their own vendor's score.
     """
 
-    window_days: int = Field(default=180, ge=7, le=1095)
+    window_days: int = Field(
+        default=DEFAULT_RATING_WINDOW_DAYS, ge=MIN_RATING_WINDOW_DAYS, le=MAX_RATING_WINDOW_DAYS
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -668,8 +592,8 @@ class TransporterCreate(BaseModel):
     is_active: bool = True
     notes: str | None = None
 
-    _code = field_validator("code")(_normalise_code)
-    _name = field_validator("name")(_clean_name)
+    _code = field_validator("code")(validate_code)
+    _name = field_validator("name")(clean_name)
     _gstin = field_validator("gstin")(_optional_gstin)
     _pan = field_validator("pan")(_optional_pan)
     _upper = field_validator("state_code")(_upper_optional)
@@ -683,7 +607,7 @@ class TransporterCreate(BaseModel):
         "city",
         "state",
         "postal_code",
-    )(_strip_optional)
+    )(strip_optional)
 
     @model_validator(mode="after")
     def _statutory(self) -> TransporterCreate:
@@ -732,7 +656,7 @@ class TransporterUpdate(BaseModel):
         "city",
         "state",
         "postal_code",
-    )(_strip_optional)
+    )(strip_optional)
 
     @model_validator(mode="after")
     def _statutory(self) -> TransporterUpdate:
@@ -847,10 +771,7 @@ class ApprovalRequest(BaseModel):
 
 
 __all__ = [
-    "CODE_PATTERN",
-    "GSTIN_PATTERN",
     "IFSC_PATTERN",
-    "PAN_PATTERN",
     "TRACKING_PLACEHOLDER",
     "ApprovalRequest",
     "StatusChangeRequest",

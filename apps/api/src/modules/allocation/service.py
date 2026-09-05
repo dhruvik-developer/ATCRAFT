@@ -83,6 +83,7 @@ from src.core.errors import (
     NotFoundError,
 )
 from src.core.logging import get_logger
+from src.core.observability import insufficient_stock_events
 from src.core.pagination import PageParams, SortParams, paginate
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -142,7 +143,7 @@ MAX_EXPIRY_BATCH = 200
 # -----------------------------------------------------------------------------
 
 RESERVATION_FLOW: StateMachine[ReservationStatus] = StateMachine(
-    entity="StockReservation",
+    entity="Stock reservation",
     initial=ReservationStatus.ACTIVE,
     transitions=(
         # The two self-edges are real transitions, not padding: a partial release
@@ -218,7 +219,7 @@ RESERVATION_FLOW: StateMachine[ReservationStatus] = StateMachine(
 )
 
 REALLOCATION_FLOW: StateMachine[ReallocationStatus] = StateMachine(
-    entity="ReallocationRequest",
+    entity="Reallocation request",
     initial=ReallocationStatus.PENDING,
     transitions=(
         Transition(
@@ -690,8 +691,7 @@ def rank_candidates(
                 remaining_quantity=to_quantity(facts.remaining_quantity),
                 takeable_quantity=to_quantity(takeable),
                 requires_approval=(
-                    facts.reservation_type is ReservationType.HARD
-                    and policy.hard_requires_approval
+                    facts.reservation_type is ReservationType.HARD and policy.hard_requires_approval
                 ),
                 score=score,
                 reasons=reasons,
@@ -853,6 +853,7 @@ class ReservationEngine:
         """
         available = self.promisable(balance)
         if quantity > available:
+            insufficient_stock_events.inc()
             raise InsufficientStockError(
                 item_code=item.code,
                 warehouse_code=warehouse_code,
@@ -1296,9 +1297,7 @@ async def suggest_reallocation(
     if needed <= ZERO:
         return []
 
-    free = await available_to_promise(
-        session, tenant, item_id=item_id, warehouse_id=warehouse_id
-    )
+    free = await available_to_promise(session, tenant, item_id=item_id, warehouse_id=warehouse_id)
     shortfall = to_quantity(needed - max(ZERO, to_quantity(free)))
     if shortfall <= ZERO:
         return []
@@ -1386,9 +1385,7 @@ async def reallocate(
                 details={"request_id": str(request.id), "reservation_id": str(donor_preview.id)},
             )
 
-        item, warehouse_code = await engine.resolve_position(
-            request.item_id, request.warehouse_id
-        )
+        item, warehouse_code = await engine.resolve_position(request.item_id, request.warehouse_id)
         # Donor and recipient share one position - the recipient is being given
         # the donor's stock, not stock in general - so one balance row, one lock,
         # and a release and a reserve that provably cancel out.
@@ -1610,9 +1607,7 @@ async def expire_stale_reservations(
     engine = ReservationEngine(session, tenant)
     moment = utcnow()
 
-    stale = await engine.reservations.due_for_expiry(
-        moment, limit=min(limit, MAX_EXPIRY_BATCH)
-    )
+    stale = await engine.reservations.due_for_expiry(moment, limit=min(limit, MAX_EXPIRY_BATCH))
     if not stale:
         return []
 
@@ -1620,6 +1615,9 @@ async def expire_stale_reservations(
     #: Reservations this pass could not expire without violating an invariant.
     #: Reported rather than raised - see the guard inside the loop.
     skipped: list[uuid.UUID] = []
+    #: The status each expired row held before the sweep, captured while it is
+    #: still on the row so the lifecycle audit entry can say what it moved from.
+    previous_status: dict[uuid.UUID, ReservationStatus] = {}
     async with transaction(session):
         # Every affected position is locked in one ordered acquisition, then
         # every reservation, so the sweep cannot deadlock against a live order
@@ -1676,6 +1674,7 @@ async def expire_stale_reservations(
                 status=reservation.status,
             )
             RESERVATION_FLOW.assert_transition(reservation.status, ReservationStatus.EXPIRED)
+            previous_status[reservation.id] = reservation.status
             engine.apply_drawdown(balances[grain], plan.applied_quantity)
             reservation.released_quantity = to_quantity(
                 to_quantity(reservation.released_quantity) + plan.applied_quantity
@@ -1697,6 +1696,22 @@ async def expire_stale_reservations(
                         f"{reservation.demand_code or reservation.demand_id} ({reason})"
                     ),
                     context={"expires_at": reservation.expires_at, "release_reason": reason},
+                )
+                # The lifecycle row every other reservation transition writes
+                # (release, consume, reallocation): an auditor filtering the log
+                # on ``changed_fields = ["status"]`` must see expiries too, not
+                # only the free-text summary above.
+                await record_status_change(
+                    session,
+                    company_id=tenant.company_id,
+                    entity_type=AUDIT_ENTITY_RESERVATION,
+                    entity_id=reservation.id,
+                    entity_code=reservation.demand_code,
+                    from_status=str(previous_status[row_id]),
+                    to_status=str(ReservationStatus.EXPIRED),
+                    user_id=tenant.user_id,
+                    action=AuditAction.RESERVATION_CHANGE,
+                    reason=reason,
                 )
 
     log.info(
@@ -1778,8 +1793,7 @@ def _assert_separate_approver(
         return
     if request.requested_by_id is not None and request.requested_by_id == approved_by:
         raise BusinessRuleError(
-            "A reallocation must be approved by someone other than the person who "
-            "requested it.",
+            "A reallocation must be approved by someone other than the person who requested it.",
             details={"request_id": str(request.id)},
         )
 
@@ -2102,15 +2116,12 @@ class AllocationService:
                 },
             )
 
-        remaining = remaining_of(
-            donor.quantity, donor.consumed_quantity, donor.released_quantity
-        )
+        remaining = remaining_of(donor.quantity, donor.consumed_quantity, donor.released_quantity)
         claims = await self.requests.claimed_quantities([donor.id])
         unclaimed = to_quantity(remaining - claims.get(donor.id, ZERO))
         if unclaimed <= ZERO:
             raise BusinessRuleError(
-                "That reservation is already promised in full to another reallocation "
-                "request.",
+                "That reservation is already promised in full to another reallocation request.",
                 code=ErrorCode.INSUFFICIENT_AVAILABLE_STOCK,
                 details={
                     "from_reservation_id": str(donor.id),
@@ -2181,9 +2192,7 @@ class AllocationService:
         warehouses = await self.inventory.warehouse_facts([row.warehouse_id for row in rows])
         donors = {
             donor.id: donor
-            for donor in await self.reservations.get_many(
-                [row.from_reservation_id for row in rows]
-            )
+            for donor in await self.reservations.get_many([row.from_reservation_id for row in rows])
         }
 
         reads: list[ReallocationRequestRead] = []
@@ -2270,9 +2279,7 @@ def _impact_summary(
             "demand_id": str(payload.to_demand_id),
             "demand_code": payload.to_demand_code,
             "priority": payload.priority,
-            "required_date": (
-                payload.required_date.isoformat() if payload.required_date else None
-            ),
+            "required_date": (payload.required_date.isoformat() if payload.required_date else None),
             "quantity_needed": str(payload.quantity),
         },
         "candidates_considered": considered,

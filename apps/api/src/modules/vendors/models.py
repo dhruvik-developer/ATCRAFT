@@ -53,7 +53,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.core.models import TenantEntity, TenantMasterEntity
+from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
+from src.core.models import TenantEntity, TenantMasterEntity, sql_array_literal
 from src.core.types import GUID, Money
 
 
@@ -96,19 +97,19 @@ class TransporterType(StrEnum):
     COURIER = "COURIER"
 
 
-def _sql_array_literal(values: type[StrEnum]) -> str:
-    """Render a StrEnum as a PostgreSQL array literal for a check constraint.
-
-    Generated from the enum rather than typed out so the constraint cannot drift
-    from the Python vocabulary the rest of the module validates against.
-    """
-    members = ",".join(f"'{member.value}'" for member in values)
-    return f"ARRAY[{members}]::varchar[]"
-
-
 #: Highest rating the 0-5 scale can express. Referenced by the check constraint
 #: and by the rating engine so both agree on the ceiling.
 MAX_VENDOR_RATING = 5
+
+#: Default measurement window for a rating. Half a year is long enough to
+#: include seasonal variation and short enough that a vendor who fixed their
+#: delivery problem last quarter is not punished forever.
+DEFAULT_RATING_WINDOW_DAYS = 180
+#: The window a caller may ask for, enforced by the recompute request schema
+#: and the preview query alike, so a stored rating and its preview can never be
+#: computed over a window the other would refuse.
+MIN_RATING_WINDOW_DAYS = 7
+MAX_RATING_WINDOW_DAYS = 1095
 
 
 class Vendor(TenantMasterEntity):
@@ -149,7 +150,10 @@ class Vendor(TenantMasterEntity):
         Integer, nullable=False, default=0, server_default="0"
     )
     currency: Mapped[str] = mapped_column(
-        String(3), nullable=False, default="INR", server_default="INR"
+        String(CURRENCY_CODE_LENGTH),
+        nullable=False,
+        default=DEFAULT_CURRENCY,
+        server_default=DEFAULT_CURRENCY,
     )
 
     # --- performance --------------------------------------------------------
@@ -252,7 +256,7 @@ class Vendor(TenantMasterEntity):
         ),
         CheckConstraint("cardinality(vendor_types) >= 1", name="vendor_types_not_empty"),
         CheckConstraint(
-            f"vendor_types <@ {_sql_array_literal(VendorType)}",
+            f"vendor_types <@ {sql_array_literal(VendorType)}",
             name="vendor_types_known",
         ),
         CheckConstraint("payment_terms_days >= 0", name="payment_terms_non_negative"),
@@ -326,7 +330,7 @@ class VendorContact(TenantMasterEntity):
             name="contact_is_reachable",
         ),
         CheckConstraint(
-            f"contact_role = ANY({_sql_array_literal(VendorContactRole)})",
+            f"contact_role = ANY({sql_array_literal(VendorContactRole)})",
             name="contact_role_known",
         ),
     )
@@ -439,19 +443,21 @@ class Transporter(TenantMasterEntity):
         # the doubled form can survive into the emitted DDL. This formulation
         # has no percent sign to escape and means exactly the same thing.
         CheckConstraint(
-            "tracking_url_template IS NULL "
-            "OR strpos(tracking_url_template, '{tracking_id}') > 0",
+            "tracking_url_template IS NULL OR strpos(tracking_url_template, '{tracking_id}') > 0",
             name="tracking_template_has_placeholder",
         ),
         CheckConstraint(
-            f"transporter_type = ANY({_sql_array_literal(TransporterType)})",
+            f"transporter_type = ANY({sql_array_literal(TransporterType)})",
             name="transporter_type_known",
         ),
     )
 
 
 __all__ = [
+    "DEFAULT_RATING_WINDOW_DAYS",
+    "MAX_RATING_WINDOW_DAYS",
     "MAX_VENDOR_RATING",
+    "MIN_RATING_WINDOW_DAYS",
     "Transporter",
     "TransporterType",
     "Vendor",

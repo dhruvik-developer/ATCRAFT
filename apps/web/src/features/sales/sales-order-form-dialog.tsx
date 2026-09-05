@@ -42,8 +42,10 @@ import { CustomerPicker } from '@/features/customers/customer-picker'
 import type { AddressType, CustomerAddress } from '@/features/customers/customer-types'
 import { WarehouseSelect } from '@/features/inventory/pickers'
 import { api } from '@/lib/api-client'
+import { DEFAULT_CURRENCY, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatQuantity, toDateInput } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -57,9 +59,6 @@ import {
   type SalesOrderDetail,
   type SalesOrderLineIn,
 } from './sales-types'
-
-/** Radix Select forbids an empty option value, so "not stated" needs a sentinel. */
-const NONE = '__none'
 
 const schema = z
   .object({
@@ -106,8 +105,8 @@ function emptyValues(): OrderFormValues {
     priority: String(PRIORITY_DEFAULT),
     is_urgent: false,
     customer_po_number: '',
-    billing_address_id: NONE,
-    shipping_address_id: NONE,
+    billing_address_id: SELECT_NONE,
+    shipping_address_id: SELECT_NONE,
     notes: '',
   }
 }
@@ -122,14 +121,14 @@ function valuesFrom(order: SalesOrderDetail): OrderFormValues {
     priority: String(order.priority),
     is_urgent: order.is_urgent,
     customer_po_number: order.customer_po_number ?? '',
-    billing_address_id: order.billing_address_id ?? NONE,
-    shipping_address_id: order.shipping_address_id ?? NONE,
+    billing_address_id: order.billing_address_id ?? SELECT_NONE,
+    shipping_address_id: order.shipping_address_id ?? SELECT_NONE,
     notes: order.notes ?? '',
   }
 }
 
 const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
-const idOrNull = (value: string): string | null => (value === NONE ? null : value)
+const idOrNull = (value: string): string | null => (value === SELECT_NONE ? null : value)
 
 /** 1..9, clamped, because the API rejects anything outside that band outright. */
 function priorityOf(raw: string): number {
@@ -179,7 +178,7 @@ function CustomerAddressSelect({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value={NONE}>
+          <SelectItem value={SELECT_NONE}>
             {customerId ? "The customer's default" : 'Choose a customer first'}
           </SelectItem>
           {rows.map((address) => (
@@ -266,7 +265,10 @@ export function SalesOrderFormDialog({
     },
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.sales.all })
-      toast.success(isEdit ? 'Order updated' : 'Order created', saved.code)
+      toast.success(
+        isEdit ? success.updated('Sales order') : success.created('Sales order'),
+        saved.code,
+      )
       onOpenChange(false)
       if (!isEdit) navigate(`/sales-orders/${saved.id}`)
     },
@@ -561,7 +563,16 @@ export function SalesOrderFormDialog({
               >
                 Cancel
               </Button>
-              <Button type="submit" loading={save.isPending}>
+              {/* A create names a warehouse the schema insists on. Without
+                  warehouse.view there is no select to choose one from, and the
+                  submit would fail zod against a field that is not on screen -
+                  a press that visibly did nothing. An edit keeps the order's
+                  own warehouse and needs no lookup. */}
+              <Button
+                type="submit"
+                loading={save.isPending}
+                disabled={!isEdit && !can(P.WAREHOUSE_VIEW)}
+              >
                 {isEdit ? 'Save changes' : 'Create draft order'}
               </Button>
             </DialogFooter>
@@ -577,7 +588,7 @@ export function SalesOrderFormDialog({
           lineNumber={
             lineEditor.index === null ? lines.length + 1 : lines[lineEditor.index]!.line_number
           }
-          currency="INR"
+          currency={DEFAULT_CURRENCY}
           onSubmit={(line) => {
             setLines((current) =>
               renumber(

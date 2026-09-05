@@ -36,7 +36,13 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query, Response, status
 
 from src.core.deps import DbSession, Tenant, require_permission
-from src.core.pagination import PageParams, SortParams, page_params, sort_params
+from src.core.pagination import (
+    PageParams,
+    SortParams,
+    bind_query_filters,
+    page_params,
+    sort_params,
+)
 from src.core.permissions import Permission
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
@@ -83,8 +89,12 @@ def run_filters(
     created_to: Annotated[date | None, Query()] = None,
     search: Annotated[str | None, Query(max_length=120, description="Run code")] = None,
 ) -> MrpRunFilters:
-    return MrpRunFilters(
-        status=status_filter, created_from=created_from, created_to=created_to, search=search
+    return bind_query_filters(
+        MrpRunFilters,
+        status=status_filter,
+        created_from=created_from,
+        created_to=created_to,
+        search=search,
     )
 
 
@@ -166,10 +176,8 @@ async def start_run(
         response.status_code = status.HTTP_202_ACCEPTED
         return AcceptedJobResponse.create(
             job_id=str(run.id),
-            status_url=service.STATUS_URL_TEMPLATE.format(run_id=run.id),
-            message=(
-                f"Planning run {run.code} queued with {run.demand_line_count} demand lines."
-            ),
+            status_url=service.status_url(run.id),
+            message=(f"Planning run {run.code} queued with {run.demand_line_count} demand lines."),
         )
     return ApiResponse[MrpRunRead].ok(run, f"Planning run {run.code} completed")
 
@@ -237,9 +245,7 @@ async def get_shortage_report(
     ),
     dependencies=[require_permission(Permission.MRP_VIEW)],
 )
-async def get_run(
-    run_id: uuid.UUID, session: DbSession, tenant: Tenant
-) -> ApiResponse[MrpRunRead]:
+async def get_run(run_id: uuid.UUID, session: DbSession, tenant: Tenant) -> ApiResponse[MrpRunRead]:
     return ApiResponse[MrpRunRead].ok(await service.get_run(session, tenant, run_id))
 
 

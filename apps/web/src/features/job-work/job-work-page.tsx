@@ -58,8 +58,11 @@ import {
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
+import { useVendorOptions } from '@/features/vendors/vendor-types'
+import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
 import {
   formatDate,
   formatMoney,
@@ -68,9 +71,11 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
+import { indexById } from '@/lib/utils'
 
 import { JobWorkIssueDialog, JobWorkReceiveDialog } from './job-work-dialogs'
 import {
@@ -94,19 +99,9 @@ import {
 } from './job-work-model'
 import { JobWorkOrderFormDialog } from './job-work-order-form-dialog'
 
-/**
- * The bounds `ReasonRequest` puts on the audit reason.
- *
- * The delete endpoint applies the same pair to its query parameter, so the
- * floor is enforced here rather than coming back as a 422 on a confirmation the
- * user has already given.
- */
-const MIN_REASON = 3
-const MAX_REASON = 255
-
 const reasonReady = (value: string): boolean => {
   const trimmed = value.trim()
-  return trimmed.length >= MIN_REASON && trimmed.length <= MAX_REASON
+  return trimmed.length >= REASON_MIN_LENGTH && trimmed.length <= REASON_MAX_LENGTH
 }
 
 /**
@@ -139,20 +134,17 @@ function ReasonField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         autoComplete="off"
-        maxLength={MAX_REASON}
+        maxLength={REASON_MAX_LENGTH}
         className="mt-1.5"
         placeholder="Recorded in the audit trail"
         aria-invalid={invalid}
       />
       {invalid && (
-        <FieldError message={`At least ${MIN_REASON} characters - the API records this`} />
+        <FieldError message={`At least ${REASON_MIN_LENGTH} characters - the API records this`} />
       )}
     </div>
   )
 }
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /** The order panel's filters, cleared as one write rather than three. */
 const ORDER_FILTER_KEYS = ['status', 'vendor_id', 'overdue_only'] as const
@@ -237,6 +229,11 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
   // above use.
   const canCreate = can(P.JOB_WORK_CREATE)
 
+  // Names for the vendor column. One bounded reference query, shared with every
+  // other screen that needs it, rather than a lookup per row.
+  const vendors = useVendorOptions(can(P.VENDOR_VIEW))
+  const vendorById = useMemo(() => indexById(vendors.data), [vendors.data])
+
   const status = searchParams.get('status') ?? ''
   const vendorId = searchParams.get('vendor_id') ?? ''
   const overdueOnly = searchParams.get('overdue_only') === 'true'
@@ -272,7 +269,10 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
       api.post<JobWorkOrderRow>(`/job-work/${order.id}/approve`, { reason: why }),
     onSuccess: (updated) => {
       invalidate()
-      toast.success('Order approved', `${updated.code} can now be issued to the vendor.`)
+      toast.success(
+        success.approved('Job work order'),
+        `${updated.code} can now be issued to the vendor.`,
+      )
       setApproveFor(null)
       clearReason()
     },
@@ -283,7 +283,7 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
       api.post<JobWorkOrderRow>(`/job-work/${order.id}/close`, { reason: why }),
     onSuccess: (updated) => {
       invalidate()
-      toast.success('Order closed', `${updated.code} is closed.`)
+      toast.success(success.closed('Job work order'), `${updated.code} is closed.`)
       setCloseFor(null)
       clearReason()
     },
@@ -297,7 +297,10 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
       // Cancelling an APPROVED order releases its reservations in the same
       // transaction, which changes what every other document can be promised.
       void queryClient.invalidateQueries({ queryKey: queryKeys.allocation.all })
-      toast.success('Order cancelled', `${updated.code} is cancelled and its material released.`)
+      toast.success(
+        success.cancelled('Job work order'),
+        `${updated.code} is cancelled and its material released.`,
+      )
       setCancelFor(null)
       clearReason()
     },
@@ -314,7 +317,7 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
       // A draft holds no reservation and has moved no stock, so only the
       // job-work caches are stale.
       void queryClient.invalidateQueries({ queryKey: jobWorkKeys.all })
-      toast.success('Draft deleted', `${order.code} is gone.`)
+      toast.success(success.deleted('Draft'), `${order.code} is gone.`)
       setDeleteFor(null)
       clearReason()
     },
@@ -328,21 +331,22 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
         cell: ({ row }) => <span className="font-medium">{row.original.code}</span>,
       },
       {
-        // The row carries `vendor_id` and no name, so this links to the vendor
-        // list rather than rendering a blank cell.
+        // The row carries `vendor_id` and no name. The bounded vendor options
+        // list turns it into one; a vendor missing from that projection (a
+        // suspended one) is a dash rather than eight hex characters.
         id: 'vendor',
         header: 'Vendor',
         enableSorting: false,
-        cell: ({ row }) => (
-          <Link
-            to="/vendors"
-            className="font-mono text-xs hover:underline"
-            onClick={(event) => event.stopPropagation()}
-            title="Open vendors"
-          >
-            {row.original.vendor_id.slice(0, 8)}
-          </Link>
-        ),
+        cell: ({ row }) => {
+          const vendor = vendorById.get(row.original.vendor_id)
+          if (!vendor) return <span className="text-muted-foreground">-</span>
+          return (
+            <div className="max-w-[18rem]">
+              <span className="block truncate">{vendor.name}</span>
+              <span className="block truncate text-xs text-muted-foreground">{vendor.code}</span>
+            </div>
+          )
+        },
       },
       {
         id: 'process_type',
@@ -538,7 +542,7 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
     }
 
     return defs
-  }, [canApprove, canIssue, canReceive, canClose, canCreate])
+  }, [canApprove, canIssue, canReceive, canClose, canCreate, vendorById])
 
   return (
     <>
@@ -565,14 +569,16 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
         toolbar={
           <>
             <Select
-              value={status || ALL}
-              onValueChange={(value) => setParam('status', value === ALL ? undefined : value)}
+              value={status || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('status', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[190px]" aria-label="Filter by status">
+              <SelectTrigger className="w-full sm:w-[190px]" aria-label="Filter by status">
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All statuses</SelectItem>
+                <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
                 {JOB_WORK_STATUSES.map((value) => (
                   <SelectItem key={value} value={value}>
                     {humanise(value)}
@@ -765,9 +771,17 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
 // ----------------------------------------------------- pending at vendor ----
 
 function PendingPanel() {
+  const { can } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const vendorId = searchParams.get('vendor_id') ?? ''
   const overdueOnly = searchParams.get('overdue_only') === 'true'
+
+  // The rows carry ids only. Both lookups are bounded reference lists shared
+  // with the rest of the app, and each fails soft to a dash rather than a uuid.
+  const vendors = useVendorOptions(can(P.VENDOR_VIEW))
+  const vendorById = useMemo(() => indexById(vendors.data), [vendors.data])
+  const warehouses = useWarehouseOptions(can(P.WAREHOUSE_VIEW))
+  const warehouseById = useMemo(() => indexById(warehouses.data), [warehouses.data])
 
   const list = useListQuery<PendingAtVendorRow>({
     path: '/job-work/pending-at-vendor',
@@ -797,10 +811,13 @@ function PendingPanel() {
           // Only the first row of each vendor's run is labelled: the page reads
           // as groups instead of a wall of repeated text.
           if (previous && previous.vendor_id === row.original.vendor_id) return null
+          const vendor = vendorById.get(row.original.vendor_id)
+          if (!vendor) return <span className="text-muted-foreground">-</span>
           return (
-            <Link to="/vendors" className="font-mono text-xs hover:underline" title="Open vendors">
-              {row.original.vendor_id.slice(0, 8)}
-            </Link>
+            <div className="max-w-[18rem]">
+              <span className="block truncate font-medium">{vendor.name}</span>
+              <span className="block truncate text-xs text-muted-foreground">{vendor.code}</span>
+            </div>
           )
         },
       },
@@ -822,11 +839,14 @@ function PendingPanel() {
         id: 'warehouse',
         header: 'From store',
         enableSorting: false,
-        cell: ({ row }) => (
-          <span className="font-mono text-xs text-muted-foreground">
-            {row.original.warehouse_id.slice(0, 8)}
-          </span>
-        ),
+        cell: ({ row }) => {
+          const warehouse = warehouseById.get(row.original.warehouse_id)
+          return warehouse ? (
+            <span title={warehouse.name}>{warehouse.code}</span>
+          ) : (
+            <span className="text-muted-foreground">-</span>
+          )
+        },
       },
       {
         // The row is an aggregate over open orders, not one challan, so the
@@ -877,7 +897,7 @@ function PendingPanel() {
     // pricing every row in the browser, which is not this screen's job.
 
     return defs
-  }, [rows])
+  }, [rows, vendorById, warehouseById])
 
   return (
     <div className="space-y-4">

@@ -4,8 +4,8 @@
 It exists so modules built in parallel agree on table names, foreign-key targets
 and cross-module service signatures without reading each other's source.
 
-Derived from `ATCRAFT_MANUFACTURING_ERP_CLAUDE_MASTER.md`. Where the master
-rules and this document disagree, the master rules win.
+This document records the repository's database contract. Where it and
+`CLAUDE.md` disagree, `CLAUDE.md` wins.
 
 ---
 
@@ -57,7 +57,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `products` | `item_categories`, `units_of_measure`, `uom_conversions`, `items`, `item_variants`, `item_prices`, `item_vendor_links` |
 | `vendors` | `vendors`, `vendor_contacts`, `vendor_categories`, `transporters` |
 | `customers` | `customers`, `customer_addresses`, `customer_contacts` |
-| `inventory` | `inventory_transactions`, `inventory_balances`, `stock_batches`, `stock_serials`, `stock_transfers`, `stock_transfer_lines`, `stock_adjustments`, `stock_adjustment_lines`, `physical_counts`, `physical_count_lines` |
+| `inventory` | `inventory_transactions`, `inventory_balances`, `inventory_cost_layers`, `inventory_cost_consumptions`, `stock_batches`, `stock_serials`, `stock_transfers`, `stock_transfer_lines`, `stock_adjustments`, `stock_adjustment_lines`, `physical_counts`, `physical_count_lines` |
 | `allocation` | `stock_reservations`, `reallocation_requests` |
 | `bom` | `boms`, `bom_lines`, `bom_operations` |
 | `routing` | `work_centers`, `machines`, `routings`, `routing_operations` |
@@ -71,6 +71,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `packing` | `packing_orders`, `packing_order_lines`, `cartons`, `carton_contents` |
 | `dispatch` | `dispatches`, `dispatch_lines`, `dispatch_tracking_events` |
 | `finance` | `ledger_accounts`, `ledger_entries`, `vendor_invoices`, `vendor_invoice_lines`, `payments`, `payment_allocations` |
+| `reports` | `report_snapshots`, `inventory_summary` |
 | `documents` | `documents` |
 | `notifications` | `notifications`, `notification_preferences` |
 | `common` | `document_sequences` |
@@ -105,7 +106,7 @@ Other required columns: `code`, `name`, `category_id`, `base_uom_id`,
 
 There is deliberately **no `valuation_method` column**. Stock is valued **FIFO**,
 for every item, by `inventory.service` against `inventory_cost_layers` — see
-`docs/assumptions.md`. The column existed briefly as
+`docs/assumptions.md` section 31. The column existed briefly as
 `FIFO | WEIGHTED_AVERAGE | STANDARD`, defaulting to `WEIGHTED_AVERAGE`, while the
 engine costed everything FIFO regardless: it described a choice nothing honoured,
 and for most rows it described the wrong one. It was dropped in revision

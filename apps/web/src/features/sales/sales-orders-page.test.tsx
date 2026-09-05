@@ -38,14 +38,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { Toaster } from '@/components/ui/toaster'
 import { toDateInput } from '@/lib/format'
 import { P } from '@/lib/permissions'
-import {
-  fail,
-  ok,
-  page,
-  renderScreen,
-  type FetchRecorder,
-  type RouteTable,
-} from '@/test/harness'
+import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } from '@/test/harness'
 
 import SalesOrderDetailPage from './sales-order-detail-page'
 import SalesOrdersPage from './sales-orders-page'
@@ -647,9 +640,7 @@ describe('what the new-order form sends', () => {
     await addLine(user, { quantity: '1', price: '10' })
     await user.click(screen.getByRole('button', { name: 'Create draft order' }))
 
-    expect(
-      await screen.findByText('This PO number is already on order SO-0009'),
-    ).toBeVisible()
+    expect(await screen.findByText('This PO number is already on order SO-0009')).toBeVisible()
   })
 
   it('tells a user without warehouse.view instead of offering a select it cannot fill', async () => {
@@ -669,6 +660,10 @@ describe('what the new-order form sends', () => {
     // The absence of a `GET /warehouses` route is itself the assertion: an
     // unrouted request throws rather than quietly answering with nothing.
     expect(fetch.calls.map((call) => call.path)).not.toContain('/warehouses')
+    // The schema insists on a warehouse the form cannot collect, so the submit
+    // would fail against a field that is not on screen - a press that visibly
+    // did nothing. It is withheld instead.
+    expect(screen.getByRole('button', { name: 'Create draft order' })).toBeDisabled()
   })
 })
 
@@ -1061,17 +1056,49 @@ describe('what the detail screen shows', () => {
     expect(await screen.findByText('Tax (IGST)')).toBeVisible()
   })
 
-  it('explains an unreadable allocation panel instead of showing an empty one', async () => {
-    // `allocation.view` is its own right. An empty grid would read as "nothing
-    // is reserved", which is a different and much worse statement.
+  it('shows the allocation panel to a reader of the order, which is what the endpoint asks for', async () => {
+    // `GET /sales/{id}/allocation-status` is declared on `sales_order.view`,
+    // the same right that opens this page - not on `allocation.view`, which
+    // guards the reservation screens. Gating the panel on the latter refused a
+    // reader the API would have answered, and told them their role lacked a
+    // right the endpoint never asks for.
     renderDetail({
       order: orderDetail({ status: 'CONFIRMED' }),
       permissions: [P.SALES_ORDER_VIEW],
+      routes: {
+        [`GET /sales/${ORDER_ID}/allocation-status`]: ok({
+          order_id: ORDER_ID,
+          code: 'SO-0001',
+          status: 'CONFIRMED',
+          warehouse_id: WAREHOUSE_ID,
+          fully_allocated: false,
+          total_shortfall_lines: 1,
+          lines: [
+            {
+              line_id: LINE_ID,
+              line_number: 1,
+              item_id: ITEM_ID,
+              item_code: 'FG-HINGE-4',
+              ordered_quantity: '10.0000',
+              allocated_quantity: '6.0000',
+              dispatched_quantity: '0.0000',
+              shortfall_quantity: '4.0000',
+              available_quantity: '0.0000',
+              required_date: '2026-09-30',
+              reservation_id: null,
+              status: 'PARTIALLY_ALLOCATED',
+            },
+          ],
+        }),
+      },
     })
 
-    expect(
-      await screen.findByText('Allocation is not visible to your account'),
-    ).toBeVisible()
+    expect(await screen.findByText('Allocation')).toBeVisible()
+    expect(await screen.findByText('1 line short')).toBeVisible()
+    // The engine's own figures, on the line: what is reserved and what is not.
+    expect(screen.getByText('Reserved')).toBeVisible()
+    expect(screen.getByText(/^4(\.0+)?$/)).toBeVisible()
+    expect(screen.queryByText('Allocation is not visible to your account')).not.toBeInTheDocument()
   })
 
   it('surfaces the API sentence when the order cannot be loaded', async () => {

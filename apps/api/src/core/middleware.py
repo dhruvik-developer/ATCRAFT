@@ -16,18 +16,56 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
 from src.core.config import settings
-from src.core.errors import ErrorCode
+from src.core.errors import AuthenticationError, ErrorCode
 from src.core.logging import (
     bind_request_context,
     clear_request_context,
     get_logger,
     new_request_id,
 )
+from src.core.security import decode_token
 
 log = get_logger("http")
 
 # Probes and metrics scrapes would otherwise dominate the access log.
 _QUIET_PATHS = frozenset({"/health/live", "/health/ready", "/metrics", "/favicon.ico"})
+
+_BEARER_PREFIX = "bearer "
+
+
+def _bearer_rate_limit_identity(authorization: str) -> str | None:
+    """The budget key for a *verified* access token, or ``None``.
+
+    The first version keyed on a digest of whatever the header said. That is
+    stable across workers, but the middleware runs before authentication, so
+    ``Authorization: Bearer <anything random>`` minted a fresh bucket per
+    request and the per-client budget was never consumed - only callers who
+    cooperated were limited. Verifying the token here is a local HMAC check
+    with no I/O; anything that does not verify is charged to the client
+    address like any other anonymous request, and the auth dependency will
+    reject it properly a few frames later.
+    """
+    if authorization[: len(_BEARER_PREFIX)].lower() != _BEARER_PREFIX:
+        return None
+    token = authorization[len(_BEARER_PREFIX) :].strip()
+    if not token:
+        return None
+    try:
+        payload = decode_token(token, expected_type="access")
+    except AuthenticationError:
+        return None
+    return f"user:{payload.subject}"
+
+
+def _rate_limit_identity(request: Request) -> str:
+    """Verified user where the request carries one, client address otherwise."""
+    authorization = request.headers.get("authorization", "")
+    if authorization:
+        identity = _bearer_rate_limit_identity(authorization)
+        if identity is not None:
+            return identity
+    client_host = request.client.host if request.client else "unknown"
+    return f"ip:{request.headers.get('x-real-ip') or client_host}"
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
@@ -151,8 +189,7 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
                     "error": {
                         "code": str(ErrorCode.PAYLOAD_TOO_LARGE),
                         "message": (
-                            f"Request body exceeds the "
-                            f"{self.max_bytes // (1024 * 1024)} MB limit."
+                            f"Request body exceeds the {self.max_bytes // (1024 * 1024)} MB limit."
                         ),
                     },
                     "request_id": getattr(request.state, "request_id", None),
@@ -178,18 +215,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         from src.core.ratelimit import check_rate_limit
 
-        auth = request.headers.get("authorization", "")
-        if auth:
-            # Hash the token tail rather than storing it: the identity only has
-            # to be stable and unguessable, and a Redis key must never be a
-            # usable credential if the cache is dumped.
-            identity = f"tok:{hash(auth[-32:])}"
-        else:
-            client_host = request.client.host if request.client else "unknown"
-            identity = f"ip:{request.headers.get('x-real-ip') or client_host}"
-
         result = await check_rate_limit(
-            identity, limit=settings.rate_limit_default_per_minute, window_seconds=60, scope="api"
+            _rate_limit_identity(request),
+            limit=settings.rate_limit_default_per_minute,
+            window_seconds=60,
+            scope="api",
         )
         if not result.allowed:
             return JSONResponse(

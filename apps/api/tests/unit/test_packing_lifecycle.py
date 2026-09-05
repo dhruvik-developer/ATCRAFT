@@ -152,8 +152,7 @@ def test_the_dispatch_handover_belongs_to_dispatch_not_packing() -> None:
 def test_a_packer_is_offered_exactly_the_actions_they_can_perform() -> None:
     held = [Permission.PACKING_MANAGE]
     offered = {
-        transition.target
-        for transition in FLOW.available_actions(PackingOrderStatus.PACKED, held)
+        transition.target for transition in FLOW.available_actions(PackingOrderStatus.PACKED, held)
     }
     # PACKED -> HANDED_OVER needs dispatch.create, so a packer is offered nothing
     # from here at all.

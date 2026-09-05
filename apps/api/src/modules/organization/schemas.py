@@ -12,10 +12,12 @@ Conventions shared with the other master-data modules:
 * **No schema carries ``company_id``.** The tenant comes from the verified
   principal (master rules section 40); a client-supplied one is never read.
 
-Statutory identifiers (GSTIN, PAN) are format-checked here rather than in the
+Statutory identifiers (GSTIN, PAN) are validated here rather than in the
 service: they are printed on tax invoices, and a typo discovered at filing time
-is expensive to unwind. The checks are shape-only - only the GST portal can say
-whether a well-formed GSTIN is actually registered.
+is expensive to unwind. The validators are the shared ones in
+:mod:`src.common.tax_ids` - shape and GSTIN check digit - so a number the
+vendor master refuses cannot be accepted on a branch. Only the GST portal can
+say whether a well-formed GSTIN is actually registered.
 """
 
 from __future__ import annotations
@@ -28,17 +30,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from src.common.codes import normalise_code
-
-# A code appears in document references (``PO/2026-27/00001`` is scoped by the
-# financial year code) and on printed stationery; punctuation beyond dot, dash,
-# slash and underscore makes those ambiguous to read and to parse.
-CODE_PATTERN = r"^[A-Z0-9][A-Z0-9._\-/ ]*$"
-
-# Standard Indian formats. Both are fixed-width and checksum-bearing, so a
-# length-only check would let obvious transpositions through.
-PAN_PATTERN = r"^[A-Z]{5}[0-9]{4}[A-Z]$"
-GSTIN_PATTERN = r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$"
+from src.common.codes import clean_name, strip_optional, validate_code
+from src.common.tax_ids import validate_optional_gstin, validate_optional_pan
 
 # ASSUMPTION: the IANA timezone name is validated semantically only when a tz
 # database is actually present. A container built without `tzdata` would
@@ -55,62 +48,17 @@ Code = Annotated[str, Field(min_length=1, max_length=32)]
 Name = Annotated[str, Field(min_length=1, max_length=255)]
 
 
-def _normalise_code(value: str) -> str:
-    normalised = normalise_code(value)
-    if not normalised:
-        raise ValueError("Code cannot be blank.")
-    if not re.match(CODE_PATTERN, normalised):
-        raise ValueError(
-            "Code may contain only letters, digits, dot, dash, slash, underscore and spaces, "
-            "and must start with a letter or digit."
-        )
-    return normalised
-
-
 def _optional_code(value: str | None) -> str | None:
-    return None if value is None else _normalise_code(value)
-
-
-def _clean_name(value: str) -> str:
-    cleaned = " ".join(value.split())
-    if not cleaned:
-        raise ValueError("Name cannot be blank.")
-    return cleaned
+    return None if value is None else validate_code(value)
 
 
 def _clean_optional_name(value: str | None) -> str | None:
-    return None if value is None else _clean_name(value)
-
-
-def _strip_optional(value: str | None) -> str | None:
-    """Collapse a whitespace-only optional field to NULL.
-
-    An empty string and NULL must not both mean "not supplied", or a report
-    filtering on ``city IS NULL`` misses half the rows.
-    """
-    if value is None:
-        return None
-    stripped = value.strip()
-    return stripped or None
+    return None if value is None else clean_name(value)
 
 
 def _upper_optional(value: str | None) -> str | None:
-    stripped = _strip_optional(value)
+    stripped = strip_optional(value)
     return stripped.upper() if stripped else None
-
-
-def _validate_gstin(value: str | None) -> str | None:
-    upper = _upper_optional(value)
-    if upper is not None and not re.match(GSTIN_PATTERN, upper):
-        raise ValueError("GSTIN must be 15 characters in the standard GST format.")
-    return upper
-
-
-def _validate_pan(value: str | None) -> str | None:
-    upper = _upper_optional(value)
-    if upper is not None and not re.match(PAN_PATTERN, upper):
-        raise ValueError("PAN must be 10 characters, e.g. ABCDE1234F.")
-    return upper
 
 
 def _validate_timezone(value: str) -> str:
@@ -176,8 +124,8 @@ class CompanyUpdate(BaseModel):
     logo_document_id: uuid.UUID | None = None
 
     _name = field_validator("name")(_clean_optional_name)
-    _gstin = field_validator("gstin")(_validate_gstin)
-    _pan = field_validator("pan")(_validate_pan)
+    _gstin = field_validator("gstin")(validate_optional_gstin)
+    _pan = field_validator("pan")(validate_optional_pan)
     _strip = field_validator(
         "legal_name",
         "cin",
@@ -189,7 +137,7 @@ class CompanyUpdate(BaseModel):
         "state",
         "state_code",
         "postal_code",
-    )(_strip_optional)
+    )(strip_optional)
 
     @field_validator("cin")
     @classmethod
@@ -209,7 +157,7 @@ class CompanyUpdate(BaseModel):
     @field_validator("country")
     @classmethod
     def _country(cls, value: str | None) -> str | None:
-        return None if value is None else _clean_name(value)
+        return None if value is None else clean_name(value)
 
 
 class CompanyRead(BaseModel):
@@ -270,12 +218,12 @@ class BranchCreate(BaseModel):
     is_active: bool = True
     is_head_office: bool = False
 
-    _code = field_validator("code")(_normalise_code)
-    _name = field_validator("name")(_clean_name)
-    _gstin = field_validator("gstin")(_validate_gstin)
+    _code = field_validator("code")(validate_code)
+    _name = field_validator("name")(clean_name)
+    _gstin = field_validator("gstin")(validate_optional_gstin)
     _strip = field_validator(
         "address_line1", "city", "state", "state_code", "postal_code", "phone"
-    )(_strip_optional)
+    )(strip_optional)
 
 
 class BranchUpdate(BaseModel):
@@ -296,10 +244,10 @@ class BranchUpdate(BaseModel):
     is_head_office: bool | None = None
 
     _name = field_validator("name")(_clean_optional_name)
-    _gstin = field_validator("gstin")(_validate_gstin)
+    _gstin = field_validator("gstin")(validate_optional_gstin)
     _strip = field_validator(
         "address_line1", "city", "state", "state_code", "postal_code", "phone"
-    )(_strip_optional)
+    )(strip_optional)
 
 
 class BranchRead(BaseModel):
@@ -337,9 +285,9 @@ class PlantCreate(BaseModel):
     state: str | None = Field(default=None, max_length=120)
     is_active: bool = True
 
-    _code = field_validator("code")(_normalise_code)
-    _name = field_validator("name")(_clean_name)
-    _strip = field_validator("address_line1", "city", "state")(_strip_optional)
+    _code = field_validator("code")(validate_code)
+    _name = field_validator("name")(clean_name)
+    _strip = field_validator("address_line1", "city", "state")(strip_optional)
 
 
 class PlantUpdate(BaseModel):
@@ -353,7 +301,7 @@ class PlantUpdate(BaseModel):
     is_active: bool | None = None
 
     _name = field_validator("name")(_clean_optional_name)
-    _strip = field_validator("address_line1", "city", "state")(_strip_optional)
+    _strip = field_validator("address_line1", "city", "state")(strip_optional)
 
 
 class PlantRead(BaseModel):
@@ -385,8 +333,8 @@ class DepartmentCreate(BaseModel):
     head_user_id: uuid.UUID | None = None
     is_active: bool = True
 
-    _code = field_validator("code")(_normalise_code)
-    _name = field_validator("name")(_clean_name)
+    _code = field_validator("code")(validate_code)
+    _name = field_validator("name")(clean_name)
 
 
 class DepartmentUpdate(BaseModel):
@@ -435,8 +383,8 @@ class FinancialYearCreate(BaseModel):
     is_active: bool = True
     notes: str | None = None
 
-    _code = field_validator("code")(_normalise_code)
-    _notes = field_validator("notes")(_strip_optional)
+    _code = field_validator("code")(validate_code)
+    _notes = field_validator("notes")(strip_optional)
 
 
 class FinancialYearUpdate(BaseModel):
@@ -454,7 +402,7 @@ class FinancialYearUpdate(BaseModel):
     is_active: bool | None = None
     notes: str | None = None
 
-    _notes = field_validator("notes")(_strip_optional)
+    _notes = field_validator("notes")(strip_optional)
 
 
 class FinancialYearRead(BaseModel):
@@ -522,9 +470,6 @@ class ReasonRequest(BaseModel):
 
 
 __all__ = [
-    "CODE_PATTERN",
-    "GSTIN_PATTERN",
-    "PAN_PATTERN",
     "BranchCreate",
     "BranchFilters",
     "BranchRead",

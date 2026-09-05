@@ -116,7 +116,7 @@ SUPER_ADMIN_ROLE_CODE = "SUPER_ADMIN"
 # -----------------------------------------------------------------------------
 
 BOM_LIFECYCLE: StateMachine[BomStatus] = StateMachine(
-    entity="Bom",
+    entity="BOM",
     initial=BomStatus.DRAFT,
     transitions=(
         Transition(
@@ -205,9 +205,7 @@ def effectivity_contains(bom: Bom, on: date) -> bool:
 # -----------------------------------------------------------------------------
 
 
-async def _load_parent_item(
-    items: ItemLookupRepository, item_id: uuid.UUID
-) -> ItemInfo:
+async def _load_parent_item(items: ItemLookupRepository, item_id: uuid.UUID) -> ItemInfo:
     info = (await items.load([item_id])).get(item_id)
     if info is None:
         raise NotFoundError("Item", item_id)
@@ -498,8 +496,7 @@ async def create_bom(
 
         if payload.base_uom_id is not None and payload.base_uom_id != parent.base_uom_id:
             raise BusinessRuleError(
-                f"A structure for {parent.code} must yield its output in the item's "
-                "stock unit.",
+                f"A structure for {parent.code} must yield its output in the item's stock unit.",
                 details={"expected_uom_id": str(parent.base_uom_id)},
             )
 
@@ -507,9 +504,7 @@ async def create_bom(
             items,
             parent=parent,
             lines=payload.lines,
-            operation_sequences={
-                operation.operation_sequence for operation in payload.operations
-            },
+            operation_sequences={operation.operation_sequence for operation in payload.operations},
         )
 
         if payload.parent_bom_id is not None:
@@ -598,8 +593,7 @@ async def update_bom(
 
         if payload.base_uom_id is not None and payload.base_uom_id != parent.base_uom_id:
             raise BusinessRuleError(
-                f"A structure for {parent.code} must yield its output in the item's "
-                "stock unit.",
+                f"A structure for {parent.code} must yield its output in the item's stock unit.",
                 details={"expected_uom_id": str(parent.base_uom_id)},
             )
         if payload.parent_bom_id is not None:
@@ -636,8 +630,7 @@ async def update_bom(
         # a rule a client bypasses by using PATCH.
         if BomType(bom.bom_type) is BomType.ALTERNATE and bom.parent_bom_id is None:
             raise BusinessRuleError(
-                "An alternate structure must name the bill of materials it is an "
-                "alternative to.",
+                "An alternate structure must name the bill of materials it is an alternative to.",
                 details={"bom_id": str(bom.id)},
             )
 

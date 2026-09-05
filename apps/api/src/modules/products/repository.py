@@ -35,6 +35,7 @@ from sqlalchemy import ColumnElement, Select, exists, func, or_, select, text, u
 from sqlalchemy.orm import InstrumentedAttribute, aliased, load_only
 
 from src.common.repository import BaseRepository
+from src.core.database import affected_rows
 from src.core.pagination import CursorParams, PageParams
 from src.core.responses import CursorPagination, OffsetPagination
 from src.modules.products.models import (
@@ -48,6 +49,8 @@ from src.modules.products.models import (
     UomConversion,
 )
 from src.modules.products.schemas import ItemFilters
+from src.modules.vendors.models import Vendor
+from src.modules.warehouses.models import Warehouse
 
 #: Balance columns that mean "this item is still holding something, somewhere".
 #: ``available_quantity`` is deliberately absent: it is a generated column
@@ -226,11 +229,12 @@ class ItemCategoryRepository(BaseRepository[ItemCategory]):
             )
             .execution_options(synchronize_session=False)
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 class UnitOfMeasureRepository(BaseRepository[UnitOfMeasure]):
     model = UnitOfMeasure
+    entity_label = "Unit of measure"
     searchable_fields = ("code", "name")
     sortable_fields = {  # noqa: RUF012
         "code": UnitOfMeasure.code,
@@ -283,6 +287,7 @@ class UnitOfMeasureRepository(BaseRepository[UnitOfMeasure]):
 
 class UomConversionRepository(BaseRepository[UomConversion]):
     model = UomConversion
+    entity_label = "Unit conversion"
 
     async def list_all(self) -> list[UomConversion]:
         """The whole conversion table for the tenant.
@@ -328,6 +333,32 @@ class ItemRepository(BaseRepository[Item]):
         if exclude_id is not None:
             stmt = stmt.where(Item.id != exclude_id)
         return (await self.session.execute(stmt.limit(1))).first() is not None
+
+    # --- cross-module existence probes -------------------------------------
+
+    async def vendor_exists(self, vendor_id: uuid.UUID) -> bool:
+        return await self._tenant_row_exists(Vendor, vendor_id)
+
+    async def warehouse_exists(self, warehouse_id: uuid.UUID) -> bool:
+        return await self._tenant_row_exists(Warehouse, warehouse_id)
+
+    async def _tenant_row_exists(self, model: Any, entity_id: uuid.UUID) -> bool:
+        """EXISTS probe against another module's master table, tenant-scoped.
+
+        ``item_vendor_links.vendor_id`` and ``items.default_warehouse_id`` are
+        plain foreign keys to globally unique ids, so a uuid belonging to
+        another company's vendor or warehouse satisfies the constraint. The
+        tenant filter is what makes the reference safe (section 40); the users
+        and warehouses modules guard their references the same way.
+        """
+        stmt = select(
+            exists().where(
+                model.id == entity_id,
+                model.company_id == self.tenant.company_id,
+                model.deleted_at.is_(None),
+            )
+        )
+        return bool((await self.session.execute(stmt)).scalar())
 
     async def has_stock_balance(self, item_id: uuid.UUID) -> bool:
         """Does this item hold anything, anywhere in this company?
@@ -680,7 +711,7 @@ class ItemVendorLinkRepository(BaseRepository[ItemVendorLink]):
         )
         if keep_id is not None:
             stmt = stmt.where(ItemVendorLink.id != keep_id)
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 __all__ = [

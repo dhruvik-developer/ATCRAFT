@@ -32,7 +32,8 @@ import {
   Skeleton,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
-import { api } from '@/lib/api-client'
+import { api, emptyOnPermissionError } from '@/lib/api-client'
+import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import {
   formatDate,
   formatDateTime,
@@ -65,8 +66,6 @@ import {
 } from './item-model'
 import { RetireItemDialog, RetireVariantDialog } from './item-retire-dialogs'
 
-const PANEL_LIMIT = 200
-
 /**
  * Server-paged read for one panel inside a tab.
  *
@@ -92,7 +91,7 @@ function usePanelQuery<T>({
 
   const query = useQuery({
     queryKey: [...queryKey, page],
-    queryFn: () => api.getPage<T>(path, { params: { page, limit: PANEL_LIMIT, ...params } }),
+    queryFn: () => api.getPage<T>(path, { params: { page, limit: LOOKUP_LIST_LIMIT, ...params } }),
     placeholderData: keepPreviousData,
     enabled,
     staleTime,
@@ -753,16 +752,20 @@ function VendorsPanel({ itemId, canViewVendors }: { itemId: string; canViewVendo
   })
 
   const vendors = useQuery({
-    queryKey: [...queryKeys.vendors.all, 'options'],
-    // A vendor name is a label on someone else's screen. If the lookup is
-    // unavailable the cell falls back to the vendor's own item name rather than
-    // replacing a working panel with an error.
+    // Its own shape: this stores an array, where the list page stores a page
+    // envelope under `list` and `useVendorOptions` stores `VendorOption[]`
+    // under `options`. An invalidation of `vendors.all` still reaches it.
+    queryKey: [...queryKeys.vendors.all, 'label-lookup', LOOKUP_LIST_LIMIT] as const,
+    // A vendor name is a label on someone else's screen. If this account may
+    // not read vendors the cell falls back to the vendor's own item name rather
+    // than replacing a working panel with an error; any other failure is one.
     queryFn: async () => {
       try {
-        return (await api.getPage<VendorOption>('/vendors', { params: { limit: PANEL_LIMIT } }))
-          .data
-      } catch {
-        return []
+        return (
+          await api.getPage<VendorOption>('/vendors', { params: { limit: LOOKUP_LIST_LIMIT } })
+        ).data
+      } catch (error) {
+        return emptyOnPermissionError<VendorOption>(error)
       }
     },
     staleTime: staleTimes.master,
@@ -901,9 +904,9 @@ export default function ItemDetailPage() {
   if (itemQuery.isLoading) {
     return (
       <div className="space-y-4">
-        <Skeleton className="h-7 w-64" />
-        <Skeleton className="h-4 w-96" />
-        <Skeleton className="h-9 w-80" />
+        <Skeleton className="h-7 w-full max-w-64" />
+        <Skeleton className="h-4 w-full max-w-96" />
+        <Skeleton className="h-9 w-full max-w-80" />
         <div className="grid gap-4 lg:grid-cols-3">
           <Skeleton className="h-80 lg:col-span-2" />
           <Skeleton className="h-80" />

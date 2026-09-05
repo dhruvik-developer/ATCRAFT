@@ -33,6 +33,7 @@ import {
 } from 'lucide-react'
 
 import { api } from '@/lib/api-client'
+import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { DecimalString, SchemaOf } from '@/types/api'
 
@@ -366,11 +367,10 @@ export interface UomOption {
 // ------------------------------------------------------------- reference ----
 
 /**
- * 200 is the API's maximum page size. Categories and units are reference data -
- * a company has tens of them - so one page is the whole set in practice, and a
- * picker that paged would be harder to use than one that does not.
+ * Categories and units are reference data - a company has tens of them - so one
+ * page at the API's maximum size (`LOOKUP_LIST_LIMIT`) is the whole set in
+ * practice, and a picker that paged would be harder to use than one that does not.
  */
-const REFERENCE_LIMIT = 200
 
 /**
  * Category names for the grid and the pickers.
@@ -385,7 +385,7 @@ export function useCategoryOptions(enabled: boolean) {
     queryFn: async () =>
       (
         await api.getPage<CategoryOption>('/products/categories', {
-          params: { limit: REFERENCE_LIMIT, is_active: true },
+          params: { limit: LOOKUP_LIST_LIMIT, is_active: true },
         })
       ).data,
     staleTime: staleTimes.reference,
@@ -399,7 +399,7 @@ export function useUomOptions(enabled: boolean) {
     queryFn: async () =>
       (
         await api.getPage<UomOption>('/products/uoms', {
-          params: { limit: REFERENCE_LIMIT, is_active: true },
+          params: { limit: LOOKUP_LIST_LIMIT, is_active: true },
         })
       ).data,
     staleTime: staleTimes.reference,

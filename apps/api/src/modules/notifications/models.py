@@ -182,6 +182,14 @@ class Notification(TenantEntity):
     #: fills it in, which is what makes "queued but never sent" visible.
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    #: SMTP acceptance timestamp. Kept separate from ``delivered_at`` because a
+    #: notification may be visible in-app before its e-mail is sent. Celery uses
+    #: this as the idempotency guard when a late-acknowledged task is delivered
+    #: more than once.
+    email_delivered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     #: Collapse key. Alerts sharing (recipient, type, group_key) fold into one
     #: unread row - see the module docstring and the partial unique index below.
     group_key: Mapped[str | None] = mapped_column(String(120), nullable=True)

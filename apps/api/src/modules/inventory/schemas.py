@@ -21,12 +21,21 @@ Conventions applied throughout:
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
+from src.common.codes import clean_text
 from src.modules.inventory.models import (
     AdjustmentReason,
     AdjustmentStatus,
@@ -52,13 +61,6 @@ UnitCost = Annotated[Decimal, Field(ge=0, le=Decimal("99999999999999"))]
 MAX_DOCUMENT_LINES = 500
 
 
-def _clean_text(value: str | None) -> str | None:
-    if value is None:
-        return None
-    collapsed = " ".join(value.split())
-    return collapsed or None
-
-
 # -----------------------------------------------------------------------------
 # Balances and ledger
 # -----------------------------------------------------------------------------
@@ -73,10 +75,12 @@ class BalanceFilters(BaseModel):
     batch_id: uuid.UUID | None = None
     #: Positions whose available quantity has fallen to or below the item's
     #: reorder level. Items with no reorder level set are never "below" it.
-    below_reorder: bool = False
+    below_reorder: bool = Field(
+        default=False, description="Only positions at or under the item's reorder level"
+    )
     #: Hides positions that have gone to zero but are kept for their history.
-    only_in_stock: bool = False
-    search: str | None = Field(default=None, max_length=120)
+    only_in_stock: bool = Field(default=False, description="Hide positions that are at zero")
+    search: str | None = Field(default=None, max_length=120, description="Item code or name")
 
 
 class BalanceRead(BaseModel):
@@ -170,7 +174,7 @@ class ItemStockSummary(BaseModel):
     total_in_transit: Decimal
     total_job_work: Decimal
     total_owned_quantity: Decimal
-    warehouses: list[WarehouseStockRow] = Field(default_factory=list)
+    warehouses: Sequence[WarehouseStockRow] = Field(default_factory=list)
 
 
 class ItemStockSummaryWithCost(ItemStockSummary):
@@ -181,7 +185,7 @@ class ItemStockSummaryWithCost(ItemStockSummary):
     """
 
     total_value: Decimal
-    warehouses: list[WarehouseStockRowWithCost] = Field(default_factory=list)
+    warehouses: Sequence[WarehouseStockRowWithCost] = Field(default_factory=list)
 
 
 class LedgerFilters(BaseModel):
@@ -195,14 +199,26 @@ class LedgerFilters(BaseModel):
     stock_state: StockState | None = None
     reference_type: str | None = Field(default=None, max_length=48)
     reference_id: uuid.UUID | None = None
-    occurred_from: datetime | None = None
-    occurred_to: datetime | None = None
+    occurred_from: datetime | None = Field(default=None, description="ISO 8601 lower bound")
+    occurred_to: datetime | None = Field(default=None, description="ISO 8601 upper bound")
 
-    @model_validator(mode="after")
-    def _ordered_window(self) -> LedgerFilters:
-        if self.occurred_from and self.occurred_to and self.occurred_to < self.occurred_from:
+    @field_validator("occurred_to")
+    @classmethod
+    def _ordered_window(cls, value: datetime | None, info: ValidationInfo) -> datetime | None:
+        # A field validator rather than a model one so the failure is reported
+        # against ``occurred_to`` - ``query.occurred_to`` in the error envelope -
+        # and the frontend can attach it to the control that produced it.
+        lower = info.data.get("occurred_from")
+        if value is None or lower is None:
+            return value
+        # Python refuses to compare a naive datetime with an aware one. The
+        # window is then passed through as given and applied by the database
+        # like any other bound, rather than crashing the request.
+        if (value.tzinfo is None) != (lower.tzinfo is None):
+            return value
+        if value < lower:
             raise ValueError("occurred_to must not be earlier than occurred_from.")
-        return self
+        return value
 
 
 class LedgerEntryRead(BaseModel):
@@ -421,8 +437,8 @@ class TransferFilters(BaseModel):
     status: TransferStatus | None = None
     from_warehouse_id: uuid.UUID | None = None
     to_warehouse_id: uuid.UUID | None = None
-    date_from: date | None = None
-    date_to: date | None = None
+    date_from: date | None = Field(default=None, description="ISO date lower bound")
+    date_to: date | None = Field(default=None, description="ISO date upper bound")
     search: str | None = Field(default=None, max_length=64)
 
 
@@ -515,8 +531,8 @@ class AdjustmentFilters(BaseModel):
     status: AdjustmentStatus | None = None
     warehouse_id: uuid.UUID | None = None
     reason_code: AdjustmentReason | None = None
-    date_from: date | None = None
-    date_to: date | None = None
+    date_from: date | None = Field(default=None, description="ISO date lower bound")
+    date_to: date | None = Field(default=None, description="ISO date upper bound")
     search: str | None = Field(default=None, max_length=64)
 
 
@@ -525,7 +541,7 @@ class DecisionRequest(BaseModel):
 
     note: str | None = Field(default=None, max_length=255)
 
-    _clean = field_validator("note")(_clean_text)
+    _clean = field_validator("note")(clean_text)
 
 
 class ReasonRequest(BaseModel):
@@ -619,8 +635,8 @@ class PhysicalCountRead(BaseModel):
 class PhysicalCountFilters(BaseModel):
     status: PhysicalCountStatus | None = None
     warehouse_id: uuid.UUID | None = None
-    date_from: date | None = None
-    date_to: date | None = None
+    date_from: date | None = Field(default=None, description="ISO date lower bound")
+    date_to: date | None = Field(default=None, description="ISO date upper bound")
     search: str | None = Field(default=None, max_length=64)
 
 

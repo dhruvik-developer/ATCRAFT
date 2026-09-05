@@ -9,10 +9,12 @@ Conventions applied throughout, each for a reason:
   is optional and the service applies only the keys the client actually sent
   (``model_dump(exclude_unset=True)``). Without that, a PATCH omitting
   ``assigned_sales_user_id`` would silently unassign the account.
-* **Statutory identifiers are format-checked here.** A malformed GSTIN is
-  rejected at the edge with a field-level message rather than surviving to
-  invoicing time, where it fails an e-invoice submission with a numeric error
-  code nobody can act on.
+* **Statutory identifiers are validated here, check digit included**
+  (:mod:`src.common.tax_ids`, shared with the vendor and organisation masters
+  so the same GSTIN cannot pass on one and fail on another). A malformed or
+  mistyped GSTIN is rejected at the edge with a field-level message rather
+  than surviving to invoicing time, where it fails an e-invoice submission
+  with a numeric error code nobody can act on.
 * **``company_id`` appears on no request model.** It comes from the
   authenticated principal and is never accepted from a client (section 40).
 """
@@ -27,18 +29,9 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-from src.common.codes import normalise_code
+from src.common.codes import clean_name, strip_optional, validate_code
+from src.common.tax_ids import validate_optional_gstin, validate_optional_pan
 from src.modules.customers.models import AddressType, CustomerType, PriceType
-
-# A customer code is quoted on orders, invoices and statements; punctuation
-# beyond dot, dash, slash and underscore makes those ambiguous to parse.
-CODE_PATTERN = r"^[A-Z0-9][A-Z0-9._\-/ ]*$"
-
-# 2-digit state code, 5-letter PAN prefix, 4 digits, PAN check letter, entity
-# number, a literal Z, then a checksum character. Structural validation only -
-# it does not prove the number is registered, which only the GST portal can.
-GSTIN_PATTERN = r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$"
-PAN_PATTERN = r"^[A-Z]{5}[0-9]{4}[A-Z]$"
 
 MoneyField = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
 #: Signed money, for a finance adjustment that may reduce the balance.
@@ -49,59 +42,8 @@ Name = Annotated[str, Field(min_length=1, max_length=255)]
 Reason = Annotated[str, Field(min_length=3, max_length=255)]
 
 
-def _normalise_code(value: str) -> str:
-    normalised = normalise_code(value)
-    if not normalised:
-        raise ValueError("Code cannot be blank.")
-    if not re.match(CODE_PATTERN, normalised):
-        raise ValueError(
-            "Code may contain only letters, digits, dot, dash, slash, underscore and spaces, "
-            "and must start with a letter or digit."
-        )
-    return normalised
-
-
-def _clean_name(value: str) -> str:
-    cleaned = " ".join(value.split())
-    if not cleaned:
-        raise ValueError("Name cannot be blank.")
-    return cleaned
-
-
-def _strip_optional(value: str | None) -> str | None:
-    """Collapse a whitespace-only optional field to NULL.
-
-    An empty string and NULL must not both mean "not supplied", or a report
-    filtering on ``gstin IS NULL`` misses half the unregistered customers.
-    """
-    if value is None:
-        return None
-    stripped = value.strip()
-    return stripped or None
-
-
-def _validate_gstin(value: str | None) -> str | None:
-    cleaned = _strip_optional(value)
-    if cleaned is None:
-        return None
-    cleaned = cleaned.upper()
-    if not re.match(GSTIN_PATTERN, cleaned):
-        raise ValueError("GSTIN must be 15 characters in the format 27ABCDE1234F1Z5.")
-    return cleaned
-
-
-def _validate_pan(value: str | None) -> str | None:
-    cleaned = _strip_optional(value)
-    if cleaned is None:
-        return None
-    cleaned = cleaned.upper()
-    if not re.match(PAN_PATTERN, cleaned):
-        raise ValueError("PAN must be 10 characters in the format ABCDE1234F.")
-    return cleaned
-
-
 def _validate_state_code(value: str | None) -> str | None:
-    cleaned = _strip_optional(value)
+    cleaned = strip_optional(value)
     if cleaned is None:
         return None
     if not re.match(r"^[0-9]{2}$", cleaned):
@@ -148,11 +90,11 @@ class CustomerCreate(_Base):
     is_active: bool = True
     notes: str | None = None
 
-    _code = field_validator("code")(_normalise_code)
-    _name = field_validator("name")(_clean_name)
-    _gstin = field_validator("gstin")(_validate_gstin)
-    _pan = field_validator("pan")(_validate_pan)
-    _strip = field_validator("legal_name")(_strip_optional)
+    _code = field_validator("code")(validate_code)
+    _name = field_validator("name")(clean_name)
+    _gstin = field_validator("gstin")(validate_optional_gstin)
+    _pan = field_validator("pan")(validate_optional_pan)
+    _strip = field_validator("legal_name")(strip_optional)
 
 
 class CustomerUpdate(BaseModel):
@@ -191,10 +133,10 @@ class CustomerUpdate(BaseModel):
     clear_assigned_sales_user: bool = False
     clear_default_transporter: bool = False
 
-    _name = field_validator("name")(_clean_name)
-    _gstin = field_validator("gstin")(_validate_gstin)
-    _pan = field_validator("pan")(_validate_pan)
-    _strip = field_validator("legal_name")(_strip_optional)
+    _name = field_validator("name")(clean_name)
+    _gstin = field_validator("gstin")(validate_optional_gstin)
+    _pan = field_validator("pan")(validate_optional_pan)
+    _strip = field_validator("legal_name")(strip_optional)
 
 
 class CustomerSummary(_Base):
@@ -276,15 +218,20 @@ class OutstandingAdjustment(BaseModel):
     """A finance-owned change to the cached outstanding balance.
 
     Signed: an invoice increases the balance, a receipt or credit note reduces
-    it. The reference fields tie the change back to the document that caused it,
-    so the cached figure can always be reconciled against the ledger.
+    it. The reference names the ledger document that caused the change, so the
+    cached figure can always be reconciled against the ledger - which is why
+    ``reference_type`` and ``reference_code`` are required rather than optional.
+    There is no HTTP route that takes this payload: the balance only ever moves
+    inside the finance transaction that posts the document it describes.
     """
 
     delta: SignedMoneyField
     reason: Reason
-    reference_type: str | None = Field(default=None, max_length=48)
+    reference_type: str = Field(min_length=1, max_length=48)
+    #: Optional because the document number is what a person reconciling the
+    #: balance searches by; some callers post before the id is known.
     reference_id: uuid.UUID | None = None
-    reference_code: str | None = Field(default=None, max_length=64)
+    reference_code: str = Field(min_length=1, max_length=64)
 
     @field_validator("delta")
     @classmethod
@@ -348,11 +295,11 @@ class AddressCreate(_Base):
     is_active: bool = True
     notes: str | None = None
 
-    _gstin = field_validator("gstin")(_validate_gstin)
+    _gstin = field_validator("gstin")(validate_optional_gstin)
     _state_code = field_validator("state_code")(_validate_state_code)
     _strip = field_validator(
         "label", "address_line2", "landmark", "state", "postal_code", "contact_person", "phone"
-    )(_strip_optional)
+    )(strip_optional)
 
 
 class AddressUpdate(BaseModel):
@@ -382,7 +329,7 @@ class AddressUpdate(BaseModel):
     is_active: bool | None = None
     notes: str | None = None
 
-    _gstin = field_validator("gstin")(_validate_gstin)
+    _gstin = field_validator("gstin")(validate_optional_gstin)
     _state_code = field_validator("state_code")(_validate_state_code)
 
 
@@ -424,8 +371,8 @@ class ContactCreate(_Base):
     is_active: bool = True
     notes: str | None = None
 
-    _name = field_validator("name")(_clean_name)
-    _strip = field_validator("designation", "phone")(_strip_optional)
+    _name = field_validator("name")(clean_name)
+    _strip = field_validator("designation", "phone")(strip_optional)
 
     @field_validator("phone")
     @classmethod
@@ -445,7 +392,7 @@ class ContactUpdate(BaseModel):
     is_active: bool | None = None
     notes: str | None = None
 
-    _name = field_validator("name")(_clean_name)
+    _name = field_validator("name")(clean_name)
 
 
 class ContactRead(_Base):
@@ -467,9 +414,6 @@ CustomerDetail.model_rebuild()
 
 
 __all__ = [
-    "CODE_PATTERN",
-    "GSTIN_PATTERN",
-    "PAN_PATTERN",
     "AddressCreate",
     "AddressRead",
     "AddressUpdate",

@@ -63,7 +63,7 @@ from src.modules.inventory.models import (
 )
 from src.modules.products.models import ItemGroup, ProductionType
 from tests import seed_support
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 
 pytestmark = pytest.mark.integration
 
@@ -129,7 +129,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID]]:
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, user_id
     asyncio.run(teardown())
@@ -205,9 +205,7 @@ async def seed_item(
 
 
 async def seed_warehouse(session: AsyncSession, company_id: uuid.UUID) -> uuid.UUID:
-    warehouse = await seed_support.seed_warehouse(
-        session, company_id=company_id, code=_code("WH")
-    )
+    warehouse = await seed_support.seed_warehouse(session, company_id=company_id, code=_code("WH"))
     return warehouse.id
 
 
@@ -507,13 +505,17 @@ async def test_releasing_reserves_every_component_without_moving_stock(ctx) -> N
     assert Decimal(balance.available_quantity) == on_hand_before - Decimal("100")
 
     reservations = (
-        await session.execute(
-            select(StockReservation).where(
-                StockReservation.demand_type == DemandType.ASSEMBLY_ORDER,
-                StockReservation.demand_id == order.id,
+        (
+            await session.execute(
+                select(StockReservation).where(
+                    StockReservation.demand_type == DemandType.ASSEMBLY_ORDER,
+                    StockReservation.demand_id == order.id,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(reservations) == 5
 
 
@@ -594,9 +596,7 @@ async def test_issuing_records_the_handover_without_touching_the_ledger(ctx) -> 
     ).scalar_one()
 
     assert ledger_after == ledger_before
-    assert all(
-        Decimal(row.issued_quantity) == Decimal(row.required_quantity) for row in components
-    )
+    assert all(Decimal(row.issued_quantity) == Decimal(row.required_quantity) for row in components)
 
 
 async def test_issuing_more_than_was_reserved_is_refused(ctx) -> None:
@@ -653,9 +653,7 @@ async def test_completion_consumes_the_components_and_creates_the_assembly(ctx) 
         assert Decimal(balance.available_quantity) == expected
 
     # And the finished assembly exists in the output warehouse.
-    output = await inv.get_balance(
-        session, tenant, setup.output_item_id, setup.output_warehouse_id
-    )
+    output = await inv.get_balance(session, tenant, setup.output_item_id, setup.output_warehouse_id)
     assert output is not None
     await session.refresh(output)
     assert Decimal(output.on_hand_quantity) == Decimal("100.0000")
@@ -676,13 +674,17 @@ async def test_completion_writes_one_consume_row_per_component_and_one_receipt(c
     )
 
     rows = (
-        await session.execute(
-            select(InventoryTransaction).where(
-                InventoryTransaction.company_id == tenant.company_id,
-                InventoryTransaction.reference_id == order.id,
+        (
+            await session.execute(
+                select(InventoryTransaction).where(
+                    InventoryTransaction.company_id == tenant.company_id,
+                    InventoryTransaction.reference_id == order.id,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     consumes = [r for r in rows if r.transaction_type == TransactionType.ASSEMBLY_CONSUME]
     receipts = [r for r in rows if r.transaction_type == TransactionType.ASSEMBLY_RECEIPT]
@@ -712,9 +714,7 @@ async def test_a_partial_run_consumes_proportionally_and_leaves_the_rest_availab
         ),
     )
 
-    handle_id = next(
-        item_id for item_id, per in setup.components.items() if per == Decimal("1")
-    )
+    handle_id = next(item_id for item_id, per in setup.components.items() if per == Decimal("1"))
     balance = await inv.get_balance(session, tenant, handle_id, setup.warehouse_id)
     assert balance is not None
     await session.refresh(balance)
@@ -793,14 +793,18 @@ async def test_completion_writes_its_audit_trail_in_the_same_transaction(ctx) ->
     )
 
     entries = (
-        await session.execute(
-            select(AuditLog).where(
-                AuditLog.company_id == tenant.company_id,
-                AuditLog.entity_type == service.AUDIT_ASSEMBLY_ORDER,
-                AuditLog.entity_id == order.id,
+        (
+            await session.execute(
+                select(AuditLog).where(
+                    AuditLog.company_id == tenant.company_id,
+                    AuditLog.entity_type == service.AUDIT_ASSEMBLY_ORDER,
+                    AuditLog.entity_id == order.id,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     actions = {entry.action for entry in entries}
     assert AuditAction.INVENTORY_MOVEMENT in actions
@@ -908,13 +912,17 @@ async def test_a_serialised_component_stays_traceable_to_the_units_consumed(ctx)
     assert list(stored) == serials
 
     posted_serials = (
-        await session.execute(
-            select(InventoryTransaction.serial_id).where(
-                InventoryTransaction.reference_id == order.id,
-                InventoryTransaction.transaction_type == TransactionType.ASSEMBLY_CONSUME,
+        (
+            await session.execute(
+                select(InventoryTransaction.serial_id).where(
+                    InventoryTransaction.reference_id == order.id,
+                    InventoryTransaction.transaction_type == TransactionType.ASSEMBLY_CONSUME,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert sorted(str(s) for s in posted_serials) == sorted(str(s) for s in serials)
 
 
@@ -1088,9 +1096,7 @@ async def test_a_completed_assembly_with_free_output_is_offered_to_packing(ctx) 
         CompleteRequest(assembled_quantity=Decimal("10"), reason="Ready to pack"),
     )
 
-    rows = await service.ready_for_packing(
-        session, tenant, warehouse_id=setup.output_warehouse_id
-    )
+    rows = await service.ready_for_packing(session, tenant, warehouse_id=setup.output_warehouse_id)
 
     assert [row.assembly_order_id for row in rows] == [order.id]
     assert rows[0].available_quantity == Decimal("10.0000")
@@ -1108,9 +1114,7 @@ async def test_output_still_held_for_inspection_is_not_offered_to_packing(ctx) -
         CompleteRequest(assembled_quantity=Decimal("10"), reason="Needs inspection"),
     )
 
-    rows = await service.ready_for_packing(
-        session, tenant, warehouse_id=setup.output_warehouse_id
-    )
+    rows = await service.ready_for_packing(session, tenant, warehouse_id=setup.output_warehouse_id)
     assert rows == []
 
 
@@ -1131,9 +1135,7 @@ async def test_an_assembly_a_packing_order_has_claimed_stops_being_offered(ctx) 
         session, tenant, order.id, packing_order_id=packing_order_id, reason="Packed"
     )
 
-    rows = await service.ready_for_packing(
-        session, tenant, warehouse_id=setup.output_warehouse_id
-    )
+    rows = await service.ready_for_packing(session, tenant, warehouse_id=setup.output_warehouse_id)
     assert rows == []
 
     # A different packing order may not steal an assembly already claimed.

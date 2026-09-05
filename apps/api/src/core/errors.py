@@ -33,6 +33,10 @@ class ErrorCode(StrEnum):
     ACCOUNT_LOCKED = "ACCOUNT_LOCKED"
     ACCOUNT_INACTIVE = "ACCOUNT_INACTIVE"
     PASSWORD_POLICY = "PASSWORD_POLICY"
+    PASSWORD_CHANGE_REQUIRED = "PASSWORD_CHANGE_REQUIRED"
+    MFA_REQUIRED = "MFA_REQUIRED"
+    MFA_INVALID = "MFA_INVALID"
+    CSRF_VALIDATION_FAILED = "CSRF_VALIDATION_FAILED"
     FORBIDDEN = "FORBIDDEN"
     PERMISSION_DENIED = "PERMISSION_DENIED"
     TENANT_MISMATCH = "TENANT_MISMATCH"
@@ -181,6 +185,18 @@ class PermissionDeniedError(AuthorizationError):
         )
 
 
+class PasswordChangeRequiredError(AuthorizationError):
+    """The account may use only credential-management routes until remediated."""
+
+    code = ErrorCode.PASSWORD_CHANGE_REQUIRED
+    message = "You must change your temporary password before continuing."
+
+
+class CsrfValidationError(AuthorizationError):
+    code = ErrorCode.CSRF_VALIDATION_FAILED
+    message = "The request could not be verified. Reload the page and try again."
+
+
 class TenantMismatchError(AuthorizationError):
     code = ErrorCode.TENANT_MISMATCH
     # Phrased as "not found" to the user: confirming a record exists in another
@@ -275,6 +291,7 @@ __all__ = [
     "BomCycleError",
     "BusinessRuleError",
     "ConflictError",
+    "CsrfValidationError",
     "DuplicateError",
     "ErrorCode",
     "FileValidationError",
@@ -282,6 +299,7 @@ __all__ = [
     "InvalidCredentialsError",
     "InvalidStateTransitionError",
     "NotFoundError",
+    "PasswordChangeRequiredError",
     "PermissionDeniedError",
     "RateLimitedError",
     "StockLockTimeoutError",

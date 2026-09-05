@@ -40,6 +40,7 @@ import {
   Textarea,
 } from '@/components/ui/primitives'
 import { formatDate, formatQuantity } from '@/lib/format'
+import { messages } from '@/lib/messages'
 
 import {
   DUPLICATE_ACTION_COPY,
@@ -47,6 +48,18 @@ import {
   type DuplicateConfidence,
   type DuplicateConflict,
 } from './procurement-types'
+
+/**
+ * The bounds on the acknowledgement reason.
+ *
+ * `PurchaseOrderCreate.duplicate_acknowledgement_reason` is capped at 1000 -
+ * not the 255 every other reason in procurement stops at - and the API refuses
+ * the flag without one. The control stops at the cap rather than letting a
+ * pasted justification earn a 422 for a field this dialog owns but the form's
+ * `applyFieldErrors` has no control to land on.
+ */
+const MIN_ACKNOWLEDGEMENT_REASON = 3
+const MAX_ACKNOWLEDGEMENT_REASON = 1000
 
 /** How loudly to object, by how sure the matcher is. */
 const CONFIDENCE_COPY: Record<
@@ -77,7 +90,9 @@ export function PurchaseOrderDuplicateDialog({
 }) {
   const [reason, setReason] = useState('')
   const [reasonTouched, setReasonTouched] = useState(false)
-  const reasonTooShort = reason.trim().length < 3
+  const reasonTooShort = reason.trim().length < MIN_ACKNOWLEDGEMENT_REASON
+  const reasonTooLong = reason.trim().length > MAX_ACKNOWLEDGEMENT_REASON
+  const reasonInvalid = reasonTooShort || reasonTooLong
 
   // The union of what the matcher says is possible across every candidate,
   // recommended ones first, so the buyer reads the cheapest fix at the top.
@@ -210,12 +225,15 @@ export function PurchaseOrderDuplicateDialog({
               <Textarea
                 id="po-duplicate-reason"
                 value={reason}
+                maxLength={MAX_ACKNOWLEDGEMENT_REASON}
                 onChange={(event) => setReason(event.target.value)}
                 className="mt-1.5"
-                aria-invalid={reasonTouched && reasonTooShort}
+                aria-invalid={reasonTouched && reasonInvalid}
               />
               {reasonTouched && reasonTooShort ? (
-                <FieldError message="Record at least three characters of reason" />
+                <FieldError message={messages.errors.reasonTooShort} />
+              ) : reasonTouched && reasonTooLong ? (
+                <FieldError message={`At most ${MAX_ACKNOWLEDGEMENT_REASON} characters`} />
               ) : (
                 <p className="mt-1 text-xs text-muted-foreground">
                   Stored on the order and shown to anybody who opens it later.
@@ -242,7 +260,7 @@ export function PurchaseOrderDuplicateDialog({
             <Button
               loading={isResolving}
               onClick={() => {
-                if (reasonTooShort) {
+                if (reasonInvalid) {
                   setReasonTouched(true)
                   return
                 }

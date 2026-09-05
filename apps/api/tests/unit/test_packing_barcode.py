@@ -121,9 +121,7 @@ def test_transposing_two_different_adjacent_characters_is_caught() -> None:
             continue
         if pair == {"0", "Z"}:
             continue  # the documented blind spot - see the test below
-        swapped = (
-            value[:position] + value[position + 1] + value[position] + value[position + 2 :]
-        )
+        swapped = value[:position] + value[position + 1] + value[position] + value[position + 2 :]
         assert not verify_barcode(swapped), swapped
 
 

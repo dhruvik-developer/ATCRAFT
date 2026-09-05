@@ -37,7 +37,8 @@
 
 import { useQuery } from '@tanstack/react-query'
 
-import { api } from '@/lib/api-client'
+import { api, emptyOnPermissionError } from '@/lib/api-client'
+import { success } from '@/lib/messages'
 import { P, type PermissionKey } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
@@ -103,7 +104,8 @@ export type TrackingLink = SchemaOf<'TrackingLinkRead'>
  * Four modules define a `StatusChangeRequest`, so the generated contract
  * disambiguates them by Python module path; this is the vendors module's one.
  */
-export type TransporterStatusChange = SchemaOf<'src__modules__vendors__schemas__StatusChangeRequest'>
+export type TransporterStatusChange =
+  SchemaOf<'src__modules__vendors__schemas__StatusChangeRequest'>
 
 // ------------------------------------------------------------ vocabulary ----
 
@@ -210,7 +212,7 @@ export const TRANSPORTER_COMMANDS: Record<TransporterCommand, TransporterCommand
       'The carrier becomes selectable on new dispatches again. Consignments already with it are unaffected either way.',
     confirmLabel: 'Activate',
     destructive: false,
-    successTitle: 'Transporter activated',
+    successTitle: success.statusChanged('Transporter', 'active'),
     permission: P.TRANSPORTER_MANAGE,
     reason: 'body',
   },
@@ -221,7 +223,7 @@ export const TRANSPORTER_COMMANDS: Record<TransporterCommand, TransporterCommand
       'The carrier disappears from the pickers on new dispatches. Nothing already booked to it moves, and its tracking links keep resolving.',
     confirmLabel: 'Deactivate',
     destructive: true,
-    successTitle: 'Transporter deactivated',
+    successTitle: success.statusChanged('Transporter', 'inactive'),
     permission: P.TRANSPORTER_MANAGE,
     reason: 'body',
   },
@@ -232,7 +234,7 @@ export const TRANSPORTER_COMMANDS: Record<TransporterCommand, TransporterCommand
       'The master row is withdrawn and the code is freed. Refused while the carrier still holds an undelivered consignment, because the goods are physically with them. Retiring can be undone, but the carrier comes back inactive.',
     confirmLabel: 'Retire transporter',
     destructive: true,
-    successTitle: 'Transporter retired',
+    successTitle: success.retired('Transporter'),
     permission: P.TRANSPORTER_MANAGE,
     reason: 'query',
   },
@@ -243,7 +245,7 @@ export const TRANSPORTER_COMMANDS: Record<TransporterCommand, TransporterCommand
       'The retired carrier comes back, but inactive - activating it is a separate step. Refused if its code has since been taken by another transporter.',
     confirmLabel: 'Restore',
     destructive: false,
-    successTitle: 'Transporter restored',
+    successTitle: success.restored('Transporter'),
     successDescription: 'It is back as inactive. Activate it before a dispatch can name it.',
     permission: P.TRANSPORTER_MANAGE,
     reason: 'none',
@@ -268,10 +270,6 @@ export function commandsFor(state: TransporterState): TransporterCommand[] {
       return ['restore']
   }
 }
-
-/** The shortest reason `StatusChangeRequest` and the delete query accept. */
-export const MIN_REASON_LENGTH = 3
-export const MAX_REASON_LENGTH = 255
 
 /**
  * Run one lifecycle command.
@@ -373,8 +371,8 @@ export function useTransporterOptions({
         return await api.get<TransporterOption[]>('/transporters/options', {
           params: transporterType ? { transporter_type: transporterType } : undefined,
         })
-      } catch {
-        return []
+      } catch (error) {
+        return emptyOnPermissionError<TransporterOption>(error)
       }
     },
     staleTime: staleTimes.master,

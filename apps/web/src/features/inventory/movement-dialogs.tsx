@@ -11,12 +11,14 @@
  */
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { ColumnDef } from '@tanstack/react-table'
 import { Loader2, Plus, Trash2 } from 'lucide-react'
-import { useMemo } from 'react'
+import { createContext, useCallback, useContext, useMemo, useState } from 'react'
 import { Controller, useFieldArray, useForm, type Control, type FieldErrors } from 'react-hook-form'
 import { z } from 'zod'
 
+import { DataTable } from '@/components/data-table'
 import { ConfirmDialog, FieldError } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -41,7 +43,8 @@ import {
   Label,
   Textarea,
 } from '@/components/ui/primitives'
-import { api } from '@/lib/api-client'
+import { api, ApiError } from '@/lib/api-client'
+import { DEFAULT_PAGE_SIZE, LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import {
   formatMoney,
@@ -51,16 +54,13 @@ import {
   toDateInput,
   toDecimal,
 } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 
 import { ItemPicker, WarehouseSelect } from './pickers'
-import {
-  ADJUSTMENT_REASON_CODES,
-  type PhysicalCountLineRow,
-  type PhysicalCountRow,
-} from './types'
+import { ADJUSTMENT_REASON_CODES, type PhysicalCountLineRow, type PhysicalCountRow } from './types'
 
 /**
  * What a stock transfer may carry. See docs/assumptions.md 25: a serial-tracked
@@ -96,9 +96,11 @@ interface LineFields {
 }
 
 /**
- * The item/quantity grid shared by transfers and adjustments. Labels are shown
- * on the first row and kept for screen readers on the rest, so the grid reads as
- * a table without repeating "Item" down the page.
+ * The item/quantity grid shared by transfers and adjustments. From the sm
+ * breakpoint the labels are shown on the first row and kept for screen readers
+ * on the rest, so the grid reads as a table without repeating "Item" down the
+ * page. On a phone the rows stack into one column, so every row keeps its
+ * labels and a rule beneath it - there the labels are the only row boundary.
  */
 function LineEditor<T extends LineFields>({
   control,
@@ -135,7 +137,7 @@ function LineEditor<T extends LineFields>({
       {fields.map((field, index) => (
         <div
           key={field.id}
-          className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_10rem_auto] sm:items-end"
+          className="grid gap-2 border-b pb-3 last:border-b-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_10rem_auto] sm:items-end sm:border-b-0 sm:pb-0"
         >
           <Controller
             control={control as unknown as Control<LineFields>}
@@ -144,7 +146,7 @@ function LineEditor<T extends LineFields>({
               <ItemPicker
                 id={idPrefix + '-item-' + index}
                 label={'Item, line ' + (index + 1)}
-                hideLabel={index > 0}
+                className={index > 0 ? 'sm:[&>label]:sr-only' : undefined}
                 placeholder="Choose an item"
                 value={itemField.value || null}
                 onChange={(itemId) => itemField.onChange(itemId ?? '')}
@@ -162,7 +164,7 @@ function LineEditor<T extends LineFields>({
               <div className="space-y-1.5">
                 <Label
                   htmlFor={idPrefix + '-quantity-' + index}
-                  className={index > 0 ? 'sr-only' : undefined}
+                  className={index > 0 ? 'sm:sr-only' : undefined}
                 >
                   {quantityLabel}
                 </Label>
@@ -203,7 +205,7 @@ function LineEditor<T extends LineFields>({
 
       <FieldError message={errors.lines?.message} />
 
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <Button
           type="button"
           variant="outline"
@@ -277,7 +279,7 @@ export function CreateTransferDialog({
         })),
       }),
     onSuccess: (result) => {
-      toast.success('Transfer created', result.code + ' is waiting for approval.')
+      toast.success(success.created('Transfer'), result.code + ' is waiting for approval.')
       void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
       form.reset()
       onOpenChange(false)
@@ -380,6 +382,8 @@ export function CreateTransferDialog({
             nowhere to record which units shipped. Move them with a goods issue and a receipt
             instead.
           </p>
+
+          <FieldError message={errors.root?.message} />
         </DialogBody>
 
         <DialogFooter>
@@ -562,6 +566,8 @@ export function CreateAdjustmentDialog({
             quantityHint="Negative writes stock off, positive adds it."
             signed
           />
+
+          <FieldError message={errors.root?.message} />
         </DialogBody>
 
         <DialogFooter>
@@ -691,6 +697,8 @@ export function CreatePhysicalCountDialog({
             />
             <FieldError message={errors.notes?.message} />
           </div>
+
+          <FieldError message={errors.root?.message} />
         </DialogBody>
 
         <DialogFooter>
@@ -712,16 +720,15 @@ export function CreatePhysicalCountDialog({
 // -------------------------------------------------- confirming a count -----
 
 /**
- * How much of the sheet the preview reads.
- *
- * `limit` is capped at 200 by the list endpoint and a count sheet can be longer
- * than that, so the per-line breakdown is a sample. The headline figures stay
- * the sheet's own `variance_line_count` and `variance_value`, which the server
- * totalled across every line: a total summed from whatever fitted on one page
- * would understate a write-off, and understating a write-off is the one
- * direction this dialog must not err in.
+ * How much of the sheet the preview reads: one page at the list endpoint's cap
+ * (`LOOKUP_LIST_LIMIT`). A count sheet can be longer than that, so the per-line
+ * breakdown is a sample. The headline figures stay the sheet's own
+ * `variance_line_count` and `variance_value`, which the server totalled across
+ * every line: a total summed from whatever fitted on one page would understate
+ * a write-off, and understating a write-off is the one direction this dialog
+ * must not err in.
  */
-const COUNT_LINE_PREVIEW_LIMIT = 200
+const COUNT_LINE_PREVIEW_LIMIT = LOOKUP_LIST_LIMIT
 
 /**
  * Confirm a count sheet and post the variance it implies.
@@ -797,7 +804,7 @@ export function ConfirmPhysicalCountDialog({
       // variance from the ledger rows it actually wrote, which under FIFO is a
       // different number from quantity x snapshot average.
       toast.success(
-        'Count confirmed',
+        success.confirmed('Count'),
         result.code +
           ' posted ' +
           formatMoney(result.variance_value) +
@@ -837,7 +844,7 @@ export function ConfirmPhysicalCountDialog({
     >
       <div className="space-y-3">
         <div className="rounded-md border p-3">
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
+          <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
             <div>
               <dt className="text-xs text-muted-foreground">Lines on the sheet</dt>
               <dd className="tabular text-sm font-medium">{formatNumber(count.line_count)}</dd>
@@ -853,7 +860,7 @@ export function ConfirmPhysicalCountDialog({
                 {formatNumber(count.variance_line_count)}
               </dd>
             </div>
-            <div className="col-span-2">
+            <div className="sm:col-span-2">
               <dt className="text-xs text-muted-foreground">Net variance to post</dt>
               <dd
                 className={cn(
@@ -954,5 +961,316 @@ export function ConfirmPhysicalCountDialog({
         </p>
       </div>
     </ConfirmDialog>
+  )
+}
+
+// ------------------------------------------------------ keying a count -----
+
+/** What `PhysicalCountEntry.counted_quantity` accepts: nought or more, to 4 places. */
+const COUNTED_QUANTITY_PATTERN = /^\d{1,14}(\.\d{1,4})?$/
+
+/**
+ * `PhysicalCountEntryRequest` takes at most this many entries per request
+ * (`MAX_DOCUMENT_LINES` in inventory/schemas.py). Figures keyed across several
+ * pages are held until saved, so the cap is enforced here rather than earned as
+ * a 422 after the walk round the aisles.
+ */
+const MAX_ENTRIES_PER_SAVE = 500
+
+/** What the counted-quantity cell needs from the dialog around it. */
+interface CountEntryState {
+  /** Figures keyed so far, by line id. */
+  drafts: Record<string, string>
+  /** A 422 the server addressed to a line, by line id. */
+  errorsByLine: Record<string, string>
+  setDraft: (lineId: string, value: string) => void
+}
+
+/**
+ * Handed to the cell through a context rather than closed over in the column
+ * definitions. `flexRender` mounts a function cell as a React component, so a
+ * `cell` recreated whenever the drafts change would be a new component type
+ * on every keystroke - React would remount it and the input would lose focus
+ * after the first character. Module-level columns cannot go stale that way.
+ */
+const CountEntryContext = createContext<CountEntryState | null>(null)
+
+function CountedQuantityCell({ line }: { line: PhysicalCountLineRow }) {
+  const entry = useContext(CountEntryContext)
+  if (!entry) return null
+  const draft = entry.drafts[line.id]
+  const value = draft ?? line.counted_quantity ?? ''
+  const message =
+    draft !== undefined && draft.trim() !== '' && !COUNTED_QUANTITY_PATTERN.test(draft.trim())
+      ? 'A quantity of nought or more, to 4 decimal places.'
+      : entry.errorsByLine[line.id]
+  return (
+    <div className="flex flex-col items-end">
+      <Input
+        inputMode="decimal"
+        autoComplete="off"
+        aria-label={'Counted quantity for ' + (line.item_code ?? line.item_id)}
+        aria-invalid={Boolean(message)}
+        value={value}
+        onChange={(event) => entry.setDraft(line.id, event.target.value)}
+        className="h-8 w-28 text-right tabular"
+      />
+      <FieldError message={message} />
+    </div>
+  )
+}
+
+const COUNT_ENTRY_COLUMNS: ColumnDef<PhysicalCountLineRow, unknown>[] = [
+  {
+    id: 'line_number',
+    header: '#',
+    enableSorting: false,
+    meta: { align: 'right' },
+    cell: ({ row }) => <span className="text-muted-foreground">{row.original.line_number}</span>,
+  },
+  {
+    id: 'item',
+    header: 'Item',
+    enableSorting: false,
+    cell: ({ row }) => (
+      <span>
+        <span className="block font-mono text-xs">
+          {row.original.item_code ?? row.original.item_id}
+        </span>
+        {row.original.item_name && (
+          <span className="block max-w-[16rem] truncate text-xs text-muted-foreground">
+            {row.original.item_name}
+          </span>
+        )}
+      </span>
+    ),
+  },
+  {
+    id: 'system_quantity',
+    header: 'Book',
+    enableSorting: false,
+    meta: { align: 'right' },
+    cell: ({ row }) => formatQuantity(row.original.system_quantity),
+  },
+  {
+    id: 'counted_quantity',
+    header: 'Counted',
+    enableSorting: false,
+    enableHiding: false,
+    meta: { align: 'right' },
+    cell: ({ row }) => <CountedQuantityCell line={row.original} />,
+  },
+  {
+    id: 'variance_quantity',
+    header: 'Variance',
+    enableSorting: false,
+    meta: { align: 'right' },
+    // The server's figure for a saved count, against the snapshot. Blank until
+    // the line has been keyed and saved - never a guess computed here.
+    cell: ({ row }) => {
+      const line = row.original
+      if (line.counted_quantity === null) {
+        return <span className="text-muted-foreground">-</span>
+      }
+      const variance = toDecimal(line.variance_quantity)
+      return (
+        <span
+          className={cn(
+            variance.greaterThan(0) && 'text-success',
+            variance.lessThan(0) && 'text-destructive',
+          )}
+        >
+          {variance.greaterThan(0) ? '+' : ''}
+          {formatQuantity(line.variance_quantity)}
+        </span>
+      )
+    },
+  },
+]
+
+/**
+ * Key counted quantities onto an IN_PROGRESS sheet.
+ *
+ * This is the step that was missing: Start moved a sheet to IN_PROGRESS and
+ * nothing on any screen could move it on, so the snapshot aged and the variance
+ * could never be posted. The lines are read page by page - the endpoint is
+ * paginated and a sheet may run to `MAX_COUNT_LINES` - and a figure typed on
+ * one page survives a visit to the next, keyed by line id.
+ *
+ * Saving is partial by design: `enter_counts` accepts any subset and only moves
+ * the sheet to COUNTED once no line is left uncounted, so a counter can save
+ * after every aisle. A line left blank is left uncounted, never written to zero.
+ *
+ * Quantities are posted as decimal strings. Gated by the caller on
+ * `P.INVENTORY_PHYSICAL_COUNT`, which is what `POST .../entries` enforces.
+ */
+export function EnterCountsDialog({
+  count,
+  onClose,
+}: {
+  count: PhysicalCountRow
+  onClose: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState<number>(DEFAULT_PAGE_SIZE)
+  /** Figures keyed so far, by line id. Only a typed value is ever sent. */
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
+
+  const params = { page, limit, with_total: true }
+  const lines = useQuery({
+    queryKey: ['inventory', 'physical-counts', count.id, 'lines', params],
+    queryFn: () =>
+      api.getPage<PhysicalCountLineRow>('/inventory/physical-counts/' + count.id + '/lines', {
+        params,
+      }),
+    placeholderData: keepPreviousData,
+    // A figure a colleague saved a moment ago must show (master rules 34).
+    staleTime: staleTimes.live,
+  })
+
+  const save = useMutation({
+    mutationFn: (entries: { line_id: string; counted_quantity: string }[]) =>
+      api.post<PhysicalCountRow>('/inventory/physical-counts/' + count.id + '/entries', {
+        entries,
+      }),
+    onSuccess: (result, entries) => {
+      toast.success(
+        success.saved('Counts'),
+        formatNumber(entries.length) +
+          ' line(s) recorded on ' +
+          result.code +
+          (result.status === 'COUNTED'
+            ? '. Every line is counted, so the sheet is ready to confirm.'
+            : '.'),
+      )
+      void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
+      setDrafts({})
+      // Nothing is left to key once the sheet is COUNTED; otherwise it stays
+      // open for the next aisle.
+      if (result.status === 'COUNTED') onClose()
+    },
+  })
+
+  const pending = useMemo(
+    () => Object.entries(drafts).filter(([, value]) => value.trim() !== ''),
+    [drafts],
+  )
+  const malformed = pending.filter(([, value]) => !COUNTED_QUANTITY_PATTERN.test(value.trim()))
+  const overCap = pending.length > MAX_ENTRIES_PER_SAVE
+
+  /**
+   * A 422 addresses an entry by its position in the request
+   * (`entries.3.counted_quantity`). The request was built from `pending` in
+   * order, so the position maps back to the line it came from; anything the
+   * server says about the request as a whole lands under the table instead.
+   */
+  const serverErrors = useMemo(() => {
+    const byLine: Record<string, string> = {}
+    const general: string[] = []
+    if (save.error instanceof ApiError && save.variables) {
+      for (const [path, messages] of Object.entries(save.error.fieldErrors)) {
+        const position = /^entries\.(\d+)/.exec(path)
+        const lineId = position ? save.variables[Number(position[1])]?.line_id : undefined
+        if (lineId) byLine[lineId] = messages.join('. ')
+        else general.push(...messages)
+      }
+    }
+    return { byLine, general: general.length > 0 ? general.join('. ') : undefined }
+  }, [save.error, save.variables])
+
+  const hasServerError = save.error !== null
+  const resetSave = save.reset
+  const setDraft = useCallback(
+    (lineId: string, value: string) => {
+      setDrafts((current) => ({ ...current, [lineId]: value }))
+      // A corrected figure clears the refusal it earned.
+      if (hasServerError) resetSave()
+    },
+    [hasServerError, resetSave],
+  )
+
+  const entryState = useMemo<CountEntryState>(
+    () => ({ drafts, errorsByLine: serverErrors.byLine, setDraft }),
+    [drafts, serverErrors, setDraft],
+  )
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+    >
+      <DialogContent size="xl">
+        <DialogHeader>
+          <DialogTitle>Key counts for {count.code}</DialogTitle>
+          <DialogDescription>
+            What was found on the shelf at {count.warehouse_code ?? 'this warehouse'}, line by line.
+            Save as often as you like: a line left blank stays uncounted, and the sheet moves on to
+            counted only once every line has a figure.
+          </DialogDescription>
+        </DialogHeader>
+
+        <DialogBody className="space-y-3">
+          <CountEntryContext.Provider value={entryState}>
+            <DataTable
+              columns={COUNT_ENTRY_COLUMNS}
+              data={lines.data?.data ?? []}
+              pagination={lines.data?.pagination}
+              isLoading={lines.isLoading}
+              isFetching={lines.isFetching}
+              error={lines.error}
+              onPageChange={setPage}
+              onLimitChange={(next) => {
+                setLimit(next)
+                setPage(1)
+              }}
+              onRefresh={() => void lines.refetch()}
+              getRowId={(row) => row.id}
+              emptyTitle="No lines on this sheet"
+              emptyDescription="The scope held no positions to count when the sheet was opened."
+            />
+          </CountEntryContext.Provider>
+
+          <FieldError message={serverErrors.general} />
+
+          {overCap && (
+            <FieldError
+              message={
+                'Save in batches: at most ' +
+                formatNumber(MAX_ENTRIES_PER_SAVE) +
+                ' lines can be recorded at once, and ' +
+                formatNumber(pending.length) +
+                ' are keyed.'
+              }
+            />
+          )}
+
+          <p className="text-xs text-muted-foreground" role="status">
+            {pending.length === 0
+              ? 'Nothing keyed yet.'
+              : formatNumber(pending.length) + ' figure(s) keyed and not yet saved.'}
+          </p>
+        </DialogBody>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={save.isPending}>
+            Close
+          </Button>
+          <Button
+            onClick={() =>
+              save.mutate(
+                pending.map(([line_id, value]) => ({ line_id, counted_quantity: value.trim() })),
+              )
+            }
+            loading={save.isPending}
+            disabled={pending.length === 0 || malformed.length > 0 || overCap}
+          >
+            Save counts
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

@@ -39,14 +39,16 @@ from sqlalchemy.pool import NullPool
 from src.core.clock import today, utcnow
 from src.core.config import settings
 from src.core.database import transaction
-from src.core.deps import TenantContext
+from src.core.deps import Principal, TenantContext
 from src.core.errors import (
     ApprovalRequiredError,
     BusinessRuleError,
     InvalidStateTransitionError,
+    PermissionDeniedError,
 )
 from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
+from src.core.permissions import Permission
 from src.modules.allocation.models import ReservationStatus, StockReservation
 from src.modules.audit.models import AuditLog
 from src.modules.inventory import service as inv
@@ -78,7 +80,7 @@ from src.modules.job_work.schemas import (
 from src.modules.products.models import Item, ItemGroup, UnitOfMeasure, UomCategory
 from src.modules.vendors.models import Vendor, VendorType
 from src.modules.warehouses.models import Warehouse, WarehouseType
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 from tests.seed_support import seed_company, seed_user
 
 pytestmark = pytest.mark.integration
@@ -145,7 +147,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID]]:
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, user_id
     asyncio.run(teardown())
@@ -173,6 +175,19 @@ async def ctx(
             await outer.rollback()
     finally:
         await engine.dispose()
+
+
+def principal_for(tenant: TenantContext, *permissions: Permission) -> Principal:
+    """The operator as a caller. Naming no rights means every right."""
+    held = permissions or tuple(Permission)
+    return Principal(
+        user_id=tenant.user_id,
+        company_id=tenant.company_id,
+        email="operator@atcraft.test",
+        full_name="Operator",
+        is_superuser=False,
+        permissions=frozenset(str(p) for p in held),
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -371,9 +386,7 @@ async def job(ctx) -> PvdJob:
     )
 
 
-async def issued_order(
-    ctx, job: PvdJob, *, stock: str = "100", **payload_kwargs
-):
+async def issued_order(ctx, job: PvdJob, *, stock: str = "100", **payload_kwargs):
     """Raise, approve and issue an order, leaving its material at the vendor."""
     session, tenant = ctx
     await stock_in(session, tenant, job.raw_item_id, job.warehouse_id, stock)
@@ -439,6 +452,7 @@ async def test_company_owned_stock_is_conserved_across_a_clean_issue_and_receipt
     await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="Full lot returned coated",
@@ -454,15 +468,14 @@ async def test_company_owned_stock_is_conserved_across_a_clean_issue_and_receipt
     assert after == Decimal("100.0000")
 
 
-async def test_a_short_return_conserves_stock_with_the_shortfall_as_scrap(
-    ctx, job: PvdJob
-) -> None:
+async def test_a_short_return_conserves_stock_with_the_shortfall_as_scrap(ctx, job: PvdJob) -> None:
     session, tenant = ctx
     order, _ = await issued_order(ctx, job, loss_percentage="5")
 
     await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="98 came back; 2 lost in the plating bath",
@@ -479,20 +492,19 @@ async def test_a_short_return_conserves_stock_with_the_shortfall_as_scrap(
     assert Decimal(raw.job_work_quantity) == 0
     assert Decimal(raw.scrap_quantity) == Decimal("2.0000")
     assert Decimal(coated.on_hand_quantity) == Decimal("98.0000")
-    assert await company_owned(
-        session, tenant, job.raw_item_id, job.coated_item_id
-    ) == Decimal("100.0000")
+    assert await company_owned(session, tenant, job.raw_item_id, job.coated_item_id) == Decimal(
+        "100.0000"
+    )
 
 
-async def test_the_reconciliation_agrees_with_the_ledgers_job_work_pool(
-    ctx, job: PvdJob
-) -> None:
+async def test_the_reconciliation_agrees_with_the_ledgers_job_work_pool(ctx, job: PvdJob) -> None:
     session, tenant = ctx
     order, _ = await issued_order(ctx, job)
 
     await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="Part lot returned",
@@ -532,6 +544,7 @@ async def test_a_fully_received_order_leaves_the_pending_feed(ctx, job: PvdJob) 
     await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="All back",
@@ -575,9 +588,7 @@ async def test_a_challan_cannot_be_raised_for_an_unapproved_order(ctx, job: PvdJ
         await service.issue_order(session, tenant, order.id, IssueRequest(reason="Too early"))
 
     assert (
-        await session.execute(
-            select(func.count()).select_from(JobWorkChallan)
-        )
+        await session.execute(select(func.count()).select_from(JobWorkChallan))
     ).scalar_one() == 0
 
 
@@ -635,9 +646,7 @@ async def test_cancelling_gives_the_reserved_material_back(ctx, job: PvdJob) -> 
     assert [r.status for r in reservations] == [ReservationStatus.RELEASED]
 
 
-async def test_issuing_consumes_the_reservation_before_the_stock_moves(
-    ctx, job: PvdJob
-) -> None:
+async def test_issuing_consumes_the_reservation_before_the_stock_moves(ctx, job: PvdJob) -> None:
     session, tenant = ctx
     _order, _ = await issued_order(ctx, job)
 
@@ -663,12 +672,11 @@ async def test_loss_beyond_the_allowance_needs_approval(ctx, job: PvdJob) -> Non
         await service.receive(
             session,
             tenant,
+            principal_for(tenant),
             order.id,
             ReceiveRequest(
                 reason="Only 90 usable",
-                lines=[
-                    ReceiptLineIn(line_number=1, output_quantity=Decimal("90"), is_final=True)
-                ],
+                lines=[ReceiptLineIn(line_number=1, output_quantity=Decimal("90"), is_final=True)],
             ),
         )
 
@@ -678,15 +686,14 @@ async def test_loss_beyond_the_allowance_needs_approval(ctx, job: PvdJob) -> Non
     assert row is not None and Decimal(row.job_work_quantity) == Decimal("100.0000")
 
 
-async def test_approved_excess_loss_posts_scrap_and_debits_the_vendor(
-    ctx, job: PvdJob
-) -> None:
+async def test_approved_excess_loss_posts_scrap_and_debits_the_vendor(ctx, job: PvdJob) -> None:
     session, tenant = ctx
     order, _ = await issued_order(ctx, job, loss_percentage="2")
 
     result = await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="Only 90 usable; vendor accepts the debit",
@@ -704,6 +711,56 @@ async def test_approved_excess_loss_posts_scrap_and_debits_the_vendor(
     assert raw is not None and Decimal(raw.scrap_quantity) == Decimal("10.0000")
 
 
+async def test_the_excess_flag_from_a_storekeeper_is_refused_and_posts_nothing(
+    ctx, job: PvdJob
+) -> None:
+    """``approve_excess_loss`` is only a request; the right that grants it is
+    JOB_WORK_CLOSE, because what it accepts is debited to the vendor ledger."""
+    session, tenant = ctx
+    order, _ = await issued_order(ctx, job, loss_percentage="2")
+
+    with pytest.raises(PermissionDeniedError) as exc:
+        await service.receive(
+            session,
+            tenant,
+            principal_for(tenant, Permission.JOB_WORK_RECEIVE),
+            order.id,
+            ReceiveRequest(
+                reason="Only 90 usable",
+                approve_excess_loss=True,
+                lines=[ReceiptLineIn(line_number=1, output_quantity=Decimal("90"), is_final=True)],
+            ),
+        )
+
+    assert exc.value.details["required_permission"] == str(Permission.JOB_WORK_CLOSE)
+    row = await balance(session, tenant, job.raw_item_id, job.warehouse_id)
+    assert row is not None and Decimal(row.job_work_quantity) == Decimal("100.0000")
+
+
+async def test_a_close_holder_is_recorded_as_the_excess_approver(ctx, job: PvdJob) -> None:
+    session, tenant = ctx
+    order, _ = await issued_order(ctx, job, loss_percentage="2")
+    approver = principal_for(tenant, Permission.JOB_WORK_RECEIVE, Permission.JOB_WORK_CLOSE)
+
+    result = await service.receive(
+        session,
+        tenant,
+        approver,
+        order.id,
+        ReceiveRequest(
+            reason="Only 90 usable; vendor accepts the debit",
+            approve_excess_loss=True,
+            lines=[ReceiptLineIn(line_number=1, output_quantity=Decimal("90"), is_final=True)],
+        ),
+    )
+
+    receipt = (
+        await session.execute(select(JobWorkReceipt).where(JobWorkReceipt.id == result.receipt.id))
+    ).scalar_one()
+    assert receipt.has_excess_loss is True
+    assert receipt.excess_loss_approved_by_id == approver.user_id
+
+
 async def test_rejected_output_is_received_into_the_damaged_pool(ctx, job: PvdJob) -> None:
     session, tenant = ctx
     order, _ = await issued_order(ctx, job)
@@ -711,6 +768,7 @@ async def test_rejected_output_is_received_into_the_damaged_pool(ctx, job: PvdJo
     await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="Ten pieces plated badly and sent back",
@@ -743,6 +801,7 @@ async def test_rework_leaves_the_material_at_the_vendor_and_the_order_open(
     await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="Ten going back through the bath",
@@ -769,15 +828,14 @@ async def test_rework_leaves_the_material_at_the_vendor_and_the_order_open(
     assert pending[0].outstanding_quantity == Decimal("10.0000")
 
 
-async def test_unprocessed_material_handed_back_returns_to_availability(
-    ctx, job: PvdJob
-) -> None:
+async def test_unprocessed_material_handed_back_returns_to_availability(ctx, job: PvdJob) -> None:
     session, tenant = ctx
     order, _ = await issued_order(ctx, job)
 
     await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="Vendor could not take the whole lot",
@@ -796,14 +854,12 @@ async def test_unprocessed_material_handed_back_returns_to_availability(
     assert raw is not None
     assert Decimal(raw.job_work_quantity) == 0
     assert Decimal(raw.available_quantity) == Decimal("30.0000")
-    assert await company_owned(
-        session, tenant, job.raw_item_id, job.coated_item_id
-    ) == Decimal("100.0000")
+    assert await company_owned(session, tenant, job.raw_item_id, job.coated_item_id) == Decimal(
+        "100.0000"
+    )
 
 
-async def test_receiving_more_output_than_the_order_expected_is_refused(
-    ctx, job: PvdJob
-) -> None:
+async def test_receiving_more_output_than_the_order_expected_is_refused(ctx, job: PvdJob) -> None:
     session, tenant = ctx
     order, _ = await issued_order(ctx, job)
 
@@ -811,6 +867,7 @@ async def test_receiving_more_output_than_the_order_expected_is_refused(
         await service.receive(
             session,
             tenant,
+            principal_for(tenant),
             order.id,
             ReceiveRequest(
                 reason="Vendor sent 110",
@@ -835,6 +892,7 @@ async def test_two_lots_reconcile_to_the_whole_consignment(ctx, job: PvdJob) -> 
     first = await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="First half",
@@ -846,6 +904,7 @@ async def test_two_lots_reconcile_to_the_whole_consignment(ctx, job: PvdJob) -> 
     second = await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="Balance, two lost",
@@ -870,6 +929,7 @@ async def test_an_order_with_material_still_out_cannot_be_closed(ctx, job: PvdJo
     await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="Part lot",
@@ -890,6 +950,7 @@ async def test_closing_a_received_order_completes_and_closes_it(ctx, job: PvdJob
     await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="All back",
@@ -908,15 +969,14 @@ async def test_closing_a_received_order_completes_and_closes_it(ctx, job: PvdJob
 # -----------------------------------------------------------------------------
 
 
-async def test_output_that_needs_inspecting_is_held_rather_than_released(
-    ctx, job: PvdJob
-) -> None:
+async def test_output_that_needs_inspecting_is_held_rather_than_released(ctx, job: PvdJob) -> None:
     session, tenant = ctx
     order, _ = await issued_order(ctx, job, requires_qc=True)
 
     result = await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="Back from plating, needs checking",
@@ -940,6 +1000,7 @@ async def test_the_inspection_verdict_releases_and_damages_the_right_quantities(
     await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="Back from plating",
@@ -985,6 +1046,7 @@ async def test_a_verdict_that_does_not_account_for_everything_held_is_refused(
     await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="Back from plating",
@@ -1013,14 +1075,13 @@ async def test_a_verdict_that_does_not_account_for_everything_held_is_refused(
 # -----------------------------------------------------------------------------
 
 
-async def test_charges_accrue_on_good_output_and_net_off_the_vendor_debit(
-    ctx, job: PvdJob
-) -> None:
+async def test_charges_accrue_on_good_output_and_net_off_the_vendor_debit(ctx, job: PvdJob) -> None:
     session, tenant = ctx
     order, _ = await issued_order(ctx, job, loss_percentage="2")
     await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="90 good, 10 lost",
@@ -1049,6 +1110,7 @@ async def test_a_period_outside_the_receipt_dates_returns_nothing(ctx, job: PvdJ
     await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="All back",
@@ -1073,6 +1135,7 @@ async def test_a_lot_rate_is_charged_once_across_two_deliveries(ctx, job: PvdJob
     await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="First half",
@@ -1082,6 +1145,7 @@ async def test_a_lot_rate_is_charged_once_across_two_deliveries(ctx, job: PvdJob
     await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="Second half",
@@ -1155,6 +1219,7 @@ async def test_every_stock_moving_step_writes_its_own_audit_entry(ctx, job: PvdJ
     await service.receive(
         session,
         tenant,
+        principal_for(tenant),
         order.id,
         ReceiveRequest(
             reason="All back",
@@ -1186,9 +1251,7 @@ async def test_another_tenants_orders_are_invisible(ctx, job: PvdJob) -> None:
     assert await service.pending_at_vendor(session, other) == []
 
 
-async def test_the_order_list_can_be_filtered_to_material_at_a_vendor(
-    ctx, job: PvdJob
-) -> None:
+async def test_the_order_list_can_be_filtered_to_material_at_a_vendor(ctx, job: PvdJob) -> None:
     session, tenant = ctx
     order, _ = await issued_order(ctx, job)
 

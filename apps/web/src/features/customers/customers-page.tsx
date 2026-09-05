@@ -35,6 +35,7 @@ import {
 import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatMoney, humanise, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -48,9 +49,6 @@ import {
   hasOutstandingBalance,
   isDealerChannel,
 } from './customer-types'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /** Which customer the dialog is open for: null = closed, id = edit, '' = create. */
 type DialogTarget = string | null
@@ -351,16 +349,16 @@ export default function CustomersPage() {
         toolbar={
           <>
             <Select
-              value={customerType || ALL}
+              value={customerType || SELECT_ALL}
               onValueChange={(value) =>
-                setParam('customer_type', value === ALL ? undefined : value)
+                setParam('customer_type', value === SELECT_ALL ? undefined : value)
               }
             >
-              <SelectTrigger className="w-[170px]" aria-label="Filter by customer type">
+              <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by customer type">
                 <SelectValue placeholder="All types" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All types</SelectItem>
+                <SelectItem value={SELECT_ALL}>All types</SelectItem>
                 {CUSTOMER_TYPES.map((type) => (
                   <SelectItem key={type} value={type}>
                     {humanise(type)}
@@ -370,14 +368,16 @@ export default function CustomersPage() {
             </Select>
 
             <Select
-              value={standing || ALL}
-              onValueChange={(value) => setParam('standing', value === ALL ? undefined : value)}
+              value={standing || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('standing', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[190px]" aria-label="Filter by credit standing">
+              <SelectTrigger className="w-full sm:w-[190px]" aria-label="Filter by credit standing">
                 <SelectValue placeholder="Any standing" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any standing</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any standing</SelectItem>
                 <SelectItem value="blocked">Blocked only</SelectItem>
                 <SelectItem value="clear">Not blocked</SelectItem>
                 <SelectItem value="over_limit">Over credit limit</SelectItem>
@@ -385,7 +385,7 @@ export default function CustomersPage() {
             </Select>
 
             <Select value={activeState} onValueChange={(value) => setParam('is_active', value)}>
-              <SelectTrigger className="w-[140px]" aria-label="Filter by status">
+              <SelectTrigger className="w-full sm:w-[140px]" aria-label="Filter by status">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -428,6 +428,10 @@ export default function CustomersPage() {
           }}
           customerId={dialogTarget === '' ? null : dialogTarget}
           canEdit={dialogTarget === '' ? canCreate : canUpdate}
+          // The same channel rule as Retire above, applied where the loaded
+          // record is known: the dialog withholds Save, Block and Deactivate on
+          // a dealer or distributor account from a principal without it.
+          canManageDealers={canManageDealers}
         />
       )}
 

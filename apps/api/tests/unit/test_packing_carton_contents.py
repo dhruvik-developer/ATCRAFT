@@ -212,11 +212,7 @@ def test_a_non_batch_tracked_item_may_not_carry_a_batch() -> None:
     # belonging to a different item; both would corrupt the recall trail.
     with pytest.raises(BusinessRuleError, match="not batch tracked"):
         plan_contents(
-            [
-                CartonContentIn(
-                    line_number=1, quantity=Decimal("5"), batch_id=uuid.uuid4()
-                )
-            ],
+            [CartonContentIn(line_number=1, quantity=Decimal("5"), batch_id=uuid.uuid4())],
             lines={1: line(1, CYLINDER)},
             items={CYLINDER: item(CYLINDER, "CYL-01")},
         )
@@ -264,11 +260,7 @@ def test_a_serialised_item_with_the_matching_serial_count_is_accepted() -> None:
 def test_a_non_serialised_item_may_not_carry_serials() -> None:
     with pytest.raises(BusinessRuleError, match="not serial tracked"):
         plan_contents(
-            [
-                CartonContentIn(
-                    line_number=1, quantity=Decimal("1"), serial_ids=[uuid.uuid4()]
-                )
-            ],
+            [CartonContentIn(line_number=1, quantity=Decimal("1"), serial_ids=[uuid.uuid4()])],
             lines={1: line(1, HANDLE)},
             items={HANDLE: item(HANDLE, "HANDLE-01")},
         )
@@ -277,9 +269,7 @@ def test_a_non_serialised_item_may_not_carry_serials() -> None:
 def test_the_same_serial_cannot_be_named_twice_in_one_content_row() -> None:
     duplicate = uuid.uuid4()
     with pytest.raises(ValueError, match="twice"):
-        CartonContentIn(
-            line_number=1, quantity=Decimal("2"), serial_ids=[duplicate, duplicate]
-        )
+        CartonContentIn(line_number=1, quantity=Decimal("2"), serial_ids=[duplicate, duplicate])
 
 
 # -----------------------------------------------------------------------------

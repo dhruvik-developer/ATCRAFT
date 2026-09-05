@@ -34,6 +34,7 @@ import {
 import { Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { success } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -126,7 +127,10 @@ export function RoleFormDialog({
     },
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.users.all })
-      toast.success(isEdit ? 'Role updated' : 'Role created', `${saved.code} - ${saved.name}`)
+      toast.success(
+        isEdit ? success.updated('Role') : success.created('Role'),
+        `${saved.code} - ${saved.name}`,
+      )
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),

@@ -71,11 +71,14 @@ import {
   Label,
   Skeleton,
 } from '@/components/ui/primitives'
+import { WAREHOUSE_LOOKUP_PARAMS } from '@/features/inventory/types'
 import { ShortageReportTab } from '@/features/mrp/shortage-report-tab'
 
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
+import { reportFieldErrors } from '@/lib/form-errors'
 import {
   daysUntil,
   formatDate,
@@ -111,9 +114,6 @@ import {
   type SuggestionType,
   type WarehouseOption,
 } from './mrp-types'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 const POLL_INTERVAL_MS = 3000
 
@@ -325,16 +325,22 @@ export default function MrpRunDetailPage() {
   /**
    * The run stores warehouse ids; a planner reads warehouse codes. The list is
    * small, cached master data and is already in the cache from the run form.
+   *
+   * `GET /warehouses` is behind `warehouse.view`, which the MRP route does not
+   * demand, so the lookup is only fired for a principal who holds it; anyone
+   * else sees the count `warehouseLabel` already falls back to.
    */
   const scopedWarehouseIds = useMemo(
     () => run?.warehouse_ids ?? run?.parameters?.warehouse_ids ?? [],
     [run],
   )
-  const warehouseParams = { limit: 200, sort_by: 'code', sort_dir: 'asc', with_total: false }
+  // The one spelling of the lookup, so this and `WarehouseSelect` share a
+  // cache entry rather than fetching the same bounded list twice.
+  const warehouseParams = WAREHOUSE_LOOKUP_PARAMS
   const warehouses = useQuery({
     queryKey: queryKeys.warehouses.list(warehouseParams),
     queryFn: () => api.getPage<WarehouseOption>('/warehouses', { params: warehouseParams }),
-    enabled: scopedWarehouseIds.length > 0,
+    enabled: scopedWarehouseIds.length > 0 && can(P.WAREHOUSE_VIEW),
     staleTime: staleTimes.master,
   })
 
@@ -358,7 +364,6 @@ export default function MrpRunDetailPage() {
   }, [runId])
 
   const selectedRows = useMemo(() => Object.values(selected), [selected])
-  const selectedIds = useMemo(() => selectedRows.map((row) => row.id), [selectedRows])
 
   const convert = useMutation({
     mutationFn: (ids: string[]) =>
@@ -393,6 +398,9 @@ export default function MrpRunDetailPage() {
         )
       }
     },
+    // Fired from a confirm box, not a form: a 422 has no control to land on,
+    // and the mutation cache stays quiet for it.
+    onError: (error) => reportFieldErrors(error, 'Could not convert these suggestions'),
   })
 
   /**
@@ -407,9 +415,14 @@ export default function MrpRunDetailPage() {
         suggestion_ids: ids,
         reason,
       }),
-    onSuccess: (result) => {
+    onSuccess: (result, { ids }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.mrp.all })
-      setSelected({})
+      // Only the ids actually sent leave the tick list; anything past
+      // MAX_BULK_IGNORE was never submitted and stays selected for the next call.
+      const sent = new Set(ids)
+      setSelected((current) =>
+        Object.fromEntries(Object.entries(current).filter(([id]) => !sent.has(id))),
+      )
       setIgnoreOpen(false)
       setIgnoreReason('')
       setIgnoreReasonTouched(false)
@@ -427,6 +440,7 @@ export default function MrpRunDetailPage() {
         )
       }
     },
+    onError: (error) => reportFieldErrors(error, 'Could not ignore these suggestions'),
   })
 
   const isMutating = convert.isPending || ignore.isPending
@@ -450,6 +464,13 @@ export default function MrpRunDetailPage() {
   const transferCount = selectedRows.length - convertibleRows.length
   const allPageSelected =
     pageActionable.length > 0 && pageActionable.every((row) => Boolean(selected[row.id]))
+
+  // The API caps one bulk ignore at `MAX_BULK_SUGGESTIONS` and rejects the
+  // whole request past it, so one call takes the first batch and the rest stay
+  // ticked for the next. The dialog states exactly that split.
+  const ignoreBatch = useMemo(() => selectedRows.slice(0, MAX_BULK_IGNORE), [selectedRows])
+  const ignoreRemainder = selectedRows.length - ignoreBatch.length
+  const ignoreReasonTooShort = ignoreReason.trim().length < REASON_MIN_LENGTH
 
   const toggleRow = (row: MrpSuggestionRow) => {
     setSelected((current) => {
@@ -696,8 +717,8 @@ export default function MrpRunDetailPage() {
     return (
       <div className="space-y-4">
         <Skeleton className="h-7 w-64" />
-        <Skeleton className="h-4 w-96" />
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <Skeleton className="h-4 w-full max-w-sm" />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, index) => (
             <Skeleton key={index} className="h-[5.5rem] w-full" />
           ))}
@@ -822,7 +843,7 @@ export default function MrpRunDetailPage() {
         </Alert>
       )}
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="mb-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <StatTile
           label="Demand lines"
           value={formatNumber(run.demand_line_count)}
@@ -967,16 +988,16 @@ export default function MrpRunDetailPage() {
         toolbar={
           <>
             <Select
-              value={typeFilter || ALL}
+              value={typeFilter || SELECT_ALL}
               onValueChange={(value) =>
-                suggestions.setParam('suggestion_type', value === ALL ? undefined : value)
+                suggestions.setParam('suggestion_type', value === SELECT_ALL ? undefined : value)
               }
             >
-              <SelectTrigger className="w-[170px]" aria-label="Filter by suggestion type">
+              <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by suggestion type">
                 <SelectValue placeholder="All types" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All types</SelectItem>
+                <SelectItem value={SELECT_ALL}>All types</SelectItem>
                 {SUGGESTION_TYPES.map((value) => (
                   <SelectItem key={value} value={value}>
                     {humanise(value)}
@@ -986,16 +1007,19 @@ export default function MrpRunDetailPage() {
             </Select>
 
             <Select
-              value={statusFilter || ALL}
+              value={statusFilter || SELECT_ALL}
               onValueChange={(value) =>
-                suggestions.setParam('status', value === ALL ? undefined : value)
+                suggestions.setParam('status', value === SELECT_ALL ? undefined : value)
               }
             >
-              <SelectTrigger className="w-[170px]" aria-label="Filter by suggestion status">
+              <SelectTrigger
+                className="w-full sm:w-[170px]"
+                aria-label="Filter by suggestion status"
+              >
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All statuses</SelectItem>
+                <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
                 {SUGGESTION_STATUSES.map((value) => (
                   <SelectItem key={value} value={value}>
                     {humanise(value)}
@@ -1067,23 +1091,29 @@ export default function MrpRunDetailPage() {
           setIgnoreOpen(open)
           if (!open) setIgnoreReasonTouched(false)
         }}
-        title={`Ignore ${formatNumber(selectedRows.length)} suggestion${selectedRows.length === 1 ? '' : 's'}?`}
+        title={`Ignore ${formatNumber(ignoreBatch.length)} suggestion${ignoreBatch.length === 1 ? '' : 's'}?`}
         description="Ignored suggestions stay on the run for the record but are never converted. The shortage itself does not go away - the next run will raise it again."
         confirmLabel="Ignore"
         destructive
         loading={ignore.isPending}
         onConfirm={() => {
-          if (ignoreReason.trim() === '') {
+          // The API's own 3..255 bound on `reason`. Checked here because this is
+          // a confirmation, not a form: a 422 against `reason` is a field error
+          // the mutation cache stays quiet about, with nothing to render it.
+          if (ignoreReasonTooShort) {
             setIgnoreReasonTouched(true)
             return
           }
-          // The API caps one call at `MAX_BULK_SUGGESTIONS` and rejects the
-          // whole request past it, so the excess is left selected rather than
-          // silently dropped.
-          ignore.mutate({ ids: selectedIds.slice(0, MAX_BULK_IGNORE), reason: ignoreReason.trim() })
+          ignore.mutate({ ids: ignoreBatch.map((row) => row.id), reason: ignoreReason.trim() })
         }}
       >
-        <SelectionSummary rows={selectedRows} action="ignore" />
+        <SelectionSummary rows={ignoreBatch} action="ignore" />
+        {ignoreRemainder > 0 && (
+          <p className="mt-2 text-xs text-warning">
+            The API ignores at most {formatNumber(MAX_BULK_IGNORE)} in one call. The remaining{' '}
+            {formatNumber(ignoreRemainder)} stay selected for a further call.
+          </p>
+        )}
         <div className="mt-3">
           <Label htmlFor="mrp-ignore-reason" required>
             Reason
@@ -1092,13 +1122,20 @@ export default function MrpRunDetailPage() {
             id="mrp-ignore-reason"
             value={ignoreReason}
             onChange={(event) => setIgnoreReason(event.target.value)}
+            maxLength={REASON_MAX_LENGTH}
             autoComplete="off"
             className="mt-1.5"
             placeholder="Covered by an order the plan cannot see"
-            aria-invalid={ignoreReasonTouched && ignoreReason.trim() === ''}
+            aria-invalid={ignoreReasonTouched && ignoreReasonTooShort}
           />
-          {ignoreReasonTouched && ignoreReason.trim() === '' && (
-            <FieldError message="The API records a reason against every ignored suggestion" />
+          {ignoreReasonTouched && ignoreReasonTooShort && (
+            <FieldError
+              message={
+                ignoreReason.trim() === ''
+                  ? 'The API records a reason against every ignored suggestion'
+                  : `Record at least ${REASON_MIN_LENGTH} characters of reason`
+              }
+            />
           )}
         </div>
       </ConfirmDialog>

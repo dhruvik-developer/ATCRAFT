@@ -1,13 +1,22 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Validate the HOST nginx configuration before installing it.
+# Validate the HOST nginx configuration before reloading it.
 #
-#   ./scripts/check-host-nginx.sh
+#   ./scripts/check-host-nginx.sh              # the repository copies, customised
+#   ./scripts/check-host-nginx.sh --template   # the uncustomised templates (CI)
+#   ./scripts/check-host-nginx.sh --installed  # /etc/nginx/conf.d + snippets, on the box
 #
-# Loads infrastructure/nginx/host/ inside a real nginx, with self-signed
+# Loads the host configuration inside a real nginx, with self-signed
 # certificates generated at the exact paths the configs name. Without those,
 # `nginx -t` fails because a certificate is missing, which says nothing about
 # whether the configuration is right.
+#
+# --installed is the mode for a deployment host: the runbook copies the
+# templates to /etc/nginx and substitutes the real hostnames there, so the
+# repository copies keep example.com and the default mode refuses them (as it
+# must - and editing them in place would dirty the tree `deploy.sh up`
+# requires clean). It reads the installed files, and the placeholder check is
+# aimed at them, which is what the handover checklist asks for.
 #
 # Worth running before every `systemctl reload nginx`, and especially after
 # changing the domains: a bad host config takes BOTH deployments offline, and
@@ -26,6 +35,42 @@ cd "$REPO_ROOT"
 
 command -v docker >/dev/null 2>&1 || { echo "docker is required" >&2; exit 1; }
 
+MODE="repo"
+case "${1:-}" in
+  "") ;;
+  --template)  MODE="template" ;;
+  --installed) MODE="installed" ;;
+  *) echo "usage: $0 [--template|--installed]" >&2; exit 2 ;;
+esac
+
+# The committed files are templates. A deployment check must fail while the
+# files it validates still name the documentation domain; CI passes --template
+# because it is deliberately validating the uncustomised templates.
+INSTALLED_CONF_D=/etc/nginx/conf.d
+INSTALLED_SNIPPETS=/etc/nginx/snippets
+case "$MODE" in
+  template) ;;
+  installed)
+    for f in "$INSTALLED_CONF_D/00-default.conf" "$INSTALLED_CONF_D/atcraft-main.conf" \
+             "$INSTALLED_CONF_D/atcraft-dev.conf" "$INSTALLED_SNIPPETS/atcraft-proxy.conf"; do
+      [ -r "$f" ] || { echo "error: $f is missing or unreadable - install the host configs first (ONE-BOX-RUNBOOK.md, host nginx step)" >&2; exit 1; }
+    done
+    if grep -q 'example\.com' "$INSTALLED_CONF_D"/atcraft-*.conf; then
+      echo "error: the installed host nginx still contains example.com placeholders" >&2
+      echo "run the sed lines from the runbook against $INSTALLED_CONF_D/atcraft-*.conf, then run this check again" >&2
+      exit 1
+    fi
+    ;;
+  repo)
+    if grep -q 'example\.com' infrastructure/nginx/host/atcraft-*.conf; then
+      echo "error: host nginx still contains example.com placeholders" >&2
+      echo "replace them with the real hostnames, then run this check again" >&2
+      echo "(on a deployment host, validate the installed copies with: $0 --installed)" >&2
+      exit 1
+    fi
+    ;;
+esac
+
 RUNNER=".check-host-nginx.$$.sh"
 cleanup() { rm -f "$REPO_ROOT/$RUNNER"; }
 trap cleanup EXIT
@@ -36,9 +81,20 @@ set -e
 apk add --no-cache openssl >/dev/null 2>&1
 
 mkdir -p /etc/nginx/snippets /var/www/certbot /var/log/nginx
-cp /repo/infrastructure/nginx/host/snippets/*.conf /etc/nginx/snippets/
-cp /repo/infrastructure/nginx/host/atcraft-main.conf /etc/nginx/conf.d/
-cp /repo/infrastructure/nginx/host/atcraft-dev.conf  /etc/nginx/conf.d/
+if [ "${MODE:-}" = "installed" ]; then
+  # The box's own files, bind-mounted read-only by the outer script.
+  echo "validating the installed host configuration (/etc/nginx/conf.d, /etc/nginx/snippets)"
+  cp /host/snippets/*.conf /etc/nginx/snippets/
+  cp /host/conf.d/00-default.conf   /etc/nginx/conf.d/
+  cp /host/conf.d/atcraft-main.conf /etc/nginx/conf.d/
+  cp /host/conf.d/atcraft-dev.conf  /etc/nginx/conf.d/
+else
+  echo "validating the repository copies (infrastructure/nginx/host)"
+  cp /repo/infrastructure/nginx/host/snippets/*.conf /etc/nginx/snippets/
+  cp /repo/infrastructure/nginx/host/00-default.conf   /etc/nginx/conf.d/
+  cp /repo/infrastructure/nginx/host/atcraft-main.conf /etc/nginx/conf.d/
+  cp /repo/infrastructure/nginx/host/atcraft-dev.conf  /etc/nginx/conf.d/
+fi
 rm -f /etc/nginx/conf.d/default.conf
 
 # Certificates at whatever paths the configs actually name, so this keeps
@@ -58,6 +114,12 @@ echo "--- nginx -t ---"
 nginx -t 2>&1 | grep -v "ssl_stapling" || true
 nginx -t >/dev/null 2>&1 || { echo "FAILED: see above"; exit 1; }
 echo "configuration loads"
+
+grep -qE 'listen 80 default_server;' /etc/nginx/conf.d/00-default.conf \
+  && grep -qE 'listen 443 ssl default_server;' /etc/nginx/conf.d/00-default.conf \
+  && grep -qE 'ssl_reject_handshake on;' /etc/nginx/conf.d/00-default.conf \
+  || { echo "FAILED: unknown hosts are not rejected by a default server"; exit 1; }
+echo "default host/SNI is rejected"
 
 echo
 echo "--- routing ---"
@@ -98,6 +160,10 @@ done
 exit $rc
 INNER
 
-MSYS_NO_PATHCONV=1 docker run --rm \
-  -v "${REPO_ROOT}:/repo:ro" \
-  --entrypoint sh nginx:1.27-alpine "/repo/${RUNNER}"
+mounts=(-v "${REPO_ROOT}:/repo:ro")
+if [ "$MODE" = "installed" ]; then
+  # Read-only, and no sudo needed: the daemon reads the bind mount as root.
+  mounts+=(-v "${INSTALLED_CONF_D}:/host/conf.d:ro" -v "${INSTALLED_SNIPPETS}:/host/snippets:ro")
+fi
+MSYS_NO_PATHCONV=1 docker run --rm "${mounts[@]}" -e MODE="$MODE" \
+  --entrypoint sh nginx:1.30.4-alpine3.24 "/repo/${RUNNER}"

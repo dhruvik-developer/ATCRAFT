@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
+import { BASE_URL } from './lib/env.mjs'
+
 /**
  * End-to-end configuration (master rules section 66).
  *
@@ -7,6 +9,11 @@ import { defineConfig, devices } from '@playwright/test'
  * browser attached. Start the environment first:
  *
  *     make dev-docker        (or: make dev, then make migrate && make seed)
+ *
+ * Configuration comes from `lib/env.mjs`, which loads `tests/e2e/.env` when it
+ * exists - copy `.env.example` to get one - and is the same module the specs
+ * and the sweep scripts read. See `.env.example` for how the seeded
+ * administrator is bootstrapped past its forced password change.
  *
  * The suite covers the critical journeys only. E2E is the slowest and most
  * brittle layer, so it verifies that the modules are wired together correctly;
@@ -21,7 +28,7 @@ export default defineConfig({
   // Serial locally: the journeys share seeded master data and a parallel run
   // would have two specs racing for the same stock.
   fullyParallel: false,
-  workers: process.env.CI ? 1 : 1,
+  workers: 1,
 
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
@@ -31,7 +38,7 @@ export default defineConfig({
     : [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
 
   use: {
-    baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5173',
+    baseURL: BASE_URL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -40,11 +47,17 @@ export default defineConfig({
   },
 
   projects: [
-    // Authenticate once and reuse the storage state, rather than logging in at
+    // Authenticate once and save the storage state, rather than logging in at
     // the top of every spec.
     { name: 'setup', testMatch: /auth\.setup\.ts/ },
     {
       name: 'chromium',
+      // The saved state is a refresh cookie, and refresh tokens rotate: the
+      // first context to present it gets a new one and the file's copy is
+      // spent. A second context restored from the same file is a replay, which
+      // revokes the whole family and lands on /login. So each spec restores
+      // the file into ONE context in its beforeAll and shares that page, and
+      // no spec uses the per-test `page` fixture. Keep it that way.
       use: { ...devices['Desktop Chrome'], storageState: './.auth/admin.json' },
       dependencies: ['setup'],
     },

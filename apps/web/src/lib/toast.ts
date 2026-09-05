@@ -8,6 +8,8 @@
 
 import { useSyncExternalStore } from 'react'
 
+import { MAX_VISIBLE_TOASTS, TOAST_DURATION_MS } from '@/lib/constants'
+
 export type ToastVariant = 'default' | 'success' | 'warning' | 'error'
 
 export interface Toast {
@@ -32,7 +34,7 @@ function push(toast: Omit<Toast, 'id'>): string {
   const id = `t${++counter}`
   // Cap the stack: a failed bulk operation can raise dozens of errors at once
   // and burying the screen in toasts helps nobody.
-  toasts = [...toasts.slice(-4), { ...toast, id }]
+  toasts = [...toasts.slice(-(MAX_VISIBLE_TOASTS - 1)), { ...toast, id }]
   emit()
   if (toast.duration > 0) {
     setTimeout(() => dismiss(id), toast.duration)
@@ -47,16 +49,22 @@ export function dismiss(id: string): void {
 
 export const toast = {
   show: (title: string, description?: string) =>
-    push({ title, description, variant: 'default', duration: 5000 }),
+    push({ title, description, variant: 'default', duration: TOAST_DURATION_MS.default }),
   success: (title: string, description?: string) =>
-    push({ title, description, variant: 'success', duration: 4000 }),
+    push({ title, description, variant: 'success', duration: TOAST_DURATION_MS.success }),
   warning: (title: string, description?: string) =>
-    push({ title, description, variant: 'warning', duration: 7000 }),
+    push({ title, description, variant: 'warning', duration: TOAST_DURATION_MS.warning }),
   /** Errors do not auto-dismiss: the user may need to read a correlation id. */
   error: (title: string, description?: string) =>
-    push({ title, description, variant: 'error', duration: 0 }),
+    push({ title, description, variant: 'error', duration: TOAST_DURATION_MS.error }),
   action: (title: string, label: string, onClick: () => void, description?: string) =>
-    push({ title, description, variant: 'default', duration: 10000, action: { label, onClick } }),
+    push({
+      title,
+      description,
+      variant: 'default',
+      duration: TOAST_DURATION_MS.action,
+      action: { label, onClick },
+    }),
   dismiss,
 }
 

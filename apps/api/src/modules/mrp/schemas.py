@@ -30,11 +30,12 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    ValidationInfo,
     computed_field,
     field_validator,
-    model_validator,
 )
 
+from src.common.codes import clean_text
 from src.core.types import to_quantity
 from src.modules.mrp.models import (
     DEFAULT_HORIZON_DAYS,
@@ -69,13 +70,6 @@ MAX_BULK_SUGGESTIONS = 500
 #: Warehouses one run may be scoped to. Beyond this the scope is "everything",
 #: which is expressed by sending no list at all.
 MAX_RUN_WAREHOUSES = 50
-
-
-def _clean_text(value: str | None) -> str | None:
-    if value is None:
-        return None
-    collapsed = " ".join(value.split())
-    return collapsed or None
 
 
 class ConversionTarget(StrEnum):
@@ -126,7 +120,7 @@ class ManualDemandIn(BaseModel):
     @field_validator("notes")
     @classmethod
     def _tidy_notes(cls, value: str | None) -> str | None:
-        return _clean_text(value)
+        return clean_text(value)
 
 
 class MrpRunRequest(BaseModel):
@@ -175,7 +169,7 @@ class MrpRunRequest(BaseModel):
     @field_validator("notes")
     @classmethod
     def _tidy_notes(cls, value: str | None) -> str | None:
-        return _clean_text(value)
+        return clean_text(value)
 
 
 # -----------------------------------------------------------------------------
@@ -189,11 +183,16 @@ class MrpRunFilters(BaseModel):
     created_to: date | None = None
     search: str | None = Field(default=None, max_length=120)
 
-    @model_validator(mode="after")
-    def _ordered_window(self) -> MrpRunFilters:
-        if self.created_from and self.created_to and self.created_to < self.created_from:
+    @field_validator("created_to")
+    @classmethod
+    def _ordered_window(cls, value: date | None, info: ValidationInfo) -> date | None:
+        # A field validator rather than a model one so the failure is reported
+        # against ``created_to`` - ``query.created_to`` in the error envelope -
+        # and the frontend can attach it to the control that produced it.
+        lower = info.data.get("created_from")
+        if value is not None and lower is not None and value < lower:
             raise ValueError("created_to cannot be before created_from")
-        return self
+        return value
 
 
 class MrpRunSummary(BaseModel):
@@ -438,7 +437,7 @@ class SuggestionConvertRequest(BaseModel):
     @field_validator("notes")
     @classmethod
     def _tidy_notes(cls, value: str | None) -> str | None:
-        return _clean_text(value)
+        return clean_text(value)
 
 
 class ConversionRequest(BaseModel):

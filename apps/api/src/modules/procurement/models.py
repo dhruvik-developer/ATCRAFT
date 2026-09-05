@@ -70,7 +70,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.core.models import OptimisticLockMixin, TenantEntity
+from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
+from src.core.models import OptimisticLockMixin, TenantEntity, sql_in_list
 from src.core.types import GUID, Money, Percentage, Quantity, UnitPrice
 
 # -----------------------------------------------------------------------------
@@ -107,7 +108,6 @@ MAX_PRIORITY = 9
 DEFAULT_PRIORITY = 5
 
 #: ISO-4217 alphabetic currency codes.
-CURRENCY_CODE_LENGTH = 3
 
 
 # -----------------------------------------------------------------------------
@@ -235,6 +235,13 @@ class PurchaseReturnStatus(StrEnum):
     CANCELLED = "CANCELLED"
 
 
+#: The stock pools a purchase return may take goods from, as the inventory
+#: module names them. Plain strings rather than ``inventory.StockState`` so this
+#: module's table definition does not import another module's enum; the first
+#: entry is the default. Rendered into the CHECK constraint below.
+RETURNABLE_STOCK_STATES: tuple[str, ...] = ("AVAILABLE", "DAMAGED")
+
+
 class PurchaseSourceType(StrEnum):
     """Where a procurement document's demand came from.
 
@@ -298,16 +305,6 @@ OPEN_PO_LINE_STATUSES: tuple[PurchaseOrderLineStatus, ...] = (
     PurchaseOrderLineStatus.PENDING,
     PurchaseOrderLineStatus.PARTIALLY_RECEIVED,
 )
-
-
-def _sql_in_list(values: tuple[StrEnum, ...] | type[StrEnum]) -> str:
-    """Render a status vocabulary as a SQL ``IN`` list.
-
-    Generated from the Python enum so a database CHECK cannot drift away from
-    the values the schemas validate against.
-    """
-    members = values if isinstance(values, tuple) else tuple(values)
-    return ", ".join(f"'{member.value}'" for member in members)
 
 
 # -----------------------------------------------------------------------------
@@ -389,9 +386,9 @@ class PurchaseRequisition(TenantEntity):
         Index("ix_purchase_requisitions_warehouse", "company_id", "warehouse_id", "status"),
         # "What did this MRP run raise?" - traced back through the source pair.
         Index("ix_purchase_requisitions_source", "company_id", "source_type", "source_id"),
-        CheckConstraint(f"status IN ({_sql_in_list(RequisitionStatus)})", name="status_known"),
+        CheckConstraint(f"status IN ({sql_in_list(RequisitionStatus)})", name="status_known"),
         CheckConstraint(
-            f"source_type IN ({_sql_in_list(PurchaseSourceType)})", name="source_type_known"
+            f"source_type IN ({sql_in_list(PurchaseSourceType)})", name="source_type_known"
         ),
         CheckConstraint(
             f"priority BETWEEN {MIN_PRIORITY} AND {MAX_PRIORITY}", name="priority_in_range"
@@ -472,7 +469,7 @@ class PurchaseRequisitionLine(TenantEntity):
             "line_number",
         ),
         Index("ix_purchase_requisition_lines_item", "company_id", "item_id", "status"),
-        CheckConstraint(f"status IN ({_sql_in_list(RequisitionLineStatus)})", name="status_known"),
+        CheckConstraint(f"status IN ({sql_in_list(RequisitionLineStatus)})", name="status_known"),
         CheckConstraint("line_number > 0", name="line_number_positive"),
         CheckConstraint("quantity > 0", name="quantity_positive"),
         CheckConstraint("ordered_quantity >= 0", name="ordered_quantity_non_negative"),
@@ -529,7 +526,10 @@ class Rfq(TenantEntity):
     cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     currency: Mapped[str] = mapped_column(
-        String(CURRENCY_CODE_LENGTH), nullable=False, default="INR", server_default="INR"
+        String(CURRENCY_CODE_LENGTH),
+        nullable=False,
+        default=DEFAULT_CURRENCY,
+        server_default=DEFAULT_CURRENCY,
     )
     terms: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -538,7 +538,7 @@ class Rfq(TenantEntity):
         UniqueConstraint("company_id", "code", name="uq_rfqs_company_id_code"),
         Index("ix_rfqs_status_due", "company_id", "status", "response_due_date"),
         Index("ix_rfqs_requisition", "company_id", "requisition_id"),
-        CheckConstraint(f"status IN ({_sql_in_list(RfqStatus)})", name="status_known"),
+        CheckConstraint(f"status IN ({sql_in_list(RfqStatus)})", name="status_known"),
         CheckConstraint("length(currency) = 3", name="currency_is_iso_code"),
         CheckConstraint(
             "response_due_date IS NULL OR response_due_date >= rfq_date",
@@ -626,7 +626,10 @@ class VendorQuotation(TenantEntity):
     valid_until: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     currency: Mapped[str] = mapped_column(
-        String(CURRENCY_CODE_LENGTH), nullable=False, default="INR", server_default="INR"
+        String(CURRENCY_CODE_LENGTH),
+        nullable=False,
+        default=DEFAULT_CURRENCY,
+        server_default=DEFAULT_CURRENCY,
     )
     #: Commercial terms quoted, which is what makes two prices comparable: a
     #: cheaper part with a four-week lead time and payment on dispatch is not
@@ -685,7 +688,7 @@ class VendorQuotation(TenantEntity):
         ),
         Index("ix_vendor_quotations_vendor", "company_id", "vendor_id", "quotation_date"),
         Index("ix_vendor_quotations_status", "company_id", "status", "valid_until"),
-        CheckConstraint(f"status IN ({_sql_in_list(QuotationStatus)})", name="status_known"),
+        CheckConstraint(f"status IN ({sql_in_list(QuotationStatus)})", name="status_known"),
         CheckConstraint("length(currency) = 3", name="currency_is_iso_code"),
         CheckConstraint("payment_terms_days >= 0", name="payment_terms_non_negative"),
         CheckConstraint("lead_time_days >= 0", name="lead_time_non_negative"),
@@ -823,7 +826,10 @@ class PurchaseOrder(TenantEntity, OptimisticLockMixin):
 
     # --- money --------------------------------------------------------------
     currency: Mapped[str] = mapped_column(
-        String(CURRENCY_CODE_LENGTH), nullable=False, default="INR", server_default="INR"
+        String(CURRENCY_CODE_LENGTH),
+        nullable=False,
+        default=DEFAULT_CURRENCY,
+        server_default=DEFAULT_CURRENCY,
     )
     subtotal: Mapped[Decimal] = mapped_column(
         Money, nullable=False, default=Decimal("0"), server_default="0"
@@ -925,16 +931,16 @@ class PurchaseOrder(TenantEntity, OptimisticLockMixin):
             "vendor_id",
             "warehouse_id",
             "expected_delivery_date",
-            postgresql_where=text(f"status IN ({_sql_in_list(OPEN_PO_STATUSES)})"),
+            postgresql_where=text(f"status IN ({sql_in_list(OPEN_PO_STATUSES)})"),
         ),
         # "Which order came from this MRP suggestion?" - and the second half of
         # the duplicate check, which matches on the source demand reference.
         Index("ix_purchase_orders_source", "company_id", "source_type", "source_id"),
         # The vendor portal's own list.
         Index("ix_purchase_orders_assigned_vendor_user", "company_id", "assigned_vendor_user_id"),
-        CheckConstraint(f"status IN ({_sql_in_list(PurchaseOrderStatus)})", name="status_known"),
+        CheckConstraint(f"status IN ({sql_in_list(PurchaseOrderStatus)})", name="status_known"),
         CheckConstraint(
-            f"source_type IN ({_sql_in_list(PurchaseSourceType)})", name="source_type_known"
+            f"source_type IN ({sql_in_list(PurchaseSourceType)})", name="source_type_known"
         ),
         CheckConstraint(
             f"priority BETWEEN {MIN_PRIORITY} AND {MAX_PRIORITY}", name="priority_in_range"
@@ -1072,12 +1078,10 @@ class PurchaseOrderLine(TenantEntity):
             "company_id",
             "item_id",
             "required_date",
-            postgresql_where=text(f"status IN ({_sql_in_list(OPEN_PO_LINE_STATUSES)})"),
+            postgresql_where=text(f"status IN ({sql_in_list(OPEN_PO_LINE_STATUSES)})"),
         ),
         Index("ix_purchase_order_lines_requisition_line", "company_id", "requisition_line_id"),
-        CheckConstraint(
-            f"status IN ({_sql_in_list(PurchaseOrderLineStatus)})", name="status_known"
-        ),
+        CheckConstraint(f"status IN ({sql_in_list(PurchaseOrderLineStatus)})", name="status_known"),
         CheckConstraint("line_number > 0", name="line_number_positive"),
         CheckConstraint("quantity > 0", name="quantity_positive"),
         CheckConstraint("unit_price >= 0", name="unit_price_non_negative"),
@@ -1181,7 +1185,7 @@ class GoodsReceipt(TenantEntity):
         Index("ix_goods_receipts_order", "company_id", "purchase_order_id", "receipt_date"),
         Index("ix_goods_receipts_vendor_date", "company_id", "vendor_id", "receipt_date"),
         Index("ix_goods_receipts_status", "company_id", "status", "receipt_date"),
-        CheckConstraint(f"status IN ({_sql_in_list(GoodsReceiptStatus)})", name="status_known"),
+        CheckConstraint(f"status IN ({sql_in_list(GoodsReceiptStatus)})", name="status_known"),
         CheckConstraint("total_received_quantity >= 0", name="received_non_negative"),
         CheckConstraint("total_accepted_quantity >= 0", name="accepted_non_negative"),
         CheckConstraint("total_rejected_quantity >= 0", name="rejected_non_negative"),
@@ -1294,7 +1298,7 @@ class GoodsReceiptLine(TenantEntity):
             postgresql_where=text("qc_status = 'PENDING'"),
         ),
         CheckConstraint(
-            f"qc_status IN ({_sql_in_list(ReceiptLineQcStatus)})", name="qc_status_known"
+            f"qc_status IN ({sql_in_list(ReceiptLineQcStatus)})", name="qc_status_known"
         ),
         CheckConstraint("line_number > 0", name="line_number_positive"),
         CheckConstraint("received_quantity > 0", name="received_positive"),
@@ -1368,7 +1372,10 @@ class PurchaseReturn(TenantEntity):
     debit_note_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     currency: Mapped[str] = mapped_column(
-        String(CURRENCY_CODE_LENGTH), nullable=False, default="INR", server_default="INR"
+        String(CURRENCY_CODE_LENGTH),
+        nullable=False,
+        default=DEFAULT_CURRENCY,
+        server_default=DEFAULT_CURRENCY,
     )
     subtotal: Mapped[Decimal] = mapped_column(
         Money, nullable=False, default=Decimal("0"), server_default="0"
@@ -1392,7 +1399,7 @@ class PurchaseReturn(TenantEntity):
         Index("ix_purchase_returns_receipt", "company_id", "goods_receipt_id"),
         Index("ix_purchase_returns_vendor_date", "company_id", "vendor_id", "return_date"),
         Index("ix_purchase_returns_status", "company_id", "status", "return_date"),
-        CheckConstraint(f"status IN ({_sql_in_list(PurchaseReturnStatus)})", name="status_known"),
+        CheckConstraint(f"status IN ({sql_in_list(PurchaseReturnStatus)})", name="status_known"),
         CheckConstraint("length(currency) = 3", name="currency_is_iso_code"),
         CheckConstraint("subtotal >= 0", name="subtotal_non_negative"),
         CheckConstraint("tax_amount >= 0", name="tax_non_negative"),
@@ -1451,6 +1458,18 @@ class PurchaseReturnLine(TenantEntity):
     location_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("storage_locations.id", ondelete="RESTRICT"), nullable=True
     )
+    #: Which pool the returned quantity leaves. ``AVAILABLE`` for stock that
+    #: was released, ``DAMAGED`` for stock an incoming inspection rejected -
+    #: quality moves a rejected lot from QC hold into DAMAGED, and the return
+    #: has to take it from there, not from the good stock beside it. Resolved
+    #: from the inspection when the line is raised and bounded per pool again
+    #: when it is posted.
+    stock_state: Mapped[str] = mapped_column(
+        String(24),
+        nullable=False,
+        default=RETURNABLE_STOCK_STATES[0],
+        server_default=RETURNABLE_STOCK_STATES[0],
+    )
 
     reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -1461,6 +1480,10 @@ class PurchaseReturnLine(TenantEntity):
         ),
         Index("ix_purchase_return_lines_return", "company_id", "purchase_return_id", "line_number"),
         Index("ix_purchase_return_lines_receipt_line", "company_id", "goods_receipt_line_id"),
+        CheckConstraint(
+            "stock_state IN ('" + "', '".join(RETURNABLE_STOCK_STATES) + "')",
+            name="stock_state_returnable",
+        ),
         CheckConstraint("line_number > 0", name="line_number_positive"),
         CheckConstraint("quantity > 0", name="quantity_positive"),
         CheckConstraint("unit_price >= 0", name="unit_price_non_negative"),
@@ -1483,6 +1506,7 @@ __all__ = [
     "OVER_RECEIPT_MULTIPLIER",
     "OVER_RECEIPT_TOLERANCE",
     "RECEIVABLE_PO_STATUSES",
+    "RETURNABLE_STOCK_STATES",
     "GoodsReceipt",
     "GoodsReceiptLine",
     "GoodsReceiptStatus",

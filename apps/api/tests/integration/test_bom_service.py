@@ -44,7 +44,7 @@ from src.modules.bom.schemas import (
     CopyAsNewVersionRequest,
 )
 from src.modules.products.models import Item, ItemGroup, ProductionType, UnitOfMeasure, UomCategory
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 from tests.seed_support import seed_company, seed_user
 
 pytestmark = pytest.mark.integration
@@ -117,7 +117,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, other_company_id, author_id, reviewer_id
     asyncio.run(teardown())
@@ -192,9 +192,7 @@ async def ctx(
                     reviewer=TenantContext(company_id=company_id, user_id=reviewer_id),
                     author_principal=_principal(company_id, author_id),
                     reviewer_principal=_principal(company_id, reviewer_id),
-                    other_tenant=TenantContext(
-                        company_id=other_company_id, user_id=uuid.uuid4()
-                    ),
+                    other_tenant=TenantContext(company_id=other_company_id, user_id=uuid.uuid4()),
                 )
             await outer.rollback()
     finally:
@@ -478,12 +476,16 @@ async def test_approval_records_who_and_when_and_writes_a_status_audit_row(ctx: 
     assert bom.approved_at is not None
 
     rows = (
-        await ctx.session.execute(
-            select(AuditLog).where(
-                AuditLog.entity_id == bom.id, AuditLog.action == AuditAction.APPROVE
+        (
+            await ctx.session.execute(
+                select(AuditLog).where(
+                    AuditLog.entity_id == bom.id, AuditLog.action == AuditAction.APPROVE
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(rows) == 1
     assert rows[0].new_values == {"status": "APPROVED"}
     assert rows[0].context == {"reason": "Checked against drawing"}
@@ -570,14 +572,18 @@ async def test_approving_a_replacement_demotes_the_previous_default(ctx: Ctx) ->
     )
 
     defaults = (
-        await ctx.session.execute(
-            select(Bom.id).where(
-                Bom.item_id == parent.id,
-                Bom.is_default.is_(True),
-                Bom.status == BomStatus.APPROVED,
+        (
+            await ctx.session.execute(
+                select(Bom.id).where(
+                    Bom.item_id == parent.id,
+                    Bom.is_default.is_(True),
+                    Bom.status == BomStatus.APPROVED,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert defaults == [second.id]
 
 
@@ -821,9 +827,7 @@ async def test_only_approved_structures_are_exploded_below_the_root(ctx: Ctx) ->
     bush = await seed_item(ctx.session, ctx.author, "BUSH", uom)
 
     # Rose's structure stays in DRAFT.
-    await service.create_bom(
-        ctx.session, ctx.author, create_payload(rose, {bush: Decimal("2")})
-    )
+    await service.create_bom(ctx.session, ctx.author, create_payload(rose, {bush: Decimal("2")}))
     await approved_bom(ctx, kit, {rose: Decimal("1")})
 
     result = await engine.explode(ctx.session, ctx.author, kit.id, Decimal("10"))
@@ -1047,9 +1051,7 @@ async def test_replacing_the_lines_alone_is_checked_against_the_persisted_operat
 ) -> None:
     """The mirror case: a new line naming an operation this BOM never defined."""
     bom = await _bom_with_staged_line(ctx)
-    lines = await service.get_bom_detail(
-        ctx.session, ctx.author, ctx.author_principal, bom.id
-    )
+    lines = await service.get_bom_detail(ctx.session, ctx.author, ctx.author_principal, bom.id)
     component_id = lines.lines[0].component_item_id
 
     with pytest.raises(BusinessRuleError, match="does not define"):
@@ -1075,9 +1077,7 @@ async def test_a_line_may_still_reference_an_operation_that_is_already_persisted
 ) -> None:
     """The check must not reject the ordinary case it exists to protect."""
     bom = await _bom_with_staged_line(ctx)
-    detail = await service.get_bom_detail(
-        ctx.session, ctx.author, ctx.author_principal, bom.id
-    )
+    detail = await service.get_bom_detail(ctx.session, ctx.author, ctx.author_principal, bom.id)
     component_id = detail.lines[0].component_item_id
 
     _, lines, _ = await service.update_bom(
@@ -1136,19 +1136,21 @@ async def test_the_update_audit_records_the_line_count_before_the_replacement(
         bom.id,
         BomUpdate(
             lines=[
-                BomLineIn(
-                    line_number=1, component_item_id=screws[0].id, quantity_per=Decimal("1")
-                )
+                BomLineIn(line_number=1, component_item_id=screws[0].id, quantity_per=Decimal("1"))
             ]
         ),
     )
 
     row = (
-        await ctx.session.execute(
-            select(AuditLog).where(
-                AuditLog.entity_id == bom.id, AuditLog.action == AuditAction.UPDATE
+        (
+            await ctx.session.execute(
+                select(AuditLog).where(
+                    AuditLog.entity_id == bom.id, AuditLog.action == AuditAction.UPDATE
+                )
             )
         )
-    ).scalars().one()
+        .scalars()
+        .one()
+    )
     assert row.old_values["line_count"] == 3
     assert row.new_values["line_count"] == 1

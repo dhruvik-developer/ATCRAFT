@@ -275,6 +275,9 @@ export const MONEY_INPUT = /^$|^\d{1,14}(\.\d{1,2})?$/
 export const WEIGHT_INPUT = /^$|^\d{1,10}(\.\d{1,3})?$/
 export const QUANTITY_INPUT = /^\d{1,14}(\.\d{1,4})?$/
 
+/** `delivery_note` and `delay_reason` are `Notes`: free text up to 2000 characters. */
+export const NOTE_MAX_LENGTH = 2000
+
 // -------------------------------------------------- identified-stock reads ---
 
 /**

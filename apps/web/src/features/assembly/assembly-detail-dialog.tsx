@@ -34,7 +34,9 @@ import {
 } from '@/components/ui/overlays'
 import { Alert, AlertDescription, Badge, Input, Label, Skeleton } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
+import { PICKER_PAGE_SIZE, REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import {
   formatDate,
@@ -44,6 +46,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -75,8 +78,11 @@ const issueSchema = z.object({
     .trim()
     // `IssueComponentsRequest.reason` is min 3 / max 255. A shorter one is a
     // 422, not a shrug.
-    .min(3, 'Every hand-over is recorded with a reason of at least 3 characters')
-    .max(255, 'At most 255 characters'),
+    .min(
+      REASON_MIN_LENGTH,
+      `Every hand-over is recorded with a reason of at least ${REASON_MIN_LENGTH} characters`,
+    )
+    .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
   lines: z.array(
     z.object({
       // The API addresses a component by its line number on the order.
@@ -381,18 +387,14 @@ function SerialPicker({
   canSearch: boolean
 }) {
   const [term, setTerm] = useState('')
-  const [debouncedTerm, setDebouncedTerm] = useState('')
 
   // One request per keystroke would put a scan of the serial register behind
   // every character typed.
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedTerm(term.trim()), 300)
-    return () => clearTimeout(timer)
-  }, [term])
+  const debouncedTerm = useDebouncedValue(term)
 
   const params = useMemo(
     () => ({
-      limit: 20,
+      limit: PICKER_PAGE_SIZE,
       with_total: false,
       item_id: component.item_id,
       warehouse_id: warehouseId,
@@ -500,8 +502,11 @@ const completeSchema = z.object({
   reason: z
     .string()
     .trim()
-    .min(3, 'The completion is recorded with a reason of at least 3 characters')
-    .max(255, 'At most 255 characters'),
+    .min(
+      REASON_MIN_LENGTH,
+      `The completion is recorded with a reason of at least ${REASON_MIN_LENGTH} characters`,
+    )
+    .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
 })
 
 type CompleteFormValues = z.infer<typeof completeSchema>
@@ -586,12 +591,12 @@ function CompleteAssemblyDialog({
       void queryClient.invalidateQueries({ queryKey: queryKeys.allocation.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.quality.all })
       toast.success(
-        `${result.order.code} completed`,
+        success.completed('Assembly order'),
         result.output_held_for_qc
-          ? `${formatQuantity(result.output_quantity)} received on QC hold${
+          ? `${result.order.code}: ${formatQuantity(result.output_quantity)} received on QC hold${
               result.qc_inspection_created ? ' and an inspection was raised' : ''
             }; it is not available stock until it passes.`
-          : `${formatQuantity(result.output_quantity)} received into stock from ${formatNumber(
+          : `${result.order.code}: ${formatQuantity(result.output_quantity)} received into stock from ${formatNumber(
               result.consume_movement_count,
             )} consumption movement(s).`,
       )
@@ -925,10 +930,7 @@ export function AssemblyDetailDialog({
                       label: 'Raised by',
                       value:
                         order.source_type === 'SALES_ORDER' && order.source_id ? (
-                          <Link
-                            to={`/sales-orders/${order.source_id}`}
-                            className="hover:underline"
-                          >
+                          <Link to={`/sales-orders/${order.source_id}`} className="hover:underline">
                             Sales order
                           </Link>
                         ) : (
@@ -951,10 +953,10 @@ export function AssemblyDetailDialog({
                       value: toDecimal(order.rejected_quantity).isZero() ? (
                         '-'
                       ) : (
-                          <span className="text-destructive">
-                            {formatQuantity(order.rejected_quantity)}
-                          </span>
-                        ),
+                        <span className="text-destructive">
+                          {formatQuantity(order.rejected_quantity)}
+                        </span>
+                      ),
                     },
                     { label: 'Assembly line', value: order.assembly_line ?? 'Not assigned' },
                     { label: 'Planned start', value: formatDate(order.planned_start) },

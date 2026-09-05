@@ -434,6 +434,23 @@ class OperationCostInput:
     work_centre_setup_cost: Decimal
 
 
+def assert_may_force_partial_issue(principal: Principal, *, order_code: str) -> None:
+    """Forcing an order forward on a short pick is a management decision.
+
+    It needs the approval right rather than the picking right, and the refusal
+    spells the right out the way an administrator has to grant it - the same
+    shape the route gate and the direction check in :func:`post_material_issue`
+    already use, so a client can name what to ask for.
+    """
+    if principal.has(Permission.PRODUCTION_ORDER_APPROVE):
+        return
+    raise AuthorizationError(
+        f"Forcing a partial issue on {order_code} requires {Permission.PRODUCTION_ORDER_APPROVE}.",
+        code=ErrorCode.PERMISSION_DENIED,
+        details={"required_permission": str(Permission.PRODUCTION_ORDER_APPROVE)},
+    )
+
+
 def can_approve(principal: Principal, created_by_id: uuid.UUID | None) -> bool:
     """Segregation of duties on approval.
 
@@ -581,9 +598,7 @@ def backflush_quantity(
     planned = to_quantity(planned_quantity)
     if planned <= ZERO:  # pragma: no cover - a CHECK constraint forbids it
         return ZERO
-    entitled = to_quantity(
-        Decimal(required_quantity) * to_quantity(produced_quantity) / planned
-    )
+    entitled = to_quantity(Decimal(required_quantity) * to_quantity(produced_quantity) / planned)
     return max(ZERO, to_quantity(entitled - to_quantity(already_issued)))
 
 
@@ -904,9 +919,7 @@ async def _assert_line_positions(
         return
 
     warehouse_ids = [warehouse_id for warehouse_id, _ in positions.values()]
-    known_warehouses = await WarehouseLookupRepository(session, tenant).existing_ids(
-        warehouse_ids
-    )
+    known_warehouses = await WarehouseLookupRepository(session, tenant).existing_ids(warehouse_ids)
     missing_warehouse = sorted(
         line_number
         for line_number, (warehouse_id, _) in positions.items()
@@ -915,19 +928,15 @@ async def _assert_line_positions(
     if missing_warehouse:
         raise NotFoundError(
             "Warehouse",
-            ", ".join(
-                str(positions[line_number][0]) for line_number in missing_warehouse
-            ),
+            ", ".join(str(positions[line_number][0]) for line_number in missing_warehouse),
         )
 
-    location_ids = [
-        location_id for _, location_id in positions.values() if location_id is not None
-    ]
+    location_ids = [location_id for _, location_id in positions.values() if location_id is not None]
     if not location_ids:
         return
-    location_warehouses = await StorageLocationLookupRepository(
-        session, tenant
-    ).warehouses_of(location_ids)
+    location_warehouses = await StorageLocationLookupRepository(session, tenant).warehouses_of(
+        location_ids
+    )
 
     for line_number, (warehouse_id, location_id) in sorted(positions.items()):
         if location_id is None:
@@ -985,9 +994,7 @@ def _order_read(order: ProductionOrder) -> ProductionOrderRead:
     return ProductionOrderRead.model_validate(order)
 
 
-def issue_detail(
-    issue: MaterialIssue, lines: Sequence[MaterialIssueLine]
-) -> MaterialIssueDetail:
+def issue_detail(issue: MaterialIssue, lines: Sequence[MaterialIssueLine]) -> MaterialIssueDetail:
     """Assemble the detail from the header and its already-loaded lines.
 
     Built field by field rather than with ``model_validate(issue)``: the ``lines``
@@ -1044,9 +1051,9 @@ async def get_order_detail(
     """Order header plus its operations, in three statements."""
     order = await _get_order(session, tenant, order_id)
     work_orders = await WorkOrderRepository(session, tenant).list_for_order(order_id)
-    component_count = await ProductionOrderComponentRepository(
-        session, tenant
-    ).count_for_order(order_id)
+    component_count = await ProductionOrderComponentRepository(session, tenant).count_for_order(
+        order_id
+    )
 
     # Built field by field rather than with ``model_validate(order)``: the
     # ``work_orders`` and ``components`` relationships are ``lazy="raise"``, and
@@ -1103,9 +1110,9 @@ async def _validate_order_references(
         )
 
     await _assert_warehouse(session, tenant, warehouse_id)
-    if plant_id is not None and not await PlantLookupRepository(
-        session, tenant
-    ).exists_in_tenant(plant_id):
+    if plant_id is not None and not await PlantLookupRepository(session, tenant).exists_in_tenant(
+        plant_id
+    ):
         raise NotFoundError("Plant", plant_id)
 
     if bom_id is not None:
@@ -1142,9 +1149,7 @@ async def create_order(
 
         repo = ProductionOrderRepository(session, tenant)
         order = ProductionOrder(
-            code=await next_document_number(
-                session, tenant.company_id, DocTypes.PRODUCTION_ORDER
-            ),
+            code=await next_document_number(session, tenant.company_id, DocTypes.PRODUCTION_ORDER),
             item_id=payload.item_id,
             bom_id=payload.bom_id,
             routing_id=payload.routing_id,
@@ -1170,8 +1175,7 @@ async def create_order(
             entity_id=order.id,
             entity_code=order.code,
             summary=(
-                f"Raised production order {order.code} for {order.planned_quantity} "
-                f"{item.code}"
+                f"Raised production order {order.code} for {order.planned_quantity} {item.code}"
             ),
             user_id=tenant.user_id,
             new_values={
@@ -1186,6 +1190,30 @@ async def create_order(
             },
         )
     return order
+
+
+def mrp_receiving_warehouse(
+    *, scope: Sequence[uuid.UUID], default_warehouse_id: uuid.UUID | None
+) -> uuid.UUID | None:
+    """Where an order raised from a planning suggestion receives its output.
+
+    The run's scope beats the item master: a run is executed *for* a set of
+    warehouses, so a suggestion made in the spares store is built for the spares
+    store even when the item's default is the main one. A run scoped to nothing
+    has no warehouse to pass on, so the item master decides - and ``None`` here
+    means there is nowhere to receive, which the caller refuses.
+    """
+    if not scope:
+        return default_warehouse_id
+    # ASSUMPTION: a run scoped to several warehouses pools their stock, so a
+    # suggestion has no warehouse of its own. The order is received into the
+    # item's default warehouse when that lies inside the run's scope, otherwise
+    # into the first warehouse the run named - a deterministic choice rather
+    # than one that depends on the order the planner ticked the boxes in. See
+    # docs/assumptions.md section 31.
+    if default_warehouse_id is not None and default_warehouse_id in scope:
+        return default_warehouse_id
+    return scope[0]
 
 
 async def create_order_from_mrp(
@@ -1205,9 +1233,8 @@ async def create_order_from_mrp(
     if item is None:
         raise NotFoundError("Item", request.item_id)
 
-    warehouse_id = (
-        (request.warehouse_ids[0] if request.warehouse_ids else None)
-        or item.default_warehouse_id
+    warehouse_id = mrp_receiving_warehouse(
+        scope=list(request.warehouse_ids or ()), default_warehouse_id=item.default_warehouse_id
     )
     if warehouse_id is None:
         raise BusinessRuleError(
@@ -1302,21 +1329,21 @@ async def update_order(
 
 
 async def delete_draft_order(
-    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID, *, reason: str
 ) -> None:
     """Discard a draft.
 
     A hard delete rather than a soft one: ``production_orders`` is a document,
     not master data, and section 28 reserves soft deletion for records history
     points at. A draft has no components, no work orders and no movements, so
-    there is nothing pointing at it - and the audit row survives it.
+    there is nothing pointing at it - and the audit row survives it, carrying
+    ``reason``: a deletion is never unexplained (master rules section 83).
     """
     async with transaction(session):
         order = await _lock_order(session, tenant, order_id)
         if not is_editable(ProductionOrderStatus(order.status)):
             raise BusinessRuleError(
-                f"{order.code} is {order.status}; only a draft may be deleted. "
-                "Cancel it instead.",
+                f"{order.code} is {order.status}; only a draft may be deleted. Cancel it instead.",
                 details={"status": str(order.status)},
             )
         code = order.code
@@ -1334,6 +1361,7 @@ async def delete_draft_order(
                 "planned_quantity": order.planned_quantity,
                 "status": str(order.status),
             },
+            context={"reason": reason},
         )
         await ProductionOrderRepository(session, tenant).hard_delete(order)
 
@@ -1374,9 +1402,7 @@ async def approve_order(
     return order
 
 
-async def _resolve_bom(
-    session: AsyncSession, tenant: TenantContext, order: ProductionOrder
-) -> Bom:
+async def _resolve_bom(session: AsyncSession, tenant: TenantContext, order: ProductionOrder) -> Bom:
     """The structure this job is built against, and it must be approved.
 
     A named structure is honoured; otherwise the item's single default approved
@@ -1544,9 +1570,7 @@ async def release_order(
         if payload.component_warehouse_id is not None:
             await _assert_warehouse(session, tenant, payload.component_warehouse_id)
 
-        items = await _load_items(
-            session, tenant, [c.item_id for c in explosion.components]
-        )
+        items = await _load_items(session, tenant, [c.item_id for c in explosion.components])
         plans = plan_components(
             explosion,
             items=items,
@@ -1597,12 +1621,10 @@ async def release_order(
 
         shortages: list[ComponentShortage] = []
         if payload.reserve_material:
-            availability = await ComponentAvailabilityRepository(
-                session, tenant
-            ).available_for([(c.item_id, c.warehouse_id) for c in components])
-            shortages = await _reserve_components(
-                session, tenant, order, components, availability
+            availability = await ComponentAvailabilityRepository(session, tenant).available_for(
+                [(c.item_id, c.warehouse_id) for c in components]
             )
+            shortages = await _reserve_components(session, tenant, order, components, availability)
 
         await record_audit(
             session,
@@ -1673,12 +1695,8 @@ async def _create_work_orders(
             details={"routing_code": routing.code},
         )
 
-    start_at = datetime.combine(
-        order.planned_start_date, datetime.min.time(), tzinfo=UTC
-    )
-    plans = plan_work_orders(
-        operations, planned_quantity=order.planned_quantity, start_at=start_at
-    )
+    start_at = datetime.combine(order.planned_start_date, datetime.min.time(), tzinfo=UTC)
+    plans = plan_work_orders(operations, planned_quantity=order.planned_quantity, start_at=start_at)
 
     # The rates the job is costed at, read once for every centre on the routing
     # and frozen onto the traveller. See ``WorkOrder.work_center_cost_per_hour``
@@ -1802,9 +1820,7 @@ async def complete_order(
                 component.consumed_quantity = holding
                 consumed += 1
 
-        order.scrap_quantity = to_quantity(
-            Decimal(order.scrap_quantity) + payload.scrap_quantity
-        )
+        order.scrap_quantity = to_quantity(Decimal(order.scrap_quantity) + payload.scrap_quantity)
         order.actual_end_date = payload.actual_end_date or today()
         if order.actual_start_date is None:  # pragma: no cover - IN_PROCESS sets it
             order.actual_start_date = order.actual_end_date
@@ -1847,9 +1863,7 @@ async def complete_order(
             backflush_issue_code=backflush_code,
             backflush_movements=backflush_movements,
             consumed_component_count=consumed,
-            message=(
-                f"{order.code} completed with {order.produced_quantity} good output."
-            ),
+            message=(f"{order.code} completed with {order.produced_quantity} good output."),
         )
     return result
 
@@ -2071,9 +2085,7 @@ async def list_components(
         read = ComponentRead.model_validate(row)
         read.net_issued_quantity = net_issued(row)
         read.reserved_quantity = to_quantity(holding)
-        read.available_quantity = to_quantity(
-            available.get((row.item_id, row.warehouse_id), ZERO)
-        )
+        read.available_quantity = to_quantity(available.get((row.item_id, row.warehouse_id), ZERO))
         # What still has to be *found*: the outstanding requirement less what is
         # already promised to this job.
         read.shortage_quantity = max(ZERO, to_quantity(outstanding - holding))
@@ -2108,13 +2120,10 @@ async def create_material_issue(
 
         component_repo = ProductionOrderComponentRepository(session, tenant)
         components = {
-            component.id: component
-            for component in await component_repo.list_for_order(order.id)
+            component.id: component for component in await component_repo.list_for_order(order.id)
         }
         unknown = [
-            str(line.component_id)
-            for line in payload.lines
-            if line.component_id not in components
+            str(line.component_id) for line in payload.lines if line.component_id not in components
         ]
         if unknown:
             raise NotFoundError("Production order component", ", ".join(unknown))
@@ -2372,9 +2381,7 @@ async def post_material_issue(
             raise BusinessRuleError(f"{issue.code} has no lines to post.")
 
         component_repo = ProductionOrderComponentRepository(session, tenant)
-        components = await component_repo.lock_many(
-            order.id, [line.component_id for line in lines]
-        )
+        components = await component_repo.lock_many(order.id, [line.component_id for line in lines])
 
         transactions = (
             await _post_issue_lines(session, tenant, issue, order, lines, components)
@@ -2406,10 +2413,7 @@ async def post_material_issue(
         all_components = await component_repo.list_for_order(order.id)
         covered = mandatory_components_covered(all_components)
         forced = False
-        if (
-            is_issue
-            and ProductionOrderStatus(order.status) is ProductionOrderStatus.RELEASED
-        ):
+        if is_issue and ProductionOrderStatus(order.status) is ProductionOrderStatus.RELEASED:
             if covered:
                 await _transition(
                     session,
@@ -2426,11 +2430,7 @@ async def post_material_issue(
                 # The override is a management decision, so it needs the
                 # approval right rather than the picking right - and it is
                 # recorded with the shortfall it waved through.
-                if not principal.has(Permission.PRODUCTION_ORDER_APPROVE):
-                    raise AuthorizationError(
-                        "Forcing a partial issue requires the production approval right.",
-                        code=ErrorCode.PERMISSION_DENIED,
-                    )
+                assert_may_force_partial_issue(principal, order_code=order.code)
                 forced = True
                 await _transition(
                     session,
@@ -2677,9 +2677,7 @@ async def _post_return_lines(
                 batch_id=line.batch_id,
                 unit_cost=unit_cost,
                 stock_state=StockState.AVAILABLE,
-                occurred_at=datetime.combine(
-                    issue.issue_date, datetime.min.time(), tzinfo=UTC
-                ),
+                occurred_at=datetime.combine(issue.issue_date, datetime.min.time(), tzinfo=UTC),
             )
         )
 
@@ -2948,9 +2946,7 @@ async def _book_entry(
         work_order.completed_quantity = to_quantity(
             Decimal(work_order.completed_quantity) + produced
         )
-        work_order.rejected_quantity = to_quantity(
-            Decimal(work_order.rejected_quantity) + rejected
-        )
+        work_order.rejected_quantity = to_quantity(Decimal(work_order.rejected_quantity) + rejected)
         if WorkOrderStatus(work_order.status) is WorkOrderStatus.PENDING:
             work_order.actual_start_at = utcnow()
             await _transition(
@@ -3017,9 +3013,7 @@ async def _post_output_receipt(
     if item.is_batch_tracked or item.is_serial_tracked:
         raise BusinessRuleError(
             f"Item {item.code} {TRACKED_OUTPUT_MESSAGE}",
-            code=(
-                ErrorCode.BATCH_REQUIRED if item.is_batch_tracked else ErrorCode.SERIAL_REQUIRED
-            ),
+            code=(ErrorCode.BATCH_REQUIRED if item.is_batch_tracked else ErrorCode.SERIAL_REQUIRED),
             details={"item_code": item.code, "order_code": order.code},
         )
 
@@ -3037,9 +3031,7 @@ async def _post_output_receipt(
                 reference_code=order.code,
                 reason=f"Production receipt from {order.code}"[:255],
                 stock_state=StockState.AVAILABLE,
-                occurred_at=datetime.combine(
-                    entry.entry_date, datetime.min.time(), tzinfo=UTC
-                ),
+                occurred_at=datetime.combine(entry.entry_date, datetime.min.time(), tzinfo=UTC),
             )
         ],
     )
@@ -3288,9 +3280,7 @@ async def wip_orders(
             planned_quantity=to_quantity(row.planned_quantity),
             produced_quantity=to_quantity(row.produced_quantity),
             rejected_quantity=to_quantity(row.rejected_quantity),
-            balance_quantity=max(
-                ZERO, to_quantity(row.planned_quantity - row.produced_quantity)
-            ),
+            balance_quantity=max(ZERO, to_quantity(row.planned_quantity - row.produced_quantity)),
             planned_start_date=row.planned_start_date,
             planned_end_date=row.planned_end_date,
             actual_start_date=row.actual_start_date,
@@ -3321,9 +3311,7 @@ async def wip_work_centres(
             in_progress_work_orders=row.in_progress_work_orders,
             planned_quantity=to_quantity(row.planned_quantity),
             completed_quantity=to_quantity(row.completed_quantity),
-            balance_quantity=max(
-                ZERO, to_quantity(row.planned_quantity - row.completed_quantity)
-            ),
+            balance_quantity=max(ZERO, to_quantity(row.planned_quantity - row.completed_quantity)),
             remaining_minutes=to_quantity(row.remaining_minutes),
         )
         for row in rows
@@ -3345,9 +3333,7 @@ async def _compute_cost(
     the same however long after the fact it is asked, and the per-operation
     breakdown always adds up to the total stored at closure.
     """
-    components = await ProductionOrderComponentRepository(session, tenant).list_for_order(
-        order.id
-    )
+    components = await ProductionOrderComponentRepository(session, tenant).list_for_order(order.id)
     totals = await MaterialIssueLineRepository(session, tenant).posted_totals_for_order(order.id)
     work_orders = await WorkOrderRepository(session, tenant).list_for_order(order.id)
 

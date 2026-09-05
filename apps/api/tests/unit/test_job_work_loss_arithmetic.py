@@ -100,9 +100,7 @@ def test_the_drawdown_identity_holds_for_a_mixed_return() -> None:
     )
 
     assert (
-        result.input_for_output
-        + result.returned_unprocessed_quantity
-        + result.scrap_quantity
+        result.input_for_output + result.returned_unprocessed_quantity + result.scrap_quantity
         == result.input_consumed_quantity
     )
     assert result.input_consumed_quantity == Decimal("100.0000")
@@ -172,9 +170,9 @@ def test_the_allowance_is_measured_against_what_the_lot_consumed() -> None:
 
 
 def test_loss_percentage_reports_against_the_input_consumed() -> None:
-    assert loss_percentage(
-        scrap_quantity=Decimal("2"), input_consumed=Decimal("100")
-    ) == Decimal("2.0000")
+    assert loss_percentage(scrap_quantity=Decimal("2"), input_consumed=Decimal("100")) == Decimal(
+        "2.0000"
+    )
 
 
 def test_a_line_that_consumed_nothing_has_lost_nothing() -> None:
@@ -230,9 +228,7 @@ def test_a_lot_that_implies_far_more_input_than_is_out_is_refused() -> None:
 
 def test_more_unprocessed_material_than_was_sent_cannot_come_back() -> None:
     with pytest.raises(BusinessRuleError) as exc:
-        plan(
-            outstanding_input=Decimal("10"), returned_unprocessed_quantity=Decimal("11")
-        )
+        plan(outstanding_input=Decimal("10"), returned_unprocessed_quantity=Decimal("11"))
 
     assert exc.value.code is ErrorCode.INSUFFICIENT_STOCK
 

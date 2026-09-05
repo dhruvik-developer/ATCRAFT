@@ -13,7 +13,7 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { PageHeader, StatusBadge } from '@/components/shared'
+import { DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -22,11 +22,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/overlays'
-import { Badge, Input, Label } from '@/components/ui/primitives'
+import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useListQuery } from '@/hooks/use-list-query'
 import { usePlantOptions } from '@/hooks/use-organisation-options'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatNumber, formatQuantity, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -39,9 +40,6 @@ import {
   progressPercent,
   type ProductionOrderRow,
 } from './production-model'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /** Every URL key the toolbar owns, so "Clear" can drop them in one write. */
 const FILTER_KEYS = [
@@ -289,14 +287,16 @@ export default function ProductionPage() {
         toolbar={
           <>
             <Select
-              value={status || ALL}
-              onValueChange={(value) => setParam('status', value === ALL ? undefined : value)}
+              value={status || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('status', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[180px]" aria-label="Filter by status">
+              <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by status">
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All statuses</SelectItem>
+                <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
                 {PRODUCTION_STATUSES.map((value) => (
                   <SelectItem key={value} value={value}>
                     {humanise(value)}
@@ -316,14 +316,16 @@ export default function ProductionPage() {
 
             {plantRows.length > 0 && (
               <Select
-                value={plantId || ALL}
-                onValueChange={(value) => setParam('plant_id', value === ALL ? undefined : value)}
+                value={plantId || SELECT_ALL}
+                onValueChange={(value) =>
+                  setParam('plant_id', value === SELECT_ALL ? undefined : value)
+                }
               >
-                <SelectTrigger className="w-[180px]" aria-label="Filter by plant">
+                <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by plant">
                   <SelectValue placeholder="All plants" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL}>All plants</SelectItem>
+                  <SelectItem value={SELECT_ALL}>All plants</SelectItem>
                   {plantRows.map((plant) => (
                     <SelectItem key={plant.id} value={plant.id}>
                       {plant.code} - {plant.name}
@@ -334,14 +336,19 @@ export default function ProductionPage() {
             )}
 
             <Select
-              value={sourceType || ALL}
-              onValueChange={(value) => setParam('source_type', value === ALL ? undefined : value)}
+              value={sourceType || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('source_type', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[170px]" aria-label="Filter by how the order was raised">
+              <SelectTrigger
+                className="w-full sm:w-[170px]"
+                aria-label="Filter by how the order was raised"
+              >
                 <SelectValue placeholder="Any source" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any source</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any source</SelectItem>
                 {PRODUCTION_SOURCE_TYPES.map((value) => (
                   <SelectItem key={value} value={value}>
                     {humanise(value)}
@@ -350,28 +357,13 @@ export default function ProductionPage() {
               </SelectContent>
             </Select>
 
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="production-date-from" className="text-xs text-muted-foreground">
-                From
-              </Label>
-              <Input
-                id="production-date-from"
-                type="date"
-                value={dateFrom}
-                onChange={(event) => setParam('planned_from', event.target.value || undefined)}
-                className="w-[9.5rem]"
-              />
-              <Label htmlFor="production-date-to" className="text-xs text-muted-foreground">
-                To
-              </Label>
-              <Input
-                id="production-date-to"
-                type="date"
-                value={dateTo}
-                onChange={(event) => setParam('planned_to', event.target.value || undefined)}
-                className="w-[9.5rem]"
-              />
-            </div>
+            <DateRangeFilter
+              id="production-date"
+              from={dateFrom}
+              to={dateTo}
+              onFromChange={(value) => setParam('planned_from', value || undefined)}
+              onToChange={(value) => setParam('planned_to', value || undefined)}
+            />
 
             {filterCount > 0 && (
               <Button variant="ghost" size="sm" onClick={clearFilters}>

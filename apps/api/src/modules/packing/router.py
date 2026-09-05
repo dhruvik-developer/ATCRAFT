@@ -49,6 +49,7 @@ from src.modules.packing.schemas import (
     SealCartonRequest,
     SealResult,
 )
+from src.modules.reports import service as reports_service
 
 router = APIRouter(prefix="/packing", tags=["Packing"], responses=COMMON_ERROR_RESPONSES)
 
@@ -405,9 +406,7 @@ async def replace_contents(
     carton_id: uuid.UUID,
     payload: CartonContentsReplace,
 ) -> ApiResponse[CartonDetail]:
-    carton = await service.replace_carton_contents(
-        session, tenant, order_id, carton_id, payload
-    )
+    carton = await service.replace_carton_contents(session, tenant, order_id, carton_id, payload)
     return ApiResponse[CartonDetail].ok(carton, message="Carton contents updated")
 
 
@@ -429,9 +428,7 @@ async def seal_carton(
     payload: SealCartonRequest,
 ) -> ApiResponse[SealResult]:
     result = await service.seal_carton(session, tenant, order_id, carton_id, payload)
-    return ApiResponse[SealResult].ok(
-        result, message=f"Carton {result.carton.barcode} sealed"
-    )
+    return ApiResponse[SealResult].ok(result, message=f"Carton {result.carton.barcode} sealed")
 
 
 @router.delete(
@@ -492,7 +489,7 @@ async def packing_list(
     job_id = await service.queue_packing_list(session, tenant, order_id)
     return AcceptedJobResponse.create(
         job_id=job_id,
-        status_url=f"/api/v1/jobs/{job_id}",
+        status_url=reports_service.job_status_url(job_id),
         message="The packing list is being generated",
     )
 

@@ -692,9 +692,7 @@ def validate_disposition(inspected_quantity: Decimal, disposition: Disposition) 
         )
 
 
-def assert_critical_override(
-    evaluation: ParameterEvaluation, disposition: Disposition
-) -> None:
+def assert_critical_override(evaluation: ParameterEvaluation, disposition: Disposition) -> None:
     """A critical failure forbids accepting or reworking any of the lot.
 
     ASSUMPTION: routing part of such a lot to SCRAP stays permitted. The contract
@@ -873,9 +871,7 @@ async def _load_sheet(
         parameters = await QcTemplateParameterRepository(session, tenant).list_for_template(
             inspection.template_id
         )
-    results = await QcInspectionResultRepository(session, tenant).list_for_inspection(
-        inspection.id
-    )
+    results = await QcInspectionResultRepository(session, tenant).list_for_inspection(inspection.id)
     return parameters, results
 
 
@@ -1261,9 +1257,7 @@ async def get_template_detail(
 ) -> TemplateDetail:
     repo = QcTemplateRepository(session, tenant)
     template = await repo.get_or_404(template_id)
-    parameters = await QcTemplateParameterRepository(session, tenant).list_for_template(
-        template.id
-    )
+    parameters = await QcTemplateParameterRepository(session, tenant).list_for_template(template.id)
     return template_detail(template, parameters)
 
 

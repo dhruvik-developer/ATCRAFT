@@ -68,11 +68,13 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
+from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
 from src.core.models import (
     ImmutableLedgerEntity,
     OptimisticLockMixin,
     TenantEntity,
     TenantMasterEntity,
+    sql_in_list,
 )
 from src.core.types import GUID, Money, Percentage, Quantity, UnitPrice
 
@@ -81,10 +83,8 @@ from src.core.types import GUID, Money, Percentage, Quantity, UnitPrice
 # -----------------------------------------------------------------------------
 
 #: ISO-4217 alphabetic currency codes.
-CURRENCY_CODE_LENGTH = 3
 
 #: Everything is INR today (docs/assumptions.md, open question 3).
-DEFAULT_CURRENCY = "INR"
 
 # ASSUMPTION: a vendor invoice may differ from the purchase-order price by up to
 # 2%, and from the accepted goods-receipt quantity by 0%. Price rounding and
@@ -116,16 +116,6 @@ AGEING_BUCKET_BOUNDARIES: tuple[int, int, int] = (30, 60, 90)
 AGEING_BUCKET_LABELS: tuple[str, str, str, str] = ("0-30", "31-60", "61-90", "90+")
 
 
-def _sql_in_list(values: tuple[StrEnum, ...] | type[StrEnum]) -> str:
-    """Render a status vocabulary as a SQL ``IN`` list.
-
-    Generated from the Python enum so a database CHECK cannot drift away from
-    the values the schemas validate against.
-    """
-    members = values if isinstance(values, tuple) else tuple(values)
-    return ", ".join(f"'{member.value}'" for member in members)
-
-
 # -----------------------------------------------------------------------------
 # Vocabularies
 # -----------------------------------------------------------------------------
@@ -155,6 +145,20 @@ class PartyType(StrEnum):
     VENDOR = "VENDOR"
     #: A posting with no counterparty: bank, tax, expense and control legs.
     NONE = "NONE"
+
+
+class CustomerAdjustmentType(StrEnum):
+    """Which way a manual posting against a customer's account moves the balance.
+
+    A Python-side vocabulary for ``POST /finance/customer-adjustments``; the
+    ledger rows it produces are ordinary entries with ``reference_type``
+    ``customer_adjustment``, so no column carries this value.
+    """
+
+    #: A debit note - the customer owes more: freight, interest, a short payment.
+    CHARGE = "CHARGE"
+    #: A credit note or write-off - the customer owes less.
+    CREDIT = "CREDIT"
 
 
 class SystemAccount(StrEnum):
@@ -345,7 +349,7 @@ class LedgerAccount(TenantMasterEntity):
         ),
         Index("ix_ledger_accounts_type", "company_id", "account_type", "is_active"),
         CheckConstraint(
-            f"account_type IN ({_sql_in_list(LedgerAccountType)})", name="account_type_known"
+            f"account_type IN ({sql_in_list(LedgerAccountType)})", name="account_type_known"
         ),
         # An account cannot be its own parent. Deeper cycles are prevented by the
         # service, which walks the chain - a CHECK cannot see beyond one row.
@@ -459,7 +463,7 @@ class LedgerEntry(ImmutableLedgerEntity):
             "(debit_amount > 0 AND credit_amount = 0) OR (credit_amount > 0 AND debit_amount = 0)",
             name="exactly_one_side_is_non_zero",
         ),
-        CheckConstraint(f"party_type IN ({_sql_in_list(PartyType)})", name="party_type_known"),
+        CheckConstraint(f"party_type IN ({sql_in_list(PartyType)})", name="party_type_known"),
         # A party leg must name its party, and a leg with no party must not
         # claim one - otherwise a statement silently omits or invents rows.
         CheckConstraint(
@@ -602,12 +606,10 @@ class VendorInvoice(TenantEntity, OptimisticLockMixin):
             "company_id",
             "vendor_id",
             "due_date",
-            postgresql_where=text(f"status IN ({_sql_in_list(OPEN_INVOICE_STATUSES)})"),
+            postgresql_where=text(f"status IN ({sql_in_list(OPEN_INVOICE_STATUSES)})"),
         ),
-        CheckConstraint(f"status IN ({_sql_in_list(VendorInvoiceStatus)})", name="status_known"),
-        CheckConstraint(
-            f"match_status IN ({_sql_in_list(MatchStatus)})", name="match_status_known"
-        ),
+        CheckConstraint(f"status IN ({sql_in_list(VendorInvoiceStatus)})", name="status_known"),
+        CheckConstraint(f"match_status IN ({sql_in_list(MatchStatus)})", name="match_status_known"),
         CheckConstraint("length(currency) = 3", name="currency_is_iso_code"),
         CheckConstraint("subtotal >= 0", name="subtotal_non_negative"),
         CheckConstraint("tax_amount >= 0", name="tax_non_negative"),
@@ -816,12 +818,10 @@ class Payment(TenantEntity, OptimisticLockMixin):
         Index("ix_payments_status_date", "company_id", "status", "payment_date"),
         # Bank reconciliation searches on the instrument reference.
         Index("ix_payments_reference_number", "company_id", "reference_number"),
-        CheckConstraint(f"status IN ({_sql_in_list(PaymentStatus)})", name="status_known"),
+        CheckConstraint(f"status IN ({sql_in_list(PaymentStatus)})", name="status_known"),
+        CheckConstraint(f"payment_type IN ({sql_in_list(PaymentType)})", name="payment_type_known"),
         CheckConstraint(
-            f"payment_type IN ({_sql_in_list(PaymentType)})", name="payment_type_known"
-        ),
-        CheckConstraint(
-            f"payment_method IN ({_sql_in_list(PaymentMethod)})", name="payment_method_known"
+            f"payment_method IN ({sql_in_list(PaymentMethod)})", name="payment_method_known"
         ),
         # A payment is always against somebody: PartyType.NONE describes a
         # control leg in the ledger, never a party the money moved with.
@@ -900,6 +900,7 @@ __all__ = [
     "POSTED_PAYMENT_STATUSES",
     "PRICE_VARIANCE_TOLERANCE",
     "QUANTITY_VARIANCE_TOLERANCE",
+    "CustomerAdjustmentType",
     "LedgerAccount",
     "LedgerAccountType",
     "LedgerEntry",

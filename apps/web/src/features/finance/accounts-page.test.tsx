@@ -177,9 +177,7 @@ describe('reading the chart at all', () => {
     // user who did nothing wrong, on a screen that already knows the answer.
     const { fetch } = renderScreen(<AccountsPage />, { permissions: [] })
 
-    expect(
-      await screen.findByText('The ledger is not visible to this account'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('The ledger is not visible to this account')).toBeInTheDocument()
     expect(fetch.calls.some((call) => call.path === '/finance/accounts')).toBe(false)
   })
 
@@ -321,7 +319,9 @@ describe('the filters are the server’s, not the browser’s', () => {
 
     await user.click(await screen.findByText('Accounts Receivable'))
     const dialog = await screen.findByRole('dialog')
-    await user.click(await within(dialog).findByRole('button', { name: /accounts beneath this one/i }))
+    await user.click(
+      await within(dialog).findByRole('button', { name: /accounts beneath this one/i }),
+    )
 
     await expect.poll(() => latest(seen).get('parent_id')).toBe(RECEIVABLE_ID)
     // A chip names the account being drilled into, and it shares the detail
@@ -427,9 +427,7 @@ describe('the party statement mounted beneath the chart', () => {
       routes: { 'GET /finance/accounts': page([account()]) },
     })
 
-    expect(
-      await screen.findByText('Customers are not visible to this account'),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('Customers are not visible to this account')).toBeInTheDocument()
     expect(screen.getByText(/customer view right \(customer\.view\)/i)).toBeInTheDocument()
   })
 })

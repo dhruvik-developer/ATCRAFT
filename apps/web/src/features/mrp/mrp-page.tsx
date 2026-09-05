@@ -27,7 +27,7 @@ import {
   X,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { Controller, useForm, type FieldPath } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { z } from 'zod'
 
@@ -59,8 +59,11 @@ import {
   Label,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { WAREHOUSE_LOOKUP_PARAMS } from '@/features/inventory/types'
 import { useListQuery } from '@/hooks/use-list-query'
-import { ApiError, api } from '@/lib/api-client'
+import { api } from '@/lib/api-client'
+import { SELECT_ALL } from '@/lib/constants'
+import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDateTime, formatNumber, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -80,9 +83,6 @@ import {
   type WarehouseOption,
 } from './mrp-types'
 
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
-
 /** docs/api.md: poll the status URL, do not hold a connection open. */
 const POLL_INTERVAL_MS = 3000
 
@@ -99,6 +99,10 @@ const MAX_RUN_WAREHOUSES = 50
  * want the other plant's shortages), so the control is multi-select. Choosing
  * nothing means every warehouse, which is what the API does with an omitted
  * `warehouse_ids`.
+ *
+ * `GET /warehouses` is behind `warehouse.view`, which the MRP route does not
+ * demand. A planner without it is told so instead of the lookup being fired
+ * into a 403 they cannot act on; their run simply plans across every warehouse.
  */
 function WarehouseMultiSelect({
   id,
@@ -111,10 +115,16 @@ function WarehouseMultiSelect({
   onChange: (next: string[]) => void
   disabled?: boolean
 }) {
-  const params = { limit: 200, sort_by: 'code', sort_dir: 'asc', with_total: false }
+  const { can } = useAuth()
+  const canReadWarehouses = can(P.WAREHOUSE_VIEW)
+
+  // The one spelling of the lookup, so this and `WarehouseSelect` share a
+  // cache entry rather than fetching the same bounded list twice.
+  const params = WAREHOUSE_LOOKUP_PARAMS
   const warehouses = useQuery({
     queryKey: queryKeys.warehouses.list(params),
     queryFn: () => api.getPage<WarehouseOption>('/warehouses', { params }),
+    enabled: canReadWarehouses,
     staleTime: staleTimes.master,
   })
 
@@ -138,6 +148,14 @@ function WarehouseMultiSelect({
     )
   }
 
+  if (!canReadWarehouses) {
+    return (
+      <p className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+        Your role cannot read the warehouse list; the run plans across all warehouses.
+      </p>
+    )
+  }
+
   return (
     <div className="flex items-center gap-1">
       <Popover>
@@ -157,7 +175,7 @@ function WarehouseMultiSelect({
             <ChevronsUpDown className="opacity-50" aria-hidden />
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-80 p-0">
+        <PopoverContent align="start" className="w-80 max-w-[calc(100vw-2rem)] p-0">
           <p className="border-b px-3 py-2 text-xs text-muted-foreground">
             Leave everything unticked to plan across all warehouses.
           </p>
@@ -300,14 +318,9 @@ export default function MrpPage() {
       setWatchedRunId(result.id)
       setWatchStartedAt(Date.now())
     },
-    onError: (error) => {
-      // Only field-level messages are handled here; everything else is already
-      // surfaced by the global mutation cache.
-      if (!(error instanceof ApiError)) return
-      for (const [field, messages] of Object.entries(error.fieldErrors)) {
-        form.setError(field as FieldPath<RunForm>, { type: 'server', message: messages.join('. ') })
-      }
-    },
+    // Only field-level messages are handled here; everything else is already
+    // surfaced by the global mutation cache.
+    onError: (error) => applyFieldErrors(error, form.setError),
   })
 
   const watched = useQuery({
@@ -472,7 +485,7 @@ export default function MrpPage() {
           <CardContent>
             <form
               onSubmit={form.handleSubmit((values) => startRun.mutate(values))}
-              className="grid gap-4 lg:grid-cols-[10rem_minmax(0,22rem)_minmax(0,1fr)_auto] lg:items-start"
+              className="grid gap-4 sm:grid-cols-2 xl:grid-cols-[10rem_minmax(0,22rem)_minmax(12rem,1fr)_auto] xl:items-start"
             >
               <div className="space-y-1.5">
                 <Label htmlFor="mrp-horizon" required>
@@ -513,7 +526,7 @@ export default function MrpPage() {
                 <FieldError message={errors.warehouse_ids?.message} />
               </div>
 
-              <div className="flex items-start gap-2 lg:pt-7">
+              <div className="flex items-start gap-2 xl:pt-7">
                 <Controller
                   control={form.control}
                   name="respect_safety_stock"
@@ -541,7 +554,7 @@ export default function MrpPage() {
                 type="submit"
                 loading={startRun.isPending}
                 disabled={isCalculating}
-                className="lg:mt-6"
+                className="sm:justify-self-start xl:mt-6"
               >
                 <Play />
                 Run MRP
@@ -626,14 +639,16 @@ export default function MrpPage() {
         toolbar={
           <>
             <Select
-              value={statusFilter || ALL}
-              onValueChange={(value) => runs.setParam('status', value === ALL ? undefined : value)}
+              value={statusFilter || SELECT_ALL}
+              onValueChange={(value) =>
+                runs.setParam('status', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[180px]" aria-label="Filter runs by status">
+              <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter runs by status">
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All statuses</SelectItem>
+                <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
                 {MRP_RUN_STATUSES.map((value) => (
                   <SelectItem key={value} value={value}>
                     {humanise(value)}

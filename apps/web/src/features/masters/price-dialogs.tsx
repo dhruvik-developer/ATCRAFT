@@ -56,12 +56,14 @@ import {
   Textarea,
 } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
-import { formatMoney, humanise } from '@/lib/format'
+import { DEFAULT_CURRENCY } from '@/lib/constants'
+import { applyFieldErrors } from '@/lib/form-errors'
+import { formatDate, formatMoney, humanise } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
 import {
-  applyFieldErrors,
   mastersKeys,
   PRICE_PATTERN,
   PRICE_TYPES,
@@ -102,18 +104,6 @@ const priceSchema = z
 
 type PriceFormValues = z.infer<typeof priceSchema>
 
-const PRICE_FIELDS = new Set([
-  'price_type',
-  'variant_id',
-  'currency',
-  'price',
-  'min_quantity',
-  'valid_from',
-  'valid_to',
-  'is_active',
-  'notes',
-])
-
 /** Today in the yyyy-MM-dd shape `<input type="date">` and the API both use. */
 function today(): string {
   const now = new Date()
@@ -126,9 +116,9 @@ function emptyValues(): PriceFormValues {
   return {
     price_type: 'SALE',
     variant_id: ALL_VARIANTS,
-    // `PriceCreate.currency` defaults to INR server-side; stating it here keeps
-    // the field from looking optional when it is stored on every row.
-    currency: 'INR',
+    // `PriceCreate.currency` defaults server-side to the same value; stating it
+    // here keeps the field from looking optional when it is stored on every row.
+    currency: DEFAULT_CURRENCY,
     price: '',
     min_quantity: '0',
     valid_from: today(),
@@ -225,12 +215,12 @@ export function PriceFormDialog({
       // so a price added here must not leave that tab showing the old list.
       void queryClient.invalidateQueries({ queryKey: queryKeys.items.detail(itemId) })
       toast.success(
-        isEdit ? 'Price updated' : 'Price added',
+        isEdit ? success.updated('Price') : success.created('Price'),
         `${humanise(saved.price_type)} - ${formatMoney(saved.price, { currency: saved.currency })}`,
       )
       onOpenChange(false)
     },
-    onError: (error) => applyFieldErrors(error, setError, PRICE_FIELDS),
+    onError: (error) => applyFieldErrors(error, setError),
   })
 
   const submit = handleSubmit((values) => {
@@ -458,6 +448,8 @@ export function PriceFormDialog({
                 </AlertDescription>
               </Alert>
             )}
+
+            <FieldError message={errors.root?.message} />
           </DialogBody>
 
           <DialogFooter>
@@ -500,10 +492,15 @@ export function PriceDeleteDialog({
 
   const mutation = useMutation({
     mutationFn: (target: PriceRow) => api.delete(`/products/prices/${target.id}`),
-    onSuccess: () => {
+    onSuccess: (_result, target) => {
       void queryClient.invalidateQueries({ queryKey: mastersKeys.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.items.detail(itemId) })
-      toast.success('Price removed')
+      // A price row has no code, so the channel, amount and start date are the
+      // only way to recognise the one that just went.
+      toast.success(
+        success.deleted('Price'),
+        `${humanise(target.price_type)} - ${formatMoney(target.price, { currency: target.currency })} from ${formatDate(target.valid_from)}`,
+      )
       onOpenChange(false)
     },
   })
@@ -515,7 +512,7 @@ export function PriceDeleteDialog({
       title="Remove this price?"
       description={
         price
-          ? `${humanise(price.price_type)} at ${formatMoney(price.price, { currency: price.currency })} from ${price.valid_from}. It disappears from the list and from price resolution. To keep it on the record, edit it and turn Active off instead.`
+          ? `${humanise(price.price_type)} at ${formatMoney(price.price, { currency: price.currency })} from ${formatDate(price.valid_from)}. It disappears from the list and from price resolution. To keep it on the record, edit it and turn Active off instead.`
           : undefined
       }
       confirmLabel="Remove price"

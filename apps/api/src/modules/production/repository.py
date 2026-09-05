@@ -112,9 +112,7 @@ MAX_WORK_CENTRE_ROWS = 200
 #: ``inventory_balances``; a completed job that made less than it planned will
 #: never make the difference, so its balance is not supply either. ``CANCELLED``
 #: never produces anything.
-NETTABLE_PRODUCTION_STATUSES: frozenset[ProductionOrderStatus] = frozenset(
-    OPEN_PRODUCTION_STATUSES
-)
+NETTABLE_PRODUCTION_STATUSES: frozenset[ProductionOrderStatus] = frozenset(OPEN_PRODUCTION_STATUSES)
 
 
 # -----------------------------------------------------------------------------
@@ -279,9 +277,7 @@ class StorageLocationLookupRepository(BaseRepository[StorageLocation]):
 
     model = StorageLocation
 
-    async def warehouses_of(
-        self, location_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, uuid.UUID]:
+    async def warehouses_of(self, location_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, uuid.UUID]:
         """``location_id -> warehouse_id`` for the locations this tenant owns."""
         wanted = list(dict.fromkeys(location_ids))
         if not wanted:
@@ -346,9 +342,7 @@ class WorkCentreRateRepository(BaseRepository[WorkCenter]):
         """id -> (cost_per_hour, setup_cost)."""
         if not work_center_ids:
             return {}
-        stmt = select(
-            WorkCenter.id, WorkCenter.cost_per_hour, WorkCenter.setup_cost
-        ).where(
+        stmt = select(WorkCenter.id, WorkCenter.cost_per_hour, WorkCenter.setup_cost).where(
             WorkCenter.company_id == self.tenant.company_id,
             WorkCenter.deleted_at.is_(None),
             WorkCenter.id.in_(list(dict.fromkeys(work_center_ids))),
@@ -707,9 +701,7 @@ class ProductionOrderRepository(BaseRepository[ProductionOrder]):
             .order_by(ProductionOrder.item_id, ProductionOrder.planned_end_date)
         )
         if warehouse_ids:
-            stmt = stmt.where(
-                ProductionOrder.warehouse_id.in_(list(dict.fromkeys(warehouse_ids)))
-            )
+            stmt = stmt.where(ProductionOrder.warehouse_id.in_(list(dict.fromkeys(warehouse_ids))))
 
         rows = (await self.session.execute(stmt)).all()
         # Absent means nothing in progress; the planner reads this with
@@ -797,6 +789,7 @@ class ProductionOrderComponentRepository(BaseRepository[ProductionOrderComponent
         stmt = self._apply_search(stmt, search)
         order_by = sort.resolve(self.sortable_fields, ProductionOrderComponent.line_number.asc())
         return await self.list_page(params, stmt=stmt.order_by(order_by))
+
 
 # -----------------------------------------------------------------------------
 # Work orders
@@ -1027,6 +1020,7 @@ class MaterialIssueRepository(BaseRepository[MaterialIssue]):
         stmt = self._filtered(filters).order_by(order_by, MaterialIssue.id.desc())
         return await self.list_page(params, stmt=stmt)
 
+
 class MaterialIssueLineRepository(BaseRepository[MaterialIssueLine]):
     model = MaterialIssueLine
 
@@ -1054,12 +1048,12 @@ class MaterialIssueLineRepository(BaseRepository[MaterialIssueLine]):
         stmt = (
             select(
                 MaterialIssueLine.component_id,
-                func.coalesce(
-                    func.sum(MaterialIssueLine.quantity * issued), 0
-                ).label("issued_quantity"),
-                func.coalesce(
-                    func.sum(MaterialIssueLine.quantity * returned), 0
-                ).label("returned_quantity"),
+                func.coalesce(func.sum(MaterialIssueLine.quantity * issued), 0).label(
+                    "issued_quantity"
+                ),
+                func.coalesce(func.sum(MaterialIssueLine.quantity * returned), 0).label(
+                    "returned_quantity"
+                ),
                 func.coalesce(func.sum(MaterialIssueLine.quantity * sign), 0).label("net_quantity"),
                 func.coalesce(func.sum(MaterialIssueLine.total_cost * sign), 0).label("net_cost"),
             )

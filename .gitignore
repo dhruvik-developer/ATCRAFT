@@ -35,6 +35,11 @@ apps/web/.eslintcache
 # --- Storage (runtime artefacts, not source) ---
 storage/**
 !storage/**/.gitkeep
+# The API also defaults to an app-local storage directory when it is run from
+# apps/api. Runtime documents must never enter source control from either
+# launch location.
+apps/api/storage/**
+!apps/api/storage/**/.gitkeep
 
 # --- Tooling / OS ---
 .DS_Store
@@ -55,6 +60,7 @@ playwright/.cache/
 # deployment gets its own generated secrets - see scripts/deploy.sh init.
 deploy/*.env
 !deploy/*.env.example
+deploy/.locks/
 
 # --- Database dumps -------------------------------------------------------
 # A dump is a full copy of the business, including every hashed password.

@@ -20,7 +20,10 @@ convenience, not the gate.
 
 **Tokens.** Short-lived access token (15 min default) plus a rotating refresh
 token (7 days). Both carry `jti`, issuer and audience claims and are verified for
-all of signature, expiry, `nbf`, issuer and audience.
+all of signature, expiry, `nbf`, issuer and audience. Issuer and audience are
+per deployment (`JWT_ISSUER`, `JWT_AUDIENCE`), so a token minted by one
+deployment is rejected by the other deliberately rather than by an accident of
+key rotation.
 
 Three properties worth stating explicitly:
 
@@ -35,12 +38,81 @@ Three properties worth stating explicitly:
   actually ends the attacker's session.
 
 **Storage in the browser.** The access token lives in memory only. The refresh
-token is persisted in `localStorage` so a reload does not sign the user out.
+JWT never appears in JSON: `/auth/login`, `/auth/mfa/verify` and `/auth/refresh`
+set it as an `HttpOnly`, `SameSite=Strict` cookie - `atcraft_refresh`, path
+`/api/v1/auth`, `Secure` when deployed - in `src/modules/auth/cookies.py`, so
+script cannot read it. A second, readable cookie, `atcraft_csrf`, holds an HMAC
+of that refresh JWT keyed on `JWT_SECRET`; it is not a secret. `/auth/refresh`,
+`/auth/logout` and `/auth/logout-all` require the client to echo it in
+`X-CSRF-Token`, and `require_refresh_csrf` compares cookie, header and HMAC in
+constant time before anything is rotated or revoked. A cross-site form post
+cannot set the header, and cookie tossing from a sibling host cannot forge the
+HMAC. A mismatch answers 403 `CSRF_VALIDATION_FAILED` and leaves the session
+intact. Both cookies are re-issued on every refresh and cleared on logout.
 
-> **Known gap.** An httpOnly, `SameSite=Strict` refresh cookie would put the
-> refresh token beyond the reach of script entirely. That requires the API to set
-> cookies and a CSRF strategy on the refresh endpoint. It is the recommended
-> hardening step before this is exposed to the public internet.
+The SPA (`lib/api-client.ts`) treats the presence of `atcraft_csrf` as the hint
+to restore a session after a reload. `localStorage` holds a sign-out marker so a
+failed logout request cannot silently restore the session; it never holds a
+credential. Recorded as `docs/assumptions.md` section 14.
+
+**Forced password change.** A user whose password was set by an administrator
+or the seed (`must_change_password`) may call only `/auth/me`,
+`/auth/change-password`, `/auth/logout` and `/auth/logout-all`. Every other
+route answers 403 `PASSWORD_CHANGE_REQUIRED` from the shared authentication
+dependency in `deps.py`, so a newly added business route cannot forget the
+restriction.
+
+**Multi-factor authentication (TOTP).** Optional per account, RFC 6238 via
+`pyotp`, enrolled and disabled by the user through `/auth/mfa/setup`,
+`/auth/mfa/confirm` and `/auth/mfa/disable` (`src/modules/auth/service.py`).
+
+- Enrolment re-checks the password, stages an encrypted seed and returns the
+  secret and a provisioning URI once. The seed is inactive until `confirm`
+  proves a code from the authenticator; confirming ends the user's other
+  sessions.
+- Disabling needs the password *and* a current code, because success turns a
+  stolen access token into a permanently MFA-free account. A wrong password
+  here is throttled and counted like a failed sign-in.
+- With MFA enabled, `POST /auth/login` issues no tokens. It returns
+  `mfa_required: true` with a signed five-minute challenge token (type `mfa`,
+  `amr: ["pwd"]`), and no session exists until `POST /auth/mfa/verify` accepts
+  a code. Verification is rate-limited per account
+  (`RateLimitPolicy.MFA_VERIFY`, 5 per 5 minutes), a wrong code is recorded as
+  a failed attempt, and the last accepted time-step is persisted
+  (`users.mfa_last_used_step`) so a code is single-use even when concurrent
+  requests reach different API workers.
+- Seeds are stored as Fernet ciphertext. The key is derived per purpose by
+  HMAC-SHA256 from `CREDENTIAL_ENCRYPTION_KEY` (`_credential_fernet` in
+  `core/security.py`), which is deliberately independent of `JWT_SECRET`:
+  rotating the signing key does not touch enrolled authenticators, and rotating
+  `CREDENTIAL_ENCRYPTION_KEY` invalidates every one of them - those users
+  answer `MFA_INVALID` until they re-enrol. Back the key up with the database.
+- `decrypt_totp_secret` still accepts the original plaintext Base32 shape and
+  re-encrypts it on the next successful verification (revision
+  `a4f7c29d8e11`). A plaintext row during a rolling upgrade is expected, not
+  corruption.
+- A completed password reset disables MFA: mailbox recovery must also recover
+  an account whose authenticator was lost. The user enrols again afterwards.
+- `mfa_secret` is on the log-redaction list in `core/logging.py`.
+
+**Password reset by email.** `POST /auth/password-reset/request` answers
+identically whether or not the address belongs to an account. The service
+stores only a SHA-256 digest of a 32-byte token in `password_reset_tokens`
+(60-minute expiry, earlier tokens superseded), encrypts a delivery copy under
+the `password-reset-delivery` purpose of `CREDENTIAL_ENCRYPTION_KEY`, and hands
+it to a Celery task; the worker decrypts it and sends a link built on
+`PUBLIC_WEB_URL`. The token travels in that link's URL *fragment*
+(`/reset-password#token=...`), which a browser never sends to the server, so it
+reaches neither the API's request log nor either nginx's access log; the reset
+page reads it from the fragment and scrubs it from history. Redeeming it
+through `/auth/password-reset/confirm` applies the password policy, lifts any
+lockout, and revokes every session - a reset is the response to a suspected
+compromise, not a routine edit.
+
+Delivery is `EMAIL_PROVIDER=disabled` on a developer checkout, and `Settings`
+refuses to boot a deployed process without `EMAIL_PROVIDER=smtp`, an HTTPS
+`PUBLIC_WEB_URL`, `SMTP_HOST`, `EMAIL_FROM_ADDRESS` and STARTTLS or TLS: the
+public endpoint must never claim a link was sent when nothing can deliver it.
 
 **Lockout and rate limiting.** Five failed attempts lock an account for 15
 minutes (configurable). Login is additionally rate-limited per email *and* per IP
@@ -171,6 +243,12 @@ one that silently disappears when the topology changes.
 CORS is an explicit origin list. A wildcard origin combined with credentials is
 rejected at startup in production.
 
+When deployed, `TrustedHostMiddleware` rejects any request whose `Host` is not
+in `ALLOWED_HOSTS` - bare hostnames only; `Settings` refuses URLs, ports and
+wildcards - plus `localhost`, `127.0.0.1` and `backend` for internal probes and
+the hostnames of `CORS_ORIGINS`. It is registered last in `main.py` so it runs
+ahead of every other middleware.
+
 ---
 
 ## 8. Rate limiting
@@ -233,13 +311,19 @@ table name. Constraint violations are translated into business language by
 ## 11. Secrets
 
 Environment variables only. The local `.env` is git-ignored; only `.env.example`
-is committed. Staging and production inject real environment variables through
-the compose overlays rather than shipping a file, and nothing is baked into an
-image.
+is committed. Each deployment keeps its values in `deploy/<name>.env` (mode 600,
+generated by `scripts/deploy.sh init`, git-ignored), which Compose interpolates
+into real environment variables for the containers; the application never
+reads that file itself, and nothing is baked into an image.
 
-`Settings` refuses to start a production process with a weak or missing
-`JWT_SECRET`, with `APP_DEBUG=true`, or with a wildcard CORS origin alongside
-credentials. A misconfigured production deployment is an incident, not a warning.
+Three secrets, three jobs: `JWT_SECRET` signs tokens and keys the CSRF HMAC,
+`CREDENTIAL_ENCRYPTION_KEY` encrypts stored credentials (TOTP seeds, the
+delivery copy of a reset token), `SMTP_PASSWORD` authenticates outbound mail.
+
+`Settings` refuses to start a staging or production process with a weak or
+missing `JWT_SECRET` or `CREDENTIAL_ENCRYPTION_KEY`, with the two keys equal,
+with `APP_DEBUG=true`, with plaintext SMTP, or with an ambiguous/wildcard host.
+A misconfigured deployment is an incident, not a warning.
 
 Development generates an ephemeral per-process signing key when none is set, so
 nobody is tempted to commit one.
@@ -258,8 +342,14 @@ production — Postgres and Redis are reachable only on the internal network.
 ## Pre-production checklist
 
 - [ ] `JWT_SECRET` generated with `secrets.token_urlsafe(64)`, unique per environment
+- [ ] `CREDENTIAL_ENCRYPTION_KEY` independently generated and securely backed up
 - [ ] `APP_DEBUG=false`, `APP_ENV=production`, `LOG_JSON=true`
 - [ ] `CORS_ORIGINS` set to the real frontend origin — no wildcard
+- [ ] `ALLOWED_HOSTS` lists the public hostname; `JWT_ISSUER` and
+      `JWT_AUDIENCE` differ from every other deployment
+- [ ] `EMAIL_PROVIDER=smtp`, HTTPS `PUBLIC_WEB_URL`, and a reset link actually
+      arrives from the configured relay
+- [ ] MFA enrolled for every administrator account
 - [ ] TLS certificates in place; HTTP redirects to HTTPS
 - [ ] Database password rotated off the development default
 - [ ] Postgres and Redis not published to the host

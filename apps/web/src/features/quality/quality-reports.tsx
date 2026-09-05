@@ -48,11 +48,15 @@ import {
   Skeleton,
 } from '@/components/ui/primitives'
 import { ItemPicker } from '@/features/inventory/pickers'
+import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { api } from '@/lib/api-client'
 import { formatDate, formatNumber, formatPercent, formatQuantity, toDecimal } from '@/lib/format'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
-import type { ItemQualityHistory as ItemQualityHistoryPayload, VendorQualitySummary as VendorQualitySummaryPayload } from './quality-types'
+import type {
+  ItemQualityHistory as ItemQualityHistoryPayload,
+  VendorQualitySummary as VendorQualitySummaryPayload,
+} from './quality-types'
 
 const AXIS_TICK = { fontSize: 11, fill: 'hsl(var(--muted-foreground))' }
 
@@ -263,7 +267,13 @@ function ItemQualityHistory({ windowDays }: { windowDays: string }) {
                   tick={AXIS_TICK}
                   tickLine={false}
                   stroke="hsl(var(--border))"
-                  interval={0}
+                  // The buckets are months, so the day is noise on the axis: the
+                  // tick drops it ("Aug 2026") and recharts culls whatever would
+                  // still overprint on a phone-width plot. The full date stays in
+                  // the tooltip and in the table beneath.
+                  interval="preserveStartEnd"
+                  minTickGap={24}
+                  tickFormatter={(value: string) => value.slice(3)}
                 />
                 <YAxis
                   tick={AXIS_TICK}
@@ -332,27 +342,6 @@ function ItemQualityHistory({ windowDays }: { windowDays: string }) {
 
 // ----------------------------------------------------- vendor summary -------
 
-/** Active vendors for the picker. A master table, bounded by design. */
-interface VendorOption {
-  id: string
-  code: string
-  name: string
-}
-
-function useVendorOptions() {
-  return useQuery({
-    queryKey: ['vendors', 'options'] as const,
-    queryFn: async () => {
-      try {
-        return await api.get<VendorOption[]>('/vendors/options')
-      } catch {
-        return []
-      }
-    },
-    staleTime: staleTimes.reference,
-  })
-}
-
 /**
  * One vendor's quality record.
  *
@@ -364,6 +353,10 @@ function useVendorOptions() {
  */
 function VendorQualitySummary({ windowDays }: { windowDays: string }) {
   const [vendorId, setVendorId] = useState<string | null>(null)
+  // The shared vendor options query, keyed with its parameter, rather than a
+  // second implementation under a bare key that collided with another screen's.
+  // Not approved-only: a vendor whose approval was withdrawn is exactly the one
+  // whose record gets looked up here.
   const vendors = useVendorOptions()
 
   const params = { window_days: Number(windowDays) }
@@ -392,7 +385,7 @@ function VendorQualitySummary({ windowDays }: { windowDays: string }) {
           onValueChange={(value) => setVendorId(value || null)}
           disabled={vendors.isLoading}
         >
-          <SelectTrigger className="w-[240px]" aria-label="Vendor">
+          <SelectTrigger className="w-full sm:w-[240px]" aria-label="Vendor">
             <SelectValue placeholder="Choose a vendor" />
           </SelectTrigger>
           <SelectContent>
@@ -603,7 +596,6 @@ function VendorQualitySummary({ windowDays }: { windowDays: string }) {
   )
 }
 
-
 // ------------------------------------------------------------------ tab -----
 
 export function QualityReports() {
@@ -613,7 +605,7 @@ export function QualityReports() {
     <div className="space-y-4">
       <div className="flex items-center justify-end">
         <Select value={windowDays} onValueChange={setWindowDays}>
-          <SelectTrigger className="w-[180px]" aria-label="Reporting window">
+          <SelectTrigger className="w-full sm:w-[180px]" aria-label="Reporting window">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

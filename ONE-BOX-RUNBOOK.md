@@ -134,8 +134,9 @@ system:
 3. **`scripts/deploy.sh` is the only entry point.** It reads
    `deploy/<name>.env`, takes the project name from it, passes it explicitly
    with `-p` on every command, and refuses to run if the two env files share a
-   project name, a port or a JWT secret.
-4. **Separate `JWT_SECRET` per deployment.** The last boundary, and the only one
+   project name, a port, a JWT secret or a credential-encryption key.
+4. **Separate signing and encryption secrets per deployment.** The last
+   boundary, and the only one
    that survives a network misconfiguration: a session minted by the dev
    deployment must not authenticate against the client's data. `JWT_ISSUER` and
    `JWT_AUDIENCE` differ too, so a cross-deployment token is rejected as
@@ -160,7 +161,10 @@ deliberately the historical name, so the volumes an existing checkout already
 has, and the demo data in them, stay where they are.
 
 Its containers are `atcraft-erp-postgres-1` and `atcraft-erp-redis-1`, publishing
-`127.0.0.1:5433` and `127.0.0.1:6380`.
+`127.0.0.1:${POSTGRES_PORT}` and `127.0.0.1:${REDIS_PORT}` — 5432 and 6379
+unless `.env` overrides them, which the First-time section below recommends
+(5433/6380) because a host Postgres often already holds 5432. `.\make.ps1 dev`
+prints the resolved ports.
 
 ### First time
 
@@ -317,18 +321,41 @@ cd /srv/atcraft-dev  && ./scripts/deploy.sh dev  init
 ```
 
 Each writes `deploy/<name>.env`, mode 600, with a freshly generated
-`POSTGRES_PASSWORD` and `JWT_SECRET`. Neither value is printed or logged.
-`init` refuses to overwrite an existing file.
+`POSTGRES_PASSWORD`, `JWT_SECRET`, and `CREDENTIAL_ENCRYPTION_KEY`. No value is
+printed or logged. The encryption key is independent so JWT rotation does not
+invalidate enrolled authenticators. `init` refuses to overwrite an existing file.
 
-Then edit each file and set its public origin:
+Then edit each file and replace every `example.com` placeholder. Five keys
+ship with one — the two public-hostname keys and three mail keys — and `doctor`
+and `up` refuse the file while any of them still holds it, naming the key. The
+values below are examples only:
 
 ```ini
 # /srv/atcraft-main/deploy/main.env
-CORS_ORIGINS=https://erp.example.com
+CORS_ORIGINS=https://erp.yourcompany.com
+ALLOWED_HOSTS=erp.yourcompany.com
+PUBLIC_WEB_URL=https://erp.yourcompany.com
+EMAIL_FROM_ADDRESS=no-reply@yourcompany.com
+SMTP_HOST=smtp.yourcompany.com
+SMTP_USERNAME=<relay account, if the relay authenticates>
+SMTP_PASSWORD=<its password - both set, or both empty>
 
 # /srv/atcraft-dev/deploy/dev.env
-CORS_ORIGINS=https://dev.erp.example.com
+CORS_ORIGINS=https://dev.erp.yourcompany.com
+ALLOWED_HOSTS=dev.erp.yourcompany.com
+PUBLIC_WEB_URL=https://dev.erp.yourcompany.com
+EMAIL_FROM_ADDRESS=no-reply-dev@yourcompany.com
+SMTP_HOST=<a sandbox or test relay - never the client's production one>
+SMTP_USERNAME=
+SMTP_PASSWORD=
 ```
+
+Mail is not optional in a deployment: a password-reset response must
+correspond to a deliverable link, so `doctor` also requires
+`EMAIL_PROVIDER=smtp`, `SMTP_SECURITY=starttls` or `tls`, an `https://`
+`PUBLIC_WEB_URL`, and `SMTP_USERNAME`/`SMTP_PASSWORD` either both set or both
+empty. The templates already carry the right `EMAIL_PROVIDER`, `SMTP_PORT` and
+`SMTP_SECURITY`.
 
 Check the result without starting anything:
 
@@ -337,7 +364,8 @@ Check the result without starting anything:
 ```
 
 **Never copy secrets between the two files.** `deploy.sh` refuses to run if the
-`JWT_SECRET`s match and warns if the database passwords do.
+`JWT_SECRET`s or `CREDENTIAL_ENCRYPTION_KEY`s match and warns if the database
+passwords do.
 
 ### 6. Start both deployments
 
@@ -346,14 +374,16 @@ cd /srv/atcraft-main && ./scripts/deploy.sh main up
 cd /srv/atcraft-dev  && ./scripts/deploy.sh dev  up
 ```
 
-`up` builds the images, starts the stack and waits for every container to
-report healthy.
+`up` runs the complete guarded release: it builds commit-addressed images while
+the old release is live, stops application traffic, takes a pre-migration
+backup when a database already exists, updates infrastructure, migrates, then
+starts the new application and waits for dependency-aware readiness.
 
-### 7. Create the schemas — separately, per database
+### 7. Seed the schemas — separately, per database
 
 ```bash
-cd /srv/atcraft-main && ./scripts/deploy.sh main migrate && ./scripts/deploy.sh main seed
-cd /srv/atcraft-dev  && ./scripts/deploy.sh dev  migrate && ./scripts/deploy.sh dev  seed
+cd /srv/atcraft-main && ./scripts/deploy.sh main seed
+cd /srv/atcraft-dev  && ./scripts/deploy.sh dev  seed
 ```
 
 Optionally give the dev deployment a demo business to test against:
@@ -365,51 +395,79 @@ cd /srv/atcraft-dev && ./scripts/deploy.sh dev demo-data
 Do **not** load demo data into deployment 1. `deploy.sh` will demand a typed
 confirmation if you try, because `APP_ENV=production` there.
 
-### 8. Host nginx
+### 8. Certificates
+
+Issue the certificates *before* the host configs go in. The `:443` server
+blocks in `atcraft-main.conf` and `atcraft-dev.conf` name
+`/etc/letsencrypt/live/<hostname>/`, so on a bare host `nginx -t` fails on
+those files every time until the certificates exist — not conditionally — and
+a reload chained behind it never runs.
+
+What answers the ACME challenge at this point is the packaged default site
+(`server_name _`, root `/var/www/html`), which serves any hostname the moment
+the package is installed. The symlink lets it serve the challenge from
+`/var/www/certbot`, the directory the atcraft `:80` blocks serve later. That
+matters: certbot records the webroot a certificate was issued with and renews
+against it, so a certificate issued against `/var/www/html` would fail every
+renewal once step 9 has replaced that site.
 
 ```bash
-sudo apt-get update && sudo apt-get install -y nginx
+sudo apt-get update && sudo apt-get install -y nginx certbot
+sudo mkdir -p /var/www/certbot
+sudo ln -sfn /var/www/certbot/.well-known /var/www/html/.well-known
 
+sudo certbot certonly --webroot -w /var/www/certbot -d erp.yourcompany.com \
+  --agree-tos -m ops@yourcompany.com --no-eff-email
+sudo certbot certonly --webroot -w /var/www/certbot -d dev.erp.yourcompany.com \
+  --agree-tos -m ops@yourcompany.com --no-eff-email
+
+ls /etc/letsencrypt/live/      # erp.yourcompany.com  dev.erp.yourcompany.com
+```
+
+Two `certonly` runs, not one with two `-d` flags. A single run makes one
+lineage, named after the first domain; `atcraft-dev.conf` names
+`/etc/letsencrypt/live/dev.erp.yourcompany.com/`, which that run never creates,
+so `nginx -t` fails with "cannot load certificate" and both deployments stay
+unreachable over TLS. The certificate paths are one of the three deliberate
+differences between the two host configs.
+
+### 9. Host nginx
+
+```bash
 sudo mkdir -p /etc/nginx/snippets
 sudo cp /srv/atcraft-main/infrastructure/nginx/host/snippets/atcraft-proxy.conf \
         /etc/nginx/snippets/
-sudo cp /srv/atcraft-main/infrastructure/nginx/host/atcraft-main.conf \
+sudo cp /srv/atcraft-main/infrastructure/nginx/host/00-default.conf \
+        /srv/atcraft-main/infrastructure/nginx/host/atcraft-main.conf \
         /srv/atcraft-main/infrastructure/nginx/host/atcraft-dev.conf \
         /etc/nginx/conf.d/
 
 # Real hostnames
 sudo sed -i 's/erp\.example\.com/erp.yourcompany.com/g'         /etc/nginx/conf.d/atcraft-main.conf
 sudo sed -i 's/dev\.erp\.example\.com/dev.erp.yourcompany.com/g' /etc/nginx/conf.d/atcraft-dev.conf
+
+# Load the installed copies in a throwaway nginx before touching the live one:
+# a fault here takes both deployments offline, at reload time
+cd /srv/atcraft-main && ./scripts/check-host-nginx.sh --installed
 ```
 
-Remove the packaged default site, or it answers for any hostname you have not
-configured:
+`--installed` reads `/etc/nginx/conf.d` and `/etc/nginx/snippets`, generates
+self-signed certificates at the exact paths the configs name, and runs
+`nginx -t` plus the routing, port and hostname assertions. It also refuses any
+installed config that still says `example.com`. Without the flag the script
+checks the repository copies, which keep the placeholders — customising those
+instead would dirty the working tree that `deploy.sh up` requires clean.
+
+Remove the packaged default site. The supplied `00-default.conf` becomes the
+only default and rejects unknown HTTP Host and TLS SNI values:
 
 ```bash
 sudo rm -f /etc/nginx/sites-enabled/default
-```
-
-### 9. Certificates
-
-The `:80` server blocks already serve the ACME challenge path, so certbot's
-webroot mode works without stopping nginx.
-
-```bash
-sudo apt-get install -y certbot python3-certbot-nginx
-sudo mkdir -p /var/www/certbot
-
 sudo nginx -t && sudo systemctl reload nginx
 
-sudo certbot certonly --webroot -w /var/www/certbot \
-  -d erp.yourcompany.com -d dev.erp.yourcompany.com \
-  --agree-tos -m ops@yourcompany.com --no-eff-email
-
-sudo nginx -t && sudo systemctl reload nginx
 sudo systemctl enable --now certbot.timer     # renewal
+sudo certbot renew --dry-run                  # now through the :80 blocks and /var/www/certbot
 ```
-
-> If nginx will not start before certificates exist, comment out the two `443`
-> server blocks, reload, run certbot, then uncomment and reload again.
 
 ### 10. Verify
 
@@ -444,15 +502,28 @@ two deployments.
 | `APP_ENV` | `production` | `production` / `staging` / `development`. |
 | `LOG_LEVEL` | `INFO` | |
 | `CORS_ORIGINS` | `https://erp.example.com` | Comma-separated. Never `*` with credentials. |
+| `ALLOWED_HOSTS` | `erp.example.com` | Hostnames only. Required; never `*`. |
+| `EMAIL_PROVIDER` | `smtp` | Required; `doctor` refuses anything else. A deployment fails closed without working mail. |
+| `PUBLIC_WEB_URL` | `https://erp.example.com` | The origin password-reset links point at. Must be `https://`; must not contain `example.com`. |
+| `EMAIL_FROM_ADDRESS` | `no-reply@example.com` | Sender address. Required; must not contain `example.com`. |
+| `EMAIL_FROM_NAME` | `Atcraft Manufacturing ERP` | Sender display name. |
+| `SMTP_HOST` | `smtp.example.com` | The relay. Required; must not contain `example.com`. |
+| `SMTP_PORT` | `587` | |
+| `SMTP_SECURITY` | `starttls` | `starttls` or `tls`; `doctor` refuses anything else. |
+| `SMTP_USERNAME` | *(empty)* | Only if the relay authenticates. Set both or neither. |
+| `SMTP_PASSWORD` | *(empty)* | Paired with `SMTP_USERNAME`. |
+| `SMTP_TIMEOUT_SECONDS` | `15` | |
 | `POSTGRES_DB` | `atcraft_erp` | May match the other deployment. |
 | `POSTGRES_USER` | `atcraft` | May match. |
 | `POSTGRES_PASSWORD` | — | **(UNIQUE)** Required, no default. |
 | `JWT_SECRET` | — | **(UNIQUE)** Required. Sharing it means a dev token works in production. |
+| `CREDENTIAL_ENCRYPTION_KEY` | - | **(UNIQUE)** Required; encrypts MFA and reset-delivery credentials and must differ from `JWT_SECRET`. |
 | `JWT_ISSUER` | `atcraft-erp-main` | **(UNIQUE)** |
 | `JWT_AUDIENCE` | `atcraft-erp-main` | **(UNIQUE)** |
 | `IMAGE_PREFIX` | `atcraft` | |
-| `IMAGE_TAG` | `main` | **(UNIQUE)** Also stamped into the bundle as the release. |
-| `VITE_ERROR_REPORT_URL` | *(empty)* | Empty disables browser crash reporting. |
+| `IMAGE_TAG` | *(derived)* | `deploy.sh` forces the exact 12-character Git revision. |
+| `VITE_ERROR_REPORT_URL` | *(empty)* | Empty disables browser crash reporting. Use a same-origin collector path unless its HTTPS origin is deliberately added to the CSP. |
+| `SENTRY_DSN` | *(empty)* | Empty disables scrubbed backend exception reporting. Use a different Sentry project for each deployment. |
 | `PG_MAX_CONNECTIONS` | `200` | |
 | `PG_SHARED_BUFFERS` | `1GB` | ~25% of this deployment's RAM allowance. |
 | `PG_EFFECTIVE_CACHE_SIZE` | `3GB` | ~50–75% of it. |
@@ -493,7 +564,9 @@ commit a populated one; `.gitignore` covers `.env` and `deploy/*.env`.
 Only `VITE_*` variables are exposed to the frontend, and Vite inlines them into
 the bundle at build time — everything in `dist/` is public and cached
 indefinitely. Three of them exist: `VITE_API_BASE_URL` (a relative path),
-`VITE_APP_RELEASE` and `VITE_ERROR_REPORT_URL`.
+`VITE_APP_RELEASE` and `VITE_ERROR_REPORT_URL`. The template's
+`VITE_API_PROXY_TARGET` and `VITE_USE_POLLING` are read only by
+`vite.config.ts` for the dev server and are never inlined.
 
 `npm run build` fails if a credential reaches the bundle:
 
@@ -519,11 +592,17 @@ Every command takes the deployment name. There is no default.
 ./scripts/deploy.sh main health           # containers + HTTP + readiness detail
 ./scripts/deploy.sh main logs             # follow all
 ./scripts/deploy.sh main logs backend     # follow one
-./scripts/deploy.sh main restart
+./scripts/deploy.sh main restart          # the full guarded release again - same as up
 ./scripts/deploy.sh main psql             # psql in this deployment's database
 ./scripts/deploy.sh main shell            # shell in this deployment's backend
 ./scripts/deploy.sh main doctor           # configuration, without starting anything
 ```
+
+`restart` is not a bounce. It re-runs the guarded release, so it refuses a
+dirty tree or a `HEAD` that is not the pushed upstream, rebuilds the images,
+takes a backup and migrates — exactly what `up` does. Use it to pick up an
+edited `deploy/<name>.env`; do not reach for it to "just restart" a box with
+uncommitted changes on it, because it will refuse.
 
 `down` keeps the data:
 
@@ -562,14 +641,16 @@ git fetch origin
 git status                                  # must be clean
 git pull --ff-only origin main
 
-./scripts/deploy.sh main backup             # before, not after
-./scripts/deploy.sh main up                 # rebuild + restart, waits for health
-./scripts/deploy.sh main migrate            # if the release adds migrations
+./scripts/deploy.sh main doctor
+./scripts/deploy.sh main up                 # backup + migrate happen before new traffic
 ./scripts/deploy.sh main health
 ```
 
-The images rebuild from the working tree, so the branch check matters: `up`
-refuses if the tree is not on the deployment's `DEPLOY_BRANCH`.
+`up` refuses a dirty tree, detached HEAD, wrong branch, insecure env-file mode,
+placeholder host configuration, or a `HEAD` that is not the pushed upstream
+commit. Images are tagged and labelled with the
+exact commit, so the running artifact can be traced and an old commit's image
+cannot be silently overwritten by a later branch build.
 
 Normal flow is dev first:
 
@@ -586,15 +667,19 @@ deployment's project, so it can only reach that deployment's Postgres — there
 is no connection string to point at the wrong one.
 
 ```bash
-./scripts/deploy.sh main migrate            # alembic upgrade head
 ./scripts/deploy.sh main migrate-status     # current revision + heads
 ```
+
+Normal releases always use `up`, which owns stop, backup, migration, readiness,
+and traffic ordering. Standalone migration is recovery-only: all application
+services must already be stopped and the operator must set
+`ALLOW_SCHEMA_RECOVERY=1` explicitly.
 
 Rolling back asks for confirmation, because a downgrade that drops a column
 destroys the data in it:
 
 ```bash
-./scripts/deploy.sh main downgrade 1
+ALLOW_SCHEMA_RECOVERY=1 ./scripts/deploy.sh main downgrade 1
 ```
 
 Authoring a migration is a development task, against the local stack:
@@ -606,15 +691,15 @@ make migrate
 make test
 ```
 
-Order of operations for a release that changes the schema:
+`./scripts/deploy.sh main up` is the order of operations for every release. It
+builds first, then stops HTTP and workers, takes a consistent backup, updates
+Postgres/Redis patch images, runs `alembic upgrade head` from the new immutable
+backend image, and only then starts new application containers. If migration
+fails, application traffic remains stopped and the script prints the backup
+path; new code is never served against the old schema.
 
-1. `./scripts/deploy.sh main backup`
-2. `./scripts/deploy.sh main up` — new images, app still on the old schema
-3. `./scripts/deploy.sh main migrate`
-4. `./scripts/deploy.sh main health`
-
-If step 3 fails, the app is running the new code against the old schema.
-Restore from step 1's dump rather than improvising a fix forward.
+The standalone `migrate` command is for recovery and operator inspection. A
+normal release must not split `up` and `migrate` into separate steps.
 
 ---
 
@@ -656,15 +741,19 @@ nightly with no retention will fill the disk, and a full disk stops Postgres.
 
 ```bash
 ./scripts/deploy.sh main restore backups/main/atcraft-main-atcraft_erp-20260903T140000Z.dump
-./scripts/deploy.sh main restart
 ```
 
 Requires typing `restore into main`. Runs `--single-transaction` with
 `--clean --if-exists`, so it is all-or-nothing: a restore that fails part way
 leaves the database as it was, rather than half-replaced.
 
-Restart afterwards so no worker holds a stale connection or a cache entry from
-before the restore.
+`restore` stops the application tier before it writes and starts it again
+afterwards — the same traffic gate as `up` — so no worker holds a connection
+from before the restore. Before the maintenance window it builds the immutable
+application images for the checked-out revision. After the dump is restored it
+runs `alembic upgrade head`, and it resumes traffic only after the migrated
+application tier is healthy. A separate `restart` is not needed, and would not
+be a bounce anyway: it is the full guarded release.
 
 ### Prove the backups work
 
@@ -674,8 +763,10 @@ before the restore.
 
 Dumps the live database, creates a scratch database in the same cluster,
 restores into it, compares the table count and the row counts of
-`companies`, `users`, `items`, `inventory_ledger` and `audit_logs`, then drops
-the scratch database. The live database is never written to.
+`companies`, `users`, `items`, `inventory_transactions` and `audit_logs`, then
+drops the scratch database. The live database is never written to. It fails,
+and says which line disagreed, when any count differs or when a table cannot
+be counted on either side — a table the restore lost is not a match.
 
 A backup nobody has restored is a hypothesis. Run this monthly.
 
@@ -685,9 +776,7 @@ A backup nobody has restored is a hypothesis. Run this monthly.
 git clone <repo> /srv/atcraft-main && cd /srv/atcraft-main && git checkout main
 cp <saved copy of deploy/main.env> deploy/main.env && chmod 600 deploy/main.env
 ./scripts/deploy.sh main up
-./scripts/deploy.sh main migrate
 ./scripts/deploy.sh main restore /backups/atcraft/main/<latest>.dump
-./scripts/deploy.sh main restart
 ./scripts/deploy.sh main health
 ```
 
@@ -703,6 +792,13 @@ dump. Back them up too:
 docker run --rm -v atcraft-main_storage-data:/data:ro -v "$PWD/backups/main:/out" \
   alpine tar czf /out/storage-$(date -u +%Y%m%dT%H%M%SZ).tar.gz -C /data .
 ```
+
+Runtime storage is ignored at both `storage/**` and `apps/api/storage/**`.
+Never force-add a generated PDF, CSV, upload, export, or attachment. If real
+customer documents were ever pushed before this rule was added, removing them
+in a later commit is not sufficient: treat the remote as disclosed, arrange a
+coordinated `git filter-repo` history rewrite, and expire every old clone and
+artifact. Do not rewrite shared history as an unattended deploy step.
 
 ---
 
@@ -754,7 +850,8 @@ Run it after any change to a compose file, an env file or the host nginx.
 ### `COMPOSE_PROJECT_NAME must be set`
 
 You ran `docker compose` directly. Use `./scripts/deploy.sh <main|dev> …`, or
-for the local stack `make dev` / `.\make.ps1 dev`. The requirement is
+for the local stack `make dev` (hybrid) or `make dev-docker` (full Docker) —
+`.\make.ps1 dev` / `.\make.ps1 dev-docker` on Windows. The requirement is
 deliberate — see [What keeps the two deployments
 apart](#what-keeps-the-two-deployments-apart).
 
@@ -763,10 +860,24 @@ apart](#what-keeps-the-two-deployments-apart).
 `git checkout dev`, or use a second checkout. To override for one command:
 `DEPLOY_BRANCH_OVERRIDE=1 ./scripts/deploy.sh dev up`.
 
+### `HEAD is not the tested upstream revision`
+
+The checkout is ahead of, behind, or beside what was pushed — typically a
+hot-fix committed on the box, or a `git fetch` without the pull. Images are
+tagged by commit, and the tag is only a provenance claim if that commit is the
+one CI tested. Push the commit and let CI pass, then `git pull --ff-only`.
+`DEPLOY_REVISION_OVERRIDE=1 ./scripts/deploy.sh main up` exists for a
+documented emergency only; a branch with no upstream at all is refused the
+same way.
+
 ### `both deployments share JWT_SECRET`
 
 `deploy.sh` refuses to continue. Generate a new secret for one of them and
 restart it — everyone signed in to that deployment is logged out.
+
+The same refusal applies to `CREDENTIAL_ENCRYPTION_KEY`. Generate an independent
+value, but do not rotate a credential-encryption key after MFA enrollment unless
+you also have a planned data re-encryption procedure.
 
 ### The second deployment will not bind its port
 
@@ -857,14 +968,21 @@ Before the client takes over:
 - [ ] `./scripts/verify-isolation.sh` — 0 failed, 0 skipped
 - [ ] `deploy/main.env` and `deploy/dev.env` are mode 600, not in git, and a
       copy of each is stored off the box
-- [ ] `JWT_SECRET` and `POSTGRES_PASSWORD` differ between the two deployments
+- [ ] `CORS_ORIGINS`, `ALLOWED_HOSTS`, `PUBLIC_WEB_URL`, `EMAIL_FROM_ADDRESS`
+      and `SMTP_HOST` hold the real values in both env files — `doctor` names
+      any key that still says `example.com`
+- [ ] Host nginx: `./scripts/check-host-nginx.sh --installed` passes, which
+      also proves neither installed config contains `example.com`
+- [ ] `JWT_SECRET`, `CREDENTIAL_ENCRYPTION_KEY`, and `POSTGRES_PASSWORD` differ
+      between the two deployments; each credential key also differs from its JWT key
 - [ ] Deployment 1 contains **no demo data** — `make db-handover` on the source
       database, or verify: `./scripts/deploy.sh main psql -tAc "select count(*) from customers where code like 'DM-%'"` returns 0
 - [ ] The seeded administrator's password has been changed
-- [ ] `curl -sI https://erp.example.com` returns 200 with
+- [ ] `curl -sI "https://$ERP_HOST"` returns 200 with
       `Strict-Transport-Security`
-- [ ] `curl -s https://erp.example.com/metrics` returns 404
-- [ ] `curl -s https://erp.example.com/health/ready` returns 404
+- [ ] `curl -s "https://$ERP_HOST/metrics"` returns 404
+- [ ] `curl -s "https://$ERP_HOST/health/ready"` returns 404
+- [ ] an unknown Host/SNI is rejected by `00-default.conf`, not routed to main
 - [ ] `sudo certbot renew --dry-run` succeeds, `certbot.timer` enabled
 - [ ] A nightly backup cron exists, copies off the box, and has a retention rule
 - [ ] `./scripts/deploy.sh main backup-verify` succeeds

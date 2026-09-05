@@ -31,12 +31,18 @@ from locust import HttpUser, between, events, task
 
 API = "/api/v1"
 
+# The same E2E_ADMIN_* variables the Playwright suite and the sweeps read
+# (tests/e2e/.env.example documents them), so one credential serves every
+# harness; LOAD_* is honoured for older invocations.
+#
 # Must match src.core.seed.DEFAULT_ADMIN_EMAIL. Not a .local address: Pydantic's
 # EmailStr refuses special-use TLDs, so an account seeded at admin@atcraft.local
 # is created and can then never log in - the login route rejects it at
 # validation. Every run against that default failed at authentication.
-ADMIN_EMAIL = os.getenv("LOAD_EMAIL", "admin@atcraft.example")
-ADMIN_PASSWORD = os.getenv("LOAD_PASSWORD", "ChangeMe!Atcraft2026")
+ADMIN_EMAIL = os.getenv("E2E_ADMIN_EMAIL") or os.getenv("LOAD_EMAIL") or "admin@atcraft.example"
+ADMIN_PASSWORD = (
+    os.getenv("E2E_ADMIN_PASSWORD") or os.getenv("LOAD_PASSWORD") or "ChangeMe!Atcraft2026"
+)
 
 
 # --- one session, shared -----------------------------------------------------
@@ -82,7 +88,21 @@ def _shared_login(client) -> str | None:
                 name="POST /auth/login",
             )
             if response.status_code == 200:
-                _shared_token = response.json()["data"]["access_token"]
+                data = response.json()["data"]
+                if data.get("user", {}).get("must_change_password"):
+                    # As seeded, the administrator may call nothing but
+                    # /auth/me and /auth/change-password: every request the
+                    # profile makes would answer 403 and be counted against
+                    # the API. Say so instead of measuring a refusal.
+                    response.failure("account is on a temporary password")
+                    print(  # noqa: T201 - Locust reports through stdout
+                        f"\n  {ADMIN_EMAIL} still has a temporary password, so the API"
+                        " refuses every business route.\n"
+                        "  Run the Playwright setup once (it completes the change), or"
+                        " change the password by hand, then run again.\n"
+                    )
+                    return None
+                _shared_token = data["access_token"]
                 return _shared_token
             if response.status_code != 429:
                 response.failure(f"login failed: {response.status_code}")
@@ -298,7 +318,13 @@ class PlannerUser(HttpUser):
     weight = 1
 
     def on_start(self) -> None:
-        self.token = _shared_login(self.client)
+        self.token: str | None = _shared_login(self.client)
+        # As ErpUser does. Without this, a rate-limited login left every planner
+        # request carrying "Bearer None", and the 401s it collected were
+        # reported as the API's failure rate rather than the harness's.
+        if self.token is None:
+            self.environment.runner.quit()
+            return
 
     @property
     def auth(self) -> dict[str, str]:
@@ -332,6 +358,14 @@ class PlannerUser(HttpUser):
                     response.success()
             elif response.status_code == 409:
                 # Another run is already in progress: correct behaviour, not a failure.
+                response.success()
+            elif response.status_code == 429:
+                # Over the per-company run budget. The route documents this as a
+                # normal answer (`RateLimitedError`, with a `Retry-After`), and a
+                # planner profile that keeps asking is exactly what earns it -
+                # counting it as an API failure blames the service for the
+                # harness's own request rate, which is the mistake the verdict at
+                # the end of this file then repeats as "failure rate exceeds 1%".
                 response.success()
             else:
                 response.failure(f"unexpected status {response.status_code}")

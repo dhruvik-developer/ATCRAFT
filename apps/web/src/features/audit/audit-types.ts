@@ -294,24 +294,3 @@ export function useAuditLogDetail(logId: string | null) {
     enabled: Boolean(logId),
   })
 }
-
-/**
- * Names for the actor filter.
- *
- * A staff directory is small and bounded, unlike the log itself, so one page of
- * it is a legitimate lookup. If the caller cannot read users the filter is
- * simply not offered rather than the page failing.
- */
-export function useAuditActorOptions(enabled: boolean) {
-  return useQuery({
-    queryKey: ['users', 'audit-actors', 'options'] as const,
-    queryFn: async () => {
-      const page = await api.getPage<AuditActorOption>('/users', {
-        params: { limit: 200, sort_by: 'full_name', sort_dir: 'asc', with_total: false },
-      })
-      return page.data
-    },
-    staleTime: staleTimes.reference,
-    enabled,
-  })
-}

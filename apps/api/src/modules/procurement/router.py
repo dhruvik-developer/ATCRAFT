@@ -19,7 +19,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from src.core.deps import CurrentUser, DbSession, Tenant, require_permission
+from src.core.deps import CurrentUser, DbSession, Tenant, forbid_vendor_users, require_permission
 from src.core.pagination import PageParams, SortParams, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
@@ -78,9 +78,7 @@ from src.modules.procurement.schemas import (
     ShipmentUpdate,
 )
 
-router = APIRouter(
-    prefix="/procurement", tags=["Procurement"], responses=COMMON_ERROR_RESPONSES
-)
+router = APIRouter(prefix="/procurement", tags=["Procurement"], responses=COMMON_ERROR_RESPONSES)
 
 PageDep = Annotated[PageParams, Depends(page_params)]
 SortDep = Annotated[SortParams, Depends(sort_params)]
@@ -281,9 +279,7 @@ async def list_pending_approvals(
     filters: ApprovalFilterDep,
     params: PageDep,
 ) -> PaginatedResponse[PendingApproval]:
-    rows, pagination = await service.pending_approvals(
-        session, tenant, principal, filters, params
-    )
+    rows, pagination = await service.pending_approvals(session, tenant, principal, filters, params)
     return PaginatedResponse[PendingApproval](data=rows, pagination=pagination)
 
 
@@ -351,9 +347,7 @@ async def update_requisition(
     session: DbSession,
     tenant: Tenant,
 ) -> ApiResponse[RequisitionDetail]:
-    requisition, lines = await service.update_requisition(
-        session, tenant, requisition_id, payload
-    )
+    requisition, lines = await service.update_requisition(session, tenant, requisition_id, payload)
     return ApiResponse[RequisitionDetail].ok(
         service.requisition_detail(requisition, lines), f"Requisition {requisition.code} updated"
     )
@@ -828,7 +822,13 @@ async def purchase_order_tracking(
     "/purchase-orders/{order_id}",
     response_model=ApiResponse[PurchaseOrderDetail],
     summary="Update a purchase order that is not yet approved",
-    dependencies=[require_permission(Permission.PURCHASE_ORDER_UPDATE)],
+    # Buyer-side: rewriting a draft's lines and prices is the buyer's document,
+    # even for the vendor it names. Vendor principals hold the permission for
+    # acknowledge/shipment, which stay reachable below.
+    dependencies=[
+        require_permission(Permission.PURCHASE_ORDER_UPDATE),
+        Depends(forbid_vendor_users),
+    ],
 )
 async def update_purchase_order(
     order_id: uuid.UUID,
@@ -849,7 +849,11 @@ async def update_purchase_order(
     "/purchase-orders/{order_id}/submit",
     response_model=ApiResponse[PurchaseOrderSummary],
     summary="Submit a purchase order for approval",
-    dependencies=[require_permission(Permission.PURCHASE_ORDER_UPDATE)],
+    # Buyer-side, like the edit above: submitting for approval is the buyer's act.
+    dependencies=[
+        require_permission(Permission.PURCHASE_ORDER_UPDATE),
+        Depends(forbid_vendor_users),
+    ],
 )
 async def submit_purchase_order(
     order_id: uuid.UUID,
@@ -1137,9 +1141,7 @@ async def post_goods_receipt(
 async def cancel_goods_receipt(
     receipt_id: uuid.UUID, payload: ReasonRequest, session: DbSession, tenant: Tenant
 ) -> ApiResponse[GoodsReceiptSummary]:
-    receipt = await service.cancel_goods_receipt(
-        session, tenant, receipt_id, reason=payload.reason
-    )
+    receipt = await service.cancel_goods_receipt(session, tenant, receipt_id, reason=payload.reason)
     return ApiResponse[GoodsReceiptSummary].ok(
         GoodsReceiptSummary.model_validate(receipt), f"Goods receipt {receipt.code} cancelled"
     )

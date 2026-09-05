@@ -218,9 +218,7 @@ class PlanningItemRepository(BaseRepository[Item]):
 
     model = Item
 
-    async def planning_items(
-        self, item_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, PlanningItem]:
+    async def planning_items(self, item_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, PlanningItem]:
         """The twelve columns the planner reads, for a whole set of items."""
         if not item_ids:
             return {}
@@ -444,9 +442,7 @@ class DatabaseMrpSource:
         self._items = PlanningItemRepository(session, tenant)
         self._stock = StockPositionRepository(session, tenant)
 
-    async def planning_items(
-        self, item_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, PlanningItem]:
+    async def planning_items(self, item_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, PlanningItem]:
         return await self._items.planning_items(item_ids)
 
     async def stock_positions(
@@ -521,8 +517,17 @@ class DatabaseMrpSource:
 # -----------------------------------------------------------------------------
 
 
+#: The names these records go by in user-facing messages. One spelling for the
+#: ``get_or_404`` path (via ``entity_label``), the lock path and the state
+#: machines, so the same missing record never answers "MrpRun not found" from
+#: one route and "MRP run not found" from another.
+MRP_RUN_ENTITY = "MRP run"
+MRP_SUGGESTION_ENTITY = "MRP suggestion"
+
+
 class MrpRunRepository(BaseRepository[MrpRun]):
     model = MrpRun
+    entity_label = MRP_RUN_ENTITY
     searchable_fields = ("code",)
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "code": MrpRun.code,
@@ -628,6 +633,7 @@ class MrpRunRepository(BaseRepository[MrpRun]):
 
 class MrpDemandRepository(BaseRepository[MrpDemand]):
     model = MrpDemand
+    entity_label = "MRP demand"
 
     async def list_for_run(
         self, run_id: uuid.UUID, params: PageParams
@@ -665,6 +671,7 @@ class MrpDemandRepository(BaseRepository[MrpDemand]):
 
 class MrpRequirementRepository(BaseRepository[MrpRequirement]):
     model = MrpRequirement
+    entity_label = "MRP requirement"
     searchable_fields = ("item_code",)
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "item_code": MrpRequirement.item_code,
@@ -691,9 +698,7 @@ class MrpRequirementRepository(BaseRepository[MrpRequirement]):
             # Matches the partial index built for exactly this predicate.
             stmt = stmt.where(MrpRequirement.shortage_quantity > 0)
         stmt = self._apply_search(stmt, search)
-        order_by = sort.resolve(
-            self.sortable_fields, MrpRequirement.earliest_required_date.asc()
-        )
+        order_by = sort.resolve(self.sortable_fields, MrpRequirement.earliest_required_date.asc())
         # The id tiebreaker is appended after the caller's sort key so paging
         # stays stable when many rows share a date or a quantity.
         stmt = stmt.order_by(order_by, MrpRequirement.id.asc())
@@ -702,6 +707,7 @@ class MrpRequirementRepository(BaseRepository[MrpRequirement]):
 
 class MrpSuggestionRepository(BaseRepository[MrpSuggestion]):
     model = MrpSuggestion
+    entity_label = MRP_SUGGESTION_ENTITY
     searchable_fields = ("item_code",)
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "item_code": MrpSuggestion.item_code,

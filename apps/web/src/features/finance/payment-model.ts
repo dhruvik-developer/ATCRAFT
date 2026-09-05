@@ -28,6 +28,7 @@
 
 import Decimal from 'decimal.js'
 
+import { REASON_MIN_LENGTH } from '@/lib/constants'
 import { toDecimal } from '@/lib/format'
 import { P, type PermissionKey } from '@/lib/permissions'
 import type { SchemaOf } from '@/types/api'
@@ -283,8 +284,12 @@ export const PAYMENT_COMMANDS: Record<PaymentCommand, PaymentCommandCopy> = {
   },
 }
 
-/** The shortest reason `ReasonRequest` and the delete query parameter accept. */
-export const MIN_REASON_LENGTH = 3
+/**
+ * The bounds `ReasonRequest.reason` and the delete query parameter accept: the
+ * shared floor, but 500 characters at the top rather than the usual 255.
+ */
+export const MIN_REASON_LENGTH = REASON_MIN_LENGTH
+export const MAX_REASON_LENGTH = 500
 
 // --------------------------------------------------------------- derived ----
 

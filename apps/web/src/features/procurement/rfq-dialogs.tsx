@@ -28,7 +28,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronsUpDown, Loader2, Plus, Search, Trash2, X } from 'lucide-react'
+import { Check, ChevronsUpDown, Loader2, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -61,9 +61,17 @@ import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
+import {
+  DEFAULT_CURRENCY,
+  PICKER_PAGE_SIZE,
+  REASON_MAX_LENGTH,
+  REASON_MIN_LENGTH,
+} from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, toDateInput, toDecimal } from '@/lib/format'
+import { messages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -85,9 +93,6 @@ import {
 // A NUMERIC(18,4) on the API side, and a string on the wire in both directions.
 const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
 const CURRENCY = /^[A-Z]{3}$/
-
-/** `ReasonRequest` / `ApproveRequest` both cap the reason at 255 characters. */
-const MAX_REASON = 255
 
 // =============================================================================
 // Lifecycle commands
@@ -114,7 +119,7 @@ const COMMAND_COPY: Record<
     // `ApproveRequest`: the reason is optional, and the API records "Sent to
     // vendors" against the audit trail when none is given.
     reasonRequired: false,
-    success: 'RFQ sent',
+    success: success.sent('RFQ'),
   },
   close: {
     title: 'Close this RFQ?',
@@ -123,7 +128,7 @@ const COMMAND_COPY: Record<
     confirmLabel: 'Close RFQ',
     destructive: false,
     reasonRequired: false,
-    success: 'RFQ closed',
+    success: success.closed('RFQ'),
   },
   cancel: {
     title: 'Cancel this RFQ?',
@@ -133,7 +138,7 @@ const COMMAND_COPY: Record<
     destructive: true,
     // `ReasonRequest`: the reason is required and must be at least 3 characters.
     reasonRequired: true,
-    success: 'RFQ cancelled',
+    success: success.cancelled('RFQ'),
   },
 }
 
@@ -181,7 +186,7 @@ export function RfqCommandDialog({
     onSuccess: (updated) => {
       void queryClient.invalidateQueries({ queryKey: rfqKeys.all })
       toast.success(
-        copy?.success ?? 'RFQ updated',
+        copy?.success ?? success.updated('RFQ'),
         `${updated.code} is now ${updated.status.toLowerCase()}.`,
       )
       close()
@@ -189,8 +194,8 @@ export function RfqCommandDialog({
   })
 
   const trimmed = reason.trim()
-  const tooShort = trimmed.length < 3
-  const tooLong = trimmed.length > MAX_REASON
+  const tooShort = trimmed.length < REASON_MIN_LENGTH
+  const tooLong = trimmed.length > REASON_MAX_LENGTH
 
   return (
     <ConfirmDialog
@@ -225,15 +230,15 @@ export function RfqCommandDialog({
         <Textarea
           id="rfq-command-reason"
           value={reason}
-          maxLength={MAX_REASON}
+          maxLength={REASON_MAX_LENGTH}
           onChange={(event) => setReason(event.target.value)}
           className="mt-1.5"
           aria-invalid={touched && ((copy?.reasonRequired === true && tooShort) || tooLong)}
         />
         {touched && copy?.reasonRequired && tooShort && (
-          <FieldError message="Record at least three characters of reason" />
+          <FieldError message={messages.errors.reasonTooShort} />
         )}
-        {touched && tooLong && <FieldError message={`At most ${MAX_REASON} characters`} />}
+        {touched && tooLong && <FieldError message={`At most ${REASON_MAX_LENGTH} characters`} />}
         {!copy?.reasonRequired && (
           <p className="mt-1 text-xs text-muted-foreground">
             Optional. Whatever you record here goes onto the audit trail with the transition.
@@ -267,11 +272,7 @@ const schema = z
     rfq_date: z.string().min(1, 'The RFQ date is required'),
     response_due_date: z.string(),
     required_date: z.string(),
-    currency: z
-      .string()
-      .trim()
-      .toUpperCase()
-      .regex(CURRENCY, 'Three capital letters, such as INR'),
+    currency: z.string().trim().toUpperCase().regex(CURRENCY, 'Three capital letters, such as INR'),
     vendor_ids: z
       .array(z.string())
       .max(MAX_RFQ_VENDORS, `At most ${MAX_RFQ_VENDORS} vendors on one RFQ`),
@@ -354,7 +355,7 @@ function emptyValues(): RfqFormValues {
     rfq_date: toDateInput(new Date()),
     response_due_date: '',
     required_date: '',
-    currency: 'INR',
+    currency: DEFAULT_CURRENCY,
     vendor_ids: [],
     terms: '',
     notes: '',
@@ -429,17 +430,13 @@ function RequisitionPicker({
 }) {
   const [open, setOpen] = useState(false)
   const [term, setTerm] = useState('')
-  const [debouncedTerm, setDebouncedTerm] = useState('')
   const [picked, setPicked] = useState<RequisitionRow | null>(null)
 
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedTerm(term.trim()), 300)
-    return () => clearTimeout(timer)
-  }, [term])
+  const debouncedTerm = useDebouncedValue(term)
 
   const params = useMemo(
     () => ({
-      limit: 20,
+      limit: PICKER_PAGE_SIZE,
       with_total: false,
       open_only: true,
       sort_by: 'requisition_date',
@@ -451,8 +448,7 @@ function RequisitionPicker({
 
   const results = useQuery({
     queryKey: [...rfqKeys.all, 'requisition-options', params] as const,
-    queryFn: () =>
-      api.getPage<RequisitionRow>('/procurement/purchase-requisitions', { params }),
+    queryFn: () => api.getPage<RequisitionRow>('/procurement/purchase-requisitions', { params }),
     enabled: open,
     staleTime: staleTimes.transactional,
   })
@@ -482,7 +478,11 @@ function RequisitionPicker({
             <ChevronsUpDown className="opacity-50" aria-hidden />
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-[24rem] p-0">
+        <PopoverContent
+          align="start"
+          collisionPadding={8}
+          className="w-[24rem] max-w-[var(--radix-popover-content-available-width)] p-0"
+        >
           <div className="relative border-b p-2">
             <Search
               className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -532,10 +532,7 @@ function RequisitionPicker({
                 className="flex w-full items-start gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
               >
                 <Check
-                  className={cn(
-                    'mt-0.5 h-4 w-4 shrink-0',
-                    requisition.id !== value && 'invisible',
-                  )}
+                  className={cn('mt-0.5 h-4 w-4 shrink-0', requisition.id !== value && 'invisible')}
                   aria-hidden
                 />
                 <span className="min-w-0">
@@ -618,11 +615,16 @@ function VendorInvitations({
           {value.map((vendorId) => {
             const vendor = vendorById.get(vendorId)
             return (
-              <li key={vendorId}>
-                <Badge variant="secondary" className="pr-1">
-                  {vendor ? `${vendor.code} - ${vendor.name}` : 'Vendor no longer listed'}
+              <li key={vendorId} className="min-w-0 max-w-full">
+                <Badge variant="secondary" className="max-w-full pr-1">
+                  <span
+                    className="min-w-0 truncate"
+                    title={vendor ? `${vendor.code} - ${vendor.name}` : undefined}
+                  >
+                    {vendor ? `${vendor.code} - ${vendor.name}` : 'Vendor no longer listed'}
+                  </span>
                   {vendor && !vendor.is_approved && (
-                    <span className="text-warning" title="Not an approved vendor">
+                    <span className="shrink-0 text-warning" title="Not an approved vendor">
                       (unapproved)
                     </span>
                   )}
@@ -630,7 +632,7 @@ function VendorInvitations({
                     type="button"
                     aria-label={`Remove ${vendor ? vendor.name : 'this vendor'} from the RFQ`}
                     onClick={() => onChange(value.filter((id) => id !== vendorId))}
-                    className="ml-0.5 rounded-full p-0.5 hover:bg-background/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="ml-0.5 shrink-0 rounded-full p-0.5 hover:bg-background/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <X className="h-3 w-3" aria-hidden />
                   </button>
@@ -744,7 +746,7 @@ export function RfqFormDialog({
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: rfqKeys.all })
       toast.success(
-        isEdit ? 'RFQ updated' : 'RFQ raised',
+        isEdit ? success.updated('RFQ') : success.created('RFQ'),
         isEdit
           ? `${saved.code} still has to be sent before any vendor sees it.`
           : `${saved.code} is a draft with ${saved.lines?.length ?? 0} line(s). Send it when the vendor list is right.`,
@@ -769,7 +771,9 @@ export function RfqFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="xl">
         <DialogHeader>
-          <DialogTitle>{isEdit ? `Edit ${loaded?.code ?? 'RFQ'}` : 'New request for quotation'}</DialogTitle>
+          <DialogTitle>
+            {isEdit ? `Edit ${loaded?.code ?? 'RFQ'}` : 'New request for quotation'}
+          </DialogTitle>
           <DialogDescription>
             {isEdit
               ? 'A draft RFQ can still be changed. Once it is sent, the vendors are quoting against these lines and it is fixed.'
@@ -790,6 +794,16 @@ export function RfqFormDialog({
             <Alert variant="destructive">
               <AlertTitle>Could not load this RFQ</AlertTitle>
               <AlertDescription>{(detail.error as Error).message}</AlertDescription>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3"
+                loading={detail.isFetching}
+                onClick={() => void detail.refetch()}
+              >
+                <RefreshCw />
+                Try again
+              </Button>
             </Alert>
           </DialogBody>
         )}
@@ -970,7 +984,9 @@ export function RfqFormDialog({
                     <VendorInvitations value={field.value} onChange={field.onChange} />
                   )}
                 />
-                <FieldError message={errors.vendor_ids?.root?.message ?? errors.vendor_ids?.message} />
+                <FieldError
+                  message={errors.vendor_ids?.root?.message ?? errors.vendor_ids?.message}
+                />
               </div>
 
               <div>
@@ -1003,9 +1019,9 @@ export function RfqFormDialog({
                   {fields.map((field, index) => (
                     <div
                       key={field.id}
-                      className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)_auto]"
+                      className="grid gap-3 rounded-lg border p-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,2fr)_auto]"
                     >
-                      <div>
+                      <div className="sm:col-span-2 lg:col-span-1">
                         <Controller
                           control={control}
                           name={`lines.${index}.item_id`}
@@ -1079,7 +1095,7 @@ export function RfqFormDialog({
                         <FieldError message={errors.lines?.[index]?.specification?.message} />
                       </div>
 
-                      <div className="flex items-end">
+                      <div className="flex items-end sm:justify-end lg:justify-start">
                         <Button
                           type="button"
                           variant="ghost"

@@ -1,10 +1,8 @@
-import { zodResolver } from '@hookform/resolvers/zod'
 import { AlertCircle, Eye, EyeOff, Loader2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
-import { useForm } from 'react-hook-form'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { z } from 'zod'
+import { useEffect, useState, type FormEvent } from 'react'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 
+import { prefetchRoute } from '@/app/route-loaders'
 import { Button } from '@/components/ui/button'
 import {
   Alert,
@@ -31,24 +29,53 @@ import { ApiError } from '@/lib/api-client'
  */
 const DEFAULT_RETRY_AFTER_SECONDS = 30
 
-const schema = z.object({
-  email: z.string().min(1, 'Email is required').email('Enter a valid email address'),
+/**
+ * Two required fields and one shape check, written by hand.
+ *
+ * Deliberately not react-hook-form + zod, which every other form in the app
+ * uses. This page is the only one the router loads eagerly, so those three
+ * packages sat in the entry bundle - 26 KB gzipped, about 12% of everything an
+ * unauthenticated visitor downloaded - to decide whether two boxes were empty.
+ * They stay the right tool for a fifty-field dispatch dialog behind a lazy
+ * route; they are not worth a sign-in screen's first paint. The MFA form below
+ * has always been a plain controlled form for the same reason.
+ *
+ * The messages are the ones the schema produced, verbatim.
+ */
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+interface LoginErrors {
+  email?: string
+  password?: string
+}
+
+function validate(email: string, password: string): LoginErrors {
+  const errors: LoginErrors = {}
+  if (email.trim() === '') errors.email = 'Email is required'
+  else if (!EMAIL_SHAPE.test(email.trim())) errors.email = 'Enter a valid email address'
   // No complexity rules on the *login* form: the policy is enforced when a
   // password is set. Rejecting a legacy password here would lock out a user the
   // API would happily authenticate and then upgrade.
-  password: z.string().min(1, 'Password is required'),
-})
-
-type LoginForm = z.infer<typeof schema>
+  if (password === '') errors.password = 'Password is required'
+  return errors
+}
 
 export function LoginPage() {
-  const { login, isAuthenticated, isRestoring } = useAuth()
+  const { login, verifyMfa, isAuthenticated, isRestoring } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [showPassword, setShowPassword] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const [mfaChallenge, setMfaChallenge] = useState<string | null>(null)
+  const [mfaCode, setMfaCode] = useState('')
   /** Seconds still to wait after a 429. Null once the form is usable again. */
   const [retryAfter, setRetryAfter] = useState<number | null>(null)
+
+  // The dashboard is where a successful sign-in lands. Warm its chunk while
+  // the user is typing so the first authenticated paint comes from cache.
+  useEffect(() => {
+    prefetchRoute('/')
+  }, [])
 
   // The wait has to run down on its own. Without this the submit button stays
   // disabled for the life of the page - and because a disabled submit button
@@ -66,14 +93,10 @@ export function LoginPage() {
     return () => clearTimeout(timer)
   }, [retryAfter])
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
-  } = useForm<LoginForm>({
-    resolver: zodResolver(schema),
-    defaultValues: { email: '', password: '' },
-  })
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [errors, setErrors] = useState<LoginErrors>({})
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   if (isRestoring) {
     return (
@@ -88,40 +111,65 @@ export function LoginPage() {
     return <Navigate to={from} replace />
   }
 
-  const onSubmit = async (values: LoginForm) => {
+  const showFailure = (error: unknown) => {
+    if (error instanceof ApiError) {
+      if (error.status === 429) {
+        const raw = error.details?.retry_after_seconds
+        const seconds = typeof raw === 'number' ? raw : Number(raw)
+        setRetryAfter(
+          Number.isFinite(seconds) && seconds > 0
+            ? Math.ceil(seconds)
+            : DEFAULT_RETRY_AFTER_SECONDS,
+        )
+        setFormError(error.message || 'Too many attempts. Wait before trying again.')
+      } else {
+        setFormError(error.message)
+      }
+    } else {
+      setFormError('Could not reach the server. Check your connection and try again.')
+    }
+  }
+
+  const finishLogin = (user: Awaited<ReturnType<typeof verifyMfa>>) => {
+    const from = (location.state as { from?: string } | null)?.from ?? '/'
+    navigate(user.must_change_password ? '/change-password' : from, { replace: true })
+  }
+
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const found = validate(email, password)
+    setErrors(found)
+    // Validating here rather than at the server so an empty submit does not
+    // spend one of the account's rate-limited login attempts.
+    if (found.email || found.password) return
+
+    setFormError(null)
+    setRetryAfter(null)
+    setIsSubmitting(true)
+    try {
+      const outcome = await login(email.trim(), password)
+      if ('mfa_required' in outcome) {
+        setMfaChallenge(outcome.challenge_token)
+        setMfaCode('')
+        return
+      }
+      finishLogin(outcome)
+    } catch (error) {
+      showFailure(error)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const onMfaSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!mfaChallenge || !/^\d{6}$/.test(mfaCode)) return
     setFormError(null)
     setRetryAfter(null)
     try {
-      const user = await login(values.email, values.password)
-      const from = (location.state as { from?: string } | null)?.from ?? '/'
-      navigate(user.must_change_password ? '/profile?change-password=1' : from, { replace: true })
+      finishLogin(await verifyMfa(mfaChallenge, mfaCode))
     } catch (error) {
-      if (error instanceof ApiError) {
-        if (error.status === 429) {
-          // The API puts the wait in a `Retry-After` header, which the shared
-          // client does not surface, and repeats it in the error body as
-          // `details.retry_after_seconds`. Take that when it is usable and fall
-          // back to a real, finite wait when it is not - never to a wait that
-          // never ends.
-          const raw = error.details?.retry_after_seconds
-          const seconds = typeof raw === 'number' ? raw : Number(raw)
-          setRetryAfter(
-            Number.isFinite(seconds) && seconds > 0
-              ? Math.ceil(seconds)
-              : DEFAULT_RETRY_AFTER_SECONDS,
-          )
-          // The API's own message first - it is the one that names the limit
-          // that was hit; the countdown is appended by the button below.
-          setFormError(error.message || 'Too many attempts. Wait before trying again.')
-        } else {
-          // The API's own message, verbatim. It is what distinguishes bad
-          // credentials from a locked, disabled or expired account, and a
-          // generic "sign-in failed" throws that away.
-          setFormError(error.message)
-        }
-      } else {
-        setFormError('Could not reach the server. Check your connection and try again.')
-      }
+      showFailure(error)
     }
   }
 
@@ -158,7 +206,7 @@ export function LoginPage() {
 
       {/* Form panel - the page's <main>. Without a main landmark every element
           here sits outside one, and "skip to content" has nothing to skip to. */}
-      <main className="flex items-center justify-center p-6">
+      <main className="flex items-center justify-center p-4 sm:p-6">
         <Card className="w-full max-w-md border-0 shadow-none sm:border sm:shadow-sm">
           <CardHeader>
             <div className="mb-2 flex items-center gap-2.5 lg:hidden">
@@ -171,84 +219,144 @@ export function LoginPage() {
                 viewport. CardTitle renders an h3 by default, which skipped two
                 levels from nothing. */}
             <CardTitle asChild className="text-2xl">
-              <h1>Sign in</h1>
+              <h1>{mfaChallenge ? 'Authentication code' : 'Sign in'}</h1>
             </CardTitle>
-            <CardDescription>Use your Atcraft account to continue.</CardDescription>
+            <CardDescription>
+              {mfaChallenge
+                ? 'Enter the six-digit code from your authenticator app.'
+                : 'Use your Atcraft account to continue.'}
+            </CardDescription>
           </CardHeader>
 
           <CardContent>
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
-              {formError && (
-                <Alert variant="destructive">
-                  <AlertCircle className="mb-1 text-destructive" />
-                  <AlertDescription className="text-foreground">{formError}</AlertDescription>
-                </Alert>
-              )}
-
-              <div className="space-y-1.5">
-                <Label htmlFor="email" required>
-                  Email
-                </Label>
-                <Input
-                  id="email"
-                  type="email"
-                  autoComplete="username"
-                  autoFocus
-                  placeholder="you@atcraft.example"
-                  aria-invalid={Boolean(errors.email)}
-                  aria-describedby={errors.email ? 'email-error' : undefined}
-                  {...register('email')}
-                />
-                {errors.email && (
-                  <p id="email-error" className="text-xs text-destructive">
-                    {errors.email.message}
-                  </p>
+            {mfaChallenge ? (
+              <form key="mfa" onSubmit={onMfaSubmit} className="space-y-4" noValidate>
+                {formError && (
+                  <Alert id="mfa-error" variant="destructive">
+                    <AlertCircle className="mb-1 text-destructive" />
+                    <AlertDescription className="text-foreground">{formError}</AlertDescription>
+                  </Alert>
                 )}
-              </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="password" required>
-                  Password
-                </Label>
-                <div className="relative">
+                <div className="space-y-1.5">
+                  <Label htmlFor="mfa-code" required>
+                    Authentication code
+                  </Label>
                   <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    autoComplete="current-password"
-                    className="pr-10"
-                    aria-invalid={Boolean(errors.password)}
-                    aria-describedby={errors.password ? 'password-error' : undefined}
-                    {...register('password')}
+                    id="mfa-code"
+                    value={mfaCode}
+                    onChange={(event) =>
+                      setMfaCode(event.target.value.replace(/\D/g, '').slice(0, 6))
+                    }
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    autoFocus
+                    aria-describedby={formError ? 'mfa-error' : undefined}
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((v) => !v)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground hover:text-foreground"
-                    aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
                 </div>
-                {errors.password && (
-                  <p id="password-error" className="text-xs text-destructive">
-                    {errors.password.message}
-                  </p>
+
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={mfaCode.length !== 6 || retryAfter !== null}
+                >
+                  {retryAfter === null ? 'Verify and sign in' : `Try again in ${retryAfter}s`}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full"
+                  onClick={() => {
+                    setMfaChallenge(null)
+                    setMfaCode('')
+                    setFormError(null)
+                  }}
+                >
+                  Back to password
+                </Button>
+              </form>
+            ) : (
+              <form key="credentials" onSubmit={onSubmit} className="space-y-4" noValidate>
+                {formError && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="mb-1 text-destructive" />
+                    <AlertDescription className="text-foreground">{formError}</AlertDescription>
+                  </Alert>
                 )}
-              </div>
 
-              <Button
-                type="submit"
-                className="w-full"
-                loading={isSubmitting}
-                disabled={retryAfter !== null}
-              >
-                {retryAfter === null ? 'Sign in' : `Try again in ${retryAfter}s`}
-              </Button>
+                <div className="space-y-1.5">
+                  <Label htmlFor="email" required>
+                    Email
+                  </Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    autoComplete="username"
+                    autoFocus
+                    placeholder="you@atcraft.example"
+                    aria-invalid={Boolean(errors.email)}
+                    aria-describedby={errors.email ? 'email-error' : undefined}
+                    name="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                  />
+                  {errors.email && (
+                    <p id="email-error" className="text-xs text-destructive">
+                      {errors.email}
+                    </p>
+                  )}
+                </div>
 
-              <p className="text-center text-sm text-muted-foreground">
-                Forgotten your password? Contact your system administrator.
-              </p>
-            </form>
+                <div className="space-y-1.5">
+                  <Label htmlFor="password" required>
+                    Password
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete="current-password"
+                      className="pr-10"
+                      aria-invalid={Boolean(errors.password)}
+                      aria-describedby={errors.password ? 'password-error' : undefined}
+                      name="password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((v) => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-1 text-muted-foreground hover:text-foreground"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  {errors.password && (
+                    <p id="password-error" className="text-xs text-destructive">
+                      {errors.password}
+                    </p>
+                  )}
+                </div>
+
+                <Button
+                  type="submit"
+                  className="w-full"
+                  loading={isSubmitting}
+                  disabled={retryAfter !== null}
+                >
+                  {retryAfter === null ? 'Sign in' : `Try again in ${retryAfter}s`}
+                </Button>
+
+                <p className="text-center text-sm text-muted-foreground">
+                  <Link className="underline-offset-4 hover:underline" to="/forgot-password">
+                    Forgotten your password?
+                  </Link>
+                </p>
+              </form>
+            )}
           </CardContent>
         </Card>
       </main>

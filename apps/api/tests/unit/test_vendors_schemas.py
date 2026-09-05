@@ -9,15 +9,27 @@ just the code path.
 
 from __future__ import annotations
 
+import inspect
+import typing
+
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from src.modules.vendors.models import VendorContactRole, VendorType
+from src.modules.vendors import router as vendors_router
+from src.modules.vendors import service as vendors_service
+from src.modules.vendors.models import (
+    DEFAULT_RATING_WINDOW_DAYS,
+    MAX_RATING_WINDOW_DAYS,
+    MIN_RATING_WINDOW_DAYS,
+    VendorContactRole,
+    VendorType,
+)
 from src.modules.vendors.schemas import (
     TRACKING_PLACEHOLDER,
     TransporterCreate,
     VendorContactCreate,
     VendorCreate,
+    VendorRatingRequest,
     VendorUpdate,
     assert_gstin_pan_agree,
     assert_gstin_state_agrees,
@@ -218,3 +230,40 @@ class TestTrackingTemplate:
             code="TRN-02", name="Local Cartage", transporter_type="TRANSPORT"
         )
         assert transporter.tracking_url_template is None
+
+
+class TestRatingWindow:
+    """The recompute request, the preview query and the engine share one window.
+
+    The default and the bounds were once typed as literals in the schema and
+    the router and as a constant in the service, so a change to one silently
+    left the others behind and a preview could be computed over a window the
+    stored rating would refuse.
+    """
+
+    def test_the_request_defaults_to_the_shared_window(self) -> None:
+        assert VendorRatingRequest().window_days == DEFAULT_RATING_WINDOW_DAYS
+
+    def test_the_request_bounds_are_the_shared_bounds(self) -> None:
+        assert VendorRatingRequest(window_days=MIN_RATING_WINDOW_DAYS).window_days == (
+            MIN_RATING_WINDOW_DAYS
+        )
+        assert VendorRatingRequest(window_days=MAX_RATING_WINDOW_DAYS).window_days == (
+            MAX_RATING_WINDOW_DAYS
+        )
+        for outside in (MIN_RATING_WINDOW_DAYS - 1, MAX_RATING_WINDOW_DAYS + 1):
+            with pytest.raises(PydanticValidationError):
+                VendorRatingRequest(window_days=outside)
+
+    def test_the_preview_query_uses_the_same_default_and_bounds(self) -> None:
+        hints = typing.get_type_hints(vendors_router.preview_vendor_rating, include_extras=True)
+        (query,) = hints["window_days"].__metadata__
+        bounds = {type(constraint).__name__: constraint for constraint in query.metadata}
+        assert bounds["Ge"].ge == MIN_RATING_WINDOW_DAYS
+        assert bounds["Le"].le == MAX_RATING_WINDOW_DAYS
+        signature = inspect.signature(vendors_router.preview_vendor_rating)
+        assert signature.parameters["window_days"].default == DEFAULT_RATING_WINDOW_DAYS
+
+    def test_the_service_re_exports_the_same_default(self) -> None:
+        assert vendors_service.DEFAULT_RATING_WINDOW_DAYS == DEFAULT_RATING_WINDOW_DAYS
+        assert "DEFAULT_RATING_WINDOW_DAYS" in vendors_service.__all__

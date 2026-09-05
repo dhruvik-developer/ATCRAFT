@@ -5,9 +5,8 @@ BOM, inventory with reservation and allocation, MRP, procurement, production,
 assembly, job work, quality control, packing, dispatch and finance — on one
 auditable ledger.
 
-Built to the locked baseline in
-[`ATCRAFT_MANUFACTURING_ERP_CLAUDE_MASTER.md`](./ATCRAFT_MANUFACTURING_ERP_CLAUDE_MASTER.md).
-That document is the source of truth; this README tells you how to run the thing.
+Repository-wide engineering rules live in [`CLAUDE.md`](./CLAUDE.md); the
+architecture and operational decisions are recorded under [`docs/`](./docs).
 
 ---
 
@@ -44,7 +43,14 @@ Then set a real signing key — the API refuses to start in production without o
 python -c "import secrets; print(secrets.token_urlsafe(64))"
 ```
 
-Paste the result into `JWT_SECRET`.
+Generate two independent values. Paste one into `JWT_SECRET` and the other into
+`CREDENTIAL_ENCRYPTION_KEY`; rotating the JWT signing key must not invalidate
+encrypted MFA credentials.
+
+Outbound email stays `EMAIL_PROVIDER=disabled` on a checkout, so a password
+reset requested locally is acknowledged but no link is sent. A deployment must
+set `EMAIL_PROVIDER=smtp`, the `SMTP_*` values and an HTTPS `PUBLIC_WEB_URL` —
+the API refuses to start otherwise (`.env.example` documents each key).
 
 ### 2. Hybrid development — the daily driver
 
@@ -53,7 +59,7 @@ Infrastructure in Docker, application code on your machine with hot reload.
 **Windows**
 
 ```powershell
-.\make.ps1 install     # one-off: create .venv, install backend + frontend deps
+.\make.ps1 install     # one-off: create .venv, install backend + frontend deps, git hooks
 .\make.ps1 dev         # starts Postgres + Redis in Docker
 # then, in separate terminals:
 .\make.ps1 dev-api     # FastAPI on :8000
@@ -67,6 +73,11 @@ Infrastructure in Docker, application code on your machine with hot reload.
 make install
 make dev               # infra + API + web together
 ```
+
+`install` runs `scripts.install_requirements` rather than `pip install`
+directly: the lock files are resolved on Linux and pin `uvloop`, which has no
+Windows build, so the installer drops the pins the platform cannot use and
+installs everything else hash-verified.
 
 Apply the schema and load baseline data:
 
@@ -104,18 +115,27 @@ onboarding, reproducing environment-specific bugs, and validating the Docker
 configuration itself.
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
-# or:  make dev-docker  /  .\make.ps1 dev-docker
+make dev-docker        # Windows: .\make.ps1 dev-docker
+```
+
+The bare equivalent needs the project name — `docker-compose.yml` refuses to
+start without one, so two deployments can never share a project by accident:
+
+```bash
+docker compose -p atcraft-erp -f docker-compose.yml -f docker-compose.dev.yml up --build
 ```
 
 ### 4. Production
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+./scripts/deploy.sh main init       # first deployment only; then set real hosts
+./scripts/deploy.sh main doctor
+./scripts/deploy.sh main up         # build, backup, migrate, start, verify
 ```
 
-Work through [`docs/deployment.md`](./docs/deployment.md) first — TLS
-certificates, secrets, backups and the pre-flight checklist.
+Never run production with a bare `docker compose up`. Work through
+[`ONE-BOX-RUNBOOK.md`](./ONE-BOX-RUNBOOK.md) first — TLS, secrets, backups,
+the two isolated deployments, and the go-live checklist.
 
 ---
 
@@ -152,21 +172,33 @@ scale demands it — but the system starts, and should stay, a modular monolith.
 
 ## Commands
 
-Every target exists in both `Makefile` and `make.ps1`.
+Every development target exists in both `Makefile` and `make.ps1`
+(`make <target>` / `.\make.ps1 <target>`). The `deploy-*` targets are
+Makefile and Git Bash only: they wrap `scripts/deploy.sh`, which holds the
+guards that keep the two deployments apart, and `make.ps1` deliberately does
+not duplicate them.
 
 | Command | What it does |
 |---|---|
-| `install` | Create the backend venv and install both dependency sets |
-| `dev` | Hybrid mode: infra in Docker, app local with hot reload |
+| `install` | Create the backend venv, install both dependency sets, install the git hooks |
+| `dev` | Hybrid mode: infra in Docker, app local with hot reload (on Windows, infra only — then `dev-api`, `dev-web`, `dev-worker`) |
 | `dev-docker` | Full containerised development stack |
 | `up` / `down` / `restart` / `logs` / `ps` | Compose stack control |
-| `migrate` / `migration "msg"` / `migrate-down` | Alembic |
+| `migrate` / `migration m="msg"` (Windows: `.\make.ps1 migration "msg"`) / `migrate-down` | Alembic |
 | `seed` | Baseline roles, permissions, UoM, warehouse types |
+| `demo-data` | Fill a development database with a working business |
+| `db-fresh` / `db-handover` | Destroy and rebuild the dev database with demo data / baseline only |
 | `test` / `test-unit` / `test-integration` / `test-cov` | Backend tests |
 | `test-web` / `test-e2e` / `test-load` | Frontend, Playwright, Locust |
-| `lint` / `format` / `typecheck` / `check` | Quality gates |
+| `lint` / `format` / `typecheck` | Quality gates |
+| `contract` / `contract-check` | Regenerate the OpenAPI contract and frontend types / fail if they are stale |
+| `check` | `contract-check` + `lint` + `test` + `test-web` — what CI runs |
+| `hooks` / `hooks-run` | Install the git hooks / run every hook on the whole tree |
+| `lock` | Regenerate the hash-locked Python requirements |
 | `backup` | `pg_dump` to `./backups` |
 | `shell-api` / `shell-db` | Shells inside the containers |
+| `deploy-init` / `deploy-doctor` / `deploy-up` / `deploy-down` / `deploy-migrate` / `deploy-health` / `deploy-backup` / `deploy-verify` | `scripts/deploy.sh` wrappers, `D=main` or `D=dev` (Makefile only) |
+| `clean` | Remove build artefacts and caches |
 
 ---
 
@@ -204,7 +236,7 @@ Read next:
 
 ## The rules that are not negotiable
 
-These come straight from the master document and are enforced in code review:
+These are the repository's core invariants and are enforced in code review:
 
 1. **PostgreSQL is the source of truth.** Redis is a cache; every entry has a TTL.
 2. **Inventory correctness beats everything.** Stock changes take a row lock,
@@ -242,15 +274,24 @@ succeed.
 
 ## Contributing
 
-Branches: `main`, `develop`, `feature/*`, `bugfix/*`, `hotfix/*`.
+Branches: `main` (deployment 1, the client's environment), `dev` (deployment
+2, integration testing), and `feature/*`, `bugfix/*`, `hotfix/*` off `dev`.
+
+`make install` installs the git hooks from `.pre-commit-config.yaml`
+(`make hooks` on its own does the same). The pre-commit hook formats and lints
+what you are committing; the pre-push hook runs the type checks, unit tests,
+vitest, the OpenAPI contract check and a Compose config parse. Do not bypass
+them with `--no-verify`.
 
 Before opening a pull request:
 
 ```bash
-make check              # lint + typecheck + tests
+make check              # contract check + lint + typecheck + tests + frontend tests
+make hooks-run          # every hook on the whole tree, as a push would run it
 ```
+
+Both exist as `.\make.ps1 check` and `.\make.ps1 hooks-run` on Windows.
 
 A feature is done when the business rules, migration, authorisation, validation,
 audit, error handling, tests, pagination and documentation are all in place —
-not when the screen renders. The full definition is section 90 of the master
-document.
+not when the screen renders. The full definition of done is in `CLAUDE.md`.

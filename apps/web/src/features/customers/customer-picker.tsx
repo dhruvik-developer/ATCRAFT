@@ -9,12 +9,14 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { Check, ChevronsUpDown, Loader2, Search, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/overlays'
 import { Badge, Input, Label } from '@/components/ui/primitives'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
+import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
 
@@ -43,17 +45,13 @@ export function CustomerPicker({
 }) {
   const [open, setOpen] = useState(false)
   const [term, setTerm] = useState('')
-  const [debouncedTerm, setDebouncedTerm] = useState('')
   const [picked, setPicked] = useState<CustomerRow | null>(null)
 
   // One request per keystroke would put a trigram scan behind every character.
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedTerm(term.trim()), 300)
-    return () => clearTimeout(timer)
-  }, [term])
+  const debouncedTerm = useDebouncedValue(term)
 
   const searchParams = {
-    limit: 20,
+    limit: PICKER_PAGE_SIZE,
     with_total: false,
     is_active: true,
     sort_by: 'code',
@@ -108,7 +106,7 @@ export function CustomerPicker({
             </Button>
           </PopoverTrigger>
 
-          <PopoverContent align="start" className="w-[24rem] p-0">
+          <PopoverContent align="start" className="w-[min(24rem,calc(100vw-2rem))] p-0">
             <div className="relative border-b p-2">
               <Search
                 className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"

@@ -49,6 +49,7 @@ from src.core.config import settings
 from src.core.database import transaction
 from src.core.deps import Principal, TenantContext
 from src.core.errors import (
+    AuthorizationError,
     BusinessRuleError,
     DuplicateError,
     ErrorCode,
@@ -57,6 +58,7 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
+from src.core.messages import NO_FIELDS_TO_UPDATE
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import ALL_PERMISSIONS, PERMISSION_GROUPS, Permission, group_for
 from src.core.responses import OffsetPagination
@@ -125,6 +127,21 @@ SUPERUSER_FLAG_IS_API_SETTABLE = False
 # administrator locks out the people who could stop them. Both are refused, so
 # the check runs over the symmetric difference of the before and after sets.
 REQUIRE_AUTHORITY_TO_REVOKE = True
+
+# ASSUMPTION: only a super-administrator may set a super-administrator's
+# password, by either route a password can be set (``reset_password`` and
+# ``update_user(password=...)``). ``user.reset_password`` is an ordinary
+# administrative permission; without this rule a holder of it could reset a
+# SUPER_ADMIN's password, read the temporary password out of the response and
+# sign in as them - locking out the people who could stop them *and* taking
+# over their authority. REQUIRE_AUTHORITY_TO_REVOKE above refuses far weaker
+# tampering for the same reason. A caller who holds super-admin by either
+# route (the flag or the role) is let through.
+PROTECT_SUPER_ADMIN_PASSWORDS = True
+
+SUPER_ADMIN_PASSWORD_PROTECTED = (
+    "Only a super administrator may set a super administrator's password."  # noqa: S105
+)
 
 # ASSUMPTION: a role that somebody still holds cannot be retired. Soft-deleting
 # it would silently strip authority from every holder with no audit entry naming
@@ -352,6 +369,37 @@ def holds_super_admin(is_superuser: bool, roles: Iterable[RoleView]) -> bool:
     if is_superuser:
         return True
     return any(role.code in SUPER_ADMIN_ROLE_CODES for role in usable_roles(roles))
+
+
+def caller_holds_super_admin(principal: Principal) -> bool:
+    """The caller's side of :func:`holds_super_admin`.
+
+    A principal carries only the codes of its *usable* roles, so the role
+    route needs no liveness check here.
+    """
+    return principal.is_superuser or any(
+        code in SUPER_ADMIN_ROLE_CODES for code in principal.role_codes
+    )
+
+
+def assert_may_set_password_for(
+    principal: Principal, *, target_is_superuser: bool, target_roles: Iterable[RoleView]
+) -> None:
+    """Refuse to let a non-super-administrator set a super-administrator's
+    password. See :data:`PROTECT_SUPER_ADMIN_PASSWORDS`."""
+    if not PROTECT_SUPER_ADMIN_PASSWORDS:
+        return
+    if holds_super_admin(target_is_superuser, target_roles) and not caller_holds_super_admin(
+        principal
+    ):
+        raise AuthorizationError(
+            SUPER_ADMIN_PASSWORD_PROTECTED,
+            code=ErrorCode.PERMISSION_DENIED,
+            details={
+                "required_permission": str(Permission.USER_RESET_PASSWORD),
+                "reason": SUPER_ADMIN_PASSWORD_PROTECTED,
+            },
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -735,7 +783,7 @@ class UserService:
                     details={"employee_code": payload.employee_code},
                 )
 
-            validate_password_policy(payload.password, email=payload.email)
+            validate_password_policy(payload.password, email=payload.email, field="password")
             await self._assert_references(
                 branch_id=payload.branch_id,
                 plant_id=payload.plant_id,
@@ -812,7 +860,7 @@ class UserService:
         clears = clear_branch or clear_plant or clear_department or clear_vendor
 
         if not changes and not clears and password is None:
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         grants_changed = False
 
@@ -824,6 +872,8 @@ class UserService:
             # Before anything is changed: an authority check that runs part-way
             # through an update is one an early `return` can skip.
             self._assert_may_set_a_password(principal, password)
+            if password is not None:
+                self._assert_may_set_password_for(principal, user)
 
             new_email = changes.get("email")
             if (
@@ -897,7 +947,7 @@ class UserService:
 
             revoked = 0
             if password is not None:
-                validate_password_policy(password, email=user.email)
+                validate_password_policy(password, email=user.email, field="password")
                 user.password_hash = hash_password(password)
                 user.password_changed_at = utcnow()
                 # An administrator-chosen password has been read aloud or typed
@@ -1066,7 +1116,7 @@ class UserService:
         return await self.get_user(user_id)
 
     async def reset_password(
-        self, user_id: uuid.UUID, payload: PasswordResetRequest
+        self, principal: Principal, user_id: uuid.UUID, payload: PasswordResetRequest
     ) -> PasswordResetResult:
         """Administrator-triggered password reset.
 
@@ -1074,11 +1124,16 @@ class UserService:
         sessions: a reset is requested either because the password was forgotten
         or because it was exposed, and both cases require the old sessions to
         stop working.
+
+        The route gates on ``user.reset_password``; the target's authority is
+        checked here, before anything is changed, because that permission alone
+        must not be enough to take over a super-administrator's account.
         """
         generated: str | None = None
 
         async with transaction(self.session):
             user = await self._require_user(user_id)
+            self._assert_may_set_password_for(principal, user)
 
             if payload.new_password is not None:
                 validate_password_policy(payload.new_password, email=user.email)
@@ -1214,6 +1269,16 @@ class UserService:
             return
         if not principal.has(Permission.USER_RESET_PASSWORD):
             raise PermissionDeniedError(str(Permission.USER_RESET_PASSWORD))
+
+    def _assert_may_set_password_for(self, principal: Principal, user: User) -> None:
+        """Holding ``user.reset_password`` is not enough against a super-admin.
+
+        Applied at both places a password can be set. ``user.roles`` is loaded
+        by :meth:`_require_user`, so this reads what is already in memory.
+        """
+        assert_may_set_password_for(
+            principal, target_is_superuser=user.is_superuser, target_roles=list(user.roles)
+        )
 
     def _assert_may_change_direct_grants(
         self,
@@ -1438,7 +1503,7 @@ class RoleService:
         """
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         affected: list[uuid.UUID] = []
 
@@ -1608,9 +1673,11 @@ __all__ = [
     "BLOCK_ROLE_DELETION_WHILE_HELD",
     "BLOCK_SELF_LIFECYCLE_CHANGE",
     "IMMUTABLE_ROLE_CODES",
+    "PROTECT_SUPER_ADMIN_PASSWORDS",
     "REQUIRE_AUTHORITY_TO_REVOKE",
     "ROLE_LIFECYCLE",
     "SUPERUSER_FLAG_IS_API_SETTABLE",
+    "SUPER_ADMIN_PASSWORD_PROTECTED",
     "SUPER_ADMIN_ROLE_CODES",
     "USER_LIFECYCLE",
     "AccountState",
@@ -1619,8 +1686,10 @@ __all__ = [
     "UserService",
     "assert_can_grant",
     "assert_grant_change_allowed",
+    "assert_may_set_password_for",
     "assert_role_assignment_allowed",
     "assert_vendor_role_consistency",
+    "caller_holds_super_admin",
     "generate_temporary_password",
     "holds_super_admin",
     "lifecycle_state",

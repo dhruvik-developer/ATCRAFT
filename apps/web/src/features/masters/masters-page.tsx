@@ -72,6 +72,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatMoney, formatQuantity, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -99,9 +100,6 @@ import {
   UomConversionCheckDialog,
   UomFormDialog,
 } from './uom-dialogs'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 type TabKey = 'categories' | 'units' | 'conversions' | 'prices'
 
@@ -148,12 +146,15 @@ function StatusFilter({
   label: string
 }) {
   return (
-    <Select value={value || ALL} onValueChange={(next) => onChange(next === ALL ? undefined : next)}>
-      <SelectTrigger className="w-[150px]" aria-label={label}>
+    <Select
+      value={value || SELECT_ALL}
+      onValueChange={(next) => onChange(next === SELECT_ALL ? undefined : next)}
+    >
+      <SelectTrigger className="w-full sm:w-[150px]" aria-label={label}>
         <SelectValue placeholder="Any status" />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={ALL}>Any status</SelectItem>
+        <SelectItem value={SELECT_ALL}>Any status</SelectItem>
         <SelectItem value="active">Active</SelectItem>
         <SelectItem value="inactive">Inactive</SelectItem>
       </SelectContent>
@@ -174,7 +175,9 @@ function TabIntro({ children, actions }: { children: ReactNode; actions?: ReactN
   return (
     <div className="mb-4 mt-4 flex flex-wrap items-start justify-between gap-3">
       <p className="max-w-3xl text-sm text-muted-foreground">{children}</p>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      {actions && (
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{actions}</div>
+      )}
     </div>
   )
 }
@@ -260,7 +263,9 @@ function CategoriesTab() {
         accessorKey: 'name',
         header: 'Name',
         enableSorting: false,
-        cell: ({ row }) => <span className="block max-w-[18rem] truncate">{row.original.name}</span>,
+        cell: ({ row }) => (
+          <span className="block max-w-[18rem] truncate">{row.original.name}</span>
+        ),
       },
       {
         id: 'description',
@@ -396,7 +401,7 @@ function CategoriesTab() {
                 })
               }
             >
-              <SelectTrigger className="w-[170px]" aria-label="Which part of the tree">
+              <SelectTrigger className="w-full sm:w-[170px]" aria-label="Which part of the tree">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -977,8 +982,8 @@ function PricesTab() {
     <>
       <TabIntro actions={newButton}>
         A price is a channel, an optional variant, a quantity slab and a validity window. Two active
-        rows may not overlap on all four at once, which is what keeps &ldquo;the price today&rdquo; a
-        single answer.
+        rows may not overlap on all four at once, which is what keeps &ldquo;the price today&rdquo;
+        a single answer.
       </TabIntro>
 
       {canPickItem ? (
@@ -1028,16 +1033,16 @@ function PricesTab() {
           toolbar={
             <>
               <Select
-                value={priceType || ALL}
+                value={priceType || SELECT_ALL}
                 onValueChange={(next) =>
-                  setFilters({ price_type: next === ALL ? undefined : next })
+                  setFilters({ price_type: next === SELECT_ALL ? undefined : next })
                 }
               >
-                <SelectTrigger className="w-[170px]" aria-label="Filter by channel">
+                <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by channel">
                   <SelectValue placeholder="Any channel" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL}>Any channel</SelectItem>
+                  <SelectItem value={SELECT_ALL}>Any channel</SelectItem>
                   {PRICE_TYPES.map((entry) => (
                     <SelectItem key={entry} value={entry}>
                       {humanise(entry)}
@@ -1050,16 +1055,16 @@ function PricesTab() {
                   filter listing bare UUIDs would be worse than none. */}
               {canPickItem && (variants.data?.length ?? 0) > 0 && (
                 <Select
-                  value={variantId || ALL}
+                  value={variantId || SELECT_ALL}
                   onValueChange={(next) =>
-                    setFilters({ variant_id: next === ALL ? undefined : next })
+                    setFilters({ variant_id: next === SELECT_ALL ? undefined : next })
                   }
                 >
-                  <SelectTrigger className="w-[200px]" aria-label="Filter by variant">
+                  <SelectTrigger className="w-full sm:w-[200px]" aria-label="Filter by variant">
                     <SelectValue placeholder="Any variant" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ALL}>Any variant</SelectItem>
+                    <SelectItem value={SELECT_ALL}>Any variant</SelectItem>
                     {(variants.data ?? []).map((variant) => (
                       <SelectItem key={variant.id} value={variant.id}>
                         {variant.code} - {variant.name}
@@ -1134,7 +1139,9 @@ export default function MastersPage() {
   const requested = searchParams.get('tab') as TabKey | null
   // A bookmarked link to a tab this account cannot open falls back to the first
   // one it can, rather than rendering an empty shell.
-  const active = tabs.some((entry) => entry.key === requested) ? (requested as TabKey) : tabs[0]?.key
+  const active = tabs.some((entry) => entry.key === requested)
+    ? (requested as TabKey)
+    : tabs[0]?.key
 
   const selectTab = (next: string) => {
     // One write, and deliberately a fresh parameter set: every tab drives its
@@ -1158,7 +1165,7 @@ export default function MastersPage() {
         />
       ) : (
         <Tabs value={active} onValueChange={selectTab}>
-          <TabsList className="h-auto flex-wrap">
+          <TabsList>
             {tabs.map((entry) => (
               <TabsTrigger key={entry.key} value={entry.key}>
                 <entry.icon className="h-4 w-4" aria-hidden />

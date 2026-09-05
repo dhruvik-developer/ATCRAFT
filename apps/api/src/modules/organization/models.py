@@ -14,6 +14,7 @@ from datetime import date
 from sqlalchemy import Boolean, Date, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
 from src.core.models import (
     Base,
     SoftDeleteMixin,
@@ -51,7 +52,9 @@ class Company(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     postal_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
     country: Mapped[str] = mapped_column(String(80), nullable=False, default="India")
 
-    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="INR")
+    currency: Mapped[str] = mapped_column(
+        String(CURRENCY_CODE_LENGTH), nullable=False, default=DEFAULT_CURRENCY
+    )
     financial_year_start_month: Mapped[int] = mapped_column(nullable=False, default=4)
     timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Asia/Kolkata")
 

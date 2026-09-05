@@ -36,6 +36,9 @@ $WebDir  = Join-Path $Root 'apps\web'
 if (-not $env:COMPOSE_PROJECT_NAME) { $env:COMPOSE_PROJECT_NAME = 'atcraft-erp' }
 $LocalProject = $env:COMPOSE_PROJECT_NAME
 $DcDev   = @('compose', '-p', $LocalProject, '-f', 'docker-compose.yml', '-f', 'docker-compose.dev.yml')
+# The same paths the pre-commit hook and CI lint: application code, tests,
+# migrations, the backend scripts and the repository's hook wrappers.
+$PyLintPaths = 'src tests migrations scripts ../../scripts/hooks'
 
 # The two deployments are driven by scripts/deploy.sh alone, which reads
 # deploy/<name>.env and passes the project name explicitly on every command.
@@ -93,7 +96,12 @@ function Show-Help {
         'lint'             = 'Lint and type-check backend + frontend'
         'format'           = 'Format supported source files'
         'typecheck'        = 'Type-check only'
-        'check'            = 'lint + test (what CI runs)'
+        'contract'         = 'Regenerate the OpenAPI contract and the frontend types from it'
+        'contract-check'   = 'Fail if the contract or the generated types are stale'
+        'check'            = 'contract-check + lint + test + test-web (what CI runs)'
+        'hooks'            = 'Install the git pre-commit and pre-push hooks'
+        'hooks-run'        = 'Run every hook against the whole tree, as a push would'
+        'lock'             = 'Regenerate reviewed Python dependency locks'
         'shell-api'        = 'Shell inside the backend container'
         'shell-db'         = 'psql inside the Postgres container'
         'backup'           = 'Dump the database to .\backups'
@@ -111,15 +119,38 @@ switch ($Target) {
 
     'install' {
         Invoke-Step 'python -m venv .venv' $ApiDir
-        Invoke-Step '.\.venv\Scripts\python.exe -m pip install --upgrade pip' $ApiDir
-        Invoke-Step '.\.venv\Scripts\python.exe -m pip install -e ".[dev]"' $ApiDir
+        # The lock is Linux-resolved and pins uvloop, which has no Windows build;
+        # the installer skips it and installs everything else hash-verified.
+        Invoke-Step '.\.venv\Scripts\python.exe -m scripts.install_requirements requirements-dev.lock' $ApiDir
         Invoke-Step 'npm ci' $WebDir
+        & $PSCommandPath hooks
+    }
+
+    'hooks' {
+        Invoke-Step 'pre-commit install --hook-type pre-commit --hook-type pre-push'
+    }
+    'hooks-run' {
+        Invoke-Step 'pre-commit run --all-files'
+        Invoke-Step 'pre-commit run --all-files --hook-stage pre-push'
+    }
+
+    'lock' {
+        $compile = '.\.venv\Scripts\pip-compile.exe --quiet --no-header --allow-unsafe --generate-hashes --strip-extras --resolver=backtracking'
+        Invoke-Step "$compile --output-file=requirements.lock pyproject.toml" $ApiDir
+        Invoke-Step "$compile --extra=dev --output-file=requirements-dev.lock pyproject.toml" $ApiDir
     }
 
     'dev' {
         Invoke-Docker ($DcDev + @('up', '-d', 'postgres', 'redis'))
+        # Compose is the only thing that resolved ${POSTGRES_PORT:-5432} and
+        # ${REDIS_PORT:-6379} from .env, so ask it rather than restate a number
+        # the file may have overridden (the runbook recommends 5433 / 6380).
+        $pg = (& docker @($DcDev + @('port', 'postgres', '5432')) | Out-String).Trim()
+        $rd = (& docker @($DcDev + @('port', 'redis', '6379')) | Out-String).Trim()
+        if (-not $pg) { $pg = 'see docker compose ps' }
+        if (-not $rd) { $rd = 'see docker compose ps' }
         Write-Host ''
-        Write-Host 'Infrastructure is up (Postgres :5432, Redis :6379).' -ForegroundColor Green
+        Write-Host "Infrastructure is up (Postgres $pg, Redis $rd)." -ForegroundColor Green
         Write-Host 'Open two more terminals and run:' -ForegroundColor Yellow
         Write-Host '    .\make.ps1 dev-api'
         Write-Host '    .\make.ps1 dev-web'
@@ -161,15 +192,17 @@ switch ($Target) {
 
     'lint' {
         $py = Get-VenvPython
-        Invoke-Step "& '$py' -m ruff check src tests" $ApiDir
+        Invoke-Step "& '$py' -m ruff check $PyLintPaths" $ApiDir
+        Invoke-Step "& '$py' -m ruff format --check $PyLintPaths" $ApiDir
         Invoke-Step "& '$py' -m mypy src" $ApiDir
         Invoke-Step 'npm run lint' $WebDir
         Invoke-Step 'npm run typecheck' $WebDir
+        Invoke-Step 'npm run format:check' $WebDir
     }
     'format' {
         $py = Get-VenvPython
-        Invoke-Step "& '$py' -m ruff format src tests" $ApiDir
-        Invoke-Step "& '$py' -m ruff check --fix src tests" $ApiDir
+        Invoke-Step "& '$py' -m ruff format $PyLintPaths" $ApiDir
+        Invoke-Step "& '$py' -m ruff check --fix $PyLintPaths" $ApiDir
         Invoke-Step 'npm run format' $WebDir
     }
     'typecheck' {
@@ -177,7 +210,9 @@ switch ($Target) {
         Invoke-Step "& '$py' -m mypy src" $ApiDir
         Invoke-Step 'npm run typecheck' $WebDir
     }
-    'check' { & $PSCommandPath lint; & $PSCommandPath test }
+    'contract'       { $py = Get-VenvPython; Invoke-Step "& '$py' -m scripts.export_openapi" $ApiDir; Invoke-Step 'npm run contract:types' $WebDir }
+    'contract-check' { $py = Get-VenvPython; Invoke-Step "& '$py' -m scripts.export_openapi --check" $ApiDir; Invoke-Step 'npm run contract:check' $WebDir }
+    'check' { & $PSCommandPath contract-check; & $PSCommandPath lint; & $PSCommandPath test; & $PSCommandPath test-web }
 
     'shell-api' { Invoke-Docker ($DcDev + @('exec', 'backend', 'bash')) }
     'shell-db'  { Invoke-Docker ($DcDev + @('exec', 'postgres', 'psql', '-U', 'atcraft', '-d', 'atcraft_erp')) }

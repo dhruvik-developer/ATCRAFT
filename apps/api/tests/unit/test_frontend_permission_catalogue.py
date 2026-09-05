@@ -33,17 +33,17 @@ from src.core.permissions import Permission
 
 pytestmark = pytest.mark.unit
 
-CATALOGUE = (
-    Path(__file__).resolve().parents[3] / "web" / "src" / "lib" / "permissions.ts"
-)
+CATALOGUE = Path(__file__).resolve().parents[3] / "web" / "src" / "lib" / "permissions.ts"
 
 #: Every quoted `'domain.action'` string in the catalogue.
 _ENTRY = re.compile(r"'([a-z_]+\.[a-z_]+)'")
 
 
 def _frontend_permissions() -> set[str]:
-    if not CATALOGUE.exists():  # pragma: no cover - the frontend is always present
-        pytest.skip(f"{CATALOGUE} not found")
+    if not CATALOGUE.exists():
+        # Not a skip: this file IS the fixture, so a missing one means the guard
+        # silently stopped guarding rather than that there is nothing to check.
+        pytest.fail(f"{CATALOGUE} not found - the catalogue this test guards has moved")
     return set(_ENTRY.findall(CATALOGUE.read_text(encoding="utf-8")))
 
 

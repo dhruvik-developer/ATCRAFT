@@ -16,6 +16,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Protocol, cast
 
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import (
@@ -27,6 +28,24 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 from src.core.config import AppEnv, settings
+
+
+class _DMLResult(Protocol):
+    """Structural type for SQLAlchemy results returned by write statements."""
+
+    rowcount: int
+
+
+def affected_rows(result: object) -> int:
+    """Return the driver-reported row count for a completed DML statement.
+
+    SQLAlchemy deliberately exposes ``rowcount`` only on cursor-backed write
+    results, while ``AsyncSession.execute`` is typed as the broader ``Result``.
+    Keeping the narrow cast here makes write repositories explicit without
+    scattering unsafe casts throughout the codebase.
+    """
+    return int(cast(_DMLResult, result).rowcount or 0)
+
 
 # -----------------------------------------------------------------------------
 # Engine
@@ -249,6 +268,7 @@ def _on_connect(dbapi_connection: object, connection_record: object) -> None:
 __all__ = [
     "SessionFactory",
     "advisory_xact_lock",
+    "affected_rows",
     "check_database_ready",
     "dispose_engine",
     "engine",

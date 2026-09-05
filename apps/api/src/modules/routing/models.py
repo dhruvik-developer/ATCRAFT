@@ -283,9 +283,7 @@ class Routing(TenantEntity):
     # engineering version. Same mechanism, different column - SQLAlchemy raises
     # StaleDataError, which the handler turns into a 409 rather than letting the
     # second writer silently overwrite the first.
-    row_version: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=1, server_default="1"
-    )
+    row_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
     __mapper_args__ = {"version_id_col": row_version}  # noqa: RUF012 - SQLAlchemy API
 

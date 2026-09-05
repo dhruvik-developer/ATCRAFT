@@ -52,6 +52,7 @@ import {
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatDateTime, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -67,9 +68,6 @@ import {
   type StorageLocationRow,
 } from './location-model'
 import { useWarehouseOptions, type WarehouseOption } from './warehouse-model'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /**
  * Every filter key this screen owns, named once.
@@ -569,16 +567,16 @@ export default function LocationsPage() {
           <>
             {canViewWarehouses && (
               <Select
-                value={warehouseId || ALL}
+                value={warehouseId || SELECT_ALL}
                 onValueChange={(value) =>
-                  setParam('warehouse_id', value === ALL ? undefined : value)
+                  setParam('warehouse_id', value === SELECT_ALL ? undefined : value)
                 }
               >
-                <SelectTrigger className="w-[13rem]" aria-label="Filter by warehouse">
+                <SelectTrigger className="w-full sm:w-[13rem]" aria-label="Filter by warehouse">
                   <SelectValue placeholder="All warehouses" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL}>All warehouses</SelectItem>
+                  <SelectItem value={SELECT_ALL}>All warehouses</SelectItem>
                   {(warehouses.data ?? []).map((warehouse) => (
                     <SelectItem key={warehouse.id} value={warehouse.id}>
                       {warehouse.code} - {warehouse.name}
@@ -589,16 +587,16 @@ export default function LocationsPage() {
             )}
 
             <Select
-              value={locationType || ALL}
+              value={locationType || SELECT_ALL}
               onValueChange={(value) =>
-                setParam('location_type', value === ALL ? undefined : value)
+                setParam('location_type', value === SELECT_ALL ? undefined : value)
               }
             >
-              <SelectTrigger className="w-[10rem]" aria-label="Filter by location type">
+              <SelectTrigger className="w-full sm:w-[10rem]" aria-label="Filter by location type">
                 <SelectValue placeholder="All types" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All types</SelectItem>
+                <SelectItem value={SELECT_ALL}>All types</SelectItem>
                 {LOCATION_TYPES.map((type) => (
                   <SelectItem key={type} value={type}>
                     {humanise(type)}
@@ -608,14 +606,16 @@ export default function LocationsPage() {
             </Select>
 
             <Select
-              value={activeState || ALL}
-              onValueChange={(value) => setParam('is_active', value === ALL ? undefined : value)}
+              value={activeState || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('is_active', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[11rem]" aria-label="Filter by status">
+              <SelectTrigger className="w-full sm:w-[11rem]" aria-label="Filter by status">
                 <SelectValue placeholder="Any status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any status</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any status</SelectItem>
                 <SelectItem value="true">Active only</SelectItem>
                 <SelectItem value="false">Deactivated only</SelectItem>
               </SelectContent>
@@ -639,11 +639,14 @@ export default function LocationsPage() {
               <Button
                 variant="secondary"
                 size="sm"
+                className="max-w-full"
                 onClick={() => setParam('parent_location_id', undefined)}
                 aria-label="Stop showing only sub-locations"
               >
                 <CornerDownRight />
-                Inside {parentFilter.data ? parentFilter.data.code : 'one location'}
+                <span className="min-w-0 truncate">
+                  Inside {parentFilter.data ? parentFilter.data.code : 'one location'}
+                </span>
                 <X />
               </Button>
             )}

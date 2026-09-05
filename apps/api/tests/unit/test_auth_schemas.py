@@ -15,6 +15,8 @@ from src.modules.auth.schemas import (
     ChangePasswordRequest,
     LoginRequest,
     LoginResponse,
+    MfaCodeRequest,
+    MfaVerifyRequest,
     PasswordResetConfirmPayload,
     PasswordResetRequestPayload,
     TokenPair,
@@ -95,3 +97,17 @@ def test_no_login_response_model_carries_permissions() -> None:
     for model in (TokenPair, LoginResponse):
         assert "permissions" not in model.model_fields
     assert "permissions" not in LoginResponse.model_fields["user"].annotation.model_fields
+
+
+def test_mfa_codes_are_exactly_six_ascii_digits() -> None:
+    assert MfaCodeRequest(code="012345").code == "012345"
+    for bad in ("12345", "1234567", "12a456", "\uff11\uff12\uff13\uff14\uff15\uff16"):
+        with pytest.raises(PydanticValidationError):
+            MfaCodeRequest(code=bad)
+
+
+def test_mfa_challenge_token_is_bounded() -> None:
+    payload = MfaVerifyRequest(challenge_token="x" * 100, code="123456")
+    assert payload.challenge_token == "x" * 100
+    with pytest.raises(PydanticValidationError):
+        MfaVerifyRequest(challenge_token="short", code="123456")

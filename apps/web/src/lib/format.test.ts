@@ -30,6 +30,7 @@ import {
   formatNumber,
   formatPercent,
   formatQuantity,
+  formatUnitPrice,
   humanise,
   toDateInput,
   toDecimal,
@@ -94,6 +95,32 @@ describe('formatMoney', () => {
 
   it('honours an explicit currency without changing the locale', () => {
     expect(formatMoney('1000', { currency: 'USD' })).toContain('1,000.00')
+  })
+})
+
+describe('formatUnitPrice', () => {
+  it('keeps the sub-paisa precision a unit price carries', () => {
+    // The defect this exists for: `formatMoney` fixes two places, so a washer
+    // that genuinely costs 0.004250 each renders as a cost per unit of nothing.
+    expect(formatUnitPrice('0.004250')).toBe('₹0.00425')
+  })
+
+  it('trims the wire padding rather than showing six places always', () => {
+    // The API pads a unit price to six decimals; showing them all turns a round
+    // rate into noise in a grid.
+    expect(formatUnitPrice('125.000000')).toBe('₹125.00')
+  })
+
+  it('never shows fewer than money’s two places', () => {
+    expect(formatUnitPrice('7')).toBe('₹7.00')
+  })
+
+  it('renders a null rate as zero, like every other value column', () => {
+    expect(formatUnitPrice(null)).toBe('₹0.00')
+  })
+
+  it('can drop the symbol for a column that carries it in the header', () => {
+    expect(formatUnitPrice('12.3456', { showSymbol: false })).toBe('12.3456')
   })
 })
 

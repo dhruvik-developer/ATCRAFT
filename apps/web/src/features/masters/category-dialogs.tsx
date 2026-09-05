@@ -40,21 +40,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/overlays'
-import { Alert, AlertDescription, Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
+import {
+  Alert,
+  AlertDescription,
+  Checkbox,
+  Input,
+  Label,
+  Textarea,
+} from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
+import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
+import { applyFieldErrors } from '@/lib/form-errors'
+import { success } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
 import {
-  applyFieldErrors,
   eligibleParents,
   mastersKeys,
   useCategoryReference,
   type CategoryRow,
 } from './masters-model'
-
-/** Radix Select forbids an empty option value, so "no parent" needs a sentinel. */
-const NONE = '__none'
 
 const schema = z.object({
   code: z.string().trim().min(1, 'Code is required').max(32, 'Code is at most 32 characters'),
@@ -66,14 +72,12 @@ const schema = z.object({
 
 type CategoryFormValues = z.infer<typeof schema>
 
-const FORM_FIELDS = new Set(Object.keys(schema.shape))
-
 function emptyValues(parentId: string | null): CategoryFormValues {
   return {
     code: '',
     name: '',
     description: '',
-    parent_id: parentId ?? NONE,
+    parent_id: parentId ?? SELECT_NONE,
     is_active: true,
   }
 }
@@ -83,7 +87,7 @@ function valuesFrom(category: CategoryRow): CategoryFormValues {
     code: category.code,
     name: category.name,
     description: category.description ?? '',
-    parent_id: category.parent_id ?? NONE,
+    parent_id: category.parent_id ?? SELECT_NONE,
     is_active: category.is_active,
   }
 }
@@ -133,7 +137,7 @@ export function CategoryFormDialog({
 
   const mutation = useMutation({
     mutationFn: (values: CategoryFormValues) => {
-      const parentId = values.parent_id === NONE ? null : values.parent_id
+      const parentId = values.parent_id === SELECT_NONE ? null : values.parent_id
 
       if (category) {
         return api.patch<CategoryRow>(`/products/categories/${category.id}`, {
@@ -162,14 +166,17 @@ export function CategoryFormDialog({
       // so a category added here must not stay invisible to them for the half
       // hour that reference data is allowed to be stale.
       void queryClient.invalidateQueries({ queryKey: queryKeys.categories.all })
-      toast.success(isEdit ? 'Category updated' : 'Category created', `${saved.code} - ${saved.name}`)
+      toast.success(
+        isEdit ? success.updated('Category') : success.created('Category'),
+        `${saved.code} - ${saved.name}`,
+      )
       onOpenChange(false)
     },
-    onError: (error) => applyFieldErrors(error, setError, FORM_FIELDS),
+    onError: (error) => applyFieldErrors(error, setError),
   })
 
   const selectedParent = watch('parent_id')
-  const parentChanged = isEdit && selectedParent !== (category?.parent_id ?? NONE)
+  const parentChanged = isEdit && selectedParent !== (category?.parent_id ?? SELECT_NONE)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -231,7 +238,7 @@ export function CategoryFormDialog({
                       <SelectValue placeholder="Top level" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={NONE}>Top level (no parent)</SelectItem>
+                      <SelectItem value={SELECT_NONE}>Top level (no parent)</SelectItem>
                       {parents.map((row) => (
                         <SelectItem key={row.id} value={row.id}>
                           {/* Indented by depth: the list arrives in path order,
@@ -255,8 +262,8 @@ export function CategoryFormDialog({
               )}
               {reference.data?.truncated && (
                 <p className="mt-1 text-xs text-warning">
-                  Only the first 200 categories are listed. Narrow the tree before re-parenting a
-                  branch that is not shown.
+                  Only the first {LOOKUP_LIST_LIMIT} categories are listed. Narrow the tree before
+                  re-parenting a branch that is not shown.
                 </p>
               )}
             </div>
@@ -304,6 +311,8 @@ export function CategoryFormDialog({
                 </AlertDescription>
               </Alert>
             )}
+
+            <FieldError message={errors.root?.message} />
           </DialogBody>
 
           <DialogFooter>
@@ -347,7 +356,7 @@ export function CategoryRetireDialog({
     onSuccess: (_result, target) => {
       void queryClient.invalidateQueries({ queryKey: mastersKeys.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.categories.all })
-      toast.success('Category retired', `${target.code} - ${target.name}`)
+      toast.success(success.retired('Category'), `${target.code} - ${target.name}`)
       onOpenChange(false)
     },
   })

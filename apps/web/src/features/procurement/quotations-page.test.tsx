@@ -9,8 +9,9 @@
  * quotes on the board. Every one of those is asserted below.
  *
  * The lifecycle is the other half. `QUOTATION_LIFECYCLE` draws SELECTED and
- * REJECTED edges only from RECEIVED and UNDER_REVIEW, and all three terminal
- * states refuse a revision too - so a settled offer is offered no command at
+ * REJECTED edges only from RECEIVED and UNDER_REVIEW, and `update_quotation`
+ * refuses a revision only on the winner - a REJECTED or EXPIRED offer is
+ * reopened by the revised one - so a chosen offer is offered no command at
  * all rather than a menu that ends in `assert_transition`.
  *
  * And the arithmetic. The premium a buyer reads before committing is derived
@@ -24,15 +25,9 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
-import {
-  fail,
-  ok,
-  page,
-  renderScreen,
-  type FetchRecorder,
-  type RouteTable,
-} from '@/test/harness'
+import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } from '@/test/harness'
 
+import { QuotationFormDialog } from './quotation-dialogs'
 import type { QuotationRow } from './quotation-model'
 import QuotationsPage from './quotations-page'
 
@@ -290,9 +285,7 @@ describe('who may decide', () => {
     // never the `quotation.view` that rendered this table. A reader who is
     // offered the decision is a reader who gets a 403 at the end of it.
     expect(screen.queryByRole('button', { name: /record quotation/i })).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: /actions for quotation/i }),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /actions for quotation/i })).not.toBeInTheDocument()
   })
 
   it('withholds the decision from a reader looking at the offer itself', async () => {
@@ -321,8 +314,9 @@ describe('who may decide', () => {
       routes: registerRoutes([quotation()]),
     })
 
-    expect(await stable(() => screen.getByRole('button', { name: /record quotation/i })))
-      .toBeVisible()
+    expect(
+      await stable(() => screen.getByRole('button', { name: /record quotation/i })),
+    ).toBeVisible()
     const dialog = await openDetail(user, fetch, 'ACME-Q-8891')
     expect(within(dialog).getByRole('button', { name: 'Select this quotation' })).toBeVisible()
     expect(within(dialog).getByRole('button', { name: 'Reject' })).toBeVisible()
@@ -343,29 +337,26 @@ describe('the state machine decides which commands exist', () => {
     expect(within(dialog).getByRole('button', { name: 'Select this quotation' })).toBeVisible()
   })
 
-  it('offers no decision inside a settled offer either', async () => {
+  it('offers a revision but no decision inside a rejected offer', async () => {
     const { user, fetch } = renderScreen(<QuotationsPage />, {
       permissions: BUYER,
-      routes: registerRoutes([
-        quotation({ status: 'REJECTED', valid_until: '2099-12-31' }),
-      ]),
+      routes: registerRoutes([quotation({ status: 'REJECTED', valid_until: '2099-12-31' })]),
     })
 
-    // `update_quotation` refuses a revision on a terminal quotation too - "this
-    // quotation is REJECTED and can no longer be revised" - so neither command
-    // is offered.
+    // `update_quotation` reopens a REJECTED quotation with the revised offer -
+    // the buyer asked the vendor to requote - so the revision stays on offer,
+    // while the decision needs an edge the machine only draws from RECEIVED
+    // or UNDER_REVIEW.
     const dialog = await openDetail(user, fetch, 'ACME-Q-8891')
     expect(
       within(dialog).queryByRole('button', { name: 'Select this quotation' }),
     ).not.toBeInTheDocument()
-    expect(
-      within(dialog).queryByRole('button', { name: 'Record revised offer' }),
-    ).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Record revised offer' })).toBeVisible()
   })
 
   it('offers nothing on an offer that has already been chosen', async () => {
-    // SELECTED, REJECTED and EXPIRED are terminal in QUOTATION_LIFECYCLE: there
-    // is no edge out, and `update_quotation` refuses a revision on all three.
+    // SELECTED is the one terminal state a revision cannot reopen: a purchase
+    // order is raised against it, so `update_quotation` refuses outright.
     renderScreen(<QuotationsPage />, {
       permissions: BUYER,
       routes: registerRoutes([
@@ -374,20 +365,22 @@ describe('the state machine decides which commands exist', () => {
     })
 
     await stable(() => screen.getByText('ACME-Q-8891'))
-    expect(
-      screen.queryByRole('button', { name: /actions for quotation/i }),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /actions for quotation/i })).not.toBeInTheDocument()
   })
 
-  it('offers nothing on a lapsed offer either', async () => {
-    renderScreen(<QuotationsPage />, {
+  it('offers a revision on a lapsed offer, and nothing else', async () => {
+    const { user, fetch } = renderScreen(<QuotationsPage />, {
       permissions: BUYER,
       routes: registerRoutes([quotation({ status: 'EXPIRED', valid_until: '2020-01-01' })]),
     })
 
+    // A lapsed offer is requoted, not decided: the revision reopens it.
     await stable(() => screen.getByText('ACME-Q-8891'))
+    expect(screen.getByRole('button', { name: /actions for quotation/i })).toBeVisible()
+    const dialog = await openDetail(user, fetch, 'ACME-Q-8891')
+    expect(within(dialog).getByRole('button', { name: 'Record revised offer' })).toBeVisible()
     expect(
-      screen.queryByRole('button', { name: /actions for quotation/i }),
+      within(dialog).queryByRole('button', { name: 'Select this quotation' }),
     ).not.toBeInTheDocument()
   })
 
@@ -425,7 +418,9 @@ describe('the buying decision', () => {
 
     const dialog = await openDetail(user, fetch, 'ACME-Q-8891')
     await user.click(within(dialog).getByRole('button', { name: 'Select this quotation' }))
-    await user.click(await stable(() => screen.getByRole('button', { name: 'Select this quotation' })))
+    await user.click(
+      await stable(() => screen.getByRole('button', { name: 'Select this quotation' })),
+    )
 
     // `QuotationDecisionRequest` makes the reason mandatory on both decisions:
     // the buyer's judgement is the record of why this vendor was chosen.
@@ -607,10 +602,11 @@ describe('what the quotation form sends', () => {
     expect(body.rfq_id).toBe(RFQ_ID)
     expect(body.vendor_id).toBe(VENDOR_A)
     expect(body.currency).toBe('INR')
-    // Blank terms mean "whatever the vendor master says", which the API spells
-    // as zero - `create_quotation` reads `payload.x or vendor.x`.
-    expect(body.payment_terms_days).toBe(0)
-    expect(body.lead_time_days).toBe(0)
+    // Blank terms mean "whatever the vendor master says": the keys are omitted
+    // so `create_quotation` falls back to the vendor's own terms, where a zero
+    // would have reached it as a literal zero days.
+    expect(body).not.toHaveProperty('payment_terms_days')
+    expect(body).not.toHaveProperty('lead_time_days')
     // Freight is a decimal string on the wire even when it is nothing.
     expect(body.freight_amount).toBe('0')
     expect(body.valid_until).toBeNull()
@@ -717,6 +713,53 @@ describe('what the quotation form sends', () => {
     const dialog = await stable(() => screen.getByRole('dialog'))
     expect(within(dialog).getByText(/cannot key the lines from here/i)).toBeVisible()
     expect(within(dialog).getByRole('button', { name: 'Record quotation' })).toBeDisabled()
+  })
+})
+
+describe('revising an offer that will not load', () => {
+  it('offers nothing to save until the quotation has actually loaded', async () => {
+    // The dialog stays mounted between opens, so an unguarded form would hold
+    // whatever the last quotation left in it - and `update_quotation` replaces
+    // the whole line set with whatever is shown. Nothing editable, and no
+    // Save, until the revision has loaded.
+    let attempts = 0
+    const { user } = renderScreen(
+      <QuotationFormDialog open onOpenChange={() => undefined} quotationId={QUOTATION_ID} />,
+      {
+        permissions: BUYER,
+        routes: {
+          [`GET ${QUOTATIONS_PATH}/${QUOTATION_ID}`]: () => {
+            attempts += 1
+            return attempts === 1
+              ? fail(500, 'INTERNAL', 'The quotation could not be read')
+              : quotationDetail()
+          },
+          // The line's item is resolved by id so the picker reads as a code.
+          [`GET /products/items/${ITEM_BRASS}`]: ok({
+            id: ITEM_BRASS,
+            code: 'BRASS-ROD-12',
+            name: 'Brass rod 12mm',
+          }),
+        },
+      },
+    )
+
+    const dialog = await stable(() => screen.getByRole('dialog'))
+    await stable(() => within(dialog).getByText('Could not load this quotation'))
+    expect(within(dialog).getByText('The quotation could not be read')).toBeVisible()
+    expect(within(dialog).getByRole('button', { name: 'Save revised offer' })).toBeDisabled()
+    expect(
+      within(dialog).queryByRole('textbox', { name: /vendor quotation number/i }),
+    ).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('textbox', { name: 'Unit price' })).not.toBeInTheDocument()
+
+    // Try again brings the offer, and only then the fields - filled from it.
+    await user.click(within(dialog).getByRole('button', { name: /try again/i }))
+    await stable(() => screen.getByRole('textbox', { name: /vendor quotation number/i }))
+    expect(screen.getByRole('textbox', { name: /vendor quotation number/i })).toHaveValue(
+      'ACME-Q-8891',
+    )
+    expect(screen.getByRole('button', { name: 'Save revised offer' })).toBeEnabled()
   })
 })
 

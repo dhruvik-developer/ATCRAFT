@@ -17,5 +17,5 @@
 *.dump  binary
 
 # Generated: keep out of diffs and language statistics.
-package-lock.json  linguist-generated=true -diff
+package-lock.json  linguist-generated=true
 apps/web/dist/**   linguist-generated=true

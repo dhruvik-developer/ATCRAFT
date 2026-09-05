@@ -231,12 +231,8 @@ def test_only_the_named_items_are_flagged_for_backflush():
     }
 
 
-@pytest.mark.parametrize(
-    ("batch_tracked", "serial_tracked"), [(True, False), (False, True)]
-)
-def test_a_traced_item_is_never_backflushed_even_when_it_is_named(
-    batch_tracked, serial_tracked
-):
+@pytest.mark.parametrize(("batch_tracked", "serial_tracked"), [(True, False), (False, True)])
+def test_a_traced_item_is_never_backflushed_even_when_it_is_named(batch_tracked, serial_tracked):
     """A backflush posts a movement nobody is watching.
 
     Every movement of a traced item needs a lot or a serial, and there is nothing

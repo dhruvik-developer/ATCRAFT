@@ -16,9 +16,9 @@
  * module (`send_default_pii=False`, `max_request_body_size="never"`):
  *
  *   - no request or response bodies. They carry costs, prices and customer data.
- *   - no tokens. The access token lives in memory and the refresh token in
- *     storage, and an error reporter that scooped up either would hand a third
- *     party a live session.
+ *   - no tokens. The access token lives in memory and the refresh token in an
+ *     HttpOnly cookie, and an error reporter that scooped up either would hand
+ *     a third party a live session.
  *   - no query strings. Filters routinely carry item codes and customer ids.
  *   - no user email or name. The user id is enough to correlate a report with a
  *     support call, and is not itself identifying to whoever holds the endpoint.
@@ -28,13 +28,17 @@
  * where available so a crash during unload still gets out.
  */
 
-const ENDPOINT = (import.meta.env.VITE_ERROR_REPORT_URL as string | undefined) ?? ''
-const RELEASE = (import.meta.env.VITE_APP_RELEASE as string | undefined) ?? 'dev'
+import {
+  APP_RELEASE,
+  ERROR_REPORT_DEDUPE_WINDOW_MS,
+  ERROR_REPORT_MAX_PER_SESSION,
+  ERROR_REPORT_URL,
+} from '@/lib/constants'
 
-/** At most this many reports per session. A render loop must not become a flood. */
-const MAX_REPORTS_PER_SESSION = 20
-/** The same error, seen again within this window, is not sent twice. */
-const DEDUPE_WINDOW_MS = 60_000
+const ENDPOINT = ERROR_REPORT_URL
+const RELEASE = APP_RELEASE
+const MAX_REPORTS_PER_SESSION = ERROR_REPORT_MAX_PER_SESSION
+const DEDUPE_WINDOW_MS = ERROR_REPORT_DEDUPE_WINDOW_MS
 
 export interface ErrorContext {
   /** Where it happened: 'render', 'unhandled', 'rejection', or a feature name. */

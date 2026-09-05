@@ -40,10 +40,13 @@ dependencies = [
     "argon2-cffi>=23.1",                  # Argon2id password hashing (replaces weak hashing)
     "bcrypt>=4.2",                        # verify-only path for legacy bcrypt hashes on migration
     "pyjwt>=2.10,<3.0",                   # access/refresh token signing with explicit expiry
+    "pyotp>=2.9,<3.0",                    # RFC 6238 TOTP generation/verification for MFA
+    "cryptography>=50.0,<51.0",           # authenticated encryption for MFA secrets at rest
 
     # --- Observability (section 56) ----------------------------------------
     "structlog>=24.4",                    # structured JSON logs with request-id binding
     "prometheus-client>=0.21",            # /metrics endpoint scraped by Prometheus
+    "sentry-sdk[fastapi]>=2.68,<3.0",      # production exception reporting when SENTRY_DSN is set
 
     # --- Background job output (section 77) --------------------------------
     "openpyxl>=3.1",                      # Excel exports generated inside Celery workers
@@ -59,6 +62,8 @@ dev = [
     "faker>=33.0",                        # deterministic-seeded test fixtures
     "ruff>=0.8",
     "mypy>=1.13",
+    "pip-audit==2.10.1",                  # Python advisory scanning in CI
+    "pip-tools==7.5.1",                  # deterministic hash-lock regeneration
     "types-python-dateutil",
     "watchfiles>=1.0",                    # Celery worker auto-reload in dev containers
 ]
@@ -69,7 +74,6 @@ otel = [
     "opentelemetry-instrumentation-redis>=0.50b0",
     "opentelemetry-exporter-otlp-proto-grpc>=1.29",
 ]
-sentry = ["sentry-sdk[fastapi]>=2.19"]
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -106,7 +110,11 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "N806", "E402"]
-"migrations/**" = ["E501", "N999", "DTZ"]
+# S608: a data migration composes its SQL from module-level constants (column
+# lists, predicates), never from request input, so the injection rule has
+# nothing to protect here and would only push the statement into an opaque
+# string concatenation.
+"migrations/**" = ["E501", "N999", "DTZ", "S608"]
 # S105 flags any constant whose NAME contains "token"/"password". These files
 # define error codes and permission strings, not credentials.
 "src/core/errors.py" = ["S105"]
@@ -157,7 +165,6 @@ markers = [
     "integration: requires PostgreSQL and/or Redis",
     "api: exercises HTTP routes through the ASGI app",
     "concurrency: exercises simultaneous transactions (inventory correctness)",
-    "slow: excluded from the fast feedback loop",
 ]
 filterwarnings = ["error::DeprecationWarning:src.*"]
 

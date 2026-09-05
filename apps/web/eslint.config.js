@@ -33,7 +33,6 @@ export default tseslint.config(
             'badgeVariants',
             'alertVariants',
             'useAuth',
-            'usePermission',
           ],
         },
       ],

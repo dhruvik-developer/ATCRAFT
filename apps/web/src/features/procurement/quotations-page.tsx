@@ -49,6 +49,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useListQuery } from '@/hooks/use-list-query'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatMoney, formatNumber, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -71,9 +72,6 @@ import {
   type QuotationRow,
 } from './quotation-model'
 import { RfqComparisonPanel } from './rfq-comparison-panel'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /**
  * Every filter key this screen owns, named once.
@@ -302,8 +300,9 @@ export default function QuotationsPage() {
           const decidable = isDecidable(row.original.status)
           const revisable = isQuotationRevisable(row.original.status)
           if (!decidable && !revisable) {
-            // SELECTED, REJECTED and EXPIRED are terminal in QUOTATION_LIFECYCLE.
-            // An empty cell is right: there is no command left to offer.
+            // Only SELECTED reaches here: a purchase order is raised against
+            // it, so `update_quotation` refuses a revision and the machine has
+            // no edge out. An empty cell is right - there is no command left.
             return null
           }
           return (
@@ -412,14 +411,14 @@ export default function QuotationsPage() {
         toolbar={
           <>
             <Select
-              value={status || ALL}
-              onValueChange={(next) => setParam('status', next === ALL ? undefined : next)}
+              value={status || SELECT_ALL}
+              onValueChange={(next) => setParam('status', next === SELECT_ALL ? undefined : next)}
             >
-              <SelectTrigger className="w-[11rem]" aria-label="Quotation status">
+              <SelectTrigger className="w-full sm:w-[11rem]" aria-label="Quotation status">
                 <SelectValue placeholder="Any status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any status</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any status</SelectItem>
                 {QUOTATION_STATUSES.map((entry) => (
                   <SelectItem key={entry} value={entry}>
                     {humanise(entry)}
@@ -433,6 +432,7 @@ export default function QuotationsPage() {
             {can(P.VENDOR_VIEW) && (
               <VendorPicker
                 id="quotations-vendor"
+                className="w-full sm:w-auto"
                 label="Vendor"
                 hideLabel
                 value={vendorId || null}

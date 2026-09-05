@@ -67,7 +67,7 @@ function customer(overrides: Partial<CustomerRow> = {}): CustomerRow {
     legal_name: 'Acme Hardware Private Limited',
     customer_type: 'CUSTOMER',
     price_list_type: 'SALE',
-    gstin: '27AAAAA0000A1Z5',
+    gstin: '27AAAAA0000A1Z2',
     credit_limit: '5000.0000',
     credit_days: 30,
     outstanding_amount: '0.0000',
@@ -88,6 +88,21 @@ const DEALER = customer({
   price_list_type: 'DEALER',
 })
 
+/** `GET /customers/{id}`: the summary row plus the fields only the detail carries. */
+function detailOf(row: CustomerRow) {
+  return {
+    ...row,
+    pan: null,
+    block_reason: null,
+    blocked_at: null,
+    blocked_by_id: null,
+    default_transporter_id: null,
+    credit_headroom: row.credit_limit,
+    notes: null,
+    updated_at: '2026-02-01T00:00:00Z',
+  }
+}
+
 // -------------------------------------------------------------- helpers ----
 
 /**
@@ -97,11 +112,7 @@ const DEALER = customer({
  * Radix requires a provider above it. The app has one at the layout; without it
  * here the screen would throw for a reason the user never sees.
  */
-function renderCustomers(options: {
-  permissions: string[]
-  routes: RouteTable
-  route?: string
-}) {
+function renderCustomers(options: { permissions: string[]; routes: RouteTable; route?: string }) {
   return renderScreen(
     <TooltipProvider>
       <CustomersPage />
@@ -614,17 +625,7 @@ describe('what the account form sends', () => {
       permissions: [P.CUSTOMER_VIEW, P.CUSTOMER_UPDATE],
       routes: {
         'GET /customers': page([customer()]),
-        [`GET /customers/${ACME_ID}`]: ok({
-          ...customer(),
-          pan: null,
-          block_reason: null,
-          blocked_at: null,
-          blocked_by_id: null,
-          default_transporter_id: null,
-          credit_headroom: '5000.0000',
-          notes: null,
-          updated_at: '2026-02-01T00:00:00Z',
-        }),
+        [`GET /customers/${ACME_ID}`]: ok(detailOf(customer())),
       },
     })
 
@@ -632,5 +633,108 @@ describe('what the account form sends', () => {
     const dialog = await stable(() => screen.getByRole('dialog'))
     expect(await within(dialog).findByLabelText(/code/i)).toBeDisabled()
     expect(fetch.calls.some((call) => call.path === `/customers/${ACME_ID}`)).toBe(true)
+  })
+})
+
+// ------------------------------------------------------- the dealer channel --
+
+describe('the dealer channel in the account form', () => {
+  /**
+   * Every write to a DEALER or DISTRIBUTOR account - `update_customer`,
+   * `set_active`, `block`, `unblock` - goes through `assert_channel_write_allowed`,
+   * which demands `dealer.manage` on top of `customer.update`. The row still
+   * opens, because the address and contact books are writable on `customer.update`
+   * alone; what the dialog withholds is the details Save and the standing
+   * actions, which would otherwise be offered and then refused with a 403.
+   */
+  async function openEdit(user: ReturnType<typeof renderCustomers>['user'], code: string) {
+    await user.click(await screen.findByRole('button', { name: `Edit ${code}` }))
+    const dialog = await stable(() => screen.getByRole('dialog'))
+    // The rule needs the loaded record; the locked code field is the sign it is in.
+    expect(await within(dialog).findByLabelText(/code/i)).toBeDisabled()
+    return dialog
+  }
+
+  it('withholds Save and the standing actions on a dealer from a principal without dealer.manage', async () => {
+    const { user } = renderCustomers({
+      permissions: [P.CUSTOMER_VIEW, P.CUSTOMER_UPDATE],
+      routes: {
+        'GET /customers': page([DEALER]),
+        [`GET /customers/${DEALER_ID}`]: ok(detailOf(DEALER)),
+      },
+    })
+
+    const dialog = await openEdit(user, 'D-0007')
+    expect(within(dialog).getByRole('button', { name: 'Save changes' })).toBeDisabled()
+    expect(within(dialog).getByRole('combobox', { name: /customer type/i })).toBeDisabled()
+    expect(within(dialog).queryByRole('button', { name: 'Block' })).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('button', { name: 'Deactivate' })).not.toBeInTheDocument()
+    expect(within(dialog).getByText(/amended by the channel team/i)).toBeVisible()
+  })
+
+  it('offers them on a dealer once dealer.manage is held', async () => {
+    const { user } = renderCustomers({
+      permissions: [P.CUSTOMER_VIEW, P.CUSTOMER_UPDATE, P.DEALER_MANAGE],
+      routes: {
+        'GET /customers': page([DEALER]),
+        [`GET /customers/${DEALER_ID}`]: ok(detailOf(DEALER)),
+      },
+    })
+
+    const dialog = await openEdit(user, 'D-0007')
+    expect(within(dialog).getByRole('button', { name: 'Save changes' })).toBeEnabled()
+    expect(within(dialog).getByRole('combobox', { name: /customer type/i })).toBeEnabled()
+    expect(within(dialog).getByRole('button', { name: 'Block' })).toBeVisible()
+    expect(within(dialog).getByRole('button', { name: 'Deactivate' })).toBeVisible()
+    expect(within(dialog).queryByText(/amended by the channel team/i)).not.toBeInTheDocument()
+  })
+
+  it('leaves a direct account fully editable without dealer.manage', async () => {
+    // The channel rule is about the channel, not about the right: an ordinary
+    // account is amended on `customer.update` alone.
+    const { user } = renderCustomers({
+      permissions: [P.CUSTOMER_VIEW, P.CUSTOMER_UPDATE],
+      routes: {
+        'GET /customers': page([customer()]),
+        [`GET /customers/${ACME_ID}`]: ok(detailOf(customer())),
+      },
+    })
+
+    const dialog = await openEdit(user, 'C-0001')
+    expect(within(dialog).getByRole('button', { name: 'Save changes' })).toBeEnabled()
+    expect(within(dialog).getByRole('button', { name: 'Block' })).toBeVisible()
+  })
+
+  it('offers no dealer channel on a new account to a principal without dealer.manage', async () => {
+    // The service refuses to open an account in either channel without the
+    // right, so the type select does not list them - a create that could only
+    // end in a refusal is not offered.
+    const { user } = renderCustomers({
+      permissions: [P.CUSTOMER_VIEW, P.CUSTOMER_CREATE],
+      routes: { 'GET /customers': page([customer()]) },
+    })
+
+    await user.click(await screen.findByRole('button', { name: /new customer/i }))
+    const dialog = await stable(() => screen.getByRole('dialog'))
+    await user.click(within(dialog).getByRole('combobox', { name: /customer type/i }))
+
+    expect(await screen.findByRole('option', { name: 'Customer' })).toBeVisible()
+    expect(screen.getByRole('option', { name: 'Oem' })).toBeVisible()
+    expect(screen.queryByRole('option', { name: 'Dealer' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Distributor' })).not.toBeInTheDocument()
+  })
+
+  it('offers both dealer channels on a new account to a holder of dealer.manage', async () => {
+    const { user } = renderCustomers({
+      permissions: [P.CUSTOMER_VIEW, P.CUSTOMER_CREATE, P.DEALER_MANAGE],
+      routes: { 'GET /customers': page([customer()]) },
+    })
+
+    await user.click(await screen.findByRole('button', { name: /new customer/i }))
+    const dialog = await stable(() => screen.getByRole('dialog'))
+    await user.click(within(dialog).getByRole('combobox', { name: /customer type/i }))
+
+    expect(await screen.findByRole('option', { name: 'Dealer' })).toBeVisible()
+    expect(screen.getByRole('option', { name: 'Distributor' })).toBeVisible()
   })
 })

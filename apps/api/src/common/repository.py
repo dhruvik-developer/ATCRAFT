@@ -14,6 +14,7 @@ rather than left to discipline:
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Sequence
 from typing import Any, Generic, TypeVar
@@ -23,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.core.clock import utcnow
+from src.core.database import affected_rows
 from src.core.deps import TenantContext
 from src.core.errors import NotFoundError
 from src.core.models import Base
@@ -41,10 +43,25 @@ class BaseRepository(Generic[ModelT]):
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {}  # noqa: RUF012
     #: Columns included in a free-text search.
     searchable_fields: tuple[str, ...] = ()
+    #: How ``get_or_404`` names the record in its message. Defaults to the model's
+    #: class name split into words in sentence case ("Physical count"); set it where
+    #: that split is wrong (``BomLine`` -> "BOM line", ``QcInspection`` -> "QC inspection")
+    #: or where a service and a state machine already share a constant for the
+    #: name, so one missing record never answers with two spellings.
+    entity_label: str | None = None
 
     def __init__(self, session: AsyncSession, tenant: TenantContext) -> None:
         self.session = session
         self.tenant = tenant
+
+    @classmethod
+    def _entity_label(cls) -> str:
+        if cls.entity_label:
+            return cls.entity_label
+        words = re.findall(r"[A-Z][a-z0-9]*", cls.model.__name__)
+        if not words:
+            return cls.model.__name__
+        return " ".join([words[0], *[word.lower() for word in words[1:]]])
 
     # --- statement construction --------------------------------------------
 
@@ -84,7 +101,7 @@ class BaseRepository(Generic[ModelT]):
         if found is None:
             # Deliberately identical to "exists in another tenant" - confirming
             # existence elsewhere is itself a disclosure.
-            raise NotFoundError(self.model.__name__, entity_id)
+            raise NotFoundError(self._entity_label(), entity_id)
         return found
 
     async def get_many(self, ids: Sequence[uuid.UUID]) -> list[ModelT]:
@@ -150,13 +167,13 @@ class BaseRepository(Generic[ModelT]):
         from the payload - a client cannot write into another company."""
         instance.company_id = self.tenant.company_id  # type: ignore[attr-defined]
         if hasattr(instance, "created_by_id") and getattr(instance, "created_by_id", None) is None:
-            instance.created_by_id = self.tenant.user_id  # type: ignore[attr-defined]
+            instance.created_by_id = self.tenant.user_id
         self.session.add(instance)
         return instance
 
     def touch(self, instance: ModelT) -> ModelT:
         if hasattr(instance, "updated_by_id"):
-            instance.updated_by_id = self.tenant.user_id  # type: ignore[attr-defined]
+            instance.updated_by_id = self.tenant.user_id
         return instance
 
     async def soft_delete(self, instance: ModelT) -> ModelT:
@@ -167,7 +184,7 @@ class BaseRepository(Generic[ModelT]):
         """
         if not hasattr(instance, "deleted_at"):
             raise TypeError(f"{self.model.__name__} does not support soft deletion")
-        instance.deleted_at = utcnow()  # type: ignore[attr-defined]
+        instance.deleted_at = utcnow()
         self.touch(instance)
         await self.session.flush()
         return instance
@@ -190,7 +207,7 @@ class BaseRepository(Generic[ModelT]):
             .values(**values)
             .execution_options(synchronize_session=False)
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
     async def bulk_delete(self, ids: Sequence[uuid.UUID]) -> int:
         if not ids:
@@ -199,7 +216,7 @@ class BaseRepository(Generic[ModelT]):
             self.model.company_id == self.tenant.company_id,  # type: ignore[attr-defined]
             self.model.id.in_(list(ids)),  # type: ignore[attr-defined]
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 __all__ = ["BaseRepository", "ModelT"]

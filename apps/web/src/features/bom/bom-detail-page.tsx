@@ -75,6 +75,7 @@ import {
 import { useItemFacts } from '@/features/dispatch/dispatch-types'
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
+import { LOOKUP_LIST_LIMIT, REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import {
   formatDate,
   formatDateTime,
@@ -83,6 +84,7 @@ import {
   formatQuantity,
   humanise,
 } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -104,16 +106,7 @@ import {
 } from './bom-model'
 import { BomStructure } from './bom-tree'
 
-const PANEL_LIMIT = 200
 const QUANTITY_PATTERN = /^\d{1,12}(\.\d{1,4})?$/
-
-/**
- * The bounds the contract puts on a recorded reason, identical on both carriers
- * the commands below use - `BomStatusChange.reason` in the body of the four
- * POSTs, and the `reason` query parameter the DELETE reads.
- */
-const REASON_MIN_LENGTH = 3
-const REASON_MAX_LENGTH = 255
 
 /** The four status moves, all of which take a recorded reason. */
 type StatusAction = 'submit' | 'approve' | 'reject' | 'obsolete'
@@ -130,10 +123,15 @@ type StatusAction = 'submit' | 'approve' | 'reject' | 'obsolete'
  */
 type BomCommand = StatusAction | 'delete'
 
-const COMMAND_COPY: Record<
-  BomCommand,
-  { title: string; description: string; confirm: string }
-> = {
+/** The toast headline for each status move, from the shared catalogue. */
+const COMMAND_TOAST: Record<StatusAction, (noun: string) => string> = {
+  submit: success.submitted,
+  approve: success.approved,
+  reject: success.rejected,
+  obsolete: (noun) => success.statusChanged(noun, 'OBSOLETE'),
+}
+
+const COMMAND_COPY: Record<BomCommand, { title: string; description: string; confirm: string }> = {
   submit: {
     title: 'Submit',
     description:
@@ -306,7 +304,7 @@ function SourcePathsCell({ component }: { component: ExplodedComponent }) {
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-96">
+      <PopoverContent align="start" collisionPadding={16} className="w-96 max-w-[calc(100vw-2rem)]">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Contributing paths
         </p>
@@ -699,7 +697,7 @@ function WhereUsedPanel({ itemId }: { itemId: string }) {
     queryKey: [...queryKeys.bom.whereUsed(itemId), page],
     queryFn: () =>
       api.getPage<BomWhereUsedRow>(`/bom/where-used/${itemId}`, {
-        params: { page, limit: PANEL_LIMIT },
+        params: { page, limit: LOOKUP_LIST_LIMIT },
       }),
     placeholderData: keepPreviousData,
     staleTime: staleTimes.master,
@@ -859,7 +857,7 @@ export default function BomDetailPage() {
       }
       return api.post<BomRow>(`/bom/${bomId}/${key}`, { reason: why })
     },
-    onSuccess: (updated) => {
+    onSuccess: (updated, { key }) => {
       // One prefix invalidation covers the list, this detail, the where-used
       // panels on the item master and the BOM picker on a production order -
       // they all hang off `queryKeys.bom`.
@@ -868,8 +866,11 @@ export default function BomDetailPage() {
       setReason('')
       setReasonTouched(false)
 
-      if (!updated) {
-        toast.success('Draft deleted', `${bomCode} is gone, along with its lines and operations.`)
+      if (key === 'delete' || !updated) {
+        toast.success(
+          success.deleted('Draft'),
+          `${bomCode} is gone, along with its lines and operations.`,
+        )
         // `GET /bom/{id}` now answers 404. Replacing the history entry keeps
         // Back from returning to a page that can only fail.
         navigate('/bom', { replace: true })
@@ -877,7 +878,7 @@ export default function BomDetailPage() {
       }
 
       toast.success(
-        `BOM ${humanise(updated.status).toLowerCase()}`,
+        COMMAND_TOAST[key]('BOM'),
         `${updated.code} is now ${humanise(updated.status).toLowerCase()}.`,
       )
     },
@@ -887,8 +888,8 @@ export default function BomDetailPage() {
     return (
       <div className="space-y-4">
         <Skeleton className="h-7 w-72" />
-        <Skeleton className="h-4 w-96" />
-        <Skeleton className="h-9 w-96" />
+        <Skeleton className="h-4 w-full max-w-sm" />
+        <Skeleton className="h-9 w-full max-w-sm" />
         <RowSkeletons rows={8} />
       </div>
     )
@@ -997,7 +998,11 @@ export default function BomDetailPage() {
               </Button>
             )}
             {canReject && (
-              <Button variant="outline" className="text-destructive" onClick={() => setAction('reject')}>
+              <Button
+                variant="outline"
+                className="text-destructive"
+                onClick={() => setAction('reject')}
+              >
                 <XCircle />
                 Reject
               </Button>

@@ -19,13 +19,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
 import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import {
-  Controller,
-  useFieldArray,
-  useForm,
-  type FieldValues,
-  type UseFormSetError,
-} from 'react-hook-form'
+import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
 import { DataTable } from '@/components/data-table'
@@ -57,7 +51,9 @@ import {
   Textarea,
 } from '@/components/ui/primitives'
 import { ItemPicker } from '@/features/inventory/pickers'
-import { api, ApiError } from '@/lib/api-client'
+import { api } from '@/lib/api-client'
+import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
+import { applyFieldErrors } from '@/lib/form-errors'
 import {
   formatDate,
   formatMoney,
@@ -66,6 +62,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -83,30 +80,10 @@ import {
   type WorkCenter,
 } from './routing-model'
 
-const NONE = '__none'
 const DECIMAL = /^\d{1,10}(\.\d{1,4})?$/
-const OPTION_LIMIT = 200
-
-/** Puts a 422 back on the control that caused it instead of in a toast. */
-function applyFieldErrors<T extends FieldValues>(
-  error: unknown,
-  known: ReadonlySet<string>,
-  setError: UseFormSetError<T>,
-): void {
-  if (!(error instanceof ApiError) || error.status !== 422) return
-  for (const [path, messages] of Object.entries(error.fieldErrors)) {
-    // FastAPI reports the location as `body.code`; the form knows it as `code`.
-    const field = path.split('.').pop() ?? path
-    if (!known.has(field)) continue
-    setError(field as never, {
-      type: 'server',
-      message: Array.isArray(messages) ? messages.join('. ') : String(messages),
-    })
-  }
-}
 
 function useWorkCenterOptions(enabled: boolean) {
-  const params = { limit: OPTION_LIMIT, sort_by: 'code', sort_dir: 'asc', with_total: false }
+  const params = { limit: LOOKUP_LIST_LIMIT, sort_by: 'code', sort_dir: 'asc', with_total: false }
   return useQuery({
     queryKey: queryKeys.routing.workCenters(params),
     queryFn: () => api.getPage<WorkCenter>('/routing/work-centers', { params }),
@@ -313,10 +290,12 @@ export function RoutingDetailDialog({
   const changeStatus = useMutation({
     mutationFn: ({ key, why }: { key: 'approve' | 'obsolete'; why: string }) =>
       api.post<RoutingRow>(`/routing/${routingId}/${key}`, { reason: why }),
-    onSuccess: (saved) => {
+    onSuccess: (saved, { key }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.routing.all })
       toast.success(
-        `Routing ${humanise(saved.status).toLowerCase()}`,
+        key === 'approve'
+          ? success.approved('Routing')
+          : success.statusChanged('Routing', saved.status),
         `${saved.code} is now ${humanise(saved.status).toLowerCase()}.`,
       )
       setStatusAction(null)
@@ -454,7 +433,7 @@ export function RoutingDetailDialog({
         </DialogFooter>
 
         {statusAction !== null && (
-          <div className="border-t px-6 py-4">
+          <div className="border-t pt-4">
             <Label htmlFor="routing-status-reason" required>
               Reason to {statusAction === 'approve' ? 'approve' : 'retire'} {routing?.code}
             </Label>
@@ -464,7 +443,7 @@ export function RoutingDetailDialog({
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
                 autoComplete="off"
-                className="min-w-[16rem] flex-1"
+                className="min-w-0 flex-1 basis-full sm:basis-0"
                 aria-invalid={reasonTouched && reason.trim() === ''}
               />
               <Button
@@ -551,8 +530,6 @@ const routingSchema = z.object({
 })
 
 type RoutingValues = z.infer<typeof routingSchema>
-
-const ROUTING_FIELDS: ReadonlySet<string> = new Set(Object.keys(routingSchema.shape))
 
 function emptyOperation(): z.infer<typeof operationSchema> {
   return {
@@ -711,12 +688,12 @@ export function RoutingFormDialog({
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.routing.all })
       toast.success(
-        isEdit ? 'Routing updated' : 'Routing created',
+        isEdit ? success.updated('Routing') : success.created('Routing'),
         `${saved.code}${saved.name ? ` - ${saved.name}` : ''}`,
       )
       onOpenChange(false)
     },
-    onError: (error) => applyFieldErrors(error, ROUTING_FIELDS, setError),
+    onError: (error) => applyFieldErrors(error, setError),
   })
 
   return (
@@ -853,7 +830,7 @@ export function RoutingFormDialog({
 
               {fields.map((field, index) => (
                 <div key={field.id} className="space-y-3 rounded-md border p-3">
-                  <div className="grid gap-3 sm:grid-cols-[7rem_minmax(0,1fr)_minmax(0,1fr)_auto]">
+                  <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-[7rem_minmax(0,1fr)_minmax(0,1fr)_auto]">
                     <div>
                       <Label htmlFor={`op-code-${index}`} className="text-xs">
                         Code
@@ -890,8 +867,10 @@ export function RoutingFormDialog({
                         name={`operations.${index}.work_center_id`}
                         render={({ field: centre }) => (
                           <Select
-                            value={centre.value || NONE}
-                            onValueChange={(value) => centre.onChange(value === NONE ? '' : value)}
+                            value={centre.value || SELECT_NONE}
+                            onValueChange={(value) =>
+                              centre.onChange(value === SELECT_NONE ? '' : value)
+                            }
                           >
                             <SelectTrigger
                               id={`op-wc-${index}`}
@@ -992,7 +971,9 @@ export function RoutingFormDialog({
                         aria-invalid={Boolean(errors.operations?.[index]?.move_time_minutes)}
                         className="mt-1 text-right tabular"
                       />
-                      <FieldError message={errors.operations?.[index]?.move_time_minutes?.message} />
+                      <FieldError
+                        message={errors.operations?.[index]?.move_time_minutes?.message}
+                      />
                     </div>
 
                     <div>
@@ -1009,7 +990,7 @@ export function RoutingFormDialog({
                       <FieldError message={errors.operations?.[index]?.process_cost?.message} />
                     </div>
 
-                    <div className="flex items-end gap-4 pb-2 sm:col-span-3 lg:col-span-5">
+                    <div className="flex flex-wrap items-end gap-4 pb-2 sm:col-span-3 lg:col-span-5">
                       <div className="flex items-center gap-2">
                         <Controller
                           control={control}
@@ -1044,10 +1025,17 @@ export function RoutingFormDialog({
                       </div>
                     </div>
                   </div>
+
+                  {/* A rule about the operation as a whole - an outsourced step
+                      naming an in-house machine, say - lands on the row rather
+                      than on a field, and would otherwise render nowhere. */}
+                  <FieldError message={errors.operations?.[index]?.message} />
                 </div>
               ))}
 
-              <FieldError message={errors.operations?.message ?? errors.operations?.root?.message} />
+              <FieldError
+                message={errors.operations?.message ?? errors.operations?.root?.message}
+              />
               <p className="text-xs text-muted-foreground">
                 The rate an operation is costed at comes from its work centre, not from the
                 operation, so changing a centre&apos;s rate re-costs every routing that uses it.
@@ -1059,6 +1047,8 @@ export function RoutingFormDialog({
               <Textarea id="routing-notes" {...register('notes')} className="mt-1.5" />
               <FieldError message={errors.notes?.message} />
             </div>
+
+            <FieldError message={errors.root?.message} />
           </DialogBody>
 
           <DialogFooter>
@@ -1109,8 +1099,6 @@ const workCenterSchema = z.object({
 })
 
 type WorkCenterValues = z.infer<typeof workCenterSchema>
-
-const WORK_CENTER_FIELDS: ReadonlySet<string> = new Set(Object.keys(workCenterSchema.shape))
 
 function workCenterDefaults(workCenter?: WorkCenter | null): WorkCenterValues {
   return {
@@ -1171,12 +1159,12 @@ export function WorkCenterFormDialog({
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.routing.all })
       toast.success(
-        isEdit ? 'Work centre updated' : 'Work centre created',
+        isEdit ? success.updated('Work centre') : success.created('Work centre'),
         `${saved.code} - ${saved.name}`,
       )
       onOpenChange(false)
     },
-    onError: (error) => applyFieldErrors(error, WORK_CENTER_FIELDS, setError),
+    onError: (error) => applyFieldErrors(error, setError),
   })
 
   return (
@@ -1294,6 +1282,8 @@ export function WorkCenterFormDialog({
                 </AlertDescription>
               </Alert>
             )}
+
+            <FieldError message={errors.root?.message} />
           </DialogBody>
 
           <DialogFooter>
@@ -1330,8 +1320,6 @@ const machineSchema = z.object({
 })
 
 type MachineValues = z.infer<typeof machineSchema>
-
-const MACHINE_FIELDS: ReadonlySet<string> = new Set(Object.keys(machineSchema.shape))
 
 function machineDefaults(machine?: Machine | null): MachineValues {
   return {
@@ -1394,10 +1382,13 @@ export function MachineFormDialog({
     },
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.routing.all })
-      toast.success(isEdit ? 'Machine updated' : 'Machine created', `${saved.code} - ${saved.name}`)
+      toast.success(
+        isEdit ? success.updated('Machine') : success.created('Machine'),
+        `${saved.code} - ${saved.name}`,
+      )
       onOpenChange(false)
     },
-    onError: (error) => applyFieldErrors(error, MACHINE_FIELDS, setError),
+    onError: (error) => applyFieldErrors(error, setError),
   })
 
   return (
@@ -1455,8 +1446,8 @@ export function MachineFormDialog({
                 name="work_center_id"
                 render={({ field }) => (
                   <Select
-                    value={field.value || NONE}
-                    onValueChange={(value) => field.onChange(value === NONE ? '' : value)}
+                    value={field.value || SELECT_NONE}
+                    onValueChange={(value) => field.onChange(value === SELECT_NONE ? '' : value)}
                   >
                     <SelectTrigger id="machine-wc" className="mt-1.5" aria-label="Work centre">
                       <SelectValue
@@ -1542,6 +1533,8 @@ export function MachineFormDialog({
                 </AlertDescription>
               </Alert>
             )}
+
+            <FieldError message={errors.root?.message} />
           </DialogBody>
 
           <DialogFooter>
@@ -1576,8 +1569,6 @@ const statusSchema = z.object({
 })
 
 type StatusValues = z.infer<typeof statusSchema>
-
-const STATUS_FIELDS: ReadonlySet<string> = new Set(Object.keys(statusSchema.shape))
 
 /**
  * Moving a machine between conditions.
@@ -1630,12 +1621,12 @@ export function MachineStatusDialog({
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.routing.all })
       toast.success(
-        'Condition updated',
+        success.updated('Condition'),
         `${saved.code} is now ${humanise(saved.status).toLowerCase()}.`,
       )
       onOpenChange(false)
     },
-    onError: (error) => applyFieldErrors(error, STATUS_FIELDS, setError),
+    onError: (error) => applyFieldErrors(error, setError),
   })
 
   return (
@@ -1715,6 +1706,8 @@ export function MachineStatusDialog({
               </p>
               <FieldError message={errors.next_maintenance_date?.message} />
             </div>
+
+            <FieldError message={errors.root?.message} />
           </DialogBody>
 
           <DialogFooter>

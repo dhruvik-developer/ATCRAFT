@@ -30,7 +30,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { PageHeader, StatusBadge } from '@/components/shared'
+import { DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -39,10 +39,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/overlays'
-import { Badge, Checkbox, Input, Label } from '@/components/ui/primitives'
+import { Badge, Checkbox, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useListQuery } from '@/hooks/use-list-query'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatMoney, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -56,9 +57,6 @@ import {
 } from './finance-types'
 import { VendorInvoiceFormDialog } from './vendor-invoice-form-dialog'
 import { VendorInvoiceMatchDialog } from './vendor-invoice-match-dialog'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 const INVOICE_STATUSES: VendorInvoiceStatus[] = [
   'DRAFT',
@@ -307,18 +305,18 @@ export default function VendorInvoicesPage() {
         getRowId={(row) => row.id}
         onRowClick={(row) => setOpenInvoiceId(row.id)}
         emptyTitle="No vendor invoices"
-        emptyDescription="Nothing matches these filters. Invoices appear here once they are booked against a purchase order."
+        emptyDescription="Nothing matches these filters. Every supplier bill recorded here is listed, with or without a purchase order; linking one to an order or a goods receipt is what enables the three-way match."
         toolbar={
           <>
             <Select
-              value={status || ALL}
-              onValueChange={(next) => setParam('status', next === ALL ? undefined : next)}
+              value={status || SELECT_ALL}
+              onValueChange={(next) => setParam('status', next === SELECT_ALL ? undefined : next)}
             >
-              <SelectTrigger className="w-[11rem]" aria-label="Invoice status">
+              <SelectTrigger className="w-full sm:w-[11rem]" aria-label="Invoice status">
                 <SelectValue placeholder="Any status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any status</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any status</SelectItem>
                 {INVOICE_STATUSES.map((entry) => (
                   <SelectItem key={entry} value={entry}>
                     {humanise(entry)}
@@ -328,14 +326,16 @@ export default function VendorInvoicesPage() {
             </Select>
 
             <Select
-              value={matchStatus || ALL}
-              onValueChange={(next) => setParam('match_status', next === ALL ? undefined : next)}
+              value={matchStatus || SELECT_ALL}
+              onValueChange={(next) =>
+                setParam('match_status', next === SELECT_ALL ? undefined : next)
+              }
             >
-              <SelectTrigger className="w-[11rem]" aria-label="Match result">
+              <SelectTrigger className="w-full sm:w-[11rem]" aria-label="Match result">
                 <SelectValue placeholder="Any match result" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any match result</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any match result</SelectItem>
                 {MATCH_STATUSES.map((entry) => (
                   <SelectItem key={entry} value={entry}>
                     {humanise(entry)}
@@ -352,33 +352,17 @@ export default function VendorInvoicesPage() {
               onChange={(next) => setParam('vendor_id', next ?? undefined)}
             />
 
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="invoices-from" className="sr-only">
-                Invoiced from
-              </Label>
-              <Input
-                id="invoices-from"
-                type="date"
-                className="w-[10.5rem]"
-                value={invoiceFrom}
-                max={invoiceTo || undefined}
-                onChange={(event) => setParam('invoice_from', event.target.value || undefined)}
-              />
-              <span className="text-xs text-muted-foreground" aria-hidden>
-                to
-              </span>
-              <Label htmlFor="invoices-to" className="sr-only">
-                Invoiced to
-              </Label>
-              <Input
-                id="invoices-to"
-                type="date"
-                className="w-[10.5rem]"
-                value={invoiceTo}
-                min={invoiceFrom || undefined}
-                onChange={(event) => setParam('invoice_to', event.target.value || undefined)}
-              />
-            </div>
+            <DateRangeFilter
+              id="invoices"
+              fromLabel="Invoiced from"
+              toLabel="Invoiced to"
+              from={invoiceFrom}
+              to={invoiceTo}
+              fromInputProps={{ max: invoiceTo || undefined }}
+              toInputProps={{ min: invoiceFrom || undefined }}
+              onFromChange={(value) => setParam('invoice_from', value || undefined)}
+              onToChange={(value) => setParam('invoice_to', value || undefined)}
+            />
 
             <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-background px-3">
               <Checkbox

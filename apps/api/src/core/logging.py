@@ -76,9 +76,13 @@ SENSITIVE_KEYS = frozenset(
         "token",
         "access_token",
         "refresh_token",
+        "reset_token",
+        "password_reset_token",
         "authorization",
         "api_key",
         "secret",
+        "mfa_secret",
+        "smtp_password",
         "jwt_secret",
         "client_secret",
         "cookie",
@@ -111,7 +115,7 @@ def _redact(_logger: Any, _method: str, event_dict: dict[str, Any]) -> dict[str,
             return [scrub(v, depth + 1) for v in value]
         return value
 
-    return scrub(event_dict)  # type: ignore[return-value]
+    return scrub(event_dict)
 
 
 def _add_request_context(_logger: Any, _method: str, event_dict: dict[str, Any]) -> dict[str, Any]:
@@ -202,7 +206,7 @@ def configure_logging() -> None:
 
 def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     """Module-level logger factory: ``log = get_logger(__name__)``."""
-    return structlog.get_logger(name)  # type: ignore[no-any-return]
+    return structlog.get_logger(name)
 
 
 __all__ = [

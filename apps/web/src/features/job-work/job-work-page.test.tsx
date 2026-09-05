@@ -311,6 +311,33 @@ describe('what the two tabs ask the API for', () => {
     expect(screen.getByText('This stock is still yours')).toBeVisible()
   })
 
+  it('names the vendor from the shared options list rather than printing its id', async () => {
+    // `JobWorkOrderSummary` carries `vendor_id` and no name. The column used to
+    // show the first eight characters of the uuid, which nobody can act on;
+    // the bounded vendor options list turns it into the name and code.
+    renderScreen(<JobWorkPage />, {
+      permissions: [P.JOB_WORK_VIEW, P.VENDOR_VIEW],
+      routes: {
+        ...listed([jobWorkOrder({ status: 'APPROVED' })]),
+        'GET /vendors/options': ok([
+          {
+            id: 'vendor-aaaa-0001',
+            code: 'VEN-001',
+            name: 'Rolled Metals',
+            vendor_types: ['JOB_WORK'],
+            is_approved: true,
+            rating: null,
+            lead_time_days: 7,
+          },
+        ]),
+      },
+    })
+
+    expect(await screen.findByText('Rolled Metals')).toBeVisible()
+    expect(screen.getByText('VEN-001')).toBeVisible()
+    expect(screen.queryByText('vendor-a')).toBeNull()
+  })
+
   it('says an empty register is empty, and a refused one refused', async () => {
     const empty = renderScreen(<JobWorkPage />, {
       permissions: [P.JOB_WORK_VIEW],

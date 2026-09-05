@@ -49,7 +49,10 @@ import { Badge, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { formatDateTime, formatNumber, formatRelative } from '@/lib/format'
+import { prompts, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -65,8 +68,6 @@ import {
 import { PermissionMatrix } from './permission-matrix'
 import { RoleFormDialog } from './role-dialogs'
 import { ResetPasswordDialog, RoleAssignmentDialog, UserFormDialog } from './user-dialogs'
-
-const ALL = '__all'
 
 type TabKey = 'users' | 'roles' | 'permissions'
 
@@ -98,9 +99,14 @@ function UsersTab({ onOpenRole }: { onOpenRole: (roleId: string) => void }) {
   const roleId = searchParams.get('role_id') ?? ''
   const accountType = searchParams.get('is_vendor_user') ?? ''
 
+  // `GET /roles` enforces `role.view` in its own right, and this tab is mounted
+  // for anyone holding `user.view`. Asking without the right produced a "Not
+  // permitted" toast on every visit; the Roles column already falls back to the
+  // bare code when the lookup is absent.
+  const canSeeRoles = can(P.ROLE_VIEW)
   const branches = useBranchOptions()
   const plants = usePlantOptions()
-  const roles = useRoleOptions()
+  const roles = useRoleOptions(canSeeRoles)
   const branchById = useMemo(() => indexById(branches.data), [branches.data])
   const plantById = useMemo(() => indexById(plants.data), [plants.data])
 
@@ -124,10 +130,18 @@ function UsersTab({ onOpenRole }: { onOpenRole: (roleId: string) => void }) {
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.users.all })
       toast.success(
-        saved.is_active ? 'User activated' : 'User deactivated',
+        saved.is_active ? success.activated('User') : success.deactivated('User'),
         saved.is_active ? saved.email : `${saved.email} - live sessions revoked`,
       )
       setStatusTarget(null)
+    },
+    onError: (error) => {
+      // The reason is the only field, so a 422 keyed on it is rendered under
+      // the input. The mutation cache stays quiet for a 422 with field detail
+      // on the understanding that the form shows it - without this the dialog
+      // simply stopped spinning.
+      const message = fieldErrorSummary(error)
+      if (message) setReasonError(message)
     },
   })
 
@@ -149,8 +163,8 @@ function UsersTab({ onOpenRole }: { onOpenRole: (roleId: string) => void }) {
 
   const confirmStatusChange = () => {
     if (!statusTarget) return
-    if (reason.trim().length < 3) {
-      setReasonError('Give a reason of at least 3 characters - it is kept in the audit trail.')
+    if (reason.trim().length < REASON_MIN_LENGTH) {
+      setReasonError(prompts.reasonRequired)
       return
     }
     statusMutation.mutate({
@@ -376,47 +390,53 @@ function UsersTab({ onOpenRole }: { onOpenRole: (roleId: string) => void }) {
         toolbar={
           <>
             <Select
-              value={activeState || ALL}
-              onValueChange={(value) => setParam('is_active', value === ALL ? undefined : value)}
+              value={activeState || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('is_active', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[150px]" aria-label="Filter by status">
+              <SelectTrigger className="w-full sm:w-[150px]" aria-label="Filter by status">
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All statuses</SelectItem>
+                <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
                 <SelectItem value="true">Active only</SelectItem>
                 <SelectItem value="false">Inactive only</SelectItem>
               </SelectContent>
             </Select>
 
-            <Select
-              value={roleId || ALL}
-              onValueChange={(value) => setParam('role_id', value === ALL ? undefined : value)}
-            >
-              <SelectTrigger className="w-[190px]" aria-label="Filter by role">
-                <SelectValue placeholder="All roles" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>All roles</SelectItem>
-                {(roles.data ?? []).map((role) => (
-                  <SelectItem key={role.id} value={role.id}>
-                    {role.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {canSeeRoles && (
+              <Select
+                value={roleId || SELECT_ALL}
+                onValueChange={(value) =>
+                  setParam('role_id', value === SELECT_ALL ? undefined : value)
+                }
+              >
+                <SelectTrigger className="w-full sm:w-[190px]" aria-label="Filter by role">
+                  <SelectValue placeholder="All roles" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SELECT_ALL}>All roles</SelectItem>
+                  {(roles.data ?? []).map((role) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
 
             <Select
-              value={accountType || ALL}
+              value={accountType || SELECT_ALL}
               onValueChange={(value) =>
-                setParam('is_vendor_user', value === ALL ? undefined : value)
+                setParam('is_vendor_user', value === SELECT_ALL ? undefined : value)
               }
             >
-              <SelectTrigger className="w-[160px]" aria-label="Filter by account type">
+              <SelectTrigger className="w-full sm:w-[160px]" aria-label="Filter by account type">
                 <SelectValue placeholder="All accounts" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All accounts</SelectItem>
+                <SelectItem value={SELECT_ALL}>All accounts</SelectItem>
                 <SelectItem value="false">Internal staff</SelectItem>
                 <SelectItem value="true">Vendor portal</SelectItem>
               </SelectContent>
@@ -505,6 +525,7 @@ function UsersTab({ onOpenRole }: { onOpenRole: (roleId: string) => void }) {
                 setReasonError(null)
               }}
               autoComplete="off"
+              maxLength={REASON_MAX_LENGTH}
               aria-invalid={Boolean(reasonError)}
               className="mt-1.5"
             />
@@ -675,10 +696,15 @@ export default function UsersPage() {
   const { can } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
 
+  // The route mounts this page for *either* right, so each tab restates its
+  // own: `GET /users` enforces `user.view` and `GET /roles` enforces
+  // `role.view`. An account holding one and not the other used to land on a
+  // Users tab whose list could only 403.
+  const canSeeUsers = can(P.USER_VIEW)
   const canSeeRoles = can(P.ROLE_VIEW)
 
   const tabs: { key: TabKey; label: string; icon: LucideIcon }[] = [
-    { key: 'users', label: 'Users', icon: Users },
+    ...(canSeeUsers ? [{ key: 'users' as const, label: 'Users', icon: Users }] : []),
     ...(canSeeRoles
       ? [
           { key: 'roles' as const, label: 'Roles', icon: ShieldCheck },
@@ -688,9 +714,11 @@ export default function UsersPage() {
   ]
 
   const requested = searchParams.get('tab') as TabKey | null
+  // The route guard is canAny of exactly these rights, so `tabs` is never empty
+  // in practice; the final fallback only satisfies the type.
   const tab: TabKey = tabs.some((entry) => entry.key === requested)
     ? (requested as TabKey)
-    : 'users'
+    : (tabs[0]?.key ?? 'users')
   const selectedRoleId = searchParams.get('role')
 
   // Switching tab clears the list state in the URL: `page=4&sort=email` from
@@ -718,7 +746,7 @@ export default function UsersPage() {
       />
 
       <Tabs value={tab} onValueChange={selectTab}>
-        <TabsList className="h-auto flex-wrap">
+        <TabsList>
           {tabs.map((entry) => (
             <TabsTrigger key={entry.key} value={entry.key}>
               <entry.icon className="h-4 w-4" aria-hidden />
@@ -727,9 +755,11 @@ export default function UsersPage() {
           ))}
         </TabsList>
 
-        <TabsContent value="users">
-          <UsersTab onOpenRole={openRole} />
-        </TabsContent>
+        {canSeeUsers && (
+          <TabsContent value="users">
+            <UsersTab onOpenRole={openRole} />
+          </TabsContent>
+        )}
 
         {canSeeRoles && (
           <TabsContent value="roles">

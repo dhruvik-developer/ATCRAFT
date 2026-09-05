@@ -48,6 +48,7 @@ from src.core.errors import (
     ErrorCode,
     NotFoundError,
 )
+from src.core.messages import NO_FIELDS_TO_UPDATE
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -241,7 +242,7 @@ def _lifecycle(entity: str, manage: Permission) -> StateMachine[MasterLifecycleS
 BRANCH_LIFECYCLE = _lifecycle("Branch", Permission.BRANCH_MANAGE)
 PLANT_LIFECYCLE = _lifecycle("Plant", Permission.PLANT_MANAGE)
 DEPARTMENT_LIFECYCLE = _lifecycle("Department", Permission.DEPARTMENT_MANAGE)
-FINANCIAL_YEAR_LIFECYCLE = _lifecycle("FinancialYear", Permission.SETTINGS_MANAGE)
+FINANCIAL_YEAR_LIFECYCLE = _lifecycle("Financial year", Permission.SETTINGS_MANAGE)
 
 
 class FinancialYearState(StrEnum):
@@ -255,7 +256,7 @@ class FinancialYearState(StrEnum):
 #: reopen edge exists so a platform administrator can undo a mistake, and the
 #: service refuses it to anyone else.
 FINANCIAL_YEAR_MACHINE: StateMachine[FinancialYearState] = StateMachine(
-    entity="FinancialYear",
+    entity="Financial year",
     initial=FinancialYearState.OPEN,
     transitions=(
         Transition(
@@ -390,7 +391,7 @@ class CompanyService:
     async def update_company(self, payload: CompanyUpdate) -> CompanyRead:
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             company = await self._load()
@@ -484,7 +485,7 @@ class BranchService:
     async def update_branch(self, branch_id: uuid.UUID, payload: BranchUpdate) -> BranchRead:
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             branch = await self.repo.get_or_404(branch_id)
@@ -665,7 +666,7 @@ class PlantService:
     async def update_plant(self, plant_id: uuid.UUID, payload: PlantUpdate) -> PlantRead:
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             plant = await self.repo.get_or_404(plant_id)
@@ -823,7 +824,7 @@ class DepartmentService:
     ) -> DepartmentRead:
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             department = await self.repo.get_or_404(department_id)
@@ -998,7 +999,7 @@ class FinancialYearService:
     ) -> FinancialYearRead:
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             year = await self.repo.get_or_404(year_id)
@@ -1111,9 +1112,7 @@ class FinancialYearService:
 
             # Reopening makes the year active again, so its range competes with
             # the other open periods once more and has to be re-checked.
-            await self._assert_no_active_overlap(
-                year.start_date, year.end_date, exclude_id=year.id
-            )
+            await self._assert_no_active_overlap(year.start_date, year.end_date, exclude_id=year.id)
 
             year.is_closed = False
             year.is_active = True

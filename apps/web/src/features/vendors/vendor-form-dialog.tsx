@@ -37,8 +37,10 @@ import {
 } from '@/components/ui/overlays'
 import { Checkbox, Input, Label, Skeleton, Textarea } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
+import { DEFAULT_CURRENCY } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { GSTIN_PATTERN, IFSC_PATTERN, PAN_PATTERN } from '@/lib/statutory'
 import { toast } from '@/lib/toast'
@@ -148,7 +150,7 @@ function emptyValues(): VendorFormValues {
     payment_terms_days: '0',
     credit_limit: '',
     lead_time_days: '0',
-    currency: 'INR',
+    currency: DEFAULT_CURRENCY,
     bank_name: '',
     bank_branch: '',
     bank_account_name: '',
@@ -308,7 +310,7 @@ export function VendorFormDialog({
       // One prefix invalidation covers every vendor list, picker and detail.
       void queryClient.invalidateQueries({ queryKey: queryKeys.vendors.all })
       toast.success(
-        isEdit ? 'Vendor updated' : 'Vendor created',
+        isEdit ? success.updated('Vendor') : success.created('Vendor'),
         isEdit
           ? `${saved.code} - ${saved.name}`
           : `${saved.code} is saved unapproved. Approve it before raising a purchase order.`,

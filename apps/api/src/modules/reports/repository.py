@@ -36,6 +36,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.repository import BaseRepository
+from src.core.database import affected_rows
 from src.core.ids import new_id
 from src.core.pagination import COUNT_CEILING, PageParams
 from src.core.responses import OffsetPagination
@@ -196,9 +197,7 @@ async def paginate_rows(
     has not, the count is bounded by ``COUNT_CEILING`` exactly as the core
     paginator does, because past that the exact number is not worth a scan.
     """
-    rows = list(
-        (await session.execute(stmt.limit(params.limit + 1).offset(params.offset))).all()
-    )
+    rows = list((await session.execute(stmt.limit(params.limit + 1).offset(params.offset))).all())
     has_next = len(rows) > params.limit
     rows = rows[: params.limit]
 
@@ -246,9 +245,7 @@ class ReportSnapshotRepository(BaseRepository[ReportSnapshot]):
                 ReportSnapshot.report_key == report_key,
                 ReportSnapshot.parameters_hash == parameters_hash,
                 or_(
-                    ReportSnapshot.status.in_(
-                        (ReportJobStatus.QUEUED, ReportJobStatus.RUNNING)
-                    ),
+                    ReportSnapshot.status.in_((ReportJobStatus.QUEUED, ReportJobStatus.RUNNING)),
                     and_(
                         ReportSnapshot.status == ReportJobStatus.COMPLETED,
                         or_(
@@ -358,7 +355,7 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
             },
         )
         result = await self.session.execute(statement)
-        return int(result.rowcount or 0)
+        return affected_rows(result)
 
     async def drop_stale_summary(self, *, refreshed_at: datetime) -> int:
         """Remove positions the refresh did not touch.
@@ -373,7 +370,7 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
             InventorySummary.company_id == self.tenant.company_id,
             InventorySummary.refreshed_at < refreshed_at,
         )
-        return int((await self.session.execute(statement)).rowcount or 0)
+        return affected_rows(await self.session.execute(statement))
 
     async def summary_refreshed_at(self) -> datetime | None:
         """When this tenant's summary was last rebuilt, for the staleness label."""
@@ -1212,9 +1209,7 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
 
     # --- 19. vendor dispatch history ---------------------------------------
 
-    def vendor_dispatch_history(
-        self, period: ReportPeriod, filters: ReportFilters
-    ) -> Select[Any]:
+    def vendor_dispatch_history(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
         stmt = (
             select(
                 Dispatch.id.label("dispatch_id"),

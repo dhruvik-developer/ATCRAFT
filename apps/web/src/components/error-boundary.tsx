@@ -2,7 +2,7 @@ import { AlertTriangle } from 'lucide-react'
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { reportError } from '@/lib/error-reporting'
+import { errorReportingEnabled, reportError } from '@/lib/error-reporting'
 
 interface Props {
   children: ReactNode
@@ -28,10 +28,11 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    // The fallback below tells the user "the error has been logged". That was
-    // not true while this only called `console.error` - it logged to a console
-    // nobody reads. `reportError` sends it to the configured collector, and
-    // still prints it when none is configured.
+    // The fallback below only claims the error was reported when a collector is
+    // actually configured. That claim was untrue while this called
+    // `console.error` alone - it logged to a console nobody reads. `reportError`
+    // sends it to the configured collector, and still prints it when there is
+    // none; `errorReportingEnabled` is what keeps the sentence honest either way.
     reportError(error, { source: 'render', componentStack: info.componentStack ?? undefined })
   }
 
@@ -45,8 +46,9 @@ export class ErrorBoundary extends Component<Props, State> {
           <AlertTriangle className="mx-auto h-10 w-10 text-warning" aria-hidden />
           <h1 className="mt-4 text-lg font-semibold">Something went wrong on this screen</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            The error has been logged. Reloading usually clears it; if it keeps happening, tell your
-            administrator what you were doing.
+            {errorReportingEnabled
+              ? 'The error has been reported. Reloading usually clears it; if it keeps happening, tell your administrator what you were doing.'
+              : 'Reloading usually clears it; if it keeps happening, tell your administrator what you were doing.'}
           </p>
           {import.meta.env.DEV && (
             <pre className="mt-4 max-h-48 overflow-auto rounded-md bg-muted p-3 text-left text-xs">

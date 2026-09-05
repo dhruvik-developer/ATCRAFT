@@ -75,9 +75,7 @@ def test_the_same_component_on_two_primary_lines_is_refused() -> None:
 
 
 def test_a_component_may_repeat_when_the_second_line_is_a_substitute() -> None:
-    payload = BomCreate(
-        **bom(lines=[line(1, SCREW), line(2, SCREW, substitute_for_line_number=1)])
-    )
+    payload = BomCreate(**bom(lines=[line(1, SCREW), line(2, SCREW, substitute_for_line_number=1)]))
     assert payload.lines[1].substitute_for_line_number == 1
 
 

@@ -25,7 +25,7 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { PageHeader, StatusBadge } from '@/components/shared'
+import { DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -34,11 +34,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/overlays'
-import { Badge, Checkbox, Input, Label } from '@/components/ui/primitives'
+import { Badge, Checkbox, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useListQuery } from '@/hooks/use-list-query'
+import { SELECT_ALL } from '@/lib/constants'
 import { daysUntil, formatDate, formatMoney, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -52,9 +53,6 @@ import {
   isUrgentPriority,
   type PurchaseOrderRow,
 } from './procurement-types'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /** Every filter this screen owns, cleared as one write rather than six. */
 const FILTER_KEYS = [
@@ -268,14 +266,16 @@ export default function PurchaseOrdersPage() {
         toolbar={
           <>
             <Select
-              value={status || ALL}
-              onValueChange={(value) => setParam('status', value === ALL ? undefined : value)}
+              value={status || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('status', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[190px]" aria-label="Filter by status">
+              <SelectTrigger className="w-full sm:w-[190px]" aria-label="Filter by status">
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All statuses</SelectItem>
+                <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
                 {PURCHASE_ORDER_STATUSES.map((value) => (
                   <SelectItem key={value} value={value}>
                     {humanise(value)}
@@ -284,39 +284,30 @@ export default function PurchaseOrdersPage() {
               </SelectContent>
             </Select>
 
-            <VendorPicker
-              id="po-vendor-filter"
-              label="Vendor"
-              hideLabel
-              value={vendorId || null}
-              onChange={(value) => setParam('vendor_id', value ?? undefined)}
-              placeholder="All vendors"
-            />
+            {/* The vendor search reads `/vendors`, which enforces `vendor.view`.
+                Offering it without that right earns a 403 on every keystroke. */}
+            {can(P.VENDOR_VIEW) && (
+              <VendorPicker
+                id="po-vendor-filter"
+                className="w-full sm:w-auto"
+                label="Vendor"
+                hideLabel
+                value={vendorId || null}
+                onChange={(value) => setParam('vendor_id', value ?? undefined)}
+                placeholder="All vendors"
+              />
+            )}
 
             {/* The window is on the expected delivery date, which is what the
                 API filters on - `expected_from` / `expected_to`. */}
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="po-expected-from" className="text-xs text-muted-foreground">
-                Expected from
-              </Label>
-              <Input
-                id="po-expected-from"
-                type="date"
-                value={expectedFrom}
-                onChange={(event) => setParam('expected_from', event.target.value || undefined)}
-                className="w-[9.5rem]"
-              />
-              <Label htmlFor="po-expected-to" className="text-xs text-muted-foreground">
-                To
-              </Label>
-              <Input
-                id="po-expected-to"
-                type="date"
-                value={expectedTo}
-                onChange={(event) => setParam('expected_to', event.target.value || undefined)}
-                className="w-[9.5rem]"
-              />
-            </div>
+            <DateRangeFilter
+              id="po-expected"
+              fromLabel="Expected from"
+              from={expectedFrom}
+              to={expectedTo}
+              onFromChange={(value) => setParam('expected_from', value || undefined)}
+              onToChange={(value) => setParam('expected_to', value || undefined)}
+            />
 
             <div className="flex items-center gap-2">
               <Checkbox

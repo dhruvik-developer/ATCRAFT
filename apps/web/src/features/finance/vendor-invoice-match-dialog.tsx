@@ -79,6 +79,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -199,7 +200,7 @@ export function VendorInvoiceMatchDialog({
     onSuccess: (updated) => {
       void queryClient.invalidateQueries({ queryKey: financeKeys.all })
       toast.success(
-        'Invoice approved',
+        success.approved('Invoice'),
         `${updated.vendor_invoice_number} is now ${humanise(updated.status).toLowerCase()}.`,
       )
       setConfirmOpen(false)
@@ -225,7 +226,7 @@ export function VendorInvoiceMatchDialog({
     onSuccess: (updated) => {
       void queryClient.invalidateQueries({ queryKey: financeKeys.all })
       toast.success(
-        'Sent for approval',
+        success.submitted('Invoice'),
         `${updated.vendor_invoice_number} is now ${humanise(updated.status).toLowerCase()}. The three-way match was run on the way in.`,
       )
       closeCommand()
@@ -243,7 +244,7 @@ export function VendorInvoiceMatchDialog({
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: financeKeys.all })
       toast.success(
-        'Draft deleted',
+        success.deleted('Draft invoice'),
         'The bill was removed and the reason recorded in the audit log.',
       )
       closeCommand()
@@ -260,7 +261,20 @@ export function VendorInvoiceMatchDialog({
   // Optional on the wire, and empty exactly when `matched` is true.
   const blockingReasons = match?.blocking_reasons ?? []
   const needsOverride = blocked
-  const reasonTooShort = reason.trim().length < MIN_OVERRIDE_REASON
+  const trimmedReason = reason.trim()
+  /**
+   * Whether the approval box holds something the endpoint would refuse.
+   *
+   * Over a variance the reason is the override and has to be a real sentence.
+   * On a clean match the box is an optional note - but it still travels as
+   * `override_reason`, which is 3..500 whenever it is present, so a two-letter
+   * note would go out, come back a 422 with a field error, and vanish: the
+   * mutation cache stays quiet for field errors on the understanding that a
+   * form shows them, and this dialog has no form to do so.
+   */
+  const reasonUnusable = needsOverride
+    ? trimmedReason.length < MIN_OVERRIDE_REASON
+    : trimmedReason !== '' && trimmedReason.length < MIN_INVOICE_REASON_LENGTH
   const decided = invoice ? !APPROVABLE_STATUSES.has(invoice.status) : true
 
   /**
@@ -687,11 +701,11 @@ export function VendorInvoiceMatchDialog({
         destructive={blocked}
         loading={approve.isPending}
         onConfirm={() => {
-          if (needsOverride && reasonTooShort) {
+          if (reasonUnusable) {
             setReasonTouched(true)
             return
           }
-          approve.mutate(reason.trim())
+          approve.mutate(trimmedReason)
         }}
       >
         <div>
@@ -703,17 +717,21 @@ export function VendorInvoiceMatchDialog({
             value={reason}
             onChange={(event) => setReason(event.target.value)}
             className="mt-1.5"
-            maxLength={500}
+            maxLength={MAX_INVOICE_REASON_LENGTH}
             placeholder={
               needsOverride
                 ? 'Why is this variance acceptable? Recorded against the invoice.'
                 : 'Optional'
             }
-            aria-invalid={needsOverride && reasonTouched && reasonTooShort}
+            aria-invalid={reasonTouched && reasonUnusable}
           />
-          {needsOverride && reasonTouched && reasonTooShort && (
+          {reasonTouched && reasonUnusable && (
             <FieldError
-              message={`Record at least ${MIN_OVERRIDE_REASON} characters explaining the override`}
+              message={
+                needsOverride
+                  ? `Record at least ${MIN_OVERRIDE_REASON} characters explaining the override`
+                  : `A note is optional, but one that is written must run to at least ${MIN_INVOICE_REASON_LENGTH} characters`
+              }
             />
           )}
         </div>

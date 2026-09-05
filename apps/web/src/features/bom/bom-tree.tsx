@@ -89,9 +89,7 @@ export function BomStructure({
                         {named?.item_code ?? 'Open item'}
                       </Link>
                       {line.is_optional && <Badge variant="muted">Optional</Badge>}
-                      {line.substitute_for_line_id && (
-                        <Badge variant="secondary">Substitute</Badge>
-                      )}
+                      {line.substitute_for_line_id && <Badge variant="secondary">Substitute</Badge>}
                     </span>
                     {named?.item_name && (
                       <span className="block max-w-[24rem] truncate text-xs text-muted-foreground">

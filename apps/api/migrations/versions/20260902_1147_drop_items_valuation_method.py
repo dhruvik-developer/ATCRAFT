@@ -50,7 +50,6 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-
 revision: str = "7e8eb4bdd0ed"
 down_revision: str | None = "2438d960a6e4"
 branch_labels: str | Sequence[str] | None = None

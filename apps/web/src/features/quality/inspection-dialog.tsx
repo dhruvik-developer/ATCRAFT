@@ -55,8 +55,10 @@ import {
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatQuantity, humanise, toDecimal } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -66,8 +68,6 @@ import {
   NUMERIC_READING,
   QC_PARAMETER_TYPES,
   QUANTITY_INPUT,
-  REASON_MAX_LENGTH,
-  REASON_MIN_LENGTH,
   REJECTION_REASON_MAX_LENGTH,
   hasFailed,
   isOutOfSpec,
@@ -110,6 +110,13 @@ const schema = z
     /** False for an inspector who may record readings but not decide. */
     decide: z.boolean(),
     /**
+     * False for a decider who may not record readings. `POST .../results`
+     * needs `qc.inspect`, so a reading typed by an account without it would be
+     * refused before the decision that account is entitled to record is ever
+     * reached - the inputs are read-only and their rules are not applied.
+     */
+    record: z.boolean(),
+    /**
      * Required by the API on every decision - it is the audit reason, not a
      * free-text note, and the request is refused without it.
      *
@@ -131,39 +138,45 @@ const schema = z
     parameters: z.array(parameterSchema),
   })
   .superRefine((values, ctx) => {
-    values.parameters.forEach((parameter, index) => {
-      const reading = parameter.value.trim()
+    // Readings are checked only when this account can change them: an error on
+    // a read-only input is one the user has no way to clear. The API still
+    // refuses a decision whose mandatory readings are missing, and that
+    // rejection reaches the screen through the mutation cache's toast.
+    if (values.record) {
+      values.parameters.forEach((parameter, index) => {
+        const reading = parameter.value.trim()
 
-      if (parameter.is_mandatory && reading === '') {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['parameters', index, 'value'],
-          message: 'This reading is required',
-        })
-        return
-      }
-      if (reading === '') return
+        if (parameter.is_mandatory && reading === '') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['parameters', index, 'value'],
+            message: 'This reading is required',
+          })
+          return
+        }
+        if (reading === '') return
 
-      if (parameter.parameter_type === 'NUMERIC' && !NUMERIC_READING.test(reading)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['parameters', index, 'value'],
-          message: 'Enter a measurement, up to 6 decimal places',
-        })
-      }
+        if (parameter.parameter_type === 'NUMERIC' && !NUMERIC_READING.test(reading)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['parameters', index, 'value'],
+            message: 'Enter a measurement, up to 6 decimal places',
+          })
+        }
 
-      if (
-        parameter.parameter_type === 'SELECT' &&
-        parameter.allowed_values !== null &&
-        !parameter.allowed_values.includes(reading)
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['parameters', index, 'value'],
-          message: 'Choose one of the listed answers',
-        })
-      }
-    })
+        if (
+          parameter.parameter_type === 'SELECT' &&
+          parameter.allowed_values !== null &&
+          !parameter.allowed_values.includes(reading)
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['parameters', index, 'value'],
+            message: 'Choose one of the listed answers',
+          })
+        }
+      })
+    }
 
     // Everything below is the disposition, which only a decision submits.
     if (!values.decide) return
@@ -249,6 +262,7 @@ function emptyValues(): InspectionFormValues {
   return {
     inspected_quantity: '0',
     decide: false,
+    record: false,
     reason: '',
     rejection_reason: '',
     accepted_quantity: '',
@@ -287,12 +301,17 @@ function readingOf(
   return previous.measured_value_text ?? ''
 }
 
-function valuesFrom(detail: QcInspectionDetail, canDecide: boolean): InspectionFormValues {
+function valuesFrom(
+  detail: QcInspectionDetail,
+  canDecide: boolean,
+  canInspect: boolean,
+): InspectionFormValues {
   const recorded = new Map((detail.results ?? []).map((result) => [result.parameter_id, result]))
 
   return {
     inspected_quantity: detail.inspected_quantity,
     decide: canDecide,
+    record: canInspect,
     reason: '',
     rejection_reason: '',
     // Pre-filling "everything accepted" would be a nudge towards passing the
@@ -351,6 +370,9 @@ export function InspectionDialog({
   // Gating is UX only - the API authorises the results post and the decision
   // independently of anything this component believes.
   const canDecide = can(P.QC_DECIDE)
+  // `POST .../results` is `qc.inspect` and `POST .../decide` is `qc.decide`;
+  // the dialog opens on either, so each half is gated on its own right.
+  const canInspect = can(P.QC_INSPECT)
   const canUpload = can(P.DOCUMENT_UPLOAD)
 
   const inspectionId = inspection?.id ?? ''
@@ -383,9 +405,9 @@ export function InspectionDialog({
   const loadedId = detail.data?.id ?? null
   useEffect(() => {
     if (!detail.data) return
-    reset(valuesFrom(detail.data, canDecide))
+    reset(valuesFrom(detail.data, canDecide, canInspect))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadedId, canDecide, reset])
+  }, [loadedId, canDecide, canInspect, reset])
 
   useEffect(() => {
     if (open) return
@@ -431,9 +453,7 @@ export function InspectionDialog({
             measured_value_numeric:
               parameter.parameter_type === 'NUMERIC' && reading !== '' ? reading : null,
             measured_value_bool:
-              parameter.parameter_type === 'BOOLEAN' && reading !== ''
-                ? reading === 'PASS'
-                : null,
+              parameter.parameter_type === 'BOOLEAN' && reading !== '' ? reading === 'PASS' : null,
             measured_value_text:
               parameter.parameter_type === 'TEXT' || parameter.parameter_type === 'SELECT'
                 ? orNull(reading)
@@ -455,13 +475,18 @@ export function InspectionDialog({
        * assumed to be shown inline. The decision then never happens and nothing
        * appears on screen. So the readings are posted only when there are
        * readings; otherwise the disposition goes straight to `/decide`.
+       *
+       * The same applies to an account holding `qc.decide` without
+       * `qc.inspect`: `/results` would answer 403 and the decision it is
+       * entitled to record would never be reached, so the readings post is
+       * skipped and the API's own mandatory-reading rule is the backstop.
        */
       const saved =
-        measurements.length > 0
-          ? await api.post<QcResultsResponse>(
-              `/quality/inspections/${inspectionId}/results`,
-              { measurements, remarks: orNull(values.remarks) },
-            )
+        values.record && measurements.length > 0
+          ? await api.post<QcResultsResponse>(`/quality/inspections/${inspectionId}/results`, {
+              measurements,
+              remarks: orNull(values.remarks),
+            })
           : null
 
       if (!values.decide) {
@@ -511,7 +536,7 @@ export function InspectionDialog({
         const { recommended_result, is_conclusive } = outcome.evaluation
         setEvaluation(outcome.evaluation)
         toast.success(
-          'Readings saved',
+          success.saved('Readings'),
           is_conclusive
             ? `Recorded. On these readings the lot reads as ${humanise(recommended_result)}.`
             : 'Recorded. Not every mandatory parameter has a reading yet.',
@@ -689,8 +714,7 @@ export function InspectionDialog({
             {evaluation && (
               <Alert variant={evaluation.has_critical_failure ? 'destructive' : 'info'}>
                 <AlertTitle>
-                  On the saved readings this lot reads as{' '}
-                  {humanise(evaluation.recommended_result)}
+                  On the saved readings this lot reads as {humanise(evaluation.recommended_result)}
                 </AlertTitle>
                 <AlertDescription>
                   {evaluation.critical_failures && evaluation.critical_failures.length > 0 && (
@@ -737,7 +761,8 @@ export function InspectionDialog({
                   // A photo attached in an earlier session comes back as an id
                   // with no filename, so it is labelled generically.
                   const attachedId = parameter?.document_id ?? null
-                  const attachedName = parameter?.document_name ?? (attachedId ? 'Photo attached' : null)
+                  const attachedName =
+                    parameter?.document_name ?? (attachedId ? 'Photo attached' : null)
 
                   return (
                     <div
@@ -784,6 +809,7 @@ export function InspectionDialog({
                                 id={`qc-value-${index}`}
                                 {...register(`parameters.${index}.value`)}
                                 inputMode="decimal"
+                                readOnly={!canInspect}
                                 autoComplete="off"
                                 className={cn('mt-1.5', outOfSpec && 'border-destructive')}
                                 aria-invalid={
@@ -823,7 +849,10 @@ export function InspectionDialog({
                                     <label
                                       key={answer.value}
                                       className={cn(
-                                        'cursor-pointer rounded-sm px-4 py-1.5 text-sm font-medium transition-colors',
+                                        'rounded-sm px-4 py-1.5 text-sm font-medium transition-colors',
+                                        canInspect
+                                          ? 'cursor-pointer'
+                                          : 'cursor-not-allowed opacity-70',
                                         'focus-within:ring-2 focus-within:ring-ring',
                                         control_.value === answer.value
                                           ? answer.value === 'FAIL'
@@ -838,6 +867,7 @@ export function InspectionDialog({
                                         name={`qc-boolean-${index}`}
                                         value={answer.value}
                                         checked={control_.value === answer.value}
+                                        disabled={!canInspect}
                                         onChange={() => control_.onChange(answer.value)}
                                         onBlur={control_.onBlur}
                                       />
@@ -854,7 +884,11 @@ export function InspectionDialog({
                               control={control}
                               name={`parameters.${index}.value`}
                               render={({ field: control_ }) => (
-                                <Select value={control_.value} onValueChange={control_.onChange}>
+                                <Select
+                                  value={control_.value}
+                                  onValueChange={control_.onChange}
+                                  disabled={!canInspect}
+                                >
                                   <SelectTrigger
                                     id={`qc-value-${index}`}
                                     className={cn('mt-1.5', failed && 'border-destructive')}
@@ -878,6 +912,7 @@ export function InspectionDialog({
                             <Input
                               id={`qc-value-${index}`}
                               {...register(`parameters.${index}.value`)}
+                              readOnly={!canInspect}
                               autoComplete="off"
                               className="mt-1.5"
                               aria-invalid={Boolean(errors.parameters?.[index]?.value)}
@@ -892,6 +927,7 @@ export function InspectionDialog({
                           <Input
                             id={`qc-remarks-${index}`}
                             {...register(`parameters.${index}.remark`)}
+                            readOnly={!canInspect}
                             autoComplete="off"
                             className="mt-1.5"
                             aria-invalid={Boolean(errors.parameters?.[index]?.remark)}
@@ -899,7 +935,9 @@ export function InspectionDialog({
                           <FieldError message={errors.parameters?.[index]?.remark?.message} />
                         </div>
 
-                        {canUpload && (
+                        {/* photo_document_id is only persisted through the
+                            results post, so the control needs both rights. */}
+                        {canUpload && canInspect && (
                           <div>
                             <Label htmlFor={`qc-photo-${index}`}>Photo</Label>
                             {attachedName ? (
@@ -1028,10 +1066,7 @@ export function InspectionDialog({
                       aria-invalid={Boolean(errors.rejection_reason)}
                       aria-describedby="qc-rejection-reason-hint"
                     />
-                    <p
-                      id="qc-rejection-reason-hint"
-                      className="mt-1 text-xs text-muted-foreground"
-                    >
+                    <p id="qc-rejection-reason-hint" className="mt-1 text-xs text-muted-foreground">
                       The defect itself. Drives the vendor rating.
                     </p>
                     <FieldError message={errors.rejection_reason?.message} />
@@ -1049,6 +1084,17 @@ export function InspectionDialog({
                   <FieldError message={errors.remarks?.message} />
                 </div>
               </div>
+            )}
+
+            {canDecide && !canInspect && fields.length > 0 && (
+              <Alert variant="info">
+                <AlertTitle>Readings are recorded by an inspector</AlertTitle>
+                <AlertDescription>
+                  Your account can disposition this lot but not record its measurements - that needs
+                  the qc.inspect right. The readings above are shown as recorded; only the decision
+                  below is sent.
+                </AlertDescription>
+              </Alert>
             )}
 
             {!canDecide && (

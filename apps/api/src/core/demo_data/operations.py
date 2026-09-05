@@ -1616,6 +1616,7 @@ async def _advance_job_work(
         await job_work_service.receive(
             ctx.session,
             ctx.tenant,
+            ctx.principal,
             order.id,
             ReceiveRequest(
                 reason="Plated levers received back and counted against the challan",

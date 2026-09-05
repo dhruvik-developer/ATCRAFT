@@ -133,7 +133,9 @@ describe('the packing list', () => {
     // the floor because no consignment has been raised to take it.
     renderScreen(<PackingPage />, {
       permissions: [P.PACKING_VIEW],
-      routes: { 'GET /packing': page([order({ status: 'PACKED', packed_date: '2026-09-04T10:00:00Z' })]) },
+      routes: {
+        'GET /packing': page([order({ status: 'PACKED', packed_date: '2026-09-04T10:00:00Z' })]),
+      },
     })
 
     const row = (await screen.findByText('PK-0001')).closest('tr')
@@ -145,7 +147,8 @@ describe('the packing list', () => {
     const recorder = urlRecorder()
     renderScreen(<PackingPage />, {
       permissions: [P.PACKING_VIEW],
-      route: '/packing?status=PACKED&open_only=true&awaiting_dispatch=true&planned_from=2026-09-01&planned_to=2026-09-30',
+      route:
+        '/packing?status=PACKED&open_only=true&awaiting_dispatch=true&planned_from=2026-09-01&planned_to=2026-09-30',
       routes: {
         'GET /packing': ({ url }) => {
           recorder.urls.push(url)
@@ -228,9 +231,7 @@ describe('the hand-over gate', () => {
     )
 
     await user.click(screen.getByRole('button', { name: /hand to dispatch/i }))
-    expect(
-      await screen.findByText(/no consignment waiting to be loaded/i),
-    ).toBeVisible()
+    expect(await screen.findByText(/no consignment waiting to be loaded/i)).toBeVisible()
   })
 
   it('asks only for this customer’s consignments that have not left', async () => {
@@ -330,6 +331,16 @@ describe('what a transition sends', () => {
     expect(await screen.findByText(/it needs a reason/i)).toBeVisible()
     expect(fetch.calls.some((call) => call.path.endsWith('/start'))).toBe(false)
 
+    // `Reason` is bounded 3..255 on the API. A two-character reason is a
+    // pydantic 422 keyed on `reason`, which the query client suppresses on the
+    // assumption the form shows it - so the form has to, or the order looks
+    // started on the bench and is still a draft in the system.
+    await user.type(screen.getByLabelText(/reason/i), 'ok')
+    await user.click(screen.getAllByRole('button', { name: /^start packing$/i }).at(-1)!)
+    expect(await screen.findByText(/between 3 and 255 characters/i)).toBeVisible()
+    expect(fetch.calls.some((call) => call.path.endsWith('/start'))).toBe(false)
+
+    await user.clear(screen.getByLabelText(/reason/i))
     await user.type(screen.getByLabelText(/reason/i), 'Bench free, starting now')
     await user.click(screen.getAllByRole('button', { name: /^start packing$/i }).at(-1)!)
 

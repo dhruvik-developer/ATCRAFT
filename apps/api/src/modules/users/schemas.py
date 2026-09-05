@@ -33,6 +33,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from src.common.codes import clean_name, strip_optional
 from src.core.permissions import Permission
 
 #: Bounds only - the policy itself lives in ``src.core.security``.
@@ -70,25 +71,6 @@ def _normalise_email(value: str) -> str:
     read this string before it ever reaches the column.
     """
     return value.strip().lower()
-
-
-def _clean_name(value: str) -> str:
-    cleaned = " ".join(value.split())
-    if not cleaned:
-        raise ValueError("Name cannot be blank.")
-    return cleaned
-
-
-def _strip_optional(value: str | None) -> str | None:
-    """Collapse a whitespace-only optional field to NULL.
-
-    An empty string and NULL must not both mean "not supplied", or a report
-    filtering on ``employee_code IS NULL`` misses half the contractors.
-    """
-    if value is None:
-        return None
-    stripped = value.strip()
-    return stripped or None
 
 
 def _normalise_role_code(value: str) -> str:
@@ -190,8 +172,8 @@ class UserCreate(_Base):
     preferences: dict[str, Any] | None = None
 
     _email = field_validator("email")(_normalise_email)
-    _name = field_validator("full_name")(_clean_name)
-    _optional = field_validator("phone", "employee_code")(_strip_optional)
+    _name = field_validator("full_name")(clean_name)
+    _optional = field_validator("phone", "employee_code")(strip_optional)
     _permissions = field_validator("extra_permissions", "denied_permissions")(_validate_permissions)
     _ids = field_validator("role_ids", "allowed_category_ids", "allowed_warehouse_ids")(_unique_ids)
 
@@ -245,8 +227,8 @@ class UserUpdate(BaseModel):
     clear_vendor: bool = False
 
     _email = field_validator("email")(_normalise_email)
-    _name = field_validator("full_name")(_clean_name)
-    _optional = field_validator("phone", "employee_code")(_strip_optional)
+    _name = field_validator("full_name")(clean_name)
+    _optional = field_validator("phone", "employee_code")(strip_optional)
 
     @field_validator("extra_permissions", "denied_permissions")
     @classmethod
@@ -450,8 +432,8 @@ class RoleCreate(_Base):
     is_active: bool = True
 
     _code = field_validator("code")(_normalise_role_code)
-    _name = field_validator("name")(_clean_name)
-    _description = field_validator("description")(_strip_optional)
+    _name = field_validator("name")(clean_name)
+    _description = field_validator("description")(strip_optional)
     _permissions = field_validator("permissions")(_validate_permissions)
 
 
@@ -474,8 +456,8 @@ class RoleUpdate(BaseModel):
     permissions: Annotated[list[str], Field(max_length=len(_VALID_PERMISSIONS))] | None = None
     is_active: bool | None = None
 
-    _name = field_validator("name")(_clean_name)
-    _description = field_validator("description")(_strip_optional)
+    _name = field_validator("name")(clean_name)
+    _description = field_validator("description")(strip_optional)
 
     @field_validator("permissions")
     @classmethod
@@ -507,7 +489,7 @@ class RoleFilters(BaseModel):
     @field_validator("grants_permission")
     @classmethod
     def _known_permission(cls, value: str | None) -> str | None:
-        cleaned = _strip_optional(value)
+        cleaned = strip_optional(value)
         if cleaned is not None and cleaned not in _VALID_PERMISSIONS:
             raise ValueError(f"Unknown permission: {cleaned}")
         return cleaned

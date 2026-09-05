@@ -30,6 +30,7 @@ from sqlalchemy.orm import InstrumentedAttribute, load_only
 
 from src.common.repository import BaseRepository
 from src.core.clock import utcnow
+from src.core.database import affected_rows
 from src.core.pagination import SortParams
 from src.modules.customers.models import (
     AddressType,
@@ -308,7 +309,7 @@ class CustomerAddressRepository(BaseRepository[CustomerAddress]):
         )
         if keep_id is not None:
             stmt = stmt.where(CustomerAddress.id != keep_id)
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
     async def next_default_candidate(
         self,
@@ -351,7 +352,7 @@ class CustomerAddressRepository(BaseRepository[CustomerAddress]):
             .values(deleted_at=utcnow(), is_default=False, updated_by_id=self.tenant.user_id)
             .execution_options(synchronize_session=False)
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 class CustomerContactRepository(BaseRepository[CustomerContact]):
@@ -420,7 +421,7 @@ class CustomerContactRepository(BaseRepository[CustomerContact]):
         )
         if keep_id is not None:
             stmt = stmt.where(CustomerContact.id != keep_id)
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
     async def next_primary_candidate(
         self, customer_id: uuid.UUID, *, exclude_id: uuid.UUID
@@ -448,7 +449,7 @@ class CustomerContactRepository(BaseRepository[CustomerContact]):
             .values(deleted_at=utcnow(), is_primary=False, updated_by_id=self.tenant.user_id)
             .execution_options(synchronize_session=False)
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
     async def count_for_customers(self, customer_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, int]:
         """Contact counts for a whole page of customers in one query."""

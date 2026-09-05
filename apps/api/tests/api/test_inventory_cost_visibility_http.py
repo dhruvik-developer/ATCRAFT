@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.deps import Principal
 from src.core.permissions import Permission
 
-pytestmark = pytest.mark.api
+pytestmark = [pytest.mark.api, pytest.mark.integration]
 
 COST_FIELDS = ("average_cost", "stock_value")
 

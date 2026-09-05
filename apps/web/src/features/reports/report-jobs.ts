@@ -135,10 +135,18 @@ export function useReportJob(): ReportJobController {
         : data?.document_id
           ? `/documents/${data.document_id}/download`
           : null
-      if (!target) return
+      if (!target) {
+        // Said here rather than thrown: the mutation cache replaces anything
+        // that is not an `ApiError` with the generic "something went wrong",
+        // and the one thing worth telling the user would be lost.
+        toast.error('Nothing to download', 'This job finished without producing a file.')
+        return
+      }
       await api.download(target)
+      // After the await, so it can only follow a download that actually began.
+      // A failed one throws an `ApiError`, which the mutation cache toasts.
+      toast.success('Download started', 'The file is saving to your device.')
     },
-    onSuccess: () => toast.success('Download started', 'The file is saving to your device.'),
   })
 
   const start = useCallback((accepted: AcceptedJobData) => {

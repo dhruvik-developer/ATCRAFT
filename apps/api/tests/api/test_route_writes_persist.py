@@ -34,8 +34,9 @@ from sqlalchemy.pool import NullPool
 
 from src.core.config import settings
 from src.core.database import SessionFactory, transaction
+from src.modules.organization.models import Company
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.api, pytest.mark.integration]
 
 
 @pytest_asyncio.fixture
@@ -53,15 +54,16 @@ async def checker(_database: None) -> AsyncIterator[AsyncSession]:
 
 
 async def _insert_company(session: AsyncSession, company_id: uuid.UUID) -> None:
-    await session.execute(
-        text(
-            "INSERT INTO companies (id, code, name, country, currency, "
-            "financial_year_start_month, timezone, is_active, created_at, updated_at) "
-            "VALUES (:id, :code, 'Route Probe', 'India', 'INR', 4, 'Asia/Kolkata', "
-            "true, now(), now())"
-        ),
-        {"id": company_id, "code": f"RP{company_id.hex[:8].upper()}"},
-    )
+    """The one fixture row this file needs, built through the ORM.
+
+    A hand-written INSERT names a column list that goes stale the moment the
+    organisation module adds or removes one, and it skips the Python-side
+    defaults many NOT NULL columns rely on (``country``, ``currency``,
+    ``financial_year_start_month``, ``timezone``, ``is_active``) - the trap
+    CLAUDE.md records having cost this suite 43 failures twice.
+    """
+    session.add(Company(id=company_id, code=f"RP{company_id.hex[:8].upper()}", name="Route Probe"))
+    await session.flush()
 
 
 async def _count(checker: AsyncSession, company_id: uuid.UUID) -> int:

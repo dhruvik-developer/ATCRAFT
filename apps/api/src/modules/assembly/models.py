@@ -72,7 +72,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.core.models import OptimisticLockMixin, TenantEntity
+from src.core.models import OptimisticLockMixin, TenantEntity, sql_in_list
 from src.core.types import GUID, Quantity
 
 #: An assembly order with more component lines than this is a data error or a
@@ -150,16 +150,6 @@ CANCELLABLE_STATUSES: tuple[AssemblyOrderStatus, ...] = (
 )
 
 
-def _sql_in_list(values: tuple[StrEnum, ...] | type[StrEnum]) -> str:
-    """Render a status vocabulary as a SQL ``IN`` list.
-
-    Generated from the Python enum so a database CHECK cannot drift away from
-    the values the schemas and the state machine validate against.
-    """
-    members = values if isinstance(values, tuple) else tuple(values)
-    return ", ".join(f"'{member.value}'" for member in members)
-
-
 class AssemblyOrder(TenantEntity, OptimisticLockMixin):
     """One instruction to assemble a quantity of one item from its components."""
 
@@ -207,9 +197,7 @@ class AssemblyOrder(TenantEntity, OptimisticLockMixin):
     #: assembly line is not a work centre in this plant's vocabulary, and
     #: modelling it as a master would force every site to maintain a table
     #: before it could raise its first order.
-    assembly_line: Mapped[str | None] = mapped_column(
-        String(ASSEMBLY_LINE_LENGTH), nullable=True
-    )
+    assembly_line: Mapped[str | None] = mapped_column(String(ASSEMBLY_LINE_LENGTH), nullable=True)
 
     # --- schedule ------------------------------------------------------------
     planned_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -289,7 +277,7 @@ class AssemblyOrder(TenantEntity, OptimisticLockMixin):
             "company_id",
             "item_id",
             "planned_end",
-            postgresql_where=text(f"status IN ({_sql_in_list(OPEN_SUPPLY_STATUSES)})"),
+            postgresql_where=text(f"status IN ({sql_in_list(OPEN_SUPPLY_STATUSES)})"),
         ),
         # THE index behind ready_for_packing: completed, unpacked output, by
         # destination warehouse. Partial for the same reason.
@@ -308,11 +296,9 @@ class AssemblyOrder(TenantEntity, OptimisticLockMixin):
             "qc_held_at",
             postgresql_where=text("qc_held_at IS NOT NULL AND qc_inspection_id IS NULL"),
         ),
+        CheckConstraint(f"status IN ({sql_in_list(AssemblyOrderStatus)})", name="status_known"),
         CheckConstraint(
-            f"status IN ({_sql_in_list(AssemblyOrderStatus)})", name="status_known"
-        ),
-        CheckConstraint(
-            f"source_type IN ({_sql_in_list(AssemblySourceType)})", name="source_type_known"
+            f"source_type IN ({sql_in_list(AssemblySourceType)})", name="source_type_known"
         ),
         CheckConstraint("planned_quantity > 0", name="planned_quantity_positive"),
         CheckConstraint("assembled_quantity >= 0", name="assembled_non_negative"),
@@ -440,9 +426,7 @@ class AssemblyOrderComponent(TenantEntity):
         # Nothing may be consumed that was never handed to the line. This is the
         # constraint that makes ``issued_quantity`` mean something rather than
         # being a number somebody typed.
-        CheckConstraint(
-            "consumed_quantity <= issued_quantity", name="consumed_within_issued"
-        ),
+        CheckConstraint("consumed_quantity <= issued_quantity", name="consumed_within_issued"),
         # A part with no serial numbers cannot have consumed any.
         CheckConstraint(
             "is_serial_tracked_component OR cardinality(consumed_serial_ids) = 0",

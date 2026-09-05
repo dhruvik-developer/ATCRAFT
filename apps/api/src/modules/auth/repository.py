@@ -31,9 +31,11 @@ from typing import Any
 from sqlalchemy import Select, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
+from sqlalchemy.orm.attributes import set_committed_value
 
 from src.common.repository import BaseRepository
 from src.core.clock import utcnow
+from src.core.database import affected_rows
 from src.core.pagination import PageParams, paginate
 from src.core.responses import OffsetPagination
 
@@ -99,13 +101,45 @@ async def find_accounts_by_email(
 
 
 async def get_account(
-    session: AsyncSession, user_id: uuid.UUID, company_id: uuid.UUID
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    company_id: uuid.UUID,
+    *,
+    for_update: bool = False,
 ) -> User | None:
     """Load one account for a credential operation (refresh, password change)."""
     stmt = _live_account_filter(select(User)).where(
         User.id == user_id, User.company_id == company_id
     )
+    if for_update:
+        stmt = stmt.with_for_update(of=User)
     return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def increment_failed_attempts(session: AsyncSession, account: User) -> int:
+    """Add one to the lockout counter in the database and return the new value.
+
+    Not ``account.failed_login_attempts += 1``: that is a read-modify-write on
+    an unlocked row, and parallel wrong passwords for one account each read N
+    and write N+1, so the threshold is reached late or never. The Redis
+    per-email limiter normally bounds this, but it fails open by design when
+    Redis is down - at which point this counter is the only account-level
+    defence left, racing across every Gunicorn worker. One ``UPDATE ... SET n
+    = n + 1 RETURNING n`` is serialised by the row itself.
+
+    The in-memory copy is updated as a committed value so the flush does not
+    issue a second UPDATE writing the same number back.
+    """
+    stmt = (
+        update(User)
+        .where(User.id == account.id, User.company_id == account.company_id)
+        .values(failed_login_attempts=User.failed_login_attempts + 1)
+        .returning(User.failed_login_attempts)
+        .execution_options(synchronize_session=False)
+    )
+    attempts = int((await session.execute(stmt)).scalar_one())
+    set_committed_value(account, "failed_login_attempts", attempts)
+    return attempts
 
 
 async def get_account_summary(
@@ -183,8 +217,20 @@ class UserSessionRepository(BaseRepository[UserSession]):
         "expires_at": UserSession.expires_at,
     }
 
-    async def get_by_session_id(self, session_id: str) -> UserSession | None:
-        return await self.get_by_field("session_id", session_id)
+    async def get_by_session_id(
+        self, session_id: str, *, for_update: bool = False
+    ) -> UserSession | None:
+        """One session by its public id, optionally locked for rotation.
+
+        ``for_update`` is what makes "a replay burns the family" true under
+        concurrency: two requests presenting the same refresh token serialise
+        on the row, so the second one reads the rotation the first committed
+        instead of an unlocked snapshot that still says ACTIVE.
+        """
+        stmt = self._scoped().where(UserSession.session_id == session_id)
+        if for_update:
+            stmt = stmt.with_for_update(of=UserSession)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
     async def list_active_for_user(
         self, user_id: uuid.UUID, params: PageParams
@@ -356,22 +402,24 @@ class PasswordResetTokenRepository(BaseRepository[PasswordResetToken]):
                 PasswordResetToken.user_id == user_id,
                 PasswordResetToken.used_at.is_(None),
             )
-            .values(used_at=utcnow())
+            .values(used_at=utcnow(), email_token_ciphertext=None)
             .execution_options(synchronize_session=False)
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
     def create_token(
         self,
         *,
         user_id: uuid.UUID,
         token_hash: str,
+        email_token_ciphertext: str | None,
         expires_at: datetime,
         requested_ip: str | None,
     ) -> PasswordResetToken:
         record = PasswordResetToken(
             user_id=user_id,
             token_hash=token_hash,
+            email_token_ciphertext=email_token_ciphertext,
             expires_at=expires_at,
             requested_ip=requested_ip,
         )
@@ -380,6 +428,7 @@ class PasswordResetTokenRepository(BaseRepository[PasswordResetToken]):
 
     async def mark_used(self, record: PasswordResetToken) -> PasswordResetToken:
         record.used_at = utcnow()
+        record.email_token_ciphertext = None
         await self.session.flush()
         return record
 
@@ -403,6 +452,7 @@ __all__ = [
     "find_reset_token",
     "get_account",
     "get_account_summary",
+    "increment_failed_attempts",
     "record_login_attempt",
     "session_ids_for",
 ]

@@ -20,7 +20,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { ScanBarcode } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { Label, Badge, Input, Skeleton } from '@/components/ui/primitives'
 import {
@@ -30,15 +30,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/overlays'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
+import { SELECT_NONE } from '@/lib/constants'
 import { formatQuantity, humanise, toDecimal } from '@/lib/format'
 import { staleTimes } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
 
 import type { StockBatch, StockSerial } from './dispatch-types'
-
-/** Radix Select forbids an empty option value, so "not chosen" needs a sentinel. */
-const NONE = '__none'
 
 /** One page of candidates. Both endpoints page on the server. */
 const STOCK_PAGE = 50
@@ -71,12 +70,15 @@ export function BatchSelect({
       <Label htmlFor={id} required>
         Batch
       </Label>
-      <Select value={value || NONE} onValueChange={(next) => onChange(next === NONE ? '' : next)}>
+      <Select
+        value={value || SELECT_NONE}
+        onValueChange={(next) => onChange(next === SELECT_NONE ? '' : next)}
+      >
         <SelectTrigger id={id}>
           <SelectValue placeholder="Choose the batch" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value={NONE}>Not chosen</SelectItem>
+          <SelectItem value={SELECT_NONE}>Not chosen</SelectItem>
           {rows.map((batch) => (
             <SelectItem key={batch.id} value={batch.id}>
               {batch.batch_number}
@@ -113,12 +115,8 @@ export function SerialPicker({
   onChange: (serialIds: string[]) => void
 }) {
   const [term, setTerm] = useState('')
-  const [debounced, setDebounced] = useState('')
 
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(term.trim()), 300)
-    return () => clearTimeout(timer)
-  }, [term])
+  const debounced = useDebouncedValue(term)
 
   const params = {
     item_id: itemId,

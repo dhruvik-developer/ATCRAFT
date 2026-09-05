@@ -20,6 +20,7 @@ from src.modules.documents.models import DocumentCategory
 from src.modules.documents.service import (
     CATEGORY_DIRECTORY,
     KNOWN_TYPES,
+    STORAGE_KEY_UNUSABLE,
     build_storage_key,
     resolve_storage_path,
 )
@@ -137,6 +138,12 @@ class TestPathTraversalGuard:
         # FILE_NOT_FOUND, not a "type not allowed": from the caller's side an
         # unusable key is a missing file, and saying more describes the layout.
         assert exc.value.code is ErrorCode.FILE_NOT_FOUND
+        # And 404 to match: the key is server-generated, so a caller who only
+        # sent a document id has not made a malformed request. The message
+        # must not name the internal concept either.
+        assert exc.value.status_code == 404
+        assert exc.value.message == STORAGE_KEY_UNUSABLE
+        assert "key" not in exc.value.message.lower()
 
     def test_a_generated_key_resolves_inside_the_storage_root(self) -> None:
         key = build_storage_key(

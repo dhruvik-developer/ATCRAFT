@@ -238,21 +238,120 @@ describe('the create button and the tabs', () => {
     expect(await screen.findByRole('button', { name: /new user/i })).toBeVisible()
   })
 
-  it('hides the roles and matrix tabs without role.view', async () => {
+  it('hides the roles and matrix tabs without role.view, and never asks for /roles', async () => {
     // Both tabs read `/roles` and the permission catalogue, which the API gates
-    // on `role.view`. Offering the tab produces a page that can only 403.
-    renderUsers([P.USER_VIEW])
-    await settled()
+    // on `role.view`. Offering the tab produces a page that can only 403 - and
+    // so did the role lookup behind the Users grid, which used to fire
+    // regardless and raise a "Not permitted" toast on every visit.
+    const { fetch } = renderUsers([P.USER_VIEW])
+    // Not `settled()`: that waits for the role badge, which needs `/roles`.
+    await screen.findByText('Priya Shah')
 
     expect(screen.getByRole('tab', { name: /users/i })).toBeVisible()
     expect(screen.queryByRole('tab', { name: /^roles/i })).toBeNull()
     expect(screen.queryByRole('tab', { name: /permission matrix/i })).toBeNull()
+    // A role filter that can never be populated is not offered either.
+    expect(screen.queryByRole('combobox', { name: /filter by role/i })).toBeNull()
+    expect(fetch.calls.some((call) => call.method === 'GET' && call.path === '/roles')).toBe(false)
+  })
+
+  it('lands a role.view-only reviewer on the Roles tab and never asks for /users', async () => {
+    // The mirror case. The route mounts the page for either right, and the
+    // Users tab used to be the unconditional default: a role reviewer landed on
+    // a grid whose only request could 403.
+    const { fetch } = renderUsers([P.ROLE_VIEW])
+
+    expect(await screen.findByRole('tab', { name: /^roles/i })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(screen.queryByRole('tab', { name: /users/i })).toBeNull()
+    await screen.findByText('STORES')
+    expect(fetch.calls.some((call) => call.method === 'GET' && call.path === '/users')).toBe(false)
   })
 
   it('shows them once role.view is granted', async () => {
     renderUsers(READ_ONLY)
     expect(await screen.findByRole('tab', { name: /^roles/i })).toBeVisible()
     expect(screen.getByRole('tab', { name: /permission matrix/i })).toBeVisible()
+  })
+})
+
+describe('what the dialogs do when the record behind them cannot be loaded', () => {
+  const DIRECTORY_DOWN = fail(
+    503,
+    'SERVICE_UNAVAILABLE',
+    'The directory is temporarily unavailable',
+  )
+
+  it('will not offer a role checklist seeded from nothing', async () => {
+    // `POST /users/{id}/roles` replaces the role set wholesale. With the detail
+    // unloaded the checklist rendered from the empty defaults with every role
+    // unticked, so ticking one and saving stripped the rest from the account -
+    // and the dialog itself looked perfectly healthy while it did so.
+    const { user, fetch } = renderUsers([...READ_ONLY, P.PERMISSION_ASSIGN], {
+      ...baseRoutes(),
+      'GET /users/u-priya': DIRECTORY_DOWN,
+    })
+    await openActions(user, 'Priya Shah')
+    await user.click(screen.getByRole('menuitem', { name: /assign roles/i }))
+
+    expect(await screen.findByText("Could not load this account's roles")).toBeVisible()
+    expect(screen.getByText('The directory is temporarily unavailable')).toBeVisible()
+    expect(screen.getByRole('button', { name: /save roles/i })).toBeDisabled()
+    expect(screen.queryByRole('checkbox')).toBeNull()
+    expect(screen.queryByLabelText(/^reason/i)).toBeNull()
+    expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+  })
+
+  it('shows the failure instead of a blank create form under an Edit heading', async () => {
+    // Create-or-edit used to follow the fetched detail rather than the intent:
+    // with the detail unloaded the "Edit" dialog held the blank defaults and
+    // "Save changes" ran the POST branch, creating a second account.
+    const { user, fetch } = renderUsers([...READ_ONLY, P.USER_UPDATE], {
+      ...baseRoutes(),
+      'GET /organization/departments': page([]),
+      'GET /users/u-priya': DIRECTORY_DOWN,
+    })
+    await openActions(user, 'Priya Shah')
+    await user.click(screen.getByRole('menuitem', { name: /edit details/i }))
+
+    expect(await screen.findByText('Could not load this user')).toBeVisible()
+    expect(screen.queryByLabelText(/full name/i)).toBeNull()
+    expect(screen.queryByRole('button', { name: /save changes/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /create user/i })).toBeNull()
+    expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+  })
+
+  it('saves an edit with PATCH against the account it opened, never POST', async () => {
+    const detail = {
+      ...userRow(),
+      phone: null,
+      mfa_enabled: false,
+      failed_login_attempts: 0,
+      password_changed_at: null,
+      updated_at: '2026-08-30T09:15:00Z',
+      roles: [STORES_ROLE],
+    }
+    const { user, fetch } = renderUsers([...READ_ONLY, P.USER_UPDATE], {
+      ...baseRoutes(),
+      'GET /organization/departments': page([]),
+      'GET /users/u-priya': ok(detail),
+      'PATCH /users/u-priya': ok(detail),
+    })
+    await openActions(user, 'Priya Shah')
+    await user.click(screen.getByRole('menuitem', { name: /edit details/i }))
+
+    // The fields are seeded from the detail before they are offered at all.
+    await waitFor(() => expect(screen.getByLabelText(/full name/i)).toHaveValue('Priya Shah'))
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => fetch.requestFor('PATCH', '/users/u-priya'))
+    expect(fetch.requestFor('PATCH', '/users/u-priya')).toMatchObject({
+      email: 'priya@atcraft.example',
+      full_name: 'Priya Shah',
+    })
+    expect(fetch.calls.some((call) => call.method === 'POST' && call.path === '/users')).toBe(false)
   })
 })
 
@@ -378,9 +477,7 @@ describe('what the server says about the reset reaches the user', () => {
     // The mutation cache suppresses the toast for a 422 carrying field errors,
     // on the understanding that the form shows them inline. If this stops
     // working the user sees nothing at all.
-    expect(
-      await screen.findByText('A reason of at least ten characters is required'),
-    ).toBeVisible()
+    expect(await screen.findByText('A reason of at least ten characters is required')).toBeVisible()
   })
 
   it('keeps the dialog open on a 403 rather than reporting a reset that never happened', async () => {
@@ -470,10 +567,7 @@ describe('deactivation', () => {
   })
 
   it('offers activation, not deactivation, for an account already switched off', async () => {
-    const { user } = renderUsers(
-      DEACTIVATE_RIGHTS,
-      baseRoutes([userRow({ is_active: false })]),
-    )
+    const { user } = renderUsers(DEACTIVATE_RIGHTS, baseRoutes([userRow({ is_active: false })]))
     await openActions(user, 'Priya Shah')
 
     // Offering "Deactivate" on an inactive account puts the user through a

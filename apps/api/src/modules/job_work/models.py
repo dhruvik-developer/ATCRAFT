@@ -77,7 +77,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.core.models import OptimisticLockMixin, TenantEntity
+from src.core.models import OptimisticLockMixin, TenantEntity, sql_in_list
 from src.core.types import GUID, Money, Percentage, Quantity, UnitPrice
 
 #: An order with more lines than this is a bulk import, not a consignment a
@@ -211,16 +211,6 @@ CANCELLABLE_STATUSES: tuple[JobWorkOrderStatus, ...] = (
 )
 
 
-def _sql_in_list(values: tuple[StrEnum, ...] | type[StrEnum]) -> str:
-    """Render a status vocabulary as a SQL ``IN`` list.
-
-    Generated from the Python enum so a database CHECK cannot drift away from
-    the values the schemas and the state machine validate against.
-    """
-    members = values if isinstance(values, tuple) else tuple(values)
-    return ", ".join(f"'{member.value}'" for member in members)
-
-
 class JobWorkOrder(TenantEntity, OptimisticLockMixin):
     """One instruction to send material to a vendor and get it back processed."""
 
@@ -351,15 +341,15 @@ class JobWorkOrder(TenantEntity, OptimisticLockMixin):
             "company_id",
             "vendor_id",
             "expected_return_date",
-            postgresql_where=text(f"status IN ({_sql_in_list(MATERIAL_AT_VENDOR_STATUSES)})"),
+            postgresql_where=text(f"status IN ({sql_in_list(MATERIAL_AT_VENDOR_STATUSES)})"),
         ),
-        CheckConstraint(f"status IN ({_sql_in_list(JobWorkOrderStatus)})", name="status_known"),
+        CheckConstraint(f"status IN ({sql_in_list(JobWorkOrderStatus)})", name="status_known"),
         CheckConstraint(
-            f"process_type IN ({_sql_in_list(JobWorkProcess)})", name="process_type_known"
+            f"process_type IN ({sql_in_list(JobWorkProcess)})", name="process_type_known"
         ),
-        CheckConstraint(f"rate_basis IN ({_sql_in_list(RateBasis)})", name="rate_basis_known"),
+        CheckConstraint(f"rate_basis IN ({sql_in_list(RateBasis)})", name="rate_basis_known"),
         CheckConstraint(
-            f"source_type IN ({_sql_in_list(JobWorkSourceType)})", name="source_type_known"
+            f"source_type IN ({sql_in_list(JobWorkSourceType)})", name="source_type_known"
         ),
         CheckConstraint("rate_per_unit >= 0", name="rate_non_negative"),
         CheckConstraint("estimated_charges >= 0", name="estimated_charges_non_negative"),
@@ -463,9 +453,7 @@ class JobWorkOrderLine(TenantEntity):
         UniqueConstraint(
             "job_work_order_id", "line_number", name="uq_job_work_order_lines_order_line_number"
         ),
-        Index(
-            "ix_job_work_order_lines_order", "company_id", "job_work_order_id", "line_number"
-        ),
+        Index("ix_job_work_order_lines_order", "company_id", "job_work_order_id", "line_number"),
         # "Which orders have this part out at a vendor?" - shortage analysis and
         # the item's own stock story.
         Index("ix_job_work_order_lines_item", "company_id", "item_id"),
@@ -524,9 +512,7 @@ class JobWorkChallan(TenantEntity):
     challan_date: Mapped[date] = mapped_column(Date, nullable=False)
     expected_return_date: Mapped[date] = mapped_column(Date, nullable=False)
 
-    vehicle_number: Mapped[str | None] = mapped_column(
-        String(VEHICLE_NUMBER_LENGTH), nullable=True
-    )
+    vehicle_number: Mapped[str | None] = mapped_column(String(VEHICLE_NUMBER_LENGTH), nullable=True)
     #: Optional: goods handed to the vendor's own vehicle have no transporter.
     transporter_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("transporters.id", ondelete="RESTRICT"), nullable=True
@@ -553,9 +539,7 @@ class JobWorkChallan(TenantEntity):
         Index("ix_job_work_challans_order", "company_id", "job_work_order_id"),
         CheckConstraint("total_quantity > 0", name="total_quantity_positive"),
         CheckConstraint("total_value >= 0", name="total_value_non_negative"),
-        CheckConstraint(
-            "expected_return_date >= challan_date", name="return_not_before_despatch"
-        ),
+        CheckConstraint("expected_return_date >= challan_date", name="return_not_before_despatch"),
     )
 
 
@@ -698,9 +682,7 @@ class JobWorkReceipt(TenantEntity):
     #: released is what "still awaiting inspection" means, so the release is its
     #: own column rather than clearing ``qc_held_at`` - blanking the hold date
     #: would destroy the evidence of how long the stock sat there.
-    qc_released_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    qc_released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     #: The ``qc_inspections`` row raised for this lot, when quality is deployed.
     #: Bare UUID, no foreign key - see the module docstring.
     qc_inspection_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
@@ -852,12 +834,10 @@ class JobWorkReceiptLine(TenantEntity):
         Index("ix_job_work_receipt_lines_receipt", "company_id", "receipt_id", "line_number"),
         # "Everything ever received against this order line" - the per-line
         # reconciliation and the vendor's delivery history.
-        Index(
-            "ix_job_work_receipt_lines_order_line", "company_id", "job_work_order_line_id"
-        ),
+        Index("ix_job_work_receipt_lines_order_line", "company_id", "job_work_order_line_id"),
         CheckConstraint("line_number > 0", name="line_number_positive"),
         CheckConstraint(
-            f"rejection_action IN ({_sql_in_list(RejectionAction)})",
+            f"rejection_action IN ({sql_in_list(RejectionAction)})",
             name="rejection_action_known",
         ),
         CheckConstraint("output_quantity >= 0", name="output_non_negative"),
@@ -871,9 +851,7 @@ class JobWorkReceiptLine(TenantEntity):
         # nobody meant to write.
         CheckConstraint("input_consumed_quantity > 0", name="input_consumed_positive"),
         # The excess is a part of the loss, never additional to it.
-        CheckConstraint(
-            "excess_loss_quantity <= scrap_quantity", name="excess_loss_within_scrap"
-        ),
+        CheckConstraint("excess_loss_quantity <= scrap_quantity", name="excess_loss_within_scrap"),
         # Scrap and unprocessed returns are both drawn from the pool, so neither
         # can exceed what the line took out of it.
         CheckConstraint(

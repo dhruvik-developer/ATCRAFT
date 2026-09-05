@@ -61,6 +61,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useUomOptions } from '@/features/items/item-model'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { api } from '@/lib/api-client'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import {
   daysUntil,
   formatDate,
@@ -71,6 +72,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
+import { messages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -93,6 +95,7 @@ import {
   type PurchaseOrderRow,
   type PurchaseOrderTracking,
 } from './procurement-types'
+import { serverFieldMessage } from './server-field-errors'
 
 // -------------------------------------------------------------- stepper -----
 
@@ -404,7 +407,7 @@ const COMMAND_COPY: Record<
     confirmLabel: 'Submit',
     destructive: false,
     reasonRequired: false,
-    success: 'Sent for approval',
+    success: success.submitted('Purchase order'),
   },
   approve: {
     title: 'Approve this order?',
@@ -413,7 +416,7 @@ const COMMAND_COPY: Record<
     confirmLabel: 'Approve order',
     destructive: false,
     reasonRequired: false,
-    success: 'Order approved',
+    success: success.approved('Purchase order'),
   },
   reject: {
     title: 'Reject this order?',
@@ -422,7 +425,7 @@ const COMMAND_COPY: Record<
     confirmLabel: 'Reject order',
     destructive: true,
     reasonRequired: true,
-    success: 'Order rejected',
+    success: success.rejected('Purchase order'),
   },
   send: {
     title: 'Send to the vendor?',
@@ -431,7 +434,7 @@ const COMMAND_COPY: Record<
     confirmLabel: 'Send order',
     destructive: false,
     reasonRequired: false,
-    success: 'Order sent',
+    success: success.sent('Purchase order'),
   },
   acknowledge: {
     title: 'Record the vendor acknowledgement?',
@@ -439,7 +442,7 @@ const COMMAND_COPY: Record<
     confirmLabel: 'Record acknowledgement',
     destructive: false,
     reasonRequired: false,
-    success: 'Acknowledgement recorded',
+    success: success.statusChanged('Purchase order', 'acknowledged'),
   },
   cancel: {
     title: 'Cancel this order?',
@@ -448,7 +451,7 @@ const COMMAND_COPY: Record<
     confirmLabel: 'Cancel order',
     destructive: true,
     reasonRequired: true,
-    success: 'Order cancelled',
+    success: success.cancelled('Purchase order'),
   },
 }
 
@@ -460,6 +463,16 @@ export default function PurchaseOrderDetailPage() {
   const [command, setCommand] = useState<Command | null>(null)
   const [reason, setReason] = useState('')
   const [reasonTouched, setReasonTouched] = useState(false)
+  // What the API said about the reason, if it refused it. Cleared the moment
+  // the text changes so a stale verdict does not outlive the edit.
+  const [serverReason, setServerReason] = useState<string | null>(null)
+
+  const resetCommand = () => {
+    setCommand(null)
+    setReason('')
+    setReasonTouched(false)
+    setServerReason(null)
+  }
 
   const orderQuery = useQuery({
     queryKey: queryKeys.procurement.purchaseOrder(poId),
@@ -474,7 +487,9 @@ export default function PurchaseOrderDetailPage() {
   // payload - the same request the panel below makes - and the rest from the
   // bounded reference lists their modules publish for pickers.
   const tracking = usePurchaseOrderTracking(poId)
-  const vendorName = tracking.data?.vendor_name ?? null
+  // `||` rather than `??`: the API sends an empty name when the vendor is not
+  // in its lookup, and an empty link is worse than the fallback below.
+  const vendorName = tracking.data?.vendor_name || null
   const warehouses = useWarehouseOptions(can(P.WAREHOUSE_VIEW))
   const warehouseById = useMemo(() => indexById(warehouses.data), [warehouses.data])
   const uoms = useUomOptions(can(P.UOM_VIEW))
@@ -499,10 +514,11 @@ export default function PurchaseOrderDetailPage() {
         COMMAND_COPY[variables.action].success,
         `${updated.code} is now ${humanise(updated.status).toLowerCase()}.`,
       )
-      setCommand(null)
-      setReason('')
-      setReasonTouched(false)
+      resetCommand()
     },
+    // The global handler stays quiet on a 422 that names a field, on the
+    // understanding that the form shows it. This dialog is the form.
+    onError: (error) => setServerReason(serverFieldMessage(error, 'reason')),
   })
 
   const lineColumns = useMemo<ColumnDef<PurchaseOrderLine, unknown>[]>(
@@ -670,7 +686,7 @@ export default function PurchaseOrderDetailPage() {
     return (
       <div className="space-y-4">
         <Skeleton className="h-7 w-64" />
-        <Skeleton className="h-4 w-96" />
+        <Skeleton className="h-4 w-full max-w-sm" />
         <Skeleton className="h-10 w-full" />
         <div className="grid gap-4 lg:grid-cols-3">
           <Skeleton className="h-64 lg:col-span-2" />
@@ -727,7 +743,9 @@ export default function PurchaseOrderDetailPage() {
 
   const lateDays = daysIfLate(order)
   const copy = command ? COMMAND_COPY[command] : null
-  const reasonTooShort = reason.trim().length < 3
+  const reasonTooShort = reason.trim().length < REASON_MIN_LENGTH
+  const reasonTooLong = reason.trim().length > REASON_MAX_LENGTH
+  const reasonInvalid = (Boolean(copy?.reasonRequired) && reasonTooShort) || reasonTooLong
 
   return (
     <>
@@ -823,9 +841,19 @@ export default function PurchaseOrderDetailPage() {
                 items={[
                   {
                     label: 'Vendor',
+                    // The name comes from the tracking request alone, so its
+                    // state decides the fallback: "Loading..." only while it
+                    // is actually loading, never as a permanent answer to a
+                    // request that failed. There is deliberately no vendor
+                    // detail route, so the link opens the list.
                     value: (
-                      <Link to="/vendors" className="hover:underline">
-                        {vendorName ?? 'Loading...'}
+                      <Link to="/vendors" className="hover:underline" title="Open vendors">
+                        {vendorName ||
+                          (tracking.isLoading
+                            ? 'Loading...'
+                            : tracking.error
+                              ? 'Not available'
+                              : '-')}
                       </Link>
                     ),
                   },
@@ -919,11 +947,7 @@ export default function PurchaseOrderDetailPage() {
       <ConfirmDialog
         open={Boolean(command)}
         onOpenChange={(open) => {
-          if (!open) {
-            setCommand(null)
-            setReason('')
-            setReasonTouched(false)
-          }
+          if (!open) resetCommand()
         }}
         title={copy ? `${copy.title.replace('this order', order.code)}` : ''}
         description={copy?.description}
@@ -932,7 +956,7 @@ export default function PurchaseOrderDetailPage() {
         loading={run.isPending}
         onConfirm={() => {
           if (!command) return
-          if (COMMAND_COPY[command].reasonRequired && reasonTooShort) {
+          if (reasonInvalid) {
             setReasonTouched(true)
             return
           }
@@ -946,13 +970,21 @@ export default function PurchaseOrderDetailPage() {
           <Textarea
             id="po-command-reason"
             value={reason}
-            onChange={(event) => setReason(event.target.value)}
+            maxLength={REASON_MAX_LENGTH}
+            onChange={(event) => {
+              setReason(event.target.value)
+              setServerReason(null)
+            }}
             className="mt-1.5"
-            aria-invalid={Boolean(copy?.reasonRequired) && reasonTouched && reasonTooShort}
+            aria-invalid={(reasonTouched && reasonInvalid) || serverReason !== null}
           />
-          {copy?.reasonRequired && reasonTouched && reasonTooShort && (
-            <FieldError message="Record at least three characters of reason" />
+          {reasonTouched && copy?.reasonRequired && reasonTooShort && (
+            <FieldError message={messages.errors.reasonTooShort} />
           )}
+          {reasonTouched && reasonTooLong && (
+            <FieldError message={`At most ${REASON_MAX_LENGTH} characters`} />
+          )}
+          {serverReason !== null && <FieldError message={serverReason} />}
         </div>
       </ConfirmDialog>
     </>

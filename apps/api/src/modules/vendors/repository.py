@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
+from src.core.database import affected_rows
 from src.core.pagination import SortParams
 
 # Read-only references to other modules' master tables. Vendors validate that a
@@ -399,7 +400,7 @@ class VendorContactRepository(BaseRepository[VendorContact]):
         )
         if keep_id is not None:
             stmt = stmt.where(VendorContact.id != keep_id)
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
     async def role_taken(
         self,
@@ -506,7 +507,7 @@ class VendorCategoryRepository(BaseRepository[VendorCategory]):
         )
         if keep_id is not None:
             stmt = stmt.where(VendorCategory.id != keep_id)
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
     async def delete_for_vendor(self, vendor_id: uuid.UUID) -> int:
         """Drop every qualification of a vendor in one statement.
@@ -520,7 +521,7 @@ class VendorCategoryRepository(BaseRepository[VendorCategory]):
             VendorCategory.company_id == self.tenant.company_id,
             VendorCategory.vendor_id == vendor_id,
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 class TransporterRepository(BaseRepository[Transporter]):

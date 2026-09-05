@@ -39,7 +39,12 @@ import { formatDate, formatMoney, formatNumber, formatPercent, toDecimal } from 
 import { staleTimes } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
 
-import { financeKeys, type GstSection, type GstSummary } from './finance-types'
+import {
+  financeKeys,
+  RETURN_PERIOD_PATTERN,
+  type GstSection,
+  type GstSummary,
+} from './finance-types'
 
 const COMPONENTS: { key: keyof GstSection; label: string; emphasis?: boolean }[] = [
   { key: 'taxable_amount', label: 'Taxable value' },
@@ -55,9 +60,6 @@ function amountOf(section: GstSection | undefined, key: keyof GstSection): strin
   return typeof value === 'string' ? value : '0'
 }
 
-/** `YYYY-MM`, with the month constrained so a stray URL cannot ask for month 13. */
-const PERIOD_PATTERN = /^(\d{4})-(0[1-9]|1[0-2])$/
-
 /**
  * The first and last day of the month a return is filed for.
  *
@@ -69,7 +71,7 @@ const PERIOD_PATTERN = /^(\d{4})-(0[1-9]|1[0-2])$/
  * strings out, and the same bounds on every machine.
  */
 function periodBounds(period: string): { from: string; to: string } | null {
-  const match = PERIOD_PATTERN.exec(period)
+  const match = RETURN_PERIOD_PATTERN.exec(period)
   if (!match) return null
   const [, year, month] = match
   // Day zero of the following month is the last day of this one, and `Date.UTC`
@@ -102,8 +104,10 @@ export function GstSummaryTab({
   })
 
   const data = summary.data
-  const net = toDecimal(data?.net_payable)
-  const isCredit = net.lessThanOrEqualTo(0)
+  // Read off a loaded statement only. `toDecimal(undefined)` is zero, so a
+  // failed load would otherwise paint a green "credit carried forward" of
+  // nothing - a filed-looking nil return where there is no return at all.
+  const isCredit = data ? toDecimal(data.net_payable).lessThanOrEqualTo(0) : false
 
   return (
     <div className="space-y-4">
@@ -146,10 +150,10 @@ export function GstSummaryTab({
         </Alert>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-3">
         <StatTile
           label="Output tax"
-          value={formatMoney(data?.output.total_tax)}
+          value={data ? formatMoney(data.output.total_tax) : '-'}
           hint={
             data
               ? `${formatNumber(data.output.rows?.length ?? 0)} rate slabs`
@@ -159,7 +163,7 @@ export function GstSummaryTab({
         />
         <StatTile
           label="Input tax credit"
-          value={formatMoney(data?.input.total_tax)}
+          value={data ? formatMoney(data.input.total_tax) : '-'}
           hint={
             data
               ? `${formatNumber(data.input.rows?.length ?? 0)} rate slabs`
@@ -169,18 +173,21 @@ export function GstSummaryTab({
         />
         <StatTile
           label={isCredit ? 'Credit carried forward' : 'Net tax payable'}
-          value={formatMoney(data?.net_payable)}
-          hint={
-            data
-              ? `CGST ${formatMoney(data.net_cgst)} / SGST ${formatMoney(
-                  data.net_sgst,
-                )} / IGST ${formatMoney(data.net_igst)}`
-              : undefined
-          }
-          tone={isCredit ? 'success' : 'warning'}
+          value={data ? formatMoney(data.net_payable) : '-'}
+          tone={!data ? 'default' : isCredit ? 'success' : 'warning'}
           isLoading={summary.isLoading}
         />
       </div>
+
+      {/* On its own line rather than as the net tile's hint: StatTile shows a
+          hint on one truncated line, and the three figures together are wider
+          than a tile at every three-column width below xl. */}
+      {data && (
+        <p className="text-xs text-muted-foreground">
+          Net split: CGST {formatMoney(data.net_cgst)} / SGST {formatMoney(data.net_sgst)} / IGST{' '}
+          {formatMoney(data.net_igst)}
+        </p>
+      )}
 
       <Card>
         <CardHeader className="pb-2">
@@ -197,8 +204,15 @@ export function GstSummaryTab({
               ))}
             </div>
           ) : !data ? (
+            // Reachable only when the load failed or the period could not be
+            // asked for, so the copy names the cause rather than asserting an
+            // empty return.
             <p className="py-10 text-center text-sm text-muted-foreground">
-              No GST figures are available for this period.
+              {summary.error
+                ? 'The GST summary could not be loaded.'
+                : !bounds
+                  ? 'The period in the address is not a valid month. Choose a return period above.'
+                  : 'No GST figures are available for this period.'}
             </p>
           ) : (
             <div className="overflow-x-auto">

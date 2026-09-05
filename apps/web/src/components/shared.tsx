@@ -1,16 +1,18 @@
 /**
  * Cross-feature building blocks: page header, status badge, stat tile,
- * confirmation dialog, description list, field error.
+ * confirmation dialog, description list, field error, date-range filter,
+ * panel loader.
  *
  * These exist so twenty screens present a status, a heading and a destructive
  * confirmation the same way. Divergence there is what makes an ERP feel
  * assembled by committee.
  */
 
-import { AlertTriangle, ChevronRight, type LucideIcon } from 'lucide-react'
-import { type ReactNode } from 'react'
+import { AlertTriangle, ChevronRight, Loader2, type LucideIcon } from 'lucide-react'
+import { type ComponentPropsWithoutRef, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 
+import { prefetchRoute } from '@/app/route-loaders'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -20,9 +22,25 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/overlays'
-import { Badge, Card, CardContent, Skeleton } from '@/components/ui/primitives'
+import { Badge, Card, CardContent, Input, Label, Skeleton } from '@/components/ui/primitives'
 import { humanise } from '@/lib/format'
 import { cn } from '@/lib/utils'
+
+// ------------------------------------------------------------ PanelLoader ---
+
+/**
+ * Suspense fallback for a lazily-loaded panel inside an already-rendered page.
+ *
+ * Sized for a tab body rather than a whole route, so switching to a chart tab
+ * does not collapse the page around the spinner.
+ */
+export function PanelLoader() {
+  return (
+    <div className="grid h-64 place-items-center" role="status" aria-label="Loading">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+    </div>
+  )
+}
 
 // ------------------------------------------------------------ PageHeader ----
 
@@ -68,14 +86,16 @@ export function PageHeader({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="truncate text-xl font-semibold tracking-tight">{title}</h1>
+            <h1 className="min-w-0 break-words text-xl font-semibold tracking-tight">{title}</h1>
             {status}
           </div>
           {description && (
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p>
           )}
         </div>
-        {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+        {/* No shrink-0 here: a flex item that cannot shrink is sized to all of
+            its buttons on one line, so the inner flex-wrap would never fire. */}
+        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
     </div>
   )
@@ -191,6 +211,10 @@ export function StatTile({
     warning: 'text-warning',
     destructive: 'text-destructive',
   }[tone]
+  // The value truncates on a narrow tile, so the full figure has to be
+  // reachable somewhere - the title is where a truncated string belongs.
+  const valueTitle =
+    typeof value === 'string' || typeof value === 'number' ? String(value) : undefined
 
   const body = (
     <Card className={cn('h-full transition-colors', to && 'hover:border-primary/40')}>
@@ -207,18 +231,31 @@ export function StatTile({
           {isLoading ? (
             <Skeleton className="mt-1.5 h-7 w-20" />
           ) : (
-            <p className={cn('mt-0.5 truncate text-2xl font-semibold tabular', toneClass)}>
+            <p
+              className={cn('mt-0.5 truncate text-2xl font-semibold tabular', toneClass)}
+              title={valueTitle}
+            >
               {value}
             </p>
           )}
-          {hint && <p className="mt-0.5 truncate text-xs text-muted-foreground">{hint}</p>}
+          {hint && (
+            <p className="mt-0.5 truncate text-xs text-muted-foreground" title={hint}>
+              {hint}
+            </p>
+          )}
         </div>
       </CardContent>
     </Card>
   )
 
+  // A KPI tile is one of the most-clicked ways into a screen, so warm its chunk
+  // on hover and on focus the way the sidebar already does. `prefetchRoute` is
+  // idempotent, ignores a path it has no loader for, and swallows failures, so
+  // this costs nothing when the tile points at a detail route or an anchor.
+  const warm = to ? () => prefetchRoute(to) : undefined
+
   return to ? (
-    <Link to={to} className="block focus-visible:rounded-lg">
+    <Link to={to} className="block focus-visible:rounded-lg" onMouseEnter={warm} onFocus={warm}>
       {body}
     </Link>
   ) : (
@@ -322,6 +359,93 @@ export function DescriptionList({
         </div>
       ))}
     </dl>
+  )
+}
+
+// ------------------------------------------------------- DateRangeFilter ----
+
+type DateInputProps = Omit<
+  ComponentPropsWithoutRef<typeof Input>,
+  'id' | 'type' | 'value' | 'onChange'
+>
+
+/**
+ * The "From / To" pair every dated list filters on.
+ *
+ * One component so the toolbars agree on the label style, the input width and
+ * - the part that matters on a phone - how the group breaks: a label stays
+ * beside its own input, and the two pairs wrap independently, so a strip that
+ * no longer fits stacks "To" under "From" instead of pushing the toolbar past
+ * the viewport.
+ *
+ *     <DateRangeFilter
+ *       id="orders-required"
+ *       fromLabel="Required from"
+ *       from={requiredFrom}
+ *       to={requiredTo}
+ *       onFromChange={(value) => setParam('required_from', value || undefined)}
+ *       onToChange={(value) => setParam('required_to', value || undefined)}
+ *     />
+ *
+ * The inputs are `${id}-from` and `${id}-to` - the names the hand-rolled
+ * toolbars already used. Bounds and any other input attribute go through
+ * `fromInputProps` / `toInputProps` (`{ max: to }`, `{ min: from, required: true }`).
+ */
+export function DateRangeFilter({
+  id,
+  from,
+  to,
+  onFromChange,
+  onToChange,
+  fromLabel = 'From',
+  toLabel = 'To',
+  fromInputProps,
+  toInputProps,
+  className,
+}: {
+  /** Prefix for the two input ids: `${id}-from` and `${id}-to`. */
+  id: string
+  /** ISO date (`YYYY-MM-DD`), or empty for no bound. */
+  from: string
+  to: string
+  /** Receives the input's value - empty when the field is cleared. */
+  onFromChange: (value: string) => void
+  onToChange: (value: string) => void
+  fromLabel?: ReactNode
+  toLabel?: ReactNode
+  fromInputProps?: DateInputProps
+  toInputProps?: DateInputProps
+  className?: string
+}) {
+  return (
+    <div className={cn('flex flex-wrap items-center gap-1.5', className)}>
+      <span className="flex items-center gap-1.5">
+        <Label htmlFor={`${id}-from`} className="text-xs text-muted-foreground">
+          {fromLabel}
+        </Label>
+        <Input
+          id={`${id}-from`}
+          type="date"
+          value={from}
+          onChange={(event) => onFromChange(event.target.value)}
+          {...fromInputProps}
+          className={cn('w-[9.5rem]', fromInputProps?.className)}
+        />
+      </span>
+      <span className="flex items-center gap-1.5">
+        <Label htmlFor={`${id}-to`} className="text-xs text-muted-foreground">
+          {toLabel}
+        </Label>
+        <Input
+          id={`${id}-to`}
+          type="date"
+          value={to}
+          onChange={(event) => onToChange(event.target.value)}
+          {...toInputProps}
+          className={cn('w-[9.5rem]', toInputProps?.className)}
+        />
+      </span>
+    </div>
   )
 }
 

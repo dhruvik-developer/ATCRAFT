@@ -49,6 +49,7 @@ import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatMoney, toDateInput, toDecimal } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -255,7 +256,7 @@ export function PurchaseOrderFormDialog({
       // away from a document that was still sitting in their own queue; the
       // submit step is a separate command on the order's own screen.
       toast.success(
-        'Purchase order created',
+        success.created('Purchase order'),
         `${outcome.order.code} is saved as a draft. Submit it for approval when the lines are right.`,
       )
       setConflict(null)
@@ -445,9 +446,9 @@ export function PurchaseOrderFormDialog({
                   {fields.map((field, index) => (
                     <div
                       key={field.id}
-                      className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto]"
+                      className="grid gap-3 rounded-lg border p-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto]"
                     >
-                      <div>
+                      <div className="sm:col-span-2 lg:col-span-1">
                         <Controller
                           control={control}
                           name={`lines.${index}.item_id`}
@@ -493,7 +494,7 @@ export function PurchaseOrderFormDialog({
                         <FieldError message={errors.lines?.[index]?.unit_price?.message} />
                       </div>
 
-                      <div className="flex items-end">
+                      <div className="flex items-end sm:col-span-2 sm:justify-end lg:col-span-1 lg:justify-start">
                         <Button
                           type="button"
                           variant="ghost"

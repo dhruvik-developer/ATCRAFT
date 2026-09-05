@@ -24,14 +24,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
-import {
-  fail,
-  ok,
-  page,
-  renderScreen,
-  type FetchRecorder,
-  type RouteTable,
-} from '@/test/harness'
+import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } from '@/test/harness'
 
 import type { RfqRow } from './rfq-model'
 import RfqsPage from './rfqs-page'
@@ -190,8 +183,9 @@ describe('the state machine decides which commands exist', () => {
       routes: boardRoutes([rfq({ status: 'DRAFT' })]),
     })
 
-    expect(await stable(() => screen.getByRole('button', { name: 'Send RFQ-0001 to its vendors' })))
-      .toBeVisible()
+    expect(
+      await stable(() => screen.getByRole('button', { name: 'Send RFQ-0001 to its vendors' })),
+    ).toBeVisible()
     const menu = await openMenu(user, fetch, 'RFQ-0001')
     expect(within(menu).getByRole('menuitem', { name: 'Edit draft' })).toBeVisible()
     expect(within(menu).getByRole('menuitem', { name: 'Cancel RFQ' })).toBeVisible()
@@ -342,7 +336,9 @@ describe('what the RFQ form sends', () => {
   it('sends two lines and the invited vendors, with the quantities still strings', async () => {
     const { user, fetch } = renderScreen(<RfqsPage />, {
       permissions: BUYER,
-      routes: formRoutes({ [`POST ${RFQS_PATH}`]: ok({ id: RFQ_ID, code: 'RFQ-0002', lines: [] }) }),
+      routes: formRoutes({
+        [`POST ${RFQS_PATH}`]: ok({ id: RFQ_ID, code: 'RFQ-0002', lines: [] }),
+      }),
     })
 
     await openForm(user, fetch)
@@ -391,7 +387,9 @@ describe('what the RFQ form sends', () => {
   it('does not invite the same vendor twice', async () => {
     const { user, fetch } = renderScreen(<RfqsPage />, {
       permissions: BUYER,
-      routes: formRoutes({ [`POST ${RFQS_PATH}`]: ok({ id: RFQ_ID, code: 'RFQ-0003', lines: [] }) }),
+      routes: formRoutes({
+        [`POST ${RFQS_PATH}`]: ok({ id: RFQ_ID, code: 'RFQ-0003', lines: [] }),
+      }),
     })
 
     await openForm(user, fetch)
@@ -413,7 +411,9 @@ describe('what the RFQ form sends', () => {
   it('drops an invitation when the chip’s remove button is pressed', async () => {
     const { user, fetch } = renderScreen(<RfqsPage />, {
       permissions: BUYER,
-      routes: formRoutes({ [`POST ${RFQS_PATH}`]: ok({ id: RFQ_ID, code: 'RFQ-0004', lines: [] }) }),
+      routes: formRoutes({
+        [`POST ${RFQS_PATH}`]: ok({ id: RFQ_ID, code: 'RFQ-0004', lines: [] }),
+      }),
     })
 
     await openForm(user, fetch)
@@ -435,7 +435,9 @@ describe('what the RFQ form sends', () => {
   it('renumbers the line that survives a removal', async () => {
     const { user, fetch } = renderScreen(<RfqsPage />, {
       permissions: BUYER,
-      routes: formRoutes({ [`POST ${RFQS_PATH}`]: ok({ id: RFQ_ID, code: 'RFQ-0005', lines: [] }) }),
+      routes: formRoutes({
+        [`POST ${RFQS_PATH}`]: ok({ id: RFQ_ID, code: 'RFQ-0005', lines: [] }),
+      }),
     })
 
     await openForm(user, fetch)

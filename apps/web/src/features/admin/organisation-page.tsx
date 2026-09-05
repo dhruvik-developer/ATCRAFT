@@ -55,8 +55,12 @@ import {
 import { Badge, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
+import { useUserOptions } from '@/hooks/use-user-options'
 import { api } from '@/lib/api-client'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { formatDate } from '@/lib/format'
+import { prompts, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -66,7 +70,6 @@ import {
   orgKeys,
   useBranchOptions,
   usePlantOptions,
-  useUserOptions,
   type BranchRow,
   type DepartmentRow,
   type FinancialYearRow,
@@ -114,8 +117,17 @@ function RetireDialog({
       api.delete(`${path}/${id}`, { params: { reason: why } }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: orgKeys.all })
-      toast.success(`${noun} retired`, target ? `${target.code} - ${target.name}` : undefined)
+      toast.success(success.retired(noun), target ? `${target.code} - ${target.name}` : undefined)
       onDone()
+    },
+    onError: (error) => {
+      // The reason travels as a query parameter, so the API keys its 422 as
+      // `query.reason` rather than `reason`; it is the only field either way,
+      // so every message is shown under the input. The mutation cache stays
+      // quiet for a 422 with field detail on the understanding that the form
+      // shows it - without this the dialog simply stopped spinning.
+      const message = fieldErrorSummary(error)
+      if (message) setReasonError(message)
     },
   })
 
@@ -132,8 +144,8 @@ function RetireDialog({
       loading={mutation.isPending}
       onConfirm={() => {
         if (!target) return
-        if (reason.trim().length < 3) {
-          setReasonError('Give a reason of at least 3 characters - it is kept in the audit trail.')
+        if (reason.trim().length < REASON_MIN_LENGTH) {
+          setReasonError(prompts.reasonRequired)
           return
         }
         mutation.mutate({ id: target.id, why: reason.trim() })
@@ -151,6 +163,7 @@ function RetireDialog({
             setReasonError(null)
           }}
           autoComplete="off"
+          maxLength={REASON_MAX_LENGTH}
           aria-invalid={Boolean(reasonError)}
           className="mt-1.5"
         />
@@ -460,20 +473,23 @@ function PlantsTab({ canManage, canSeeBranches }: { canManage: boolean; canSeeBr
 function DepartmentsTab({
   canManage,
   canSeePlants,
+  canSeeUsers,
 }: {
   canManage: boolean
   canSeePlants: boolean
+  canSeeUsers: boolean
 }) {
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<DepartmentRow | null>(null)
   const [retiring, setRetiring] = useState<DepartmentRow | null>(null)
 
   // Same reasoning as the branch column on the plants tab: the plant names come
-  // from `/organization/plants`, which enforces `plant.view` separately.
-  // `useUserOptions` needs no flag - it already returns an empty list to a
-  // caller without `user.view`, which is the documented behaviour of that hook.
+  // from `/organization/plants`, which enforces `plant.view` separately, and
+  // the head-of-department names from `/users`, which enforces `user.view`.
+  // `useUserOptions` swallows the 403 either way, but a request that can only
+  // be refused is still noise in the API log.
   const plants = usePlantOptions(canSeePlants)
-  const users = useUserOptions()
+  const users = useUserOptions({ enabled: canSeeUsers })
   const plantById = useMemo(() => indexById(plants.data), [plants.data])
   const userById = useMemo(() => indexById(users.data), [users.data])
 
@@ -622,6 +638,7 @@ function DepartmentsTab({
             onOpenChange={setFormOpen}
             department={editing}
             siblings={list.data}
+            canSeeUsers={canSeeUsers}
           />
           <RetireDialog
             key={retiring?.id ?? 'none'}
@@ -665,11 +682,17 @@ function FinancialYearsTab({ canManage }: { canManage: boolean }) {
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: orgKeys.all })
       toast.success(
-        saved.is_closed ? 'Financial year closed' : 'Financial year reopened',
+        saved.is_closed ? success.closed('Financial year') : success.reopened('Financial year'),
         saved.code,
       )
       setClosing(null)
       setReopening(null)
+    },
+    onError: (error) => {
+      // The reason is the only field; see `RetireDialog` for why a 422 keyed
+      // on it has to be rendered here.
+      const message = fieldErrorSummary(error)
+      if (message) setReasonError(message)
     },
   })
 
@@ -683,8 +706,8 @@ function FinancialYearsTab({ canManage }: { canManage: boolean }) {
   const confirmTransition = (kind: 'close' | 'reopen') => {
     const target = kind === 'close' ? closing : reopening
     if (!target) return
-    if (reason.trim().length < 3) {
-      setReasonError('Give a reason of at least 3 characters - it is kept in the audit trail.')
+    if (reason.trim().length < REASON_MIN_LENGTH) {
+      setReasonError(prompts.reasonRequired)
       return
     }
     transition.mutate({ id: target.id, action: kind, why: reason.trim() })
@@ -814,6 +837,7 @@ function FinancialYearsTab({ canManage }: { canManage: boolean }) {
           setReasonError(null)
         }}
         autoComplete="off"
+        maxLength={REASON_MAX_LENGTH}
         aria-invalid={Boolean(reasonError)}
         className="mt-1.5"
       />
@@ -943,7 +967,7 @@ export default function OrganisationPage() {
         />
       ) : (
         <Tabs value={tab} onValueChange={selectTab}>
-          <TabsList className="h-auto flex-wrap">
+          <TabsList>
             {tabs.map((entry) => (
               <TabsTrigger key={entry.key} value={entry.key}>
                 <entry.icon className="h-4 w-4" aria-hidden />
@@ -974,7 +998,11 @@ export default function OrganisationPage() {
 
           {canViewDepartments && (
             <TabsContent value="departments">
-              <DepartmentsTab canManage={can(P.DEPARTMENT_MANAGE)} canSeePlants={canViewPlants} />
+              <DepartmentsTab
+                canManage={can(P.DEPARTMENT_MANAGE)}
+                canSeePlants={canViewPlants}
+                canSeeUsers={can(P.USER_VIEW)}
+              />
             </TabsContent>
           )}
 

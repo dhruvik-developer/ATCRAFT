@@ -20,6 +20,7 @@
  * above are left alone rather than churned under four live screens.
  */
 
+import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import type { DecimalString, SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------- lookups -----
@@ -29,6 +30,21 @@ export interface WarehouseOption {
   code: string
   name: string
 }
+
+/**
+ * `GET /warehouses` read whole, for a select.
+ *
+ * One spelling, so every screen that loads the list shares one cache entry
+ * rather than fetching the same bounded table twice. Not `/warehouses/options`:
+ * that is active-only, and a detail page has to resolve the code of a
+ * warehouse that has since been retired.
+ */
+export const WAREHOUSE_LOOKUP_PARAMS = {
+  limit: LOOKUP_LIST_LIMIT,
+  sort_by: 'code',
+  sort_dir: 'asc',
+  with_total: false,
+} as const
 
 /** The subset of `ItemSummary` the pickers render. */
 export interface ItemOption {
@@ -87,13 +103,7 @@ export const BALANCE_SORT_FIELDS: readonly string[] = [
 
 /** The pool a movement landed in - `StockState` in the API. */
 export type StockState =
-  | 'AVAILABLE'
-  | 'QC_HOLD'
-  | 'DAMAGED'
-  | 'IN_TRANSIT'
-  | 'JOB_WORK'
-  | 'SCRAP'
-  | 'RETURN'
+  'AVAILABLE' | 'QC_HOLD' | 'DAMAGED' | 'IN_TRANSIT' | 'JOB_WORK' | 'SCRAP' | 'RETURN'
 
 /** One row of `GET /inventory/ledger` (`LedgerEntryRead`). */
 export interface InventoryLedgerRow {
@@ -453,6 +463,18 @@ export type PhysicalCountLineRow = SchemaOf<'PhysicalCountLineRead'>
  */
 export function acceptsCountConfirmation(count: Pick<PhysicalCountRow, 'status'>): boolean {
   return count.status === 'COUNTED'
+}
+
+/**
+ * Whether the sheet can still be cancelled.
+ *
+ * `COUNT_FLOW` has an edge to CANCELLED from each of DRAFT, IN_PROGRESS and
+ * COUNTED. Worth offering because `open_count_exists` refuses a new count for
+ * the warehouse until its open sheet is finished or cancelled - without this a
+ * mis-scoped draft locks the warehouse out of counting from the UI.
+ */
+export function acceptsCountCancellation(count: Pick<PhysicalCountRow, 'status'>): boolean {
+  return count.status === 'DRAFT' || count.status === 'IN_PROGRESS' || count.status === 'COUNTED'
 }
 
 /**

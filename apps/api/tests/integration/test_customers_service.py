@@ -177,7 +177,7 @@ class TestCustomerCreation:
         """Two live customers on one GSTIN split a legal entity's balance across
         two credit limits, which makes both credit checks wrong."""
         service = CustomerService(session, tenant)
-        gstin = "27ABCDE1234F1Z5"
+        gstin = "27ABCDE1234F1Z0"
         await service.create_customer(principal, _payload(unique_code("AC"), gstin=gstin))
 
         with pytest.raises(DuplicateError):
@@ -343,13 +343,23 @@ class TestOutstandingBalance:
             session,
             tenant,
             created.id,
-            OutstandingAdjustment(delta=Decimal("750.50"), reason="Invoice INV/2026-27/00001"),
+            OutstandingAdjustment(
+                delta=Decimal("750.50"),
+                reason="Invoice INV/2026-27/00001",
+                reference_type="invoice",
+                reference_code="INV/2026-27/00001",
+            ),
         )
         await apply_outstanding_delta(
             session,
             tenant,
             created.id,
-            OutstandingAdjustment(delta=Decimal("-250.50"), reason="Receipt"),
+            OutstandingAdjustment(
+                delta=Decimal("-250.50"),
+                reason="Receipt",
+                reference_type="payment",
+                reference_code="RCPT/2026-27/00001",
+            ),
         )
 
         detail = await service.get_customer(created.id)
@@ -367,7 +377,12 @@ class TestOutstandingBalance:
             session,
             tenant,
             created.id,
-            OutstandingAdjustment(delta=Decimal("900"), reason="Invoice"),
+            OutstandingAdjustment(
+                delta=Decimal("900"),
+                reason="Invoice",
+                reference_type="invoice",
+                reference_code="INV/2026-27/00002",
+            ),
         )
 
         assessment = await assert_customer_can_order(session, tenant, created.id, Decimal("100"))
@@ -391,7 +406,12 @@ class TestOutstandingBalance:
                 session,
                 tenant,
                 customer_id,
-                OutstandingAdjustment(delta=Decimal("500"), reason="Invoice"),
+                OutstandingAdjustment(
+                    delta=Decimal("500"),
+                    reason="Invoice",
+                    reference_type="invoice",
+                    reference_code="INV/2026-27/00003",
+                ),
             )
 
         rows, _ = await service.list_customers(
@@ -481,7 +501,7 @@ class TestAddresses:
 
         with pytest.raises(BusinessRuleError):
             await service.create_address(
-                customer.id, _address(state_code="29", gstin="27ABCDE1234F1Z5")
+                customer.id, _address(state_code="29", gstin="27ABCDE1234F1Z0")
             )
 
     async def test_export_address_may_omit_the_state_code(
@@ -580,7 +600,12 @@ class TestRetirement:
             session,
             tenant,
             customer.id,
-            OutstandingAdjustment(delta=Decimal("100"), reason="Invoice"),
+            OutstandingAdjustment(
+                delta=Decimal("100"),
+                reason="Invoice",
+                reference_type="invoice",
+                reference_code="INV/2026-27/00004",
+            ),
         )
 
         with pytest.raises(BusinessRuleError) as exc:

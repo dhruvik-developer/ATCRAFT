@@ -133,8 +133,7 @@ CHECKS: tuple[tuple[str, str], ...] = (
     # *earlier* of the pair - it passing does not prove the later one did.
     (
         "ck_mrp_requirements_late_incoming_arrives_after_required",
-        "first_late_incoming_date IS NULL "
-        "OR first_late_incoming_date > earliest_required_date",
+        "first_late_incoming_date IS NULL OR first_late_incoming_date > earliest_required_date",
     ),
     (
         "ck_mrp_requirements_late_in_production_arrives_after_required",
@@ -157,9 +156,7 @@ CHECKS: tuple[tuple[str, str], ...] = (
 
 def upgrade() -> None:
     op.add_column(TABLE, sa.Column("first_late_incoming_date", sa.Date(), nullable=True))
-    op.add_column(
-        TABLE, sa.Column("first_late_in_production_date", sa.Date(), nullable=True)
-    )
+    op.add_column(TABLE, sa.Column("first_late_in_production_date", sa.Date(), nullable=True))
     for name, expression in CHECKS:
         op.create_check_constraint(op.f(name), TABLE, expression)
 

@@ -55,6 +55,7 @@ from src.modules.inventory.models import (
     StockState,
     TransactionType,
 )
+from src.modules.products.models import ItemGroup, ProductionType
 from src.modules.quality import service
 from src.modules.quality.models import (
     InspectionResult,
@@ -76,6 +77,10 @@ from src.modules.quality.schemas import (
     TemplateUpdate,
     TemplateVersionRequest,
 )
+from src.modules.vendors.models import VendorType
+from src.modules.warehouses.models import WarehouseType
+from tests import seed_support
+from tests.schema_support import report_database_setup_failure
 
 pytestmark = pytest.mark.integration
 
@@ -129,25 +134,17 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID]]:
                 )
             factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
             async with factory() as session, session.begin():
+                # Through the ORM builders, not a hand-written INSERT: this is
+                # one of the two files CLAUDE.md names for the column list that
+                # went stale twice.
                 for identifier in (company_id, other_company_id):
-                    await session.execute(
-                        text(
-                            "INSERT INTO companies (id, code, name, country, currency, "
-                            "financial_year_start_month, timezone, is_active) "
-                            "VALUES (:id, :code, 'Atcraft', 'India', 'INR', 4, "
-                            "'Asia/Kolkata', true)"
-                        ),
-                        {"id": identifier, "code": f"QC{uuid.uuid4().hex[:6].upper()}"},
-                    )
-                await session.execute(
-                    text(
-                        "INSERT INTO users (id, company_id, email, full_name, password_hash, "
-                        "is_active, is_superuser, mfa_enabled, must_change_password, "
-                        "failed_login_attempts) "
-                        "VALUES (:id, :c, :email, 'Inspector', 'x', true, false, false, "
-                        "false, 0)"
-                    ),
-                    {"id": user_id, "c": company_id, "email": "inspector@atcraft.test"},
+                    await seed_support.seed_company(session, company_id=identifier, prefix="QC")
+                await seed_support.seed_user(
+                    session,
+                    company_id=company_id,
+                    user_id=user_id,
+                    email="inspector@atcraft.test",
+                    full_name="Inspector",
                 )
         finally:
             await engine.dispose()
@@ -163,7 +160,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID]]:
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, other_company_id, user_id
     asyncio.run(teardown())
@@ -202,31 +199,18 @@ def _code(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8].upper()}"
 
 
+# Every master row below is built through ``tests.seed_support`` - the owning
+# module's ORM model, with its Python-side defaults - and only the id is handed
+# back, which is all the service calls in this file take. The hand-written
+# INSERTs these replaced were the column lists that broke 43 tests twice.
+
+
 async def seed_uom(session: AsyncSession, company_id: uuid.UUID) -> uuid.UUID:
-    uom_id = uuid.uuid4()
-    await session.execute(
-        text(
-            "INSERT INTO units_of_measure (id, company_id, code, name, uom_category, is_base, "
-            "decimal_places, is_active, created_at, updated_at) "
-            "VALUES (:id, :c, :code, 'Numbers', 'COUNT', false, 4, true, now(), now())"
-        ),
-        {"id": uom_id, "c": company_id, "code": f"U{uuid.uuid4().hex[:6].upper()}"},
-    )
-    return uom_id
+    return (await seed_support.seed_uom(session, company_id=company_id)).id
 
 
 async def seed_category(session: AsyncSession, company_id: uuid.UUID) -> uuid.UUID:
-    category_id = uuid.uuid4()
-    code = _code("CAT")
-    await session.execute(
-        text(
-            "INSERT INTO item_categories (id, company_id, code, name, path, depth, is_active, "
-            "created_at, updated_at) "
-            "VALUES (:id, :c, :code, :name, :path, 0, true, now(), now())"
-        ),
-        {"id": category_id, "c": company_id, "code": code, "name": code, "path": code},
-    )
-    return category_id
+    return (await seed_support.seed_category(session, company_id=company_id, code=_code("CAT"))).id
 
 
 async def seed_item(
@@ -238,58 +222,40 @@ async def seed_item(
     category_id: uuid.UUID | None = None,
     batch_tracked: bool = False,
 ) -> uuid.UUID:
-    item_id = uuid.uuid4()
-    await session.execute(
-        text(
-            "INSERT INTO items (id, company_id, code, name, item_group, category_id, "
-            "base_uom_id, gst_rate, standard_cost, sale_price, dealer_price, production_type, "
-            "lead_time_days, reorder_level, reorder_quantity, min_order_quantity, safety_stock, "
-            "is_batch_tracked, is_serial_tracked, can_purchase, is_active, "
-            "created_at, updated_at) "
-            "VALUES (:id, :c, :code, :name, 'COMPONENT', :cat, :u, 18, 10, 0, 0, 'BUY', 0, 0, 0, "
-            "0, 0, :batch, false, true, true, now(), now())"
-        ),
-        {
-            "id": item_id,
-            "c": company_id,
-            "cat": category_id,
-            "u": uom_id,
-            "code": code,
-            "name": f"Item {code}",
-            "batch": batch_tracked,
-        },
+    item = await seed_support.seed_item(
+        session,
+        company_id=company_id,
+        code=code,
+        base_uom_id=uom_id,
+        item_group=ItemGroup.COMPONENT,
+        category_id=category_id,
+        gst_rate=Decimal("18"),
+        standard_cost=Decimal("10"),
+        production_type=ProductionType.BUY,
+        can_purchase=True,
+        is_batch_tracked=batch_tracked,
     )
-    return item_id
+    return item.id
 
 
 async def seed_warehouse(session: AsyncSession, company_id: uuid.UUID) -> uuid.UUID:
-    warehouse_id = uuid.uuid4()
-    code = _code("WH")
-    await session.execute(
-        text(
-            "INSERT INTO warehouses (id, company_id, code, name, warehouse_type, country, "
-            "is_active, is_default, allow_negative_stock, created_at, updated_at) "
-            "VALUES (:id, :c, :code, :name, 'RAW_MATERIAL', 'India', true, false, false, "
-            "now(), now())"
-        ),
-        {"id": warehouse_id, "c": company_id, "code": code, "name": f"Store {code}"},
+    warehouse = await seed_support.seed_warehouse(
+        session,
+        company_id=company_id,
+        code=_code("WH"),
+        warehouse_type=WarehouseType.RAW_MATERIAL,
     )
-    return warehouse_id
+    return warehouse.id
 
 
 async def seed_vendor(session: AsyncSession, company_id: uuid.UUID) -> uuid.UUID:
-    vendor_id = uuid.uuid4()
-    code = _code("VEND")
-    await session.execute(
-        text(
-            "INSERT INTO vendors (id, company_id, code, name, vendor_types, created_at, "
-            "updated_at) "
-            "VALUES (:id, :c, :code, :name, ARRAY['RAW_MATERIAL_SUPPLIER']::varchar[], "
-            "now(), now())"
-        ),
-        {"id": vendor_id, "c": company_id, "code": code, "name": f"Vendor {code}"},
+    vendor = await seed_support.seed_vendor(
+        session,
+        company_id=company_id,
+        code=_code("VEND"),
+        vendor_types=(VendorType.RAW_MATERIAL_SUPPLIER,),
     )
-    return vendor_id
+    return vendor.id
 
 
 async def hold_stock(
@@ -358,9 +324,7 @@ class Lot:
         self.category_id = category_id
 
 
-async def seed_lot(
-    session: AsyncSession, tenant: TenantContext, *, quantity: str = "100"
-) -> Lot:
+async def seed_lot(session: AsyncSession, tenant: TenantContext, *, quantity: str = "100") -> Lot:
     uom_id = await seed_uom(session, tenant.company_id)
     category_id = await seed_category(session, tenant.company_id)
     item_id = await seed_item(
@@ -423,16 +387,20 @@ async def audit_actions(
     session: AsyncSession, tenant: TenantContext, entity_id: uuid.UUID
 ) -> list[AuditAction]:
     rows = (
-        await session.execute(
-            select(AuditLog.action)
-            .where(
-                AuditLog.company_id == tenant.company_id,
-                AuditLog.entity_type == service.AUDIT_QC_INSPECTION,
-                AuditLog.entity_id == entity_id,
+        (
+            await session.execute(
+                select(AuditLog.action)
+                .where(
+                    AuditLog.company_id == tenant.company_id,
+                    AuditLog.entity_type == service.AUDIT_QC_INSPECTION,
+                    AuditLog.entity_id == entity_id,
+                )
+                .order_by(AuditLog.created_at, AuditLog.id)
             )
-            .order_by(AuditLog.created_at, AuditLog.id)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [AuditAction(row) for row in rows]
 
 
@@ -613,14 +581,18 @@ class TestDecisionMovesStock:
         )
 
         rows = (
-            await session.execute(
-                select(InventoryTransaction).where(
-                    InventoryTransaction.company_id == tenant.company_id,
-                    InventoryTransaction.reference_type == service.MOVEMENT_REFERENCE_QC,
-                    InventoryTransaction.reference_id == inspection.id,
+            (
+                await session.execute(
+                    select(InventoryTransaction).where(
+                        InventoryTransaction.company_id == tenant.company_id,
+                        InventoryTransaction.reference_type == service.MOVEMENT_REFERENCE_QC,
+                        InventoryTransaction.reference_id == inspection.id,
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         # Two destinations, two ledger rows - the ledger says where each part of
         # the lot went, not merely that something happened.
@@ -862,9 +834,7 @@ class TestQuantityBalance:
             session,
             tenant,
             inspection.id,
-            DecideRequest(
-                accepted_quantity=Decimal("100"), reason="Conforms", close=True
-            ),
+            DecideRequest(accepted_quantity=Decimal("100"), reason="Conforms", close=True),
         )
 
         assert outcome.inspection.status is InspectionStatus.CLOSED
@@ -1389,9 +1359,7 @@ class TestRaisingInspections:
     ) -> None:
         session, tenant = ctx
         lot = await seed_lot(session, tenant, quantity="30")
-        codes = [
-            (await raise_incoming(session, tenant, lot, quantity="10")).code for _ in range(3)
-        ]
+        codes = [(await raise_incoming(session, tenant, lot, quantity="10")).code for _ in range(3)]
         assert len(set(codes)) == 3
         assert all(code.startswith("QC/") for code in codes)
 
@@ -1477,9 +1445,7 @@ class TestReadsAndReports:
     ) -> None:
         session, tenant = ctx
         first = await seed_lot(session, tenant, quantity="100")
-        second_item = await seed_item(
-            session, tenant.company_id, first.uom_id, code=_code("RM2")
-        )
+        second_item = await seed_item(session, tenant.company_id, first.uom_id, code=_code("RM2"))
         await hold_stock(session, tenant, second_item, first.warehouse_id, "100")
 
         good = await raise_incoming(session, tenant, first)
@@ -1545,9 +1511,7 @@ class TestReadsAndReports:
     ) -> None:
         session, tenant = ctx
         with pytest.raises(ValidationError):
-            await service.item_quality_history(
-                session, tenant, uuid.uuid4(), window_days=5_000
-            )
+            await service.item_quality_history(session, tenant, uuid.uuid4(), window_days=5_000)
 
     async def test_the_columns_the_vendor_rating_engine_reads_are_populated(
         self, ctx: tuple[AsyncSession, TenantContext]

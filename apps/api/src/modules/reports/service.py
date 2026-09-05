@@ -29,6 +29,7 @@ orders reserve the same stock is a correctness bug, not a performance win.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import uuid
@@ -48,10 +49,11 @@ from src.core.deps import TenantContext
 from src.core.errors import AppError, BusinessRuleError, ErrorCode, NotFoundError, ValidationError
 from src.core.logging import get_logger
 from src.core.pagination import PageParams
-from src.core.responses import OffsetPagination
+from src.core.responses import OffsetPagination, api_path
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change
 from src.modules.reports.models import (
+    DOCUMENT_ONLY_REPORT_KEYS,
     REPORT_JOB_LIFECYCLE,
     ReportJobStatus,
     ReportKey,
@@ -128,17 +130,45 @@ DEAD_STOCK_DAYS = 180
 #: the worker module.
 REPORT_TASK_NAME = "reports.generate"
 
+#: Queue the generic report job lands on. Report rendering is slow and must not
+#: sit in front of a 200 ms notification.
+REPORT_QUEUE = "reports"
+
 #: Where a client polls for a background report, and where it fetches the file.
-#: Kept as constants so the URLs in a 202 body cannot drift from the routes that
-#: serve them.
-JOB_STATUS_URL_TEMPLATE = "/api/v1/reports/jobs/{job_id}"
-DOCUMENT_DOWNLOAD_URL_TEMPLATE = "/api/v1/documents/{document_id}/download"
+#: Relative to the mounted API prefix: the routers are included under
+#: ``settings.api_v1_prefix`` and an operator may change it, so the absolute
+#: form is built at call time by :func:`job_status_url` and
+#: :func:`document_download_url` rather than baked in here. Every 202 body and
+#: notification link goes through those two functions, which is what keeps the
+#: URLs from drifting away from the routes that serve them.
+JOB_STATUS_URL_TEMPLATE = "/reports/jobs/{job_id}"
+DOCUMENT_DOWNLOAD_URL_TEMPLATE = "/documents/{document_id}/download"
 
 AUDIT_ENTITY = "report_snapshot"
 SUMMARY_AUDIT_ENTITY = "inventory_summary"
 
 PERCENT_QUANTUM = Decimal("0.01")
 QUANTITY_QUANTUM = Decimal("0.0001")
+
+
+# -----------------------------------------------------------------------------
+# URLs returned in bodies - built under the mounted prefix, at call time
+# -----------------------------------------------------------------------------
+
+
+def _api_path(path: str) -> str:
+    """Absolute API path under the mounted prefix - :func:`src.core.responses.api_path`."""
+    return api_path(path)
+
+
+def job_status_url(job_id: uuid.UUID | str) -> str:
+    """Where a client polls one background job: ``GET /reports/jobs/{id}``."""
+    return _api_path(JOB_STATUS_URL_TEMPLATE.format(job_id=job_id))
+
+
+def document_download_url(document_id: uuid.UUID | str) -> str:
+    """Where a client fetches a generated artefact from the document store."""
+    return _api_path(DOCUMENT_DOWNLOAD_URL_TEMPLATE.format(document_id=document_id))
 
 
 # -----------------------------------------------------------------------------
@@ -166,9 +196,7 @@ def ratio(numerator: Decimal | int, denominator: Decimal | int) -> Decimal:
     denominator = Decimal(denominator)
     if denominator == 0:
         return Decimal("0")
-    return (Decimal(numerator) / denominator).quantize(
-        QUANTITY_QUANTUM, rounding=ROUND_HALF_UP
-    )
+    return (Decimal(numerator) / denominator).quantize(QUANTITY_QUANTUM, rounding=ROUND_HALF_UP)
 
 
 #: Ageing bands, upper bound inclusive. One definition shared by every ageing
@@ -247,9 +275,7 @@ def urgency_bucket(days_to_required: int) -> str:
     return URGENCY_LATER
 
 
-def delivery_delay_days(
-    expected: date | None, actual: date | None, as_of: date
-) -> int:
+def delivery_delay_days(expected: date | None, actual: date | None, as_of: date) -> int:
     """Days late a consignment is, or was.
 
     An undelivered consignment is measured against today - its delay is still
@@ -306,6 +332,12 @@ class ReportContext:
     def period_days(self) -> int:
         """Days in the period; 1 for a position report, so per-day maths is safe."""
         return self.period.days if self.period else 1
+
+    def require_period(self) -> ReportPeriod:
+        """Return the validated period for a period-bound report definition."""
+        if self.period is None:
+            raise RuntimeError("A period-bound report was executed without a period")
+        return self.period
 
     def dead_stock_cutoff(self) -> datetime:
         threshold = self.filters.min_days if self.filters.min_days is not None else DEAD_STOCK_DAYS
@@ -509,7 +541,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         title="Sales order status",
         description="Every order raised in the period with what has been allocated and shipped.",
         row_model=SalesOrderStatusRow,
-        build=lambda repo, ctx: repo.sales_order_status(ctx.period, ctx.filters),
+        build=lambda repo, ctx: repo.sales_order_status(ctx.require_period(), ctx.filters),
         requires_period=True,
         cacheable=True,
         derive=_derive_sales_order_status,
@@ -533,7 +565,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         title="MRP shortage",
         description="Net shortages from planning runs completed in the period.",
         row_model=MrpShortageRow,
-        build=lambda repo, ctx: repo.mrp_shortage(ctx.period, ctx.filters),
+        build=lambda repo, ctx: repo.mrp_shortage(ctx.require_period(), ctx.filters),
         requires_period=True,
         # Derived from availability at run time, and a buyer acts on it directly.
         cacheable=False,
@@ -544,7 +576,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         title="Purchase pending",
         description="Committed purchase orders still awaiting delivery, with ageing.",
         row_model=PurchasePendingRow,
-        build=lambda repo, ctx: repo.purchase_pending(ctx.period, ctx.filters),
+        build=lambda repo, ctx: repo.purchase_pending(ctx.require_period(), ctx.filters),
         requires_period=True,
         cacheable=True,
         derive=_derive_purchase_pending,
@@ -554,7 +586,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         title="Production pending",
         description="Production orders approved or under way but not yet complete.",
         row_model=ProductionPendingRow,
-        build=lambda repo, ctx: repo.production_pending(ctx.period, ctx.filters),
+        build=lambda repo, ctx: repo.production_pending(ctx.require_period(), ctx.filters),
         requires_period=True,
         cacheable=True,
         derive=_derive_production_pending,
@@ -564,7 +596,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         title="Job-work pending",
         description="Material with job-work vendors and not yet fully returned.",
         row_model=JobWorkPendingRow,
-        build=lambda repo, ctx: repo.job_work_pending(ctx.period, ctx.filters),
+        build=lambda repo, ctx: repo.job_work_pending(ctx.require_period(), ctx.filters),
         requires_period=True,
         cacheable=True,
         derive=_derive_job_work_pending,
@@ -574,7 +606,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         title="QC rejection",
         description="Inspections in the period that rejected or scrapped material.",
         row_model=QcRejectionRow,
-        build=lambda repo, ctx: repo.qc_rejection(ctx.period, ctx.filters),
+        build=lambda repo, ctx: repo.qc_rejection(ctx.require_period(), ctx.filters),
         requires_period=True,
         cacheable=True,
         derive=_derive_qc_rejection,
@@ -584,7 +616,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         title="Vendor performance",
         description="On-time delivery and rejection rate per vendor over the period.",
         row_model=VendorPerformanceRow,
-        build=lambda repo, ctx: repo.vendor_performance(ctx.period, ctx.filters),
+        build=lambda repo, ctx: repo.vendor_performance(ctx.require_period(), ctx.filters),
         requires_period=True,
         cacheable=True,
         derive=_derive_vendor_performance,
@@ -594,7 +626,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         title="Product profitability",
         description="Revenue net of discount against standard cost, per item.",
         row_model=ProductProfitabilityRow,
-        build=lambda repo, ctx: repo.product_profitability(ctx.period, ctx.filters),
+        build=lambda repo, ctx: repo.product_profitability(ctx.require_period(), ctx.filters),
         requires_period=True,
         cacheable=True,
         derive=_derive_product_profitability,
@@ -604,7 +636,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         title="Fast-moving items",
         description="Items consumed or shipped most heavily in the period.",
         row_model=ItemMovementRow,
-        build=lambda repo, ctx: repo.fast_moving(ctx.period, ctx.filters),
+        build=lambda repo, ctx: repo.fast_moving(ctx.require_period(), ctx.filters),
         requires_period=True,
         cacheable=True,
         derive=_derive_item_movement,
@@ -614,7 +646,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         title="Slow-moving items",
         description="Items held in stock with the least movement in the period.",
         row_model=ItemMovementRow,
-        build=lambda repo, ctx: repo.slow_moving(ctx.period, ctx.filters),
+        build=lambda repo, ctx: repo.slow_moving(ctx.require_period(), ctx.filters),
         requires_period=True,
         # Reads on-hand alongside movement, so it is a stock position too.
         cacheable=False,
@@ -638,7 +670,9 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         title="Order delay",
         description="Open sales orders whose required date has already passed.",
         row_model=OrderDelayRow,
-        build=lambda repo, ctx: repo.order_delay(ctx.period, ctx.filters, as_of=ctx.as_of),
+        build=lambda repo, ctx: repo.order_delay(
+            ctx.require_period(), ctx.filters, as_of=ctx.as_of
+        ),
         requires_period=True,
         cacheable=True,
         derive=_derive_order_delay,
@@ -648,7 +682,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         title="Production efficiency",
         description="Yield and schedule performance of orders finished in the period.",
         row_model=ProductionEfficiencyRow,
-        build=lambda repo, ctx: repo.production_efficiency(ctx.period, ctx.filters),
+        build=lambda repo, ctx: repo.production_efficiency(ctx.require_period(), ctx.filters),
         requires_period=True,
         cacheable=True,
         derive=_derive_production_efficiency,
@@ -658,7 +692,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         title="Machine utilisation",
         description="Busy minutes against available capacity per machine.",
         row_model=MachineUtilisationRow,
-        build=lambda repo, ctx: repo.machine_utilisation(ctx.period, ctx.filters),
+        build=lambda repo, ctx: repo.machine_utilisation(ctx.require_period(), ctx.filters),
         requires_period=True,
         cacheable=True,
         derive=_derive_machine_utilisation,
@@ -678,7 +712,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         title="Dispatch",
         description="Consignments sent in the period, with freight and delivery dates.",
         row_model=DispatchRow,
-        build=lambda repo, ctx: repo.dispatch(ctx.period, ctx.filters),
+        build=lambda repo, ctx: repo.dispatch(ctx.require_period(), ctx.filters),
         requires_period=True,
         cacheable=True,
         derive=_derive_dispatch,
@@ -688,7 +722,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         title="Courier and transport tracking",
         description="Consignments still on the road, with their latest tracking event.",
         row_model=CourierTrackingRow,
-        build=lambda repo, ctx: repo.courier_tracking(ctx.period, ctx.filters),
+        build=lambda repo, ctx: repo.courier_tracking(ctx.require_period(), ctx.filters),
         requires_period=True,
         # A tracking board is watched while it changes; a five-minute-old event
         # is the thing it exists to avoid showing.
@@ -700,19 +734,27 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         title="Vendor dispatch history",
         description="Everything sent to vendors in the period, by vendor.",
         row_model=VendorDispatchHistoryRow,
-        build=lambda repo, ctx: repo.vendor_dispatch_history(ctx.period, ctx.filters),
+        build=lambda repo, ctx: repo.vendor_dispatch_history(ctx.require_period(), ctx.filters),
         requires_period=True,
         cacheable=True,
         derive=_derive_dispatch,
     ),
 }
 
-# Every member of the catalogue enum has exactly one definition. Checked at
-# import so a report added to the enum and forgotten here fails at startup, not
-# at the first request from the one person who uses it.
-_missing = set(ReportKey) - set(REPORT_CATALOGUE)
+# Every member of the catalogue enum has exactly one definition, and no
+# document-only key has one at all. Checked at import so a report added to the
+# enum and forgotten here fails at startup, not at the first request from the
+# one person who uses it - and so a definition written for a key that is served
+# by a dedicated task cannot quietly turn a PDF job into a tabular route.
+_missing = set(ReportKey) - set(REPORT_CATALOGUE) - DOCUMENT_ONLY_REPORT_KEYS
 if _missing:  # pragma: no cover - a coding error, caught before the app serves
     raise RuntimeError(f"reports: no definition for {sorted(str(k) for k in _missing)}")
+_document_only_defined = DOCUMENT_ONLY_REPORT_KEYS & set(REPORT_CATALOGUE)
+if _document_only_defined:  # pragma: no cover - a coding error, caught before the app serves
+    raise RuntimeError(
+        "reports: document-only keys must not have a catalogue definition: "
+        f"{sorted(str(k) for k in _document_only_defined)}"
+    )
 
 
 def definition_for(key: ReportKey) -> ReportDefinition:
@@ -978,56 +1020,96 @@ async def _queue_report(
             new_values={"report_key": str(definition.key), "parameters": parameters},
         )
 
-    await _dispatch(session, tenant, snapshot)
+    await dispatch_job(session, tenant, snapshot, task_name=REPORT_TASK_NAME, queue=REPORT_QUEUE)
     return QueuedReport(definition=definition, snapshot=snapshot)
 
 
-async def _dispatch(
-    session: AsyncSession, tenant: TenantContext, snapshot: ReportSnapshot
-) -> None:
-    """Hand the snapshot to Celery and record the task id.
+def new_job_snapshot(
+    report_key: ReportKey, parameters: dict[str, Any], *, now: datetime
+) -> ReportSnapshot:
+    """A QUEUED job row for one background artefact, not yet added to a session.
 
-    Imported inside the function rather than at module scope: serving a report
-    inline must not require a broker connection, and a broker that is down has to
-    fail *this* request rather than application startup.
+    The one constructor for every job the ``/reports/jobs/{id}`` route can be
+    asked about - the catalogue runner's own exports and the document-only jobs
+    other modules queue (the packing list, the full valuation workbook). Built
+    here so the hash, the initial status and the retention window are decided in
+    one place; the caller adds it inside its own transaction, alongside whatever
+    audit row names the thing being generated.
+    """
+    return ReportSnapshot(
+        report_key=report_key,
+        parameters_hash=parameters_hash(parameters),
+        parameters=parameters,
+        status=ReportJobStatus.QUEUED,
+        expires_at=now + timedelta(hours=REPORT_SNAPSHOT_TTL_HOURS),
+    )
+
+
+async def dispatch_job(
+    session: AsyncSession,
+    tenant: TenantContext,
+    snapshot: ReportSnapshot,
+    *,
+    task_name: str,
+    queue: str,
+    task_kwargs: dict[str, Any] | None = None,
+    subject: str = "The report",
+) -> str:
+    """Hand a job row to Celery and record the task id. Returns the task id.
+
+    The task is reached by *name* so the API process never imports the worker
+    package, and the broker is imported inside the function rather than at
+    module scope: serving a report inline must not require a broker connection,
+    and a broker that is down has to fail *this* request rather than
+    application startup.
+
+    The publish runs on a worker thread. ``send_task`` opens a socket to the
+    broker with kombu's connect-and-retry, and doing that inline would block the
+    event loop that is serving every other request for the whole of the
+    connection timeout - which, while the broker is unreachable, is exactly
+    when every request is already slow. The kwargs are assembled here, in the
+    coroutine, so nothing on the worker thread reads a session or a context
+    variable.
+
+    A broker that refuses the task marks the job FAILED, so a client polling it
+    is told rather than left waiting, and the request answers 503.
     """
     from src.core.logging import get_request_id
     from src.workers.celery_app import celery_app
 
+    kwargs = {
+        **(task_kwargs or {}),
+        "snapshot_id": str(snapshot.id),
+        "company_id": str(tenant.company_id),
+        "user_id": str(tenant.user_id),
+        "request_id": get_request_id(),
+    }
+    message = f"{subject} could not be queued for background generation."
     try:
-        task = celery_app.send_task(
-            REPORT_TASK_NAME,
-            kwargs={
-                "snapshot_id": str(snapshot.id),
-                "company_id": str(tenant.company_id),
-                "user_id": str(tenant.user_id),
-                "request_id": get_request_id(),
-            },
-            queue="reports",
-        )
+        task = await asyncio.to_thread(celery_app.send_task, task_name, kwargs=kwargs, queue=queue)
     except Exception as exc:
-        log.error("reports.dispatch_failed", snapshot_id=str(snapshot.id), error=str(exc))
-        await fail_snapshot(
-            session,
-            tenant,
-            snapshot_id=snapshot.id,
-            error="The report could not be queued for background generation.",
+        log.error(
+            "reports.dispatch_failed",
+            snapshot_id=str(snapshot.id),
+            report_key=str(snapshot.report_key),
+            task=task_name,
+            error=str(exc),
         )
-        raise AppError(
-            "The report could not be queued for background generation.",
-            code=ErrorCode.SERVICE_UNAVAILABLE,
-            status_code=503,
-        ) from exc
+        await fail_snapshot(session, tenant, snapshot_id=snapshot.id, error=message)
+        raise AppError(message, code=ErrorCode.SERVICE_UNAVAILABLE, status_code=503) from exc
 
+    task_id = str(task.id)
     async with transaction(session):
-        snapshot.celery_task_id = task.id
+        snapshot.celery_task_id = task_id
         ReportSnapshotRepository(session, tenant).touch(snapshot)
     log.info(
         "reports.queued",
         snapshot_id=str(snapshot.id),
         report_key=str(snapshot.report_key),
-        task_id=task.id,
+        task=task_name,
+        task_id=task_id,
     )
+    return task_id
 
 
 # -----------------------------------------------------------------------------
@@ -1047,18 +1129,14 @@ def job_read(snapshot: ReportSnapshot) -> ReportJobRead:
         expires_at=snapshot.expires_at,
         document_id=snapshot.document_id,
         download_url=(
-            DOCUMENT_DOWNLOAD_URL_TEMPLATE.format(document_id=snapshot.document_id)
-            if snapshot.document_id
-            else None
+            document_download_url(snapshot.document_id) if snapshot.document_id else None
         ),
         error_message=snapshot.error_message,
         created_at=snapshot.created_at,
     )
 
 
-async def get_job(
-    session: AsyncSession, tenant: TenantContext, job_id: uuid.UUID
-) -> ReportJobRead:
+async def get_job(session: AsyncSession, tenant: TenantContext, job_id: uuid.UUID) -> ReportJobRead:
     snapshot = await ReportSnapshotRepository(session, tenant).get(job_id)
     if snapshot is None:
         raise NotFoundError("Report job", job_id, code=ErrorCode.JOB_NOT_FOUND)
@@ -1297,8 +1375,7 @@ async def refresh_inventory_summary(
                 action=AuditAction.UPDATE,
                 entity_type=SUMMARY_AUDIT_ENTITY,
                 summary=(
-                    f"Refreshed the inventory summary: {written} positions, "
-                    f"{removed} removed"
+                    f"Refreshed the inventory summary: {written} positions, {removed} removed"
                 ),
                 user_id=None,
                 actor_label="system",
@@ -1366,6 +1443,7 @@ __all__ = [
     "REPORT_CATALOGUE",
     "REPORT_INLINE_ROW_LIMIT",
     "REPORT_MAX_EXPORT_ROWS",
+    "REPORT_QUEUE",
     "REPORT_SNAPSHOT_TTL_HOURS",
     "REPORT_TASK_NAME",
     "URGENCY_LATER",
@@ -1390,9 +1468,13 @@ __all__ = [
     "definition_for",
     "delivery_delay_days",
     "descriptors",
+    "dispatch_job",
+    "document_download_url",
     "fail_snapshot",
     "get_job",
     "job_read",
+    "job_status_url",
+    "new_job_snapshot",
     "overdue_days",
     "parameters_hash",
     "parameters_of",

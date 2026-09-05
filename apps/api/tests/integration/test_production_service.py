@@ -83,7 +83,7 @@ from src.modules.products.models import Item, ItemGroup, ProductionType, UnitOfM
 from src.modules.routing.models import Routing, RoutingOperation, RoutingStatus, WorkCenter
 from src.modules.users.models import User
 from src.modules.warehouses.models import Warehouse, WarehouseType
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 
 pytestmark = pytest.mark.integration
 
@@ -166,7 +166,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, other_company_id, planner_id, approver_id
     asyncio.run(teardown())
@@ -546,9 +546,7 @@ async def test_an_order_cannot_be_approved_by_the_person_who_raised_it(
     assert exc.value.code is ErrorCode.APPROVAL_REQUIRED
 
 
-async def test_approval_records_who_and_when_and_writes_an_audit_row(
-    db, tenant, masters, approver
-):
+async def test_approval_records_who_and_when_and_writes_an_audit_row(db, tenant, masters, approver):
     order = await make_order(db, tenant, masters)
     approved = await service.approve_order(db, tenant, approver, order.id, ApproveRequest())
 
@@ -556,10 +554,14 @@ async def test_approval_records_who_and_when_and_writes_an_audit_row(
     assert approved.approved_by_id == approver.user_id
     assert approved.approved_at is not None
 
-    stmt = select(func.count()).select_from(AuditLog).where(
-        AuditLog.company_id == tenant.company_id,
-        AuditLog.entity_id == order.id,
-        AuditLog.action == AuditAction.APPROVE,
+    stmt = (
+        select(func.count())
+        .select_from(AuditLog)
+        .where(
+            AuditLog.company_id == tenant.company_id,
+            AuditLog.entity_id == order.id,
+            AuditLog.action == AuditAction.APPROVE,
+        )
     )
     assert (await db.execute(stmt)).scalar_one() == 1
 
@@ -626,9 +628,7 @@ async def test_release_reports_a_shortage_per_component_instead_of_failing(
     assert shortages[masters["screw"].code].shortage_quantity == Decimal("630.0000")
 
 
-async def test_release_refuses_a_structure_that_is_not_approved(
-    db, tenant, masters, approver
-):
+async def test_release_refuses_a_structure_that_is_not_approved(db, tenant, masters, approver):
     masters["bom"].status = BomStatus.DRAFT
     masters["bom"].is_default = False
     masters["bom"].approved_by_id = None
@@ -642,9 +642,7 @@ async def test_release_refuses_a_structure_that_is_not_approved(
     assert exc.value.code is ErrorCode.BOM_NOT_FOUND
 
 
-async def test_release_issues_one_work_order_per_routing_operation(
-    db, tenant, stocked, approver
-):
+async def test_release_issues_one_work_order_per_routing_operation(db, tenant, stocked, approver):
     order = await make_order(db, tenant, stocked, quantity="100")
     await approve(db, tenant, approver, order)
     await release(db, tenant, order)
@@ -826,9 +824,7 @@ async def test_closing_costs_the_job_from_real_movements_and_real_time(
     )
     await service.complete_order(db, tenant, order.id, CompleteRequest())
 
-    closed = await service.close_order(
-        db, tenant, order.id, CloseRequest(closure_note="Ran clean")
-    )
+    closed = await service.close_order(db, tenant, order.id, CloseRequest(closure_note="Ran clean"))
     # 100 bodies at 40 plus 630 screws at 5.
     assert closed.cost.material_cost == Decimal("7150.00")
     # Two clocked hours at 600 an hour.
@@ -879,9 +875,7 @@ async def test_an_operation_of_a_closed_job_can_no_longer_be_changed(
 # -----------------------------------------------------------------------------
 
 
-async def test_an_issue_past_the_over_issue_tolerance_is_refused(
-    db, tenant, stocked, approver
-):
+async def test_an_issue_past_the_over_issue_tolerance_is_refused(db, tenant, stocked, approver):
     order = await make_order(db, tenant, stocked, quantity="100")
     await approve(db, tenant, approver, order)
     await release(db, tenant, order)
@@ -936,9 +930,7 @@ async def test_every_movement_of_a_back_dated_issue_carries_the_documents_own_da
             reason="Picked last month, keyed today",
             issue_date=back_dated,
             lines=[
-                MaterialIssueLineIn(
-                    line_number=1, component_id=body.id, quantity=Decimal("105")
-                )
+                MaterialIssueLineIn(line_number=1, component_id=body.id, quantity=Decimal("105"))
             ],
         ),
         issue_type=MaterialIssueType.ISSUE,
@@ -969,9 +961,7 @@ async def test_a_partial_issue_leaves_the_order_released_and_names_what_is_short
         MaterialIssueCreate(
             reason="First half of the kit",
             lines=[
-                MaterialIssueLineIn(
-                    line_number=1, component_id=body.id, quantity=Decimal("100")
-                )
+                MaterialIssueLineIn(line_number=1, component_id=body.id, quantity=Decimal("100"))
             ],
         ),
         issue_type=MaterialIssueType.ISSUE,
@@ -999,9 +989,7 @@ async def test_forcing_a_partial_issue_needs_the_approval_right(
         MaterialIssueCreate(
             reason="Start with what we have",
             lines=[
-                MaterialIssueLineIn(
-                    line_number=1, component_id=body.id, quantity=Decimal("100")
-                )
+                MaterialIssueLineIn(line_number=1, component_id=body.id, quantity=Decimal("100"))
             ],
         ),
         issue_type=MaterialIssueType.ISSUE,
@@ -1029,9 +1017,7 @@ async def test_an_approver_may_force_a_partial_issue_and_it_is_recorded(
         MaterialIssueCreate(
             reason="Start with what we have",
             lines=[
-                MaterialIssueLineIn(
-                    line_number=1, component_id=body.id, quantity=Decimal("100")
-                )
+                MaterialIssueLineIn(line_number=1, component_id=body.id, quantity=Decimal("100"))
             ],
         ),
         issue_type=MaterialIssueType.ISSUE,
@@ -1055,9 +1041,7 @@ async def test_an_approver_may_force_a_partial_issue_and_it_is_recorded(
         AuditLog.action == AuditAction.INVENTORY_MOVEMENT,
     )
     rows = list((await db.execute(stmt)).scalars().all())
-    overrides = [
-        row for row in rows if (row.new_values or {}).get("partial_issue_forced") is True
-    ]
+    overrides = [row for row in rows if (row.new_values or {}).get("partial_issue_forced") is True]
     assert len(overrides) == 1
     assert overrides[0].new_values["override_reason"] == "Screws arrive tomorrow"
 
@@ -1149,9 +1133,7 @@ async def test_cancelling_a_released_job_gives_the_reserved_stock_back(
     assert all(r.status is ReservationStatus.RELEASED for r in reservations)
 
 
-async def test_returning_more_than_the_job_holds_is_refused(
-    db, tenant, stocked, planner, approver
-):
+async def test_returning_more_than_the_job_holds_is_refused(db, tenant, stocked, planner, approver):
     order = await make_order(db, tenant, stocked, quantity="100")
     await approve(db, tenant, approver, order)
     await release(db, tenant, order)
@@ -1199,9 +1181,7 @@ async def test_a_backflushed_component_is_issued_at_completion_in_proportion(
         MaterialIssueCreate(
             reason="Pick the bodies only",
             lines=[
-                MaterialIssueLineIn(
-                    line_number=1, component_id=body.id, quantity=Decimal("100")
-                )
+                MaterialIssueLineIn(line_number=1, component_id=body.id, quantity=Decimal("100"))
             ],
         ),
         issue_type=MaterialIssueType.ISSUE,
@@ -1264,9 +1244,13 @@ async def test_a_booking_at_an_intermediate_operation_receives_no_stock(
     assert result.output_movement is None
     assert result.order.produced_quantity == Decimal("0.0000")
 
-    stmt = select(func.count()).select_from(InventoryBalance).where(
-        InventoryBalance.company_id == tenant.company_id,
-        InventoryBalance.item_id == stocked["kit"].id,
+    stmt = (
+        select(func.count())
+        .select_from(InventoryBalance)
+        .where(
+            InventoryBalance.company_id == tenant.company_id,
+            InventoryBalance.item_id == stocked["kit"].id,
+        )
     )
     assert (await db.execute(stmt)).scalar_one() == 0
 
@@ -1358,24 +1342,33 @@ async def test_another_tenant_cannot_see_or_touch_this_companys_jobs(
     assert all(row.id != order.id for row in rows)
 
 
-async def test_a_draft_can_be_deleted_but_a_released_job_cannot(
-    db, tenant, stocked, approver
-):
+async def test_a_draft_can_be_deleted_but_a_released_job_cannot(db, tenant, stocked, approver):
     draft = await make_order(db, tenant, stocked)
-    await service.delete_draft_order(db, tenant, draft.id)
+    await service.delete_draft_order(db, tenant, draft.id, reason="Raised twice by mistake")
     with pytest.raises(NotFoundError):
         await service.get_order(db, tenant, draft.id)
+
+    # The row is gone; the audit entry survives it and carries the reason, so
+    # a deletion is never unexplained.
+    deletion = (
+        await db.execute(
+            select(AuditLog).where(
+                AuditLog.action == AuditAction.DELETE, AuditLog.entity_id == draft.id
+            )
+        )
+    ).scalar_one()
+    assert deletion.context["reason"] == "Raised twice by mistake"
 
     live = await make_order(db, tenant, stocked)
     await approve(db, tenant, approver, live)
     await release(db, tenant, live)
     with pytest.raises(BusinessRuleError, match="only a draft may be deleted"):
-        await service.delete_draft_order(db, tenant, live.id)
+        await service.delete_draft_order(
+            db, tenant, live.id, reason="Trying to delete a released job"
+        )
 
 
-async def test_every_posted_document_leaves_an_audit_trail(
-    db, tenant, stocked, planner, approver
-):
+async def test_every_posted_document_leaves_an_audit_trail(db, tenant, stocked, planner, approver):
     """Section 29: the audit row is written in the same transaction as the change."""
     order = await make_order(db, tenant, stocked, quantity="100")
     await approve(db, tenant, approver, order)
@@ -1392,9 +1385,7 @@ async def test_every_posted_document_leaves_an_audit_trail(
     assert AuditAction.PRODUCTION_STATUS_CHANGE in actions
 
 
-async def test_a_draft_issue_can_be_cancelled_and_moves_nothing(
-    db, tenant, stocked, approver
-):
+async def test_a_draft_issue_can_be_cancelled_and_moves_nothing(db, tenant, stocked, approver):
     order = await make_order(db, tenant, stocked, quantity="100")
     await approve(db, tenant, approver, order)
     await release(db, tenant, order)
@@ -1407,9 +1398,7 @@ async def test_a_draft_issue_can_be_cancelled_and_moves_nothing(
         MaterialIssueCreate(
             reason="Raised in error",
             lines=[
-                MaterialIssueLineIn(
-                    line_number=1, component_id=rows[0].id, quantity=Decimal("10")
-                )
+                MaterialIssueLineIn(line_number=1, component_id=rows[0].id, quantity=Decimal("10"))
             ],
         ),
         issue_type=MaterialIssueType.ISSUE,

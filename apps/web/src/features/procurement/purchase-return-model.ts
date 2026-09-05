@@ -118,10 +118,6 @@ export const RETURN_TERMINAL_STATUSES: readonly PurchaseReturnStatus[] = ['POSTE
 
 // ----------------------------------------------------------- API bounds -----
 
-/** `PurchaseReturnCreate.reason` and `ReasonRequest.reason`: 3..255. */
-export const MIN_REASON_LENGTH = 3
-export const MAX_REASON_LENGTH = 255
-
 /** `PurchaseReturnCreate.debit_note_number`. */
 export const MAX_DEBIT_NOTE_LENGTH = 64
 
@@ -144,24 +140,46 @@ export type PurchaseReturnRow = SchemaOf<'PurchaseReturnSummary'>
 export type PurchaseReturnDetail = SchemaOf<'PurchaseReturnDetail'>
 
 /**
+ * Which pool a returned quantity leaves (`ReturnStockState`): released stock,
+ * or stock an incoming inspection rejected. A return never touches the other
+ * five states in `StockState`.
+ */
+export type ReturnStockState = 'AVAILABLE' | 'DAMAGED'
+
+/**
  * One line of a return (`PurchaseReturnLineRead`).
  *
  * `batch_id` is the lot the goods came in on, copied from the receipt line so
  * the return leaves against the same lot. It is an id with no batch number
  * beside it, so a screen can say a line is tied to a lot but not which one.
+ *
+ * `stock_state` is the pool the line was, or will be, taken from. It is on
+ * the wire ahead of the generated contract and is added here until the next
+ * regeneration carries it.
  */
-export type PurchaseReturnLine = SchemaOf<'PurchaseReturnLineRead'>
+export type PurchaseReturnLine = SchemaOf<'PurchaseReturnLineRead'> & {
+  stock_state: ReturnStockState
+}
 
 /**
  * One line of `POST /procurement/purchase-returns` (`PurchaseReturnLineIn`).
  *
  * `line_number` is required and the model forbids unknown keys, so a payload
  * that omits it is refused outright rather than partially accepted.
+ *
+ * `stock_state` is omitted to let the service resolve the pool from the
+ * inspection; it is given only when a receipt line holds quantity in both
+ * pools and the return has to say which one. Ahead of the generated contract,
+ * as above.
  */
-export type PurchaseReturnLinePayload = SchemaOf<'PurchaseReturnLineIn'>
+export type PurchaseReturnLinePayload = SchemaOf<'PurchaseReturnLineIn'> & {
+  stock_state?: ReturnStockState | null
+}
 
 /** Body of `POST /procurement/purchase-returns` (`PurchaseReturnCreate`). */
-export type PurchaseReturnCreatePayload = SchemaOf<'PurchaseReturnCreate'>
+export type PurchaseReturnCreatePayload = Omit<SchemaOf<'PurchaseReturnCreate'>, 'lines'> & {
+  lines: PurchaseReturnLinePayload[]
+}
 
 /**
  * `POST /procurement/purchase-returns/{id}/post` (`PurchaseReturnPostResult`).

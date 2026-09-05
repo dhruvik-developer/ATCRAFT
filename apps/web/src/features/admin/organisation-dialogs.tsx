@@ -30,29 +30,28 @@ import {
   SelectValue,
 } from '@/components/ui/overlays'
 import { Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
+import { useUserOptions } from '@/hooks/use-user-options'
 import { api } from '@/lib/api-client'
+import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { toDateInput } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
+import { asId, asText } from '@/lib/utils'
 
 import {
   orgKeys,
   useBranchOptions,
   usePlantOptions,
-  useUserOptions,
   type BranchRow,
   type DepartmentRow,
   type FinancialYearRow,
   type PlantRow,
 } from './admin-types'
 
-const NONE = '__none'
 const CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._\-/ ]*$/
 const CODE_MESSAGE =
   'Use letters, digits, dot, dash, slash, underscore or space, starting with a letter or digit'
-
-const asId = (value: string): string | null => (value === NONE || value === '' ? null : value)
-const asText = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 
 const codeField = z
   .string()
@@ -176,7 +175,10 @@ export function BranchFormDialog({
     },
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: orgKeys.all })
-      toast.success(isEdit ? 'Branch updated' : 'Branch created', `${saved.code} - ${saved.name}`)
+      toast.success(
+        isEdit ? success.updated('Branch') : success.created('Branch'),
+        `${saved.code} - ${saved.name}`,
+      )
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),
@@ -267,7 +269,7 @@ export function BranchFormDialog({
               <FieldError message={errors.city?.message} />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <Label htmlFor="branch-state">State</Label>
                 <Input id="branch-state" {...register('state')} className="mt-1.5" />
@@ -354,7 +356,7 @@ function emptyPlant(): PlantValues {
   return {
     code: '',
     name: '',
-    branch_id: NONE,
+    branch_id: SELECT_NONE,
     address_line1: '',
     city: '',
     state: '',
@@ -395,7 +397,7 @@ export function PlantFormDialog({
         ? {
             code: plant.code,
             name: plant.name,
-            branch_id: plant.branch_id ?? NONE,
+            branch_id: plant.branch_id ?? SELECT_NONE,
             address_line1: plant.address_line1 ?? '',
             city: plant.city ?? '',
             state: plant.state ?? '',
@@ -422,7 +424,10 @@ export function PlantFormDialog({
     },
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: orgKeys.all })
-      toast.success(isEdit ? 'Plant updated' : 'Plant created', `${saved.code} - ${saved.name}`)
+      toast.success(
+        isEdit ? success.updated('Plant') : success.created('Plant'),
+        `${saved.code} - ${saved.name}`,
+      )
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),
@@ -485,7 +490,7 @@ export function PlantFormDialog({
                       <SelectValue placeholder="No branch" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={NONE}>No branch</SelectItem>
+                      <SelectItem value={SELECT_NONE}>No branch</SelectItem>
                       {(branches.data ?? []).map((branch) => (
                         <SelectItem key={branch.id} value={branch.id}>
                           {branch.code} - {branch.name}
@@ -563,9 +568,9 @@ function emptyDepartment(): DepartmentValues {
   return {
     code: '',
     name: '',
-    plant_id: NONE,
-    parent_id: NONE,
-    head_user_id: NONE,
+    plant_id: SELECT_NONE,
+    parent_id: SELECT_NONE,
+    head_user_id: SELECT_NONE,
     is_active: true,
   }
 }
@@ -575,17 +580,24 @@ export function DepartmentFormDialog({
   onOpenChange,
   department,
   siblings,
+  canSeeUsers = true,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   department?: DepartmentRow | null
   /** Candidate parents - the current page of departments. */
   siblings: DepartmentRow[]
+  /**
+   * Whether the caller holds `user.view`, which `GET /users` enforces. Without
+   * it the head-of-department picker is not offered: it could only ever list
+   * "Unassigned", and the request behind it could only be refused.
+   */
+  canSeeUsers?: boolean
 }) {
   const queryClient = useQueryClient()
   const isEdit = Boolean(department)
   const plants = usePlantOptions(open)
-  const users = useUserOptions(open)
+  const users = useUserOptions({ enabled: open && canSeeUsers })
 
   const {
     register,
@@ -607,9 +619,9 @@ export function DepartmentFormDialog({
         ? {
             code: department.code,
             name: department.name,
-            plant_id: department.plant_id ?? NONE,
-            parent_id: department.parent_id ?? NONE,
-            head_user_id: department.head_user_id ?? NONE,
+            plant_id: department.plant_id ?? SELECT_NONE,
+            parent_id: department.parent_id ?? SELECT_NONE,
+            head_user_id: department.head_user_id ?? SELECT_NONE,
             is_active: department.is_active,
           }
         : emptyDepartment(),
@@ -636,7 +648,7 @@ export function DepartmentFormDialog({
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: orgKeys.all })
       toast.success(
-        isEdit ? 'Department updated' : 'Department created',
+        isEdit ? success.updated('Department') : success.created('Department'),
         `${saved.code} - ${saved.name}`,
       )
       onOpenChange(false)
@@ -701,7 +713,7 @@ export function DepartmentFormDialog({
                       <SelectValue placeholder="No plant" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={NONE}>No plant</SelectItem>
+                      <SelectItem value={SELECT_NONE}>No plant</SelectItem>
                       {(plants.data ?? []).map((plant) => (
                         <SelectItem key={plant.id} value={plant.id}>
                           {plant.code} - {plant.name}
@@ -724,7 +736,7 @@ export function DepartmentFormDialog({
                       <SelectValue placeholder="Top level" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={NONE}>Top level</SelectItem>
+                      <SelectItem value={SELECT_NONE}>Top level</SelectItem>
                       {siblings
                         .filter((candidate) => candidate.id !== department?.id)
                         .map((candidate) => (
@@ -738,28 +750,30 @@ export function DepartmentFormDialog({
               />
             </div>
 
-            <div className="sm:col-span-2">
-              <Label htmlFor="dept-head">Head of department</Label>
-              <Controller
-                control={control}
-                name="head_user_id"
-                render={({ field }) => (
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger id="dept-head" className="mt-1.5">
-                      <SelectValue placeholder="Unassigned" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NONE}>Unassigned</SelectItem>
-                      {(users.data ?? []).map((option) => (
-                        <SelectItem key={option.id} value={option.id}>
-                          {option.full_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-            </div>
+            {canSeeUsers && (
+              <div className="sm:col-span-2">
+                <Label htmlFor="dept-head">Head of department</Label>
+                <Controller
+                  control={control}
+                  name="head_user_id"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger id="dept-head" className="mt-1.5">
+                        <SelectValue placeholder="Unassigned" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={SELECT_NONE}>Unassigned</SelectItem>
+                        {(users.data ?? []).map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.full_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+            )}
 
             <label className="flex items-center gap-2.5 text-sm sm:col-span-2">
               <Controller
@@ -862,7 +876,10 @@ export function FinancialYearFormDialog({
     },
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: orgKeys.all })
-      toast.success(isEdit ? 'Financial year updated' : 'Financial year opened', saved.code)
+      toast.success(
+        isEdit ? success.updated('Financial year') : success.opened('Financial year'),
+        saved.code,
+      )
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),

@@ -29,14 +29,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { TooltipProvider } from '@/components/ui/overlays'
 import { toDateInput } from '@/lib/format'
 import { P } from '@/lib/permissions'
-import {
-  fail,
-  ok,
-  page,
-  renderScreen,
-  type FetchRecorder,
-  type RouteTable,
-} from '@/test/harness'
+import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } from '@/test/harness'
 
 import type { RequisitionRow } from './procurement-types'
 import RequisitionsPage from './requisitions-page'
@@ -127,6 +120,30 @@ function requisition(overrides: Partial<RequisitionRow> = {}): RequisitionRow {
   }
 }
 
+/** The draft as its detail endpoint returns it, with one line to carry through an amend. */
+function requisitionDetail() {
+  return ok({
+    ...requisition({ status: 'DRAFT' }),
+    notes: null,
+    rejection_reason: null,
+    lines: [
+      {
+        id: '01a00000-0000-7000-8000-0000000000l1',
+        line_number: 1,
+        item_id: ITEM_BRASS,
+        quantity: '12.5000',
+        estimated_unit_price: null,
+        description: 'Brass rod 12mm',
+        uom_id: '01a00000-0000-7000-8000-00000000uom1',
+        required_date: null,
+        suggested_vendor_id: null,
+        notes: null,
+        converted_quantity: '0.0000',
+      },
+    ],
+  })
+}
+
 /** The three lookups the queue itself makes, plus the rows under test. */
 function queueRoutes(rows: RequisitionRow[], extra: RouteTable = {}): RouteTable {
   return {
@@ -185,8 +202,9 @@ describe('who is offered what', () => {
       routes: queueRoutes([requisition()]),
     })
 
-    expect(await stable(() => screen.getByRole('button', { name: /raise requisition/i })))
-      .toBeVisible()
+    expect(
+      await stable(() => screen.getByRole('button', { name: /raise requisition/i })),
+    ).toBeVisible()
   })
 
   it('keeps the decision off the requester’s menu', async () => {
@@ -301,6 +319,21 @@ describe('what the decision sends', () => {
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
   })
 
+  it('stops the rejection reason at the 255 characters the API accepts', async () => {
+    // Past 255 the API answers a 422 naming the field, which the global toast
+    // suppresses on the assumption the form shows it - so the control stops
+    // the paste where it is typed rather than failing silently.
+    const { user, fetch } = renderScreen(screenUnderTest, {
+      permissions: [P.PURCHASE_REQUISITION_VIEW, P.PURCHASE_REQUISITION_APPROVE],
+      routes: decisionRoutes,
+    })
+
+    const menu = await openActions(user, fetch, 'PR-0001')
+    await user.click(within(menu).getByRole('menuitem', { name: 'Reject' }))
+    const reasonBox = await stable(() => screen.getByRole('textbox', { name: 'Reason' }))
+    expect(reasonBox).toHaveAttribute('maxlength', '255')
+  })
+
   it('posts the rejection reason as the API records it', async () => {
     const { user, fetch } = renderScreen(screenUnderTest, {
       permissions: [P.PURCHASE_REQUISITION_VIEW, P.PURCHASE_REQUISITION_APPROVE],
@@ -329,7 +362,9 @@ describe('what the decision sends', () => {
 
     const menu = await openActions(user, fetch, 'PR-0001')
     await user.click(within(menu).getByRole('menuitem', { name: 'Approve' }))
-    await user.click(await stable(() => screen.getByRole('button', { name: 'Approve requisition' })))
+    await user.click(
+      await stable(() => screen.getByRole('button', { name: 'Approve requisition' })),
+    )
 
     await waitFor(() => fetch.requestFor('POST', APPROVE_PATH))
     // `ApproveRequest` reads null as "no note recorded" and writes its own
@@ -524,6 +559,45 @@ describe('the requisition form', () => {
     // requester has to map back onto the sheet themselves.
     await stable(() => screen.getByText('Exceeds the maximum order quantity for this item'))
     expect(screen.getByRole('dialog')).toBeVisible()
+  })
+
+  it('does not offer a blank form to save over a draft that failed to load', async () => {
+    // `RequisitionUpdate.lines` replaces the whole set. A blank form after a
+    // failed load is not an empty requisition: saving it would delete every
+    // line the draft has. So nothing editable, and no Save, until it loads.
+    let attempts = 0
+    const { user, fetch } = renderScreen(screenUnderTest, {
+      permissions: formPermissions,
+      routes: formRoutes({
+        'GET /procurement/purchase-requisitions': page([requisition({ status: 'DRAFT' })]),
+        [`GET /procurement/purchase-requisitions/${REQUISITION_ID}`]: () => {
+          attempts += 1
+          return attempts === 1
+            ? fail(500, 'INTERNAL', 'The requisition could not be read')
+            : requisitionDetail()
+        },
+        // The line's item is resolved by id so the picker reads as a code.
+        [`GET /products/items/${ITEM_BRASS}`]: ok({
+          id: ITEM_BRASS,
+          code: 'BRASS-ROD-12',
+          name: 'Brass rod 12mm',
+        }),
+      }),
+    })
+
+    const menu = await openActions(user, fetch, 'PR-0001')
+    await user.click(within(menu).getByRole('menuitem', { name: 'Edit draft' }))
+    const dialog = await stable(() => screen.getByRole('dialog'))
+
+    await stable(() => within(dialog).getByText('Could not load this requisition'))
+    expect(within(dialog).getByText('The requisition could not be read')).toBeVisible()
+    expect(within(dialog).queryByRole('button', { name: 'Save draft' })).not.toBeInTheDocument()
+    expect(within(dialog).queryByRole('textbox', { name: 'Quantity' })).not.toBeInTheDocument()
+
+    // Try again brings the draft, and only then the form - with its lines.
+    await user.click(within(dialog).getByRole('button', { name: /try again/i }))
+    await stable(() => screen.getByRole('button', { name: 'Save draft' }))
+    expect(screen.getByRole('textbox', { name: 'Quantity' })).toHaveValue('12.5000')
   })
 
   it('says why it cannot be saved when the warehouse list is unreadable', async () => {

@@ -56,7 +56,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.core.models import TenantEntity
+from src.core.models import TenantEntity, sql_in_list
 from src.core.types import GUID, Quantity
 from src.modules.inventory.models import StatusEnum
 
@@ -154,16 +154,6 @@ class MrpSuggestionStatus(StrEnum):
     IGNORED = "IGNORED"
 
 
-def _sql_in_list(values: tuple[StrEnum, ...] | type[StrEnum]) -> str:
-    """Render a status vocabulary as a SQL ``IN`` list.
-
-    Generated from the Python enum so a database CHECK cannot drift away from
-    the values the schemas validate against.
-    """
-    members = values if isinstance(values, tuple) else tuple(values)
-    return ", ".join(f"'{member.value}'" for member in members)
-
-
 class MrpRun(TenantEntity):
     """One execution of the planning engine, with everything it was given."""
 
@@ -226,10 +216,10 @@ class MrpRun(TenantEntity):
             "ix_mrp_runs_active",
             "company_id",
             "created_at",
-            postgresql_where=text(f"status IN ({_sql_in_list(ACTIVE_RUN_STATUSES)})"),
+            postgresql_where=text(f"status IN ({sql_in_list(ACTIVE_RUN_STATUSES)})"),
         ),
-        CheckConstraint(f"status IN ({_sql_in_list(MrpRunStatus)})", name="status_known"),
-        CheckConstraint(f"mode IN ({_sql_in_list(MrpRunMode)})", name="mode_known"),
+        CheckConstraint(f"status IN ({sql_in_list(MrpRunStatus)})", name="status_known"),
+        CheckConstraint(f"mode IN ({sql_in_list(MrpRunMode)})", name="mode_known"),
         CheckConstraint(
             f"horizon_days BETWEEN {MIN_HORIZON_DAYS} AND {MAX_HORIZON_DAYS}",
             name="horizon_in_range",
@@ -298,7 +288,7 @@ class MrpDemand(TenantEntity):
         CheckConstraint("quantity > 0", name="quantity_positive"),
         CheckConstraint("priority >= 0", name="priority_non_negative"),
         CheckConstraint(
-            f"demand_source IN ({_sql_in_list(MrpDemandSource)})", name="demand_source_known"
+            f"demand_source IN ({sql_in_list(MrpDemandSource)})", name="demand_source_known"
         ),
         # A sales-order line must say which order it came from; a manual line
         # must not pretend it came from one.
@@ -621,9 +611,9 @@ class MrpSuggestion(TenantEntity):
             postgresql_where=text("status = 'OPEN'"),
         ),
         CheckConstraint(
-            f"suggestion_type IN ({_sql_in_list(MrpSuggestionType)})", name="suggestion_type_known"
+            f"suggestion_type IN ({sql_in_list(MrpSuggestionType)})", name="suggestion_type_known"
         ),
-        CheckConstraint(f"status IN ({_sql_in_list(MrpSuggestionStatus)})", name="status_known"),
+        CheckConstraint(f"status IN ({sql_in_list(MrpSuggestionStatus)})", name="status_known"),
         CheckConstraint("required_quantity > 0", name="required_quantity_positive"),
         CheckConstraint("suggested_quantity > 0", name="suggested_quantity_positive"),
         CheckConstraint("shortage_quantity > 0", name="shortage_quantity_positive"),

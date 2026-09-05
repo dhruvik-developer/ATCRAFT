@@ -18,10 +18,12 @@ Mixin vocabulary
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, MetaData, func
+from sqlalchemy import DateTime, ForeignKey, Integer, MetaData, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column
 
 from src.core.clock import utcnow
@@ -215,14 +217,24 @@ class ImmutableLedgerEntity(Base, UUIDPrimaryKeyMixin, TenantMixin):
     )
 
 
-def tenant_unique(table_name: str, *columns: str, name: str | None = None) -> Index:
-    """Build a tenant-scoped unique index.
+def sql_in_list(values: Iterable[StrEnum]) -> str:
+    """Render enum members as the body of a SQL ``IN (...)`` list.
 
-    Business codes (item code, PO number, warehouse code) are unique *within a
-    company*, never globally - a second tenant must be able to use "RM-001" too.
+    For CHECK constraints and partial-index predicates over a status column.
+    Generated from the Python enum so the database vocabulary cannot drift from
+    the one the schemas and the state machines validate against; one copy here
+    so a quoting fix reaches every module's constraints at once. Members render
+    in the order given - pass ``sorted(...)`` for a ``frozenset``, whose
+    iteration order changes between processes and would make the DDL text
+    non-deterministic.
     """
-    index_name = name or f"uq_{table_name}_company_{'_'.join(columns)}"
-    return Index(index_name, "company_id", *columns, unique=True)
+    return ", ".join(f"'{member.value}'" for member in values)
+
+
+def sql_array_literal(values: Iterable[StrEnum]) -> str:
+    """Render enum members as a PostgreSQL ``varchar[]`` literal, for ``= ANY(...)``."""
+    members = ",".join(f"'{member.value}'" for member in values)
+    return f"ARRAY[{members}]::varchar[]"
 
 
 __all__ = [
@@ -237,5 +249,6 @@ __all__ = [
     "TenantMixin",
     "TimestampMixin",
     "UUIDPrimaryKeyMixin",
-    "tenant_unique",
+    "sql_array_literal",
+    "sql_in_list",
 ]

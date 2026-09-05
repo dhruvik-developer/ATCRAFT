@@ -26,7 +26,11 @@
 import { chromium } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 
-const BASE = process.env.SWEEP_BASE ?? 'http://localhost:4173'
+import { BASE_URL as BASE } from '../lib/env.mjs'
+
+// A restricted account, not the administrator: an administrator passes every
+// gate by construction. Create it with `must_change_password: false`, or the
+// login below parks on /change-password instead of reaching a screen.
 const EMAIL = process.env.SWEEP_USER ?? 'storekeeper@atcraft.example'
 const PASSWORD = process.env.SWEEP_PASSWORD ?? 'StorePass!Atcraft2026'
 

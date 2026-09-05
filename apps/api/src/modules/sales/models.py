@@ -59,7 +59,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.core.models import OptimisticLockMixin, TenantEntity
+from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
+from src.core.models import OptimisticLockMixin, TenantEntity, sql_in_list
 from src.core.types import GUID, Money, Percentage, Quantity, UnitPrice
 
 #: Planning priority. Lower is more urgent, so the natural ascending sort is
@@ -75,7 +76,6 @@ MAX_PRIORITY = 9
 DEFAULT_PRIORITY = 5
 
 #: Currency codes are ISO-4217 alphabetic.
-CURRENCY_CODE_LENGTH = 3
 
 
 class SalesOrderStatus(StrEnum):
@@ -132,16 +132,6 @@ RESERVING_STATUSES: tuple[SalesOrderStatus, ...] = (
 )
 
 
-def _sql_in_list(values: tuple[StrEnum, ...] | type[StrEnum]) -> str:
-    """Render a status vocabulary as a SQL ``IN`` list.
-
-    Generated from the Python enum so a database CHECK cannot drift away from
-    the values the schemas validate against.
-    """
-    members = values if isinstance(values, tuple) else tuple(values)
-    return ", ".join(f"'{member.value}'" for member in members)
-
-
 class SalesOrder(TenantEntity, OptimisticLockMixin):
     """A customer's committed demand for one delivery."""
 
@@ -194,7 +184,10 @@ class SalesOrder(TenantEntity, OptimisticLockMixin):
 
     # --- money --------------------------------------------------------------
     currency: Mapped[str] = mapped_column(
-        String(CURRENCY_CODE_LENGTH), nullable=False, default="INR", server_default="INR"
+        String(CURRENCY_CODE_LENGTH),
+        nullable=False,
+        default=DEFAULT_CURRENCY,
+        server_default=DEFAULT_CURRENCY,
     )
     subtotal: Mapped[Decimal] = mapped_column(
         Money, nullable=False, default=Decimal("0"), server_default="0"
@@ -263,9 +256,9 @@ class SalesOrder(TenantEntity, OptimisticLockMixin):
             "company_id",
             "required_date",
             "warehouse_id",
-            postgresql_where=text(f"status IN ({_sql_in_list(OPEN_DEMAND_STATUSES)})"),
+            postgresql_where=text(f"status IN ({sql_in_list(OPEN_DEMAND_STATUSES)})"),
         ),
-        CheckConstraint(f"status IN ({_sql_in_list(SalesOrderStatus)})", name="status_known"),
+        CheckConstraint(f"status IN ({sql_in_list(SalesOrderStatus)})", name="status_known"),
         CheckConstraint(
             f"priority BETWEEN {MIN_PRIORITY} AND {MAX_PRIORITY}", name="priority_in_range"
         ),
@@ -400,7 +393,7 @@ class SalesOrderLine(TenantEntity):
             "item_id",
             postgresql_where=text("status <> 'CANCELLED' AND dispatched_quantity < quantity"),
         ),
-        CheckConstraint(f"status IN ({_sql_in_list(SalesOrderLineStatus)})", name="status_known"),
+        CheckConstraint(f"status IN ({sql_in_list(SalesOrderLineStatus)})", name="status_known"),
         CheckConstraint("line_number > 0", name="line_number_positive"),
         CheckConstraint("quantity > 0", name="quantity_positive"),
         CheckConstraint("unit_price >= 0", name="unit_price_non_negative"),

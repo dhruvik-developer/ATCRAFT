@@ -23,7 +23,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from src.core.deps import DbSession, Tenant, require_any_permission, require_permission
+from src.core.deps import (
+    CurrentUser,
+    DbSession,
+    Tenant,
+    require_any_permission,
+    require_permission,
+)
 from src.core.pagination import PageParams, SortParams, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
@@ -78,9 +84,7 @@ def order_filters(
     open_only: Annotated[
         bool, Query(description="Only orders that still owe processed stock")
     ] = False,
-    due_before: Annotated[
-        date | None, Query(description="Due back on or before this date")
-    ] = None,
+    due_before: Annotated[date | None, Query(description="Due back on or before this date")] = None,
     created_from: Annotated[datetime | None, Query()] = None,
     created_to: Annotated[datetime | None, Query()] = None,
 ) -> JobWorkOrderFilters:
@@ -145,29 +149,36 @@ async def pending_at_vendor(
 
 @router.get(
     "/charges",
-    response_model=ApiResponse[list[VendorChargeRow]],
+    response_model=PaginatedResponse[VendorChargeRow],
     summary="Per-vendor job work charges for a period",
     description=(
         "The figures finance posts to the vendor ledger. Charges accrue on receipt, so the "
         "period is applied to the receipt date: a vendor earns the fee when the processed "
         "goods come back. Net charges are the gross processing fee less the value of company "
-        "material the vendor lost beyond the agreed allowance."
+        "material the vendor lost beyond the agreed allowance. One vendor per row, largest "
+        "spend first, paged - `has_next` says when there is more to post."
     ),
     dependencies=[require_any_permission(Permission.FINANCE_VIEW, Permission.JOB_WORK_VIEW)],
 )
 async def vendor_charges(
     session: DbSession,
     tenant: Tenant,
+    params: PageDep,
     date_from: Annotated[date, Query(description="First receipt date in the period")],
     date_to: Annotated[date, Query(description="Last receipt date in the period")],
     vendor_id: Annotated[
         list[uuid.UUID] | None, Query(description="Restrict to these vendors")
     ] = None,
-) -> ApiResponse[list[VendorChargeRow]]:
-    rows = await service.job_work_charges_for_period(
-        session, tenant, date_from=date_from, date_to=date_to, vendor_ids=vendor_id
+) -> PaginatedResponse[VendorChargeRow]:
+    rows, pagination = await service.list_charges_page(
+        session,
+        tenant,
+        date_from=date_from,
+        date_to=date_to,
+        vendor_ids=vendor_id,
+        params=params,
     )
-    return ApiResponse[list[VendorChargeRow]].ok(rows)
+    return PaginatedResponse[VendorChargeRow](data=rows, pagination=pagination)
 
 
 # -----------------------------------------------------------------------------
@@ -282,9 +293,7 @@ async def delete_order(
 async def list_challans(
     order_id: uuid.UUID, session: DbSession, tenant: Tenant
 ) -> ApiResponse[list[ChallanRead]]:
-    return ApiResponse[list[ChallanRead]].ok(
-        await service.list_challans(session, tenant, order_id)
-    )
+    return ApiResponse[list[ChallanRead]].ok(await service.list_challans(session, tenant, order_id))
 
 
 @router.get(
@@ -296,9 +305,7 @@ async def list_challans(
 async def list_receipts(
     order_id: uuid.UUID, session: DbSession, tenant: Tenant
 ) -> ApiResponse[list[ReceiptRead]]:
-    return ApiResponse[list[ReceiptRead]].ok(
-        await service.list_receipts(session, tenant, order_id)
-    )
+    return ApiResponse[list[ReceiptRead]].ok(await service.list_receipts(session, tenant, order_id))
 
 
 @router.get(
@@ -341,9 +348,7 @@ async def reconciliation(
 async def approve_order(
     order_id: uuid.UUID, payload: ReasonRequest, session: DbSession, tenant: Tenant
 ) -> ApiResponse[JobWorkOrderDetail]:
-    order, lines = await service.approve_order(
-        session, tenant, order_id, reason=payload.reason
-    )
+    order, lines = await service.approve_order(session, tenant, order_id, reason=payload.reason)
     return ApiResponse[JobWorkOrderDetail].ok(
         service.order_detail(order, lines),
         f"Job work order {order.code} approved and material reserved",
@@ -402,15 +407,20 @@ async def issue_order(
         "job-work pool, returns anything handed back untouched, and writes process loss off "
         "as scrap with a reason - all in one transaction. Loss beyond the line's agreed "
         "allowance is refused until `approve_excess_loss` is set, and its value is then "
-        "debited to the vendor at the material's own moving-average cost. Receiving more "
-        "output than the order expected is refused rather than clamped."
+        "debited to the vendor at the material's own moving-average cost. Approving the "
+        "excess requires `job_work.close`. Receiving more output than the order expected "
+        "is refused rather than clamped."
     ),
     dependencies=[require_permission(Permission.JOB_WORK_RECEIVE)],
 )
 async def receive_lot(
-    order_id: uuid.UUID, payload: ReceiveRequest, session: DbSession, tenant: Tenant
+    order_id: uuid.UUID,
+    payload: ReceiveRequest,
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
 ) -> ApiResponse[ReceiptResult]:
-    result = await service.receive(session, tenant, order_id, payload)
+    result = await service.receive(session, tenant, principal, order_id, payload)
     return ApiResponse[ReceiptResult].ok(
         result, f"Received {result.receipt.code} against {result.order.code}"
     )

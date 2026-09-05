@@ -622,14 +622,18 @@ async def test_a_job_runs_through_its_lifecycle_and_audits_every_move(
     assert snapshot.generated_at is not None
 
     audited = (
-        await session.execute(
-            select(AuditLog.action).where(
-                AuditLog.company_id == company.id,
-                AuditLog.entity_type == service.AUDIT_ENTITY,
-                AuditLog.entity_id == snapshot.id,
+        (
+            await session.execute(
+                select(AuditLog.action).where(
+                    AuditLog.company_id == company.id,
+                    AuditLog.entity_type == service.AUDIT_ENTITY,
+                    AuditLog.entity_id == snapshot.id,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert "STATUS_CHANGE" in audited
     assert "DATA_EXPORT" in audited
 

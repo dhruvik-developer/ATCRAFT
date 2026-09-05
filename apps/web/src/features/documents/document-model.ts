@@ -25,7 +25,7 @@
  *    file that 404s.
  * 4. **Rows are not denormalised.** The uploader arrives as an id with no name,
  *    and resolving one per row would be the N+1 the codebase forbids -
- *    `useUploaderOptions` fetches one page of users instead, and only for an
+ *    `useUserOptions` fetches one page of users instead, and only for an
  *    account allowed to read them.
  * 5. **The upload allow-list is server configuration, not contract.** Neither
  *    the accepted MIME types nor the size ceiling appears in the OpenAPI
@@ -34,10 +34,6 @@
  *    declared type and rejects a mismatch whatever the extension says.
  */
 
-import { useQuery } from '@tanstack/react-query'
-
-import { api } from '@/lib/api-client'
-import { staleTimes } from '@/lib/query-client'
 import type { SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------ query keys ----
@@ -51,7 +47,6 @@ export const documentKeys = {
   all: ['documents'] as const,
   list: (params: unknown) => ['documents', 'list', params] as const,
   detail: (id: string) => ['documents', 'detail', id] as const,
-  uploaders: ['documents', 'uploaders'] as const,
 }
 
 // ----------------------------------------------------------- wire shapes ----
@@ -238,31 +233,3 @@ export function hasEntityReference(
 }
 
 // ---------------------------------------------------------------- hooks -----
-
-/**
- * Active users, so an uploader id can be shown as a name.
- *
- * One page of at most 200 rather than a request per document. Soft-failing and
- * gated by the caller on `USER_VIEW`, which is what `GET /users` enforces:
- * without it the list still reads perfectly, uploaders simply stay anonymous.
- * An id outside the page - a deactivated colleague, a company past 200 users -
- * is normal rather than an error, so callers must have a fallback.
- */
-export function useUploaderOptions(enabled: boolean) {
-  return useQuery({
-    queryKey: documentKeys.uploaders,
-    queryFn: async () => {
-      try {
-        return (
-          await api.getPage<UploaderOption>('/users', {
-            params: { limit: 200, is_active: true, sort_by: 'full_name', sort_dir: 'asc' },
-          })
-        ).data
-      } catch {
-        return []
-      }
-    },
-    staleTime: staleTimes.master,
-    enabled,
-  })
-}

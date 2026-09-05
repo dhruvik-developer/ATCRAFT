@@ -82,7 +82,7 @@ from src.core.clock import today, utcnow
 from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import Principal, TenantContext
 from src.core.errors import (
-    AppError,
+    AuthorizationError,
     BusinessRuleError,
     ErrorCode,
     NotFoundError,
@@ -90,6 +90,7 @@ from src.core.errors import (
 )
 from src.core.ids import new_id
 from src.core.logging import get_logger
+from src.core.messages import date_before
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -98,7 +99,7 @@ from src.core.types import ZERO, to_money, to_quantity, to_unit_price
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.customers.schemas import OutstandingAdjustment
-from src.modules.customers.service import apply_outstanding_delta
+from src.modules.customers.service import apply_outstanding_delta, get_customer_for_order
 from src.modules.finance.models import (
     AGEING_BUCKET_BOUNDARIES,
     AGEING_BUCKET_LABELS,
@@ -111,6 +112,7 @@ from src.modules.finance.models import (
     POSTED_PAYMENT_STATUSES,
     PRICE_VARIANCE_TOLERANCE,
     QUANTITY_VARIANCE_TOLERANCE,
+    CustomerAdjustmentType,
     LedgerAccount,
     LedgerAccountType,
     LedgerEntry,
@@ -158,6 +160,8 @@ from src.modules.finance.schemas import (
     AgeingReport,
     AgeingRow,
     AllocationRequest,
+    CustomerAdjustmentCreate,
+    CustomerAdjustmentRead,
     GstRateRow,
     GstSection,
     GstSummary,
@@ -189,6 +193,9 @@ from src.modules.finance.schemas import (
     VendorInvoiceSummary,
     VendorInvoiceUpdate,
 )
+from src.modules.reports import service as reports_service
+from src.modules.reports.models import ReportKey
+from src.modules.reports.repository import ReportSnapshotRepository
 
 log = get_logger(__name__)
 
@@ -202,6 +209,16 @@ AUDIT_PAYMENT = "payment"
 #: holds a type and an id rather than a foreign key.
 REFERENCE_VENDOR_INVOICE = "vendor_invoice"
 REFERENCE_PAYMENT = "payment"
+#: A debit or credit note raised against a customer by hand - the journal *is*
+#: the document, so ``reference_id`` is the journal id.
+REFERENCE_CUSTOMER_ADJUSTMENT = "customer_adjustment"
+AUDIT_CUSTOMER_ADJUSTMENT = "customer_adjustment"
+
+#: How a customer adjustment is described in narrations and audit summaries.
+CUSTOMER_ADJUSTMENT_LABELS: dict[CustomerAdjustmentType, str] = {
+    CustomerAdjustmentType.CHARGE: "Debit note",
+    CustomerAdjustmentType.CREDIT: "Credit note",
+}
 
 #: Celery task and queue for the full-company valuation. Reached by *name* so
 #: the API process never imports the worker package.
@@ -871,9 +888,7 @@ def invoice_status_after_payment(
     return VendorInvoiceStatus.APPROVED
 
 
-def payment_status_after_allocation(
-    *, amount: Decimal, allocated_amount: Decimal
-) -> PaymentStatus:
+def payment_status_after_allocation(*, amount: Decimal, allocated_amount: Decimal) -> PaymentStatus:
     """Where a payment sits once its allocated total changes."""
     allocated = to_money(allocated_amount)
     total = to_money(amount)
@@ -1533,8 +1548,7 @@ async def _resolve_invoice_lines(
                 )
             if item is not None and order_line.item_id != item.id:
                 raise BusinessRuleError(
-                    f"Line {number} bills {item.code} against an order line for a different "
-                    "item.",
+                    f"Line {number} bills {item.code} against an order line for a different item.",
                     details={"line_number": number, "item_code": item.code},
                 )
 
@@ -1834,9 +1848,7 @@ async def update_invoice(
 
         order_before = invoice.purchase_order_id
         if "purchase_order_id" in changes or "goods_receipt_id" in changes:
-            invoice.purchase_order_id = changes.get(
-                "purchase_order_id", invoice.purchase_order_id
-            )
+            invoice.purchase_order_id = changes.get("purchase_order_id", invoice.purchase_order_id)
             invoice.goods_receipt_id = changes.get("goods_receipt_id", invoice.goods_receipt_id)
             await _assert_invoice_references(
                 session,
@@ -1847,7 +1859,7 @@ async def update_invoice(
             )
 
         if invoice.due_date < invoice.invoice_date:
-            raise ValidationError("The due date cannot be before the invoice date.")
+            raise ValidationError(date_before("due date", "invoice date"))
 
         if payload.lines is not None:
             if not payload.lines:
@@ -2024,12 +2036,11 @@ async def _match(
 
     accepted_by_order_line: dict[uuid.UUID, Decimal] = {}
     if invoice.goods_receipt_id is not None:
-        receipt_lines = await GoodsReceiptLineLookupRepository(
-            session, tenant
-        ).load_for_receipt(invoice.goods_receipt_id)
+        receipt_lines = await GoodsReceiptLineLookupRepository(session, tenant).load_for_receipt(
+            invoice.goods_receipt_id
+        )
         accepted_by_order_line = {
-            order_line_id: facts.accepted_quantity
-            for order_line_id, facts in receipt_lines.items()
+            order_line_id: facts.accepted_quantity for order_line_id, facts in receipt_lines.items()
         }
     elif invoice.purchase_order_id is not None:
         # Which basis was used is worth knowing when a variance is later
@@ -2130,6 +2141,27 @@ async def _run_and_store_match(
     return result
 
 
+def assert_may_override_variance(principal: Principal, *, invoice_code: str) -> None:
+    """Overriding a three-way-match variance is the approver's right alone.
+
+    The route already requires ``vendor_invoice.approve``; this is the same check
+    at the service boundary, so a caller that reaches :func:`approve_invoice` by
+    any other path cannot wave a variance through. Raised as the denial every
+    other permission check produces - 403, ``PERMISSION_DENIED``, and the
+    required right in ``details`` spelled from the enum - so a client can say
+    which permission to ask for, and so the demo seeder's ``except
+    BusinessRuleError`` around a walked-through approval does not swallow it.
+    """
+    if principal.has(Permission.VENDOR_INVOICE_APPROVE):
+        return
+    raise AuthorizationError(
+        f"Overriding a match variance on {invoice_code} requires "
+        f"{Permission.VENDOR_INVOICE_APPROVE}.",
+        code=ErrorCode.PERMISSION_DENIED,
+        details={"required_permission": str(Permission.VENDOR_INVOICE_APPROVE)},
+    )
+
+
 async def approve_invoice(
     session: AsyncSession,
     tenant: TenantContext,
@@ -2159,8 +2191,7 @@ async def approve_invoice(
         current = VendorInvoiceStatus(invoice.status)
         if current is not VendorInvoiceStatus.PENDING_APPROVAL:
             raise BusinessRuleError(
-                f"{invoice.code} is {current}; only an invoice awaiting approval can be "
-                "approved.",
+                f"{invoice.code} is {current}; only an invoice awaiting approval can be approved.",
                 details={"status": str(current)},
             )
 
@@ -2168,14 +2199,9 @@ async def approve_invoice(
         if not result.matched:
             if payload.override_reason is None:
                 raise MatchVarianceError(result)
-            if not principal.has(Permission.VENDOR_INVOICE_APPROVE):
-                # Belt and braces alongside the route's dependency: a service
-                # called from anywhere else must not be able to override.
-                raise BusinessRuleError(
-                    "Overriding a match variance requires vendor_invoice.approve.",
-                    code=ErrorCode.PERMISSION_DENIED,
-                    status_code=403,
-                )
+            # Belt and braces alongside the route's dependency: a service
+            # called from anywhere else must not be able to override.
+            assert_may_override_variance(principal, invoice_code=invoice.code)
             invoice.match_status = MatchStatus.OVERRIDDEN
             invoice.variance_override_reason = payload.override_reason
 
@@ -2406,9 +2432,9 @@ def payment_detail(
                 id=allocation.id,
                 vendor_invoice_id=allocation.vendor_invoice_id,
                 invoice_code=invoice_codes.get(allocation.vendor_invoice_id, (None, None))[0],
-                vendor_invoice_number=invoice_codes.get(
-                    allocation.vendor_invoice_id, (None, None)
-                )[1],
+                vendor_invoice_number=invoice_codes.get(allocation.vendor_invoice_id, (None, None))[
+                    1
+                ],
                 amount=allocation.amount,
                 notes=allocation.notes,
             )
@@ -2912,8 +2938,7 @@ async def allocate_payment(
             invoice_id: to_money(row.amount) for invoice_id, row in existing_by_invoice.items()
         }
         requested = {
-            request.vendor_invoice_id: to_money(request.amount)
-            for request in payload.allocations
+            request.vendor_invoice_id: to_money(request.amount) for request in payload.allocations
         }
         requested_notes = {
             request.vendor_invoice_id: request.notes for request in payload.allocations
@@ -2923,14 +2948,10 @@ async def allocate_payment(
         )
 
         affected = set(plan.final) | set(plan.removed)
-        invoices = {
-            row.id: row for row in await invoice_repo.lock_many(sorted(affected, key=str))
-        }
+        invoices = {row.id: row for row in await invoice_repo.lock_many(sorted(affected, key=str))}
         missing = affected - set(invoices)
         if missing:
-            raise NotFoundError(
-                "Vendor invoice", ", ".join(sorted(str(item) for item in missing))
-            )
+            raise NotFoundError("Vendor invoice", ", ".join(sorted(str(item) for item in missing)))
 
         # Bound 1: the invoice. Its outstanding is read after the lock, with
         # whatever this payment had already put against it added back, because
@@ -2984,9 +3005,7 @@ async def allocate_payment(
             session,
             tenant,
             payment,
-            payment_status_after_allocation(
-                amount=payment.amount, allocated_amount=new_allocated
-            ),
+            payment_status_after_allocation(amount=payment.amount, allocated_amount=new_allocated),
         )
 
         await record_audit(
@@ -2997,8 +3016,7 @@ async def allocate_payment(
             entity_id=payment.id,
             entity_code=payment.code,
             summary=(
-                f"Allocated {new_allocated} of {payment.code} across "
-                f"{len(plan.final)} invoice(s)"
+                f"Allocated {new_allocated} of {payment.code} across {len(plan.final)} invoice(s)"
             ),
             user_id=tenant.user_id,
             new_values={
@@ -3072,9 +3090,7 @@ async def _apply_allocation_plan(
 
     if replace:
         for invoice_id, amount in plan.removed.items():
-            invoices[invoice_id].paid_amount = to_money(
-                invoices[invoice_id].paid_amount - amount
-            )
+            invoices[invoice_id].paid_amount = to_money(invoices[invoice_id].paid_amount - amount)
         await allocation_repo.delete_for_payment(payment.id)
         existing_by_invoice = {}
 
@@ -3113,6 +3129,190 @@ async def _apply_allocation_plan(
             reason=f"Allocation from {payment.code}",
             action=AuditAction.PAYMENT,
         )
+
+
+# -----------------------------------------------------------------------------
+# Customer adjustments - debit and credit notes posted by hand
+# -----------------------------------------------------------------------------
+
+
+def customer_adjustment_delta(amount: Decimal, adjustment_type: CustomerAdjustmentType) -> Decimal:
+    """The signed change an adjustment makes to the cached outstanding balance.
+
+    A charge is money the customer now owes on top; a credit is money the
+    company agrees not to collect. Pure, so the sign convention is unit-tested
+    against the journal legs rather than assumed to agree with them.
+    """
+    money = to_money(amount)
+    return money if adjustment_type is CustomerAdjustmentType.CHARGE else -money
+
+
+def customer_adjustment_lines(
+    *,
+    receivable_account_id: uuid.UUID,
+    contra_account_id: uuid.UUID,
+    customer_id: uuid.UUID,
+    amount: Decimal,
+    adjustment_type: CustomerAdjustmentType,
+    narration: str,
+) -> list[JournalLine]:
+    """The balanced pair a customer adjustment posts.
+
+    A charge debits the receivable - the customer owes more - and credits the
+    account the caller named (revenue, interest, freight recovered). A credit
+    note is the mirror image: it credits the receivable and debits the caller's
+    account (a sales return, a discount, a write-off). Only the receivable leg
+    carries the party, so the customer's statement and the ageing report see
+    the adjustment while the contra account does not acquire a counterparty it
+    never had.
+    """
+    money = to_money(amount)
+    charge = adjustment_type is CustomerAdjustmentType.CHARGE
+    return [
+        JournalLine(
+            account_id=receivable_account_id,
+            debit=money if charge else ZERO,
+            credit=ZERO if charge else money,
+            party_type=PartyType.CUSTOMER,
+            party_id=customer_id,
+            narration=narration,
+        ),
+        JournalLine(
+            account_id=contra_account_id,
+            debit=ZERO if charge else money,
+            credit=money if charge else ZERO,
+            narration=narration,
+        ),
+    ]
+
+
+async def post_customer_adjustment(
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    customer_id: uuid.UUID,
+    payload: CustomerAdjustmentCreate,
+) -> CustomerAdjustmentRead:
+    """Post a debit or credit note against a customer's account.
+
+    The replacement for the customers module's old ``POST /customers/{id}/outstanding``,
+    which moved the cached balance and nothing else - a figure the ledger could
+    not explain. Here the ledger moves and the cache follows it, in **one**
+    transaction: the receivable journal, the outstanding-balance change and the
+    audit row commit together or not at all, so the balance a credit check reads
+    can always be reconciled to ``ledger_entries`` by ``reference_code``.
+
+    ``principal`` is the approver. The route is gated on ``payment.approve``
+    because a credit note is money the company agrees not to collect, and the
+    person who agreed is recorded on the audit row.
+
+    ASSUMPTION: the posting is denominated in the company's own currency - the
+    same default an invoice and a receipt take when none is named. Receivable
+    ageing nets per (party, currency), so a note in a currency nobody chose
+    could never be settled by the receipt that follows it. Recorded in
+    ``docs/assumptions.md``.
+    """
+    entry_date = payload.entry_date or today()
+    amount = to_money(payload.amount)
+    label = CUSTOMER_ADJUSTMENT_LABELS[payload.adjustment_type]
+
+    async with transaction(session):
+        # Locked first: the balance change below serialises on this row anyway,
+        # and taking the lock before the journal is written means two notes for
+        # the same customer cannot interleave their postings and their deltas.
+        customer = await get_customer_for_order(session, tenant, customer_id, lock=True)
+
+        accounts = await ensure_system_accounts(session, tenant)
+        receivable = accounts[str(SystemAccount.ACCOUNTS_RECEIVABLE)]
+        if payload.account_id == receivable.id:
+            raise ValidationError(
+                "The contra account cannot be the receivable control account; name the "
+                "revenue, expense or write-off account the adjustment belongs to.",
+                details={"fields": {"account_id": ["Cannot be the receivable control account."]}},
+            )
+
+        code = await next_document_number(
+            session, tenant.company_id, DocTypes.CUSTOMER_ADJUSTMENT, on=entry_date
+        )
+        journal_id = new_id()
+        narration = f"{label} {code} for {customer.code}: {payload.reason}"
+        entries = await post_journal(
+            session,
+            tenant,
+            customer_adjustment_lines(
+                receivable_account_id=receivable.id,
+                contra_account_id=payload.account_id,
+                customer_id=customer.id,
+                amount=amount,
+                adjustment_type=payload.adjustment_type,
+                narration=narration,
+            ),
+            entry_date=entry_date,
+            reference_type=REFERENCE_CUSTOMER_ADJUSTMENT,
+            reference_id=journal_id,
+            reference_code=code,
+            narration=narration,
+            journal_id=journal_id,
+        )
+
+        delta = customer_adjustment_delta(amount, payload.adjustment_type)
+        customer = await apply_outstanding_delta(
+            session,
+            tenant,
+            customer.id,
+            OutstandingAdjustment(
+                delta=delta,
+                reason=payload.reason,
+                reference_type=REFERENCE_CUSTOMER_ADJUSTMENT,
+                reference_id=journal_id,
+                reference_code=code,
+            ),
+        )
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.CREATE,
+            entity_type=AUDIT_CUSTOMER_ADJUSTMENT,
+            entity_id=journal_id,
+            entity_code=code,
+            summary=(
+                f"Posted {label.lower()} {code} of {amount} {entries[0].currency} against "
+                f"customer {customer.code}"
+            ),
+            user_id=tenant.user_id,
+            new_values={
+                "customer_id": customer.id,
+                "customer_code": customer.code,
+                "adjustment_type": str(payload.adjustment_type),
+                "amount": amount,
+                "delta": delta,
+                "account_id": payload.account_id,
+                "entry_date": entry_date,
+                "outstanding_amount": customer.outstanding_amount,
+            },
+            context={
+                "reason": payload.reason,
+                "approved_by_id": str(principal.user_id),
+                "journal_id": str(journal_id),
+            },
+        )
+
+    return CustomerAdjustmentRead(
+        journal_id=journal_id,
+        reference_code=code,
+        customer_id=customer.id,
+        customer_code=customer.code,
+        adjustment_type=payload.adjustment_type,
+        amount=amount,
+        delta=delta,
+        outstanding_amount=to_money(customer.outstanding_amount),
+        entry_date=entry_date,
+        currency=entries[0].currency,
+        account_id=payload.account_id,
+        reason=payload.reason,
+        entry_ids=[entry.id for entry in entries],
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -3437,9 +3637,7 @@ async def inventory_valuation(
     :func:`queue_inventory_valuation`.
     """
     repo = InventoryValuationRepository(session, tenant)
-    rows, pagination = await paginate_projection(
-        session, repo.valuation_page_stmt(filters), params
-    )
+    rows, pagination = await paginate_projection(session, repo.valuation_page_stmt(filters), params)
     count, quantity, value = await repo.valuation_totals(filters)
 
     return (
@@ -3485,50 +3683,76 @@ def valuation_row(row: Any) -> InventoryValuationRow:
     )
 
 
+def valuation_export_parameters(filters: ValuationFilters) -> dict[str, Any]:
+    """What a valuation export job is a workbook *of*, as stored on its job row.
+
+    Carries the task name as well as the filters so its hash can never collide
+    with the catalogue's tabular ``INVENTORY_VALUATION`` report over the same
+    filters - that report reuses a live snapshot by ``(report_key, hash)``, and
+    handing it this workbook would answer a paginated grid with a spreadsheet
+    of different columns.
+    """
+    return {
+        "report_key": str(ReportKey.INVENTORY_VALUATION),
+        "task": VALUATION_TASK_NAME,
+        "filters": {
+            key: str(value)
+            for key, value in (
+                ("warehouse_id", filters.warehouse_id),
+                ("category_id", filters.category_id),
+            )
+            if value is not None
+        },
+    }
+
+
 async def queue_inventory_valuation(
     session: AsyncSession, tenant: TenantContext, filters: ValuationFilters
 ) -> str:
     """Hand the full-company valuation to Celery and return the job id.
 
-    The worker is reached by task *name* so the API process never imports the
-    worker package, and the broker is imported inside the function so an
-    unreachable broker fails this request rather than application start-up.
+    The job id is a ``report_snapshots`` row, not the Celery task id: the row is
+    what ``GET /reports/jobs/{id}`` reads, what the worker marks RUNNING,
+    COMPLETED or FAILED, and what carries the ``document_id`` the client
+    downloads. A bare task id can be resolved by nothing in the API. The row is
+    created and audited in one transaction before the task is published, so a
+    broker that refuses the task can mark the job FAILED rather than leave the
+    client polling a job that never existed. A valuation is never reused from an
+    earlier job - it is a point-in-time position, and section 34 forbids serving
+    anything derived from stock on hand from a cache.
     """
-    from src.core.logging import get_request_id
-    from src.workers.celery_app import celery_app
-
-    try:
-        task = celery_app.send_task(
-            VALUATION_TASK_NAME,
-            kwargs={
-                "company_id": str(tenant.company_id),
-                "user_id": str(tenant.user_id),
-                "warehouse_id": str(filters.warehouse_id) if filters.warehouse_id else None,
-                "category_id": str(filters.category_id) if filters.category_id else None,
-                "request_id": get_request_id(),
-            },
-            queue=VALUATION_QUEUE,
-        )
-    except Exception as exc:
-        log.error("finance.valuation_dispatch_failed", error=str(exc))
-        raise AppError(
-            "The inventory valuation could not be queued for background generation.",
-            code=ErrorCode.SERVICE_UNAVAILABLE,
-            status_code=503,
-        ) from exc
-
+    snapshots = ReportSnapshotRepository(session, tenant)
     async with transaction(session):
+        job = reports_service.new_job_snapshot(
+            ReportKey.INVENTORY_VALUATION, valuation_export_parameters(filters), now=utcnow()
+        )
+        snapshots.add(job)
+        await session.flush()
         await record_audit(
             session,
             company_id=tenant.company_id,
             action=AuditAction.JOB_STARTED,
             entity_type="inventory_valuation",
+            entity_id=job.id,
             summary="Queued the full inventory valuation",
             user_id=tenant.user_id,
-            context={"task": VALUATION_TASK_NAME, "job_id": task.id},
+            context={"task": VALUATION_TASK_NAME, "job_id": str(job.id)},
         )
 
-    return str(task.id)
+    await reports_service.dispatch_job(
+        session,
+        tenant,
+        job,
+        task_name=VALUATION_TASK_NAME,
+        queue=VALUATION_QUEUE,
+        task_kwargs={
+            "warehouse_id": str(filters.warehouse_id) if filters.warehouse_id else None,
+            "category_id": str(filters.category_id) if filters.category_id else None,
+        },
+        subject="The inventory valuation",
+    )
+
+    return str(job.id)
 
 
 async def gst_summary(
@@ -3541,7 +3765,7 @@ async def gst_summary(
     rounding happens once, on the totals, rather than per row on the way there.
     """
     if date_to < date_from:
-        raise ValidationError("The period end cannot be before the period start.")
+        raise ValidationError(date_before("period end", "period start"))
 
     repo = GstRepository(session, tenant)
     output_rows = await _bounded_gst_rows(
@@ -3629,16 +3853,19 @@ def summarise_gst_rows(rows: Sequence[Any]) -> GstSection:
 
 
 __all__ = [
+    "AUDIT_CUSTOMER_ADJUSTMENT",
     "AUDIT_JOURNAL",
     "AUDIT_LEDGER_ACCOUNT",
     "AUDIT_PAYMENT",
     "AUDIT_VENDOR_INVOICE",
+    "CUSTOMER_ADJUSTMENT_LABELS",
     "DEFAULT_CHART",
     "MAX_AGEING_PARTIES",
     "MAX_AGEING_ROW_CURRENCIES",
     "MAX_GST_ROWS",
     "NOT_DUE_LABEL",
     "PAYMENT_LIFECYCLE",
+    "REFERENCE_CUSTOMER_ADJUSTMENT",
     "REFERENCE_PAYMENT",
     "REFERENCE_VENDOR_INVOICE",
     "VALUATION_QUEUE",
@@ -3658,12 +3885,15 @@ __all__ = [
     "approve_invoice",
     "approve_payment",
     "assert_balanced",
+    "assert_may_override_variance",
     "cancel_invoice",
     "cancel_payment",
     "company_currency",
     "create_account",
     "create_invoice",
     "create_payment",
+    "customer_adjustment_delta",
+    "customer_adjustment_lines",
     "delete_account",
     "delete_draft_invoice",
     "delete_draft_payment",
@@ -3689,6 +3919,7 @@ __all__ = [
     "payment_status_after_allocation",
     "payment_summary",
     "plan_allocation",
+    "post_customer_adjustment",
     "post_journal",
     "price_invoice_line",
     "primary_report_currency",
@@ -3702,5 +3933,6 @@ __all__ = [
     "update_account",
     "update_invoice",
     "update_payment",
+    "valuation_export_parameters",
     "variance_ratio",
 ]

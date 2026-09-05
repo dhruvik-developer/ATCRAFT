@@ -30,7 +30,9 @@ import {
   Skeleton,
 } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { formatNumber } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -54,6 +56,7 @@ export function PermissionMatrix({
   const catalogue = usePermissionCatalogue(Boolean(roleId))
   const [term, setTerm] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const role = useQuery({
     queryKey: [...queryKeys.users.roles, 'detail', roleId] as const,
@@ -74,12 +77,20 @@ export function PermissionMatrix({
   const mutation = useMutation({
     mutationFn: (permissions: string[]) =>
       api.patch<RoleDetail>(`/roles/${roleId}`, { permissions }),
+    onMutate: () => setSaveError(null),
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.users.all })
       toast.success(
-        'Permissions saved',
+        success.saved('Permissions'),
         `${saved.name} now grants ${saved.permission_count} permissions`,
       )
+    },
+    onError: (error) => {
+      // The whole grid is one field, so there is no control to hang a 422 on;
+      // it is shown above the grid instead. The mutation cache stays quiet for
+      // a 422 with field detail on the understanding that the screen shows it.
+      const message = fieldErrorSummary(error)
+      if (message) setSaveError(message)
     },
   })
 
@@ -178,7 +189,7 @@ export function PermissionMatrix({
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {dirty && !readOnly && (
             <Button variant="ghost" size="sm" onClick={() => setSelected(new Set(stored))}>
               <Undo2 />
@@ -212,6 +223,13 @@ export function PermissionMatrix({
               ? 'The platform administration role cannot be re-permissioned - editing it would let one administrator lock out every other.'
               : 'You do not hold the permission to change a role. The matrix below is what this role currently grants.'}
           </AlertDescription>
+        </Alert>
+      )}
+
+      {saveError && (
+        <Alert variant="destructive">
+          <AlertTitle>The permissions were not saved</AlertTitle>
+          <AlertDescription>{saveError}</AlertDescription>
         </Alert>
       )}
 
@@ -256,8 +274,8 @@ export function PermissionMatrix({
 
             return (
               <Card key={group.group}>
-                <CardHeader className="flex-row items-center justify-between gap-3 space-y-0 pb-3">
-                  <CardTitle className="text-sm">{group.group}</CardTitle>
+                <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0 pb-3">
+                  <CardTitle className="min-w-0 text-sm">{group.group}</CardTitle>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground">
                       {chosen}/{values.length}
@@ -292,7 +310,10 @@ export function PermissionMatrix({
                           <span className="block font-medium capitalize">
                             {entry.action.replace(/_/g, ' ')}
                           </span>
-                          <span className="block font-mono text-2xs text-muted-foreground">
+                          <span
+                            className="block truncate font-mono text-2xs text-muted-foreground"
+                            title={entry.value}
+                          >
                             {entry.value}
                           </span>
                         </Label>

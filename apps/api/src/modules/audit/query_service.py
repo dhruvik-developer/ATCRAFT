@@ -304,7 +304,7 @@ def decidable_actions_for(principal: Principal) -> frozenset[str] | None:
 #: is a property of the *row* - its ``requested_action`` - not of the edge; that
 #: check is :func:`assert_may_decide`.
 APPROVAL_DECISION_MACHINE: StateMachine[ApprovalStatus] = StateMachine(
-    entity="ApprovalRequest",
+    entity="Approval request",
     initial=ApprovalStatus.PENDING,
     transitions=(
         Transition(

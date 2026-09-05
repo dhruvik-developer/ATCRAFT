@@ -22,6 +22,7 @@ so the reverse would capture ``/balances`` as an id and fail on the UUID parse.
 from __future__ import annotations
 
 import uuid
+from datetime import date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
@@ -31,6 +32,7 @@ from src.core.pagination import (
     CursorParams,
     PageParams,
     SortParams,
+    bind_query_filters,
     cursor_params,
     page_params,
     sort_params,
@@ -109,7 +111,8 @@ def balance_filters(
     only_in_stock: Annotated[bool, Query(description="Hide positions that are at zero")] = False,
     search: Annotated[str | None, Query(max_length=120, description="Item code or name")] = None,
 ) -> BalanceFilters:
-    return BalanceFilters(
+    return bind_query_filters(
+        BalanceFilters,
         item_id=item_id,
         warehouse_id=warehouse_id,
         location_id=location_id,
@@ -129,10 +132,11 @@ def ledger_filters(
     stock_state: Annotated[StockState | None, Query()] = None,
     reference_type: Annotated[str | None, Query(max_length=48)] = None,
     reference_id: Annotated[uuid.UUID | None, Query()] = None,
-    occurred_from: Annotated[str | None, Query(description="ISO 8601 lower bound")] = None,
-    occurred_to: Annotated[str | None, Query(description="ISO 8601 upper bound")] = None,
+    occurred_from: Annotated[datetime | None, Query(description="ISO 8601 lower bound")] = None,
+    occurred_to: Annotated[datetime | None, Query(description="ISO 8601 upper bound")] = None,
 ) -> LedgerFilters:
-    return LedgerFilters(
+    return bind_query_filters(
+        LedgerFilters,
         item_id=item_id,
         warehouse_id=warehouse_id,
         batch_id=batch_id,
@@ -141,8 +145,8 @@ def ledger_filters(
         stock_state=stock_state,
         reference_type=reference_type,
         reference_id=reference_id,
-        occurred_from=occurred_from,  # type: ignore[arg-type]
-        occurred_to=occurred_to,  # type: ignore[arg-type]
+        occurred_from=occurred_from,
+        occurred_to=occurred_to,
     )
 
 
@@ -150,16 +154,17 @@ def transfer_filters(
     status_filter: Annotated[TransferStatus | None, Query(alias="status")] = None,
     from_warehouse_id: Annotated[uuid.UUID | None, Query()] = None,
     to_warehouse_id: Annotated[uuid.UUID | None, Query()] = None,
-    date_from: Annotated[str | None, Query(description="ISO date lower bound")] = None,
-    date_to: Annotated[str | None, Query(description="ISO date upper bound")] = None,
+    date_from: Annotated[date | None, Query(description="ISO date lower bound")] = None,
+    date_to: Annotated[date | None, Query(description="ISO date upper bound")] = None,
     search: Annotated[str | None, Query(max_length=64)] = None,
 ) -> TransferFilters:
-    return TransferFilters(
+    return bind_query_filters(
+        TransferFilters,
         status=status_filter,
         from_warehouse_id=from_warehouse_id,
         to_warehouse_id=to_warehouse_id,
-        date_from=date_from,  # type: ignore[arg-type]
-        date_to=date_to,  # type: ignore[arg-type]
+        date_from=date_from,
+        date_to=date_to,
         search=search,
     )
 
@@ -168,16 +173,17 @@ def adjustment_filters(
     status_filter: Annotated[AdjustmentStatus | None, Query(alias="status")] = None,
     warehouse_id: Annotated[uuid.UUID | None, Query()] = None,
     reason_code: Annotated[AdjustmentReason | None, Query()] = None,
-    date_from: Annotated[str | None, Query(description="ISO date lower bound")] = None,
-    date_to: Annotated[str | None, Query(description="ISO date upper bound")] = None,
+    date_from: Annotated[date | None, Query(description="ISO date lower bound")] = None,
+    date_to: Annotated[date | None, Query(description="ISO date upper bound")] = None,
     search: Annotated[str | None, Query(max_length=64)] = None,
 ) -> AdjustmentFilters:
-    return AdjustmentFilters(
+    return bind_query_filters(
+        AdjustmentFilters,
         status=status_filter,
         warehouse_id=warehouse_id,
         reason_code=reason_code,
-        date_from=date_from,  # type: ignore[arg-type]
-        date_to=date_to,  # type: ignore[arg-type]
+        date_from=date_from,
+        date_to=date_to,
         search=search,
     )
 
@@ -185,15 +191,16 @@ def adjustment_filters(
 def count_filters(
     status_filter: Annotated[PhysicalCountStatus | None, Query(alias="status")] = None,
     warehouse_id: Annotated[uuid.UUID | None, Query()] = None,
-    date_from: Annotated[str | None, Query(description="ISO date lower bound")] = None,
-    date_to: Annotated[str | None, Query(description="ISO date upper bound")] = None,
+    date_from: Annotated[date | None, Query(description="ISO date lower bound")] = None,
+    date_to: Annotated[date | None, Query(description="ISO date upper bound")] = None,
     search: Annotated[str | None, Query(max_length=64)] = None,
 ) -> PhysicalCountFilters:
-    return PhysicalCountFilters(
+    return bind_query_filters(
+        PhysicalCountFilters,
         status=status_filter,
         warehouse_id=warehouse_id,
-        date_from=date_from,  # type: ignore[arg-type]
-        date_to=date_to,  # type: ignore[arg-type]
+        date_from=date_from,
+        date_to=date_to,
         search=search,
     )
 
@@ -308,9 +315,7 @@ async def item_stock_summary(
     Returned as a single-element page so the pagination block describes the
     ``warehouses`` list the client is actually paging through.
     """
-    summary, pagination = await InventoryQueryService(session, tenant).item_summary(
-        item_id, params
-    )
+    summary, pagination = await InventoryQueryService(session, tenant).item_summary(item_id, params)
     # A whole-item valuation is precisely what `inventory.valuation_view` gates,
     # so that is the right consulted here rather than the per-item cost right.
     if principal.has(Permission.INVENTORY_VALUATION_VIEW):
@@ -556,9 +561,10 @@ async def list_adjustments(
     summary="Draft a stock adjustment",
     description=(
         "Lines are valued at what the position's FIFO cost layers say the stock "
-        "cost. If the total "
-        "exceeds the configured approval threshold the document must be approved "
-        "by a second person before it can post."
+        "cost. If the total exceeds the approval threshold - a fixed value, "
+        "ADJUSTMENT_APPROVAL_VALUE_THRESHOLD in the inventory service, echoed in "
+        "the error's details when posting is refused - the document must be "
+        "approved by a second person before it can post."
     ),
     dependencies=[require_permission(Permission.INVENTORY_ADJUST)],
 )

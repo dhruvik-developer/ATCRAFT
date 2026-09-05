@@ -16,7 +16,7 @@ import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { PageHeader, StatusBadge } from '@/components/shared'
+import { DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -25,19 +25,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/overlays'
-import { Badge, Checkbox, Input, Label } from '@/components/ui/primitives'
+import { Badge, Checkbox, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { CustomerPicker } from '@/features/customers/customer-picker'
 import { useListQuery } from '@/hooks/use-list-query'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatDateTime, formatNumber, formatQuantity, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
 import { PackingOrderDialog } from './packing-order-dialog'
 import { PACKING_STATUSES, packingKeys, type PackingOrderRow } from './packing-types'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /** The URL keys this screen filters on, in the order the toolbar shows them. */
 const FILTER_KEYS = [
@@ -242,14 +240,16 @@ export default function PackingPage() {
         toolbar={
           <>
             <Select
-              value={status || ALL}
-              onValueChange={(value) => setParam('status', value === ALL ? undefined : value)}
+              value={status || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('status', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[190px]" aria-label="Filter by status">
+              <SelectTrigger className="w-full sm:w-[190px]" aria-label="Filter by status">
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All statuses</SelectItem>
+                <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
                 {PACKING_STATUSES.map((value) => (
                   <SelectItem key={value} value={value}>
                     {humanise(value)}
@@ -267,28 +267,14 @@ export default function PackingPage() {
               placeholder="All customers"
             />
 
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="packing-planned-from" className="text-xs text-muted-foreground">
-                Planned
-              </Label>
-              <Input
-                id="packing-planned-from"
-                type="date"
-                value={plannedFrom}
-                onChange={(event) => setParam('planned_from', event.target.value || undefined)}
-                className="w-[9.5rem]"
-              />
-              <Label htmlFor="packing-planned-to" className="text-xs text-muted-foreground">
-                To
-              </Label>
-              <Input
-                id="packing-planned-to"
-                type="date"
-                value={plannedTo}
-                onChange={(event) => setParam('planned_to', event.target.value || undefined)}
-                className="w-[9.5rem]"
-              />
-            </div>
+            <DateRangeFilter
+              id="packing-planned"
+              fromLabel="Planned"
+              from={plannedFrom}
+              to={plannedTo}
+              onFromChange={(value) => setParam('planned_from', value || undefined)}
+              onToChange={(value) => setParam('planned_to', value || undefined)}
+            />
 
             <div className="flex items-center gap-2">
               <Checkbox

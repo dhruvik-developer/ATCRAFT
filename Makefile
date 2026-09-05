@@ -5,11 +5,13 @@
 #     .\make.ps1 <target>          e.g.  .\make.ps1 dev
 # =============================================================================
 .DEFAULT_GOAL := help
-.PHONY: help dev dev-docker up down restart logs ps migrate migration seed demo-data db-fresh db-handover \
+.PHONY: help dev dev-api dev-web dev-worker dev-docker up down restart logs ps \
+        migrate migrate-down migration seed demo-data db-fresh db-handover \
         deployment-guard deploy-init deploy-doctor deploy-up deploy-down \
         deploy-migrate deploy-health deploy-backup deploy-verify \
-        test test-unit test-integration test-e2e test-load lint format \
-        typecheck check shell-api shell-db backup restore clean install
+        test test-unit test-integration test-cov test-web test-e2e test-load lint format \
+        typecheck contract contract-check check lock hooks hooks-run \
+        shell-api shell-db backup clean install
 
 # The local development stack is a THIRD stack, separate from the two
 # deployments, and it needs its own project name: docker-compose.yml requires
@@ -36,8 +38,20 @@ help: ## Show available targets
 	  | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 
 install: ## Install backend + frontend dependencies for local (hybrid) development
-	cd $(API_DIR) && python -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
+	cd $(API_DIR) && python -m venv .venv && .venv/bin/python -m scripts.install_requirements requirements-dev.lock
 	cd $(WEB_DIR) && npm ci
+	@$(MAKE) hooks
+
+hooks: ## Install the git pre-commit and pre-push hooks (.pre-commit-config.yaml)
+	pre-commit install --hook-type pre-commit --hook-type pre-push
+
+hooks-run: ## Run every hook against the whole tree, as a push would
+	pre-commit run --all-files
+	pre-commit run --all-files --hook-stage pre-push
+
+lock: ## Regenerate reviewed Python dependency locks after editing pyproject.toml
+	cd $(API_DIR) && .venv/bin/pip-compile --quiet --no-header --allow-unsafe --generate-hashes --strip-extras --resolver=backtracking --output-file=requirements.lock pyproject.toml
+	cd $(API_DIR) && .venv/bin/pip-compile --quiet --no-header --allow-unsafe --extra=dev --generate-hashes --strip-extras --resolver=backtracking --output-file=requirements-dev.lock pyproject.toml
 
 dev: ## Hybrid mode: Postgres+Redis in Docker, API and web run locally with hot reload
 	$(DC_DEV) up -d postgres redis
@@ -111,12 +125,16 @@ test-e2e: ## Playwright end-to-end tests against a running stack
 test-load: ## Locust load test (headless smoke profile)
 	cd tests/load && locust -f locustfile.py --headless -u 50 -r 5 -t 2m --host http://localhost
 
+# The same paths the pre-commit hook and CI lint: application code, tests,
+# migrations, the backend scripts and the repository's hook wrappers.
+PY_LINT_PATHS := src tests migrations scripts ../../scripts/hooks
+
 lint: ## Lint and type-check backend + frontend
-	cd $(API_DIR) && ruff check src tests && mypy src
-	cd $(WEB_DIR) && npm run lint && npm run typecheck
+	cd $(API_DIR) && ruff check $(PY_LINT_PATHS) && ruff format --check $(PY_LINT_PATHS) && mypy src
+	cd $(WEB_DIR) && npm run lint && npm run typecheck && npm run format:check
 
 format: ## Format supported source files
-	cd $(API_DIR) && ruff format src tests && ruff check --fix src tests
+	cd $(API_DIR) && ruff format $(PY_LINT_PATHS) && ruff check --fix $(PY_LINT_PATHS)
 	cd $(WEB_DIR) && npm run format
 
 typecheck: ## Type-check only
@@ -124,14 +142,14 @@ typecheck: ## Type-check only
 	cd $(WEB_DIR) && npm run typecheck
 
 contract: ## Regenerate the OpenAPI contract and the frontend types from it
-	cd $(API_DIR) && python scripts/export_openapi.py
+	cd $(API_DIR) && python -m scripts.export_openapi
 	cd $(WEB_DIR) && npm run contract:types
 
 contract-check: ## Fail if the contract or the generated types are stale
-	cd $(API_DIR) && python scripts/export_openapi.py --check
+	cd $(API_DIR) && python -m scripts.export_openapi --check
 	cd $(WEB_DIR) && npm run contract:check
 
-check: contract-check lint test ## Everything CI runs
+check: contract-check lint test test-web ## Everything CI runs
 
 shell-api: ## Shell inside the backend container
 	$(DC_DEV) exec backend bash
@@ -161,13 +179,13 @@ deploy-init: deployment-guard ## Create deploy/<D>.env with generated secrets
 deploy-doctor: deployment-guard ## Check deployment D's configuration
 	$(DEPLOY) $(D) doctor
 
-deploy-up: deployment-guard ## Build and start deployment D
+deploy-up: deployment-guard ## Guard, build, backup, migrate, and start deployment D
 	$(DEPLOY) $(D) up
 
 deploy-down: deployment-guard ## Stop deployment D (data kept)
 	$(DEPLOY) $(D) down
 
-deploy-migrate: deployment-guard ## Migrate deployment D's database to head
+deploy-migrate: deployment-guard ## Recovery-only standalone migration to head
 	$(DEPLOY) $(D) migrate
 
 deploy-health: deployment-guard ## Health of deployment D

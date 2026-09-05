@@ -13,8 +13,11 @@ extra command and does not.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
+from collections.abc import Awaitable
 from dataclasses import dataclass
+from typing import Any, cast
 
 from src.core.cache import KEY_PREFIX, get_redis
 from src.core.clock import utcnow
@@ -82,8 +85,17 @@ async def check_rate_limit(
 
     try:
         client = await get_redis()
-        allowed, count, retry_ms = await client.eval(
-            _SLIDING_WINDOW, 1, key, now_ms, window_ms, limit, member
+        allowed, count, retry_ms = await cast(
+            Awaitable[Any],
+            client.eval(
+                _SLIDING_WINDOW,
+                1,
+                key,
+                str(now_ms),
+                str(window_ms),
+                str(limit),
+                member,
+            ),
         )
     except Exception as exc:
         log.warning("ratelimit.unavailable", scope=scope, error=str(exc))
@@ -95,6 +107,26 @@ async def check_rate_limit(
         remaining=max(0, limit - int(count)),
         retry_after_seconds=max(1, int(retry_ms) // 1000) if not allowed else 0,
     )
+
+
+#: Scopes whose identifier is whatever the caller typed into an e-mail field.
+#: The one log line that fires during an attack must not write an unverified,
+#: attacker-supplied address into the structured log - the auth service goes to
+#: the trouble of logging only the domain half for the same reason, and
+#: ``email`` is not a redacted key. The other scopes are keyed on a verified
+#: subject id or a client address, which the request context already carries.
+_PERSONAL_IDENTIFIER_SCOPES = frozenset({"login_email", "pwd_reset"})
+
+
+def log_identity(identifier: str, *, scope: str) -> str:
+    """What the exceeded-limit log line may say about the identifier.
+
+    Non-reversible for the personal scopes, and still stable enough to see
+    that the same identity is being hammered across many lines.
+    """
+    if scope in _PERSONAL_IDENTIFIER_SCOPES:
+        return "sha256:" + hashlib.sha256(identifier.encode("utf-8")).hexdigest()[:16]
+    return identifier
 
 
 async def enforce_rate_limit(
@@ -109,7 +141,12 @@ async def enforce_rate_limit(
         identifier, limit=limit, window_seconds=window_seconds, scope=scope
     )
     if not result.allowed:
-        log.warning("ratelimit.exceeded", scope=scope, identifier=identifier, limit=limit)
+        log.warning(
+            "ratelimit.exceeded",
+            scope=scope,
+            identifier=log_identity(identifier, scope=scope),
+            limit=limit,
+        )
         raise RateLimitedError(retry_after_seconds=result.retry_after_seconds)
     return result
 
@@ -129,11 +166,26 @@ async def reset_rate_limit(identifier: str, scope: str = "default") -> None:
 # the general API allowance.
 
 
+#: The sign-in budgets are measured over five minutes: long enough that a
+#: dictionary run cannot reset itself by waiting, short enough that a plant
+#: full of people who mistyped once are not locked out for the shift.
+LOGIN_WINDOW_SECONDS = 300
+
+
 class RateLimitPolicy:
-    LOGIN_PER_EMAIL = ("login_email", 5, 300)
-    LOGIN_PER_IP = ("login_ip", 20, 300)
+    LOGIN_PER_EMAIL = ("login_email", 5, LOGIN_WINDOW_SECONDS)
+    # The per-address budget is the one deployments need to tune - hundreds of
+    # users behind one NAT share it - so it is the one driven by configuration
+    # (RATE_LIMIT_AUTH_PER_MINUTE, scaled to the window). The per-account
+    # budget above is a security constant and stays fixed.
+    LOGIN_PER_IP = (
+        "login_ip",
+        settings.rate_limit_auth_per_minute * (LOGIN_WINDOW_SECONDS // 60),
+        LOGIN_WINDOW_SECONDS,
+    )
     PASSWORD_RESET = ("pwd_reset", 3, 3600)
     REFRESH = ("refresh", 30, 300)
+    MFA_VERIFY = ("mfa_verify", 5, 300)
     MRP_RUN = ("mrp_run", 5, 300)
     REPORT_EXPORT = ("report_export", 10, 600)
     FILE_UPLOAD = ("upload", 60, 300)
@@ -147,10 +199,12 @@ async def enforce_policy(policy: tuple[str, int, int], identifier: str) -> RateL
 
 
 __all__ = [
+    "LOGIN_WINDOW_SECONDS",
     "RateLimitPolicy",
     "RateLimitResult",
     "check_rate_limit",
     "enforce_policy",
     "enforce_rate_limit",
+    "log_identity",
     "reset_rate_limit",
 ]

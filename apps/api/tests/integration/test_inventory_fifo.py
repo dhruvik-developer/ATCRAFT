@@ -70,7 +70,7 @@ from src.modules.inventory.schemas import (
     StockTransferLineCreate,
 )
 from tests import seed_support
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 
 pytestmark = pytest.mark.integration
 
@@ -129,7 +129,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID]]:
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, user_id
     asyncio.run(teardown())
@@ -162,9 +162,7 @@ def _code(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8].upper()}"
 
 
-async def _second_principal(
-    session: AsyncSession, tenant: TenantContext
-) -> TenantContext:
+async def _second_principal(session: AsyncSession, tenant: TenantContext) -> TenantContext:
     """A different user in the same tenant, for segregation of duties.
 
     An adjustment may not be approved by the person who raised it, so a test
@@ -237,9 +235,7 @@ async def _assert_layers_reconcile(
             select(
                 func.coalesce(func.sum(InventoryCostLayer.remaining_quantity), 0),
                 func.coalesce(
-                    func.sum(
-                        InventoryCostLayer.remaining_quantity * InventoryCostLayer.unit_cost
-                    ),
+                    func.sum(InventoryCostLayer.remaining_quantity * InventoryCostLayer.unit_cost),
                     0,
                 ),
             ).where(InventoryCostLayer.balance_id == balance.id)
@@ -473,9 +469,7 @@ class TestTransfersCarryTheirCost:
         await _assert_layers_reconcile(session, tenant, destination)
 
         # And the destination holds the *source's* layers, not one blended one.
-        layers = await CostLayerRepository(session, tenant).open_layers_for_balance(
-            destination.id
-        )
+        layers = await CostLayerRepository(session, tenant).open_layers_for_balance(destination.id)
         assert [(layer.remaining_quantity, layer.unit_cost) for layer in layers] == [
             (Decimal("20.0000"), Decimal("100.000000")),
             (Decimal("10.0000"), Decimal("120.000000")),
@@ -523,9 +517,7 @@ class TestTransfersCarryTheirCost:
         assert issue.total_cost == Decimal("2000.0000")
         assert issue.unit_cost == Decimal("100.000000")
 
-    async def test_a_transfer_document_carries_its_cost_across_two_transactions(
-        self, ctx
-    ) -> None:
+    async def test_a_transfer_document_carries_its_cost_across_two_transactions(self, ctx) -> None:
         """Dispatch and receive are days apart, so the breakdown is read back.
 
         The consumption rows the outbound leg wrote are the record of what left,
@@ -571,9 +563,7 @@ class TestTransfersCarryTheirCost:
         assert destination is not None
         assert source.stock_value + destination.stock_value == before
         await _assert_layers_reconcile(session, tenant, destination)
-        layers = await CostLayerRepository(session, tenant).open_layers_for_balance(
-            destination.id
-        )
+        layers = await CostLayerRepository(session, tenant).open_layers_for_balance(destination.id)
         assert [(layer.remaining_quantity, layer.unit_cost) for layer in layers] == [
             (Decimal("20.0000"), Decimal("100.000000")),
             (Decimal("10.0000"), Decimal("120.000000")),
@@ -672,13 +662,17 @@ class TestARepairedPosition:
         await _assert_layers_reconcile(session, tenant, balance)
 
         repaired = (
-            await session.execute(
-                select(InventoryCostLayer).where(
-                    InventoryCostLayer.balance_id == balance.id,
-                    InventoryCostLayer.origin == LAYER_ORIGIN_RECONCILIATION,
+            (
+                await session.execute(
+                    select(InventoryCostLayer).where(
+                        InventoryCostLayer.balance_id == balance.id,
+                        InventoryCostLayer.origin == LAYER_ORIGIN_RECONCILIATION,
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert len(repaired) == 1
         assert repaired[0].original_quantity == Decimal("100.0000")
         assert repaired[0].source_transaction_id is None, (
@@ -686,10 +680,10 @@ class TestARepairedPosition:
         )
 
         audited = (
-            await session.execute(
-                select(AuditLog).where(AuditLog.entity_id == balance.id)
-            )
-        ).scalars().all()
+            (await session.execute(select(AuditLog).where(AuditLog.entity_id == balance.id)))
+            .scalars()
+            .all()
+        )
         assert audited, "a change to a position's valuation basis must be audited"
 
     async def test_a_repair_layer_is_consumed_before_the_stock_that_came_after_it(
@@ -832,12 +826,16 @@ class TestADocumentIsCostedTheWayItPosts:
         assert posted.lines[0].total_cost == Decimal("30000.0000")
 
         movement = (
-            await session.execute(
-                select(InventoryTransaction).where(
-                    InventoryTransaction.reference_id == adjustment_id
+            (
+                await session.execute(
+                    select(InventoryTransaction).where(
+                        InventoryTransaction.reference_id == adjustment_id
+                    )
                 )
             )
-        ).scalars().one()
+            .scalars()
+            .one()
+        )
         assert Decimal(movement.total_cost) == posted.total_value, (
             "the document and the ledger row disagree about what the write-off cost"
         )
@@ -847,9 +845,7 @@ class TestADocumentIsCostedTheWayItPosts:
         assert balance.stock_value == Decimal("29000.0000")
         await _assert_layers_reconcile(session, tenant, balance)
 
-    async def test_a_draft_that_grew_past_the_threshold_is_refused_at_posting(
-        self, ctx
-    ) -> None:
+    async def test_a_draft_that_grew_past_the_threshold_is_refused_at_posting(self, ctx) -> None:
         """The preview is not a lock, so the post-time re-check is the real gate.
 
         The document is drafted while the position is cheap, so it prices itself
@@ -908,9 +904,7 @@ class TestADocumentIsCostedTheWayItPosts:
         assert resubmitted.total_value == Decimal("40000.0000")
         assert resubmitted.requires_approval is True
 
-    async def test_an_approved_document_posts_whatever_it_turns_out_to_cost(
-        self, ctx
-    ) -> None:
+    async def test_an_approved_document_posts_whatever_it_turns_out_to_cost(self, ctx) -> None:
         """The other half of the rule, and the reason the re-check is one-sided.
 
         A person looked at this document and signed it. If stock moves after
@@ -986,22 +980,14 @@ class TestACountReportsWhatItPosted:
         await service.enter_counts(
             count.id,
             PhysicalCountEntryRequest(
-                entries=[
-                    PhysicalCountEntry(
-                        line_id=lines[0].id, counted_quantity=Decimal(counted)
-                    )
-                ]
+                entries=[PhysicalCountEntry(line_id=lines[0].id, counted_quantity=Decimal(counted))]
             ),
         )
         return service, count, item_id, warehouse_id
 
-    async def test_the_reported_variance_is_the_variance_the_ledger_booked(
-        self, ctx
-    ) -> None:
+    async def test_the_reported_variance_is_the_variance_the_ledger_booked(self, ctx) -> None:
         session, tenant = ctx
-        service, count, item_id, warehouse_id = await self._counted_sheet(
-            session, tenant, "940"
-        )
+        service, count, item_id, warehouse_id = await self._counted_sheet(session, tenant, "940")
 
         entered, _ = await service.list_lines(count.id, PageParams(page=1, limit=50))
         # Even before confirming, the sheet says what the shortage will cost.
@@ -1017,12 +1003,16 @@ class TestACountReportsWhatItPosted:
         assert posted[0].variance_value == Decimal("-30000.0000")
 
         movement = (
-            await session.execute(
-                select(InventoryTransaction).where(
-                    InventoryTransaction.reference_id == count.id
+            (
+                await session.execute(
+                    select(InventoryTransaction).where(
+                        InventoryTransaction.reference_id == count.id
+                    )
                 )
             )
-        ).scalars().one()
+            .scalars()
+            .one()
+        )
         assert -Decimal(movement.total_cost) == confirmed.variance_value, (
             "the count sheet and the ledger disagree about the shrinkage"
         )
@@ -1042,9 +1032,7 @@ class TestACountReportsWhatItPosted:
         off the posting rather than recomputed beside it.
         """
         session, tenant = ctx
-        service, count, item_id, warehouse_id = await self._counted_sheet(
-            session, tenant, "1010"
-        )
+        service, count, item_id, warehouse_id = await self._counted_sheet(session, tenant, "1010")
 
         confirmed = await service.confirm(count.id)
         assert confirmed.variance_value == Decimal("590.0000")  # 10 @ 59
@@ -1066,9 +1054,7 @@ class TestLayersOverThePosition:
     posting *raised* the position's value back to what the layers claimed.
     """
 
-    async def test_layers_claiming_more_than_the_position_holds_are_trimmed(
-        self, ctx
-    ) -> None:
+    async def test_layers_claiming_more_than_the_position_holds_are_trimmed(self, ctx) -> None:
         session, tenant = ctx
         item_id = await _item(session, tenant)
         warehouse_id = await _warehouse(session, tenant)
@@ -1145,10 +1131,10 @@ class TestLayersOverThePosition:
             )
 
         audited = (
-            await session.execute(
-                select(AuditLog).where(AuditLog.entity_id == balance_id)
-            )
-        ).scalars().all()
+            (await session.execute(select(AuditLog).where(AuditLog.entity_id == balance_id)))
+            .scalars()
+            .all()
+        )
         trims = [
             row
             for row in audited
@@ -1198,9 +1184,7 @@ class TestLayersOverThePosition:
             )
         # The cheap layer is gone, so this unit costs 50, not 5.
         assert issue.unit_cost == Decimal("50.000000")
-        layers = await CostLayerRepository(session, tenant).open_layers_for_balance(
-            balance.id
-        )
+        layers = await CostLayerRepository(session, tenant).open_layers_for_balance(balance.id)
         assert [(layer.remaining_quantity, layer.unit_cost) for layer in layers] == [
             (Decimal("9.0000"), Decimal("50.000000"))
         ]
@@ -1228,9 +1212,7 @@ class TestStockValuePrecision:
         assert balance.stock_value == Decimal("3.3333")
         await _assert_layers_reconcile(session, tenant, balance)
 
-    async def test_splitting_a_position_across_warehouses_keeps_the_total(
-        self, ctx
-    ) -> None:
+    async def test_splitting_a_position_across_warehouses_keeps_the_total(self, ctx) -> None:
         """Two warehouses, one item, the same stock. Same company value.
 
         Not exact - four places cannot hold the product of a four-place quantity
@@ -1266,9 +1248,7 @@ class TestTheValuationReportReconcilesIndependently:
     detect the one thing it exists to detect.
     """
 
-    async def test_a_balance_that_drifted_from_its_layers_shows_a_difference(
-        self, ctx
-    ) -> None:
+    async def test_a_balance_that_drifted_from_its_layers_shows_a_difference(self, ctx) -> None:
         session, tenant = ctx
         item_id = await _item(session, tenant)
         warehouse_id = await _warehouse(session, tenant)
@@ -1375,9 +1355,7 @@ class TestTheOpeningLayerCorrection:
         balance_id = balance.id
         if stock_value is not None:
             await session.execute(
-                text(
-                    "UPDATE inventory_balances SET stock_value = :value WHERE id = :balance"
-                ),
+                text("UPDATE inventory_balances SET stock_value = :value WHERE id = :balance"),
                 {"value": Decimal(stock_value), "balance": balance_id},
             )
         await session.execute(
@@ -1419,9 +1397,7 @@ class TestTheOpeningLayerCorrection:
         await session.flush()
         return balance_id, item_id, warehouse_id, layer.id
 
-    async def test_the_opening_layer_is_re_dated_before_everything_else(
-        self, ctx
-    ) -> None:
+    async def test_the_opening_layer_is_re_dated_before_everything_else(self, ctx) -> None:
         """A backdated receipt must not be consumed before the opening stock."""
         session, tenant = ctx
         balance_id, item_id, warehouse_id, opening_id = await self._opening_layer(
@@ -1496,9 +1472,7 @@ class TestTheOpeningLayerCorrection:
         await session.execute(revision._SNAP_BALANCE_TO_LAYER, _MIGRATION_MARKER)
         session.expire_all()
 
-        layers = await CostLayerRepository(session, tenant).open_layers_for_balance(
-            balance_id
-        )
+        layers = await CostLayerRepository(session, tenant).open_layers_for_balance(balance_id)
         assert len(layers) == 1
         reconciled = await inv.get_balance(session, tenant, item_id, warehouse_id)
         assert reconciled is not None
@@ -1507,9 +1481,7 @@ class TestTheOpeningLayerCorrection:
         ), "the corrected layer still does not add up to the value finance reports"
         assert abs(Decimal(reconciled.stock_value) - Decimal("400.0000")) <= Decimal("0.0001")
 
-    async def test_a_position_that_has_moved_since_the_backfill_is_left_alone(
-        self, ctx
-    ) -> None:
+    async def test_a_position_that_has_moved_since_the_backfill_is_left_alone(self, ctx) -> None:
         """Re-pricing is narrow on purpose.
 
         Once real movements have been posted against a position, its

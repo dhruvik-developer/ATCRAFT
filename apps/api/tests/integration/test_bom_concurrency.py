@@ -45,7 +45,7 @@ from src.modules.bom.models import Bom, BomStatus
 from src.modules.bom.schemas import BomCreate, BomLineIn
 from src.modules.products.models import ProductionType
 from tests import seed_support
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 
 pytestmark = [pytest.mark.integration, pytest.mark.concurrency]
 
@@ -122,7 +122,7 @@ def bom_conc_schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID]]:
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for concurrency tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, author_id, reviewer_id
     asyncio.run(teardown())

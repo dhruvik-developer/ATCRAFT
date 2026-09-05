@@ -497,7 +497,12 @@ async def notify(
             },
         )
 
-    queued = queue_email_delivery(session, written)
+        # Stage while the business transaction is still open. SQLAlchemy's
+        # after_commit hook publishes only once the rows above are durable; a
+        # rollback clears the staged jobs instead. Registering this after the
+        # context exited would miss the commit that should trigger delivery.
+        queued = queue_email_delivery(session, written)
+
     log.info(
         "notifications.raised",
         company_id=str(company_id),

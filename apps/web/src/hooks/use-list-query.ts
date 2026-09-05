@@ -15,6 +15,7 @@ import { useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { api } from '@/lib/api-client'
+import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 import type { ListParams, PaginatedEnvelope } from '@/types/api'
 
 export interface UseListQueryOptions {
@@ -44,7 +45,7 @@ export function useListQuery<T>({
   path,
   queryKey,
   filters = {},
-  defaultLimit = 50,
+  defaultLimit = DEFAULT_PAGE_SIZE,
   defaultSortBy,
   defaultSortDir = 'asc',
   withTotal = true,
@@ -83,7 +84,15 @@ export function useListQuery<T>({
     // does not collapse to a skeleton on every page click.
     placeholderData: keepPreviousData,
     enabled,
-    staleTime,
+    // Only forwarded when the caller supplied one. React Query merges options
+    // over its defaults with a plain object spread, so an *explicit*
+    // `staleTime: undefined` overwrites the client-wide default rather than
+    // inheriting it - and `isStaleByTime` then defaults it to 0, making every
+    // list that omits the option permanently stale. `refetchInterval` and
+    // `refetchOnWindowFocus` above are safe because they default in the
+    // signature; this one deliberately has no default so the policy stays in
+    // `query-client.ts`.
+    ...(staleTime === undefined ? {} : { staleTime }),
     refetchInterval,
     refetchOnWindowFocus,
   })
@@ -138,8 +147,7 @@ export function useListQuery<T>({
      * and only the last navigation survives. A "Clear filters" button written
      * that way clears exactly one filter and looks like it did nothing.
      */
-    setParams: (next: Record<string, string | number | undefined>) =>
-      update({ ...next, page: 1 }),
+    setParams: (next: Record<string, string | number | undefined>) => update({ ...next, page: 1 }),
     params,
   }
 }

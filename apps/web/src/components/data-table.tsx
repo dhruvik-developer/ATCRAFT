@@ -43,8 +43,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/overlays'
 import { Input, Skeleton } from '@/components/ui/primitives'
-import type { OffsetPagination } from '@/types/api'
+import { DEFAULT_PAGE_SIZE, PAGE_SIZES, SEARCH_DEBOUNCE_MS } from '@/lib/constants'
+import { empty } from '@/lib/messages'
 import { cn } from '@/lib/utils'
+import type { OffsetPagination } from '@/types/api'
 
 export interface DataTableProps<T> {
   columns: ColumnDef<T, unknown>[]
@@ -79,9 +81,6 @@ export interface DataTableProps<T> {
   className?: string
 }
 
-const PAGE_SIZES = [25, 50, 100, 200]
-const SEARCH_DEBOUNCE_MS = 350
-
 /**
  * A readable name for a column that renders no header of its own.
  *
@@ -90,7 +89,10 @@ const SEARCH_DEBOUNCE_MS = 350
  * a required prop would just be filled in with an empty string.
  */
 function humaniseColumnId(id: string): string {
-  const words = id.replace(/[_-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').trim()
+  const words = id
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .trim()
   if (!words) return 'Column'
   return words.charAt(0).toUpperCase() + words.slice(1).toLowerCase()
 }
@@ -113,12 +115,12 @@ export function DataTable<T>({
   toolbar,
   onRowClick,
   getRowId,
-  emptyTitle = 'Nothing here yet',
-  emptyDescription = 'No records match the current filters.',
+  emptyTitle = empty.title,
+  emptyDescription = empty.filtered,
   emptyAction,
   virtualise = false,
   estimatedRowHeight = 41,
-  maxHeight = '60vh',
+  maxHeight = '60svh',
   stickyHeader = true,
   className,
 }: DataTableProps<T>) {
@@ -179,7 +181,7 @@ export function DataTable<T>({
   )
 
   const page = pagination?.page ?? 1
-  const limit = pagination?.limit ?? 50
+  const limit = pagination?.limit ?? DEFAULT_PAGE_SIZE
   const total = pagination?.total ?? null
   const rangeStart = total === 0 ? 0 : (page - 1) * limit + 1
   const rangeEnd = (page - 1) * limit + data.length
@@ -213,7 +215,7 @@ export function DataTable<T>({
 
         {toolbar}
 
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
           {isFetching && !isLoading && (
             <span className="mr-1 text-xs text-muted-foreground" role="status">
               Updating...
@@ -351,12 +353,12 @@ export function DataTable<T>({
               {!isLoading && error && (
                 <tr>
                   <td colSpan={visibleColumnCount} className="px-3 py-12 text-center">
-                    <p className="font-medium text-destructive">Could not load this list</p>
+                    <p className="font-medium text-destructive">{empty.loadFailedTitle}</p>
                     <p className="mt-1 text-sm text-muted-foreground">{error.message}</p>
                     {onRefresh && (
                       <Button variant="outline" size="sm" onClick={onRefresh} className="mt-4">
                         <RefreshCw />
-                        Try again
+                        {empty.loadFailedAction}
                       </Button>
                     )}
                   </td>
@@ -427,7 +429,7 @@ export function DataTable<T>({
                 : `${rangeStart}-${rangeEnd}`}
           </p>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {onLimitChange && (
               <label className="flex items-center gap-2 text-muted-foreground">
                 Rows

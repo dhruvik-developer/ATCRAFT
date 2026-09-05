@@ -44,6 +44,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { mastersKeys } from '@/features/masters/masters-model'
 import { api } from '@/lib/api-client'
 import { formatQuantity, toDecimal } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -129,7 +130,7 @@ export function RetireItemDialog({
       // One prefix invalidation covers the list, the detail and every item
       // picker in the application - they all hang off `queryKeys.items`.
       void queryClient.invalidateQueries({ queryKey: queryKeys.items.all })
-      toast.success('Item retired', `${item.code} - ${item.name}`)
+      toast.success(success.retired('Item'), `${item.code} - ${item.name}`)
       onOpenChange(false)
       // The detail route reads `GET /products/items/{id}`, which now answers
       // 404. Replacing the history entry keeps Back from returning to a page
@@ -238,7 +239,7 @@ export function RetireVariantDialog({
       // cache is an option whose every use now answers 404 - the same trap the
       // dealer list sprang in `customers/customer-retire-dialog.tsx`.
       void queryClient.invalidateQueries({ queryKey: mastersKeys.variants(itemId) })
-      toast.success('Variant retired', `${target.code} - ${target.name}`)
+      toast.success(success.retired('Variant'), `${target.code} - ${target.name}`)
       onOpenChange(false)
     },
   })

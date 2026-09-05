@@ -53,9 +53,12 @@ import {
 } from '@/features/auth/password-policy'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { success } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
+import { asId, asText } from '@/lib/utils'
 
 import {
   useBranchOptions,
@@ -66,12 +69,6 @@ import {
   type UserDetail,
   type UserRow,
 } from './admin-types'
-
-/** Radix forbids an empty option value, so "not set" needs a sentinel. */
-const NONE = '__none'
-
-const asId = (value: string): string | null => (value === NONE || value === '' ? null : value)
-const asText = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 
 // -------------------------------------------------------- create / edit -----
 
@@ -112,9 +109,9 @@ function emptyUser(): UserFormValues {
     password: '',
     phone: '',
     employee_code: '',
-    branch_id: NONE,
-    plant_id: NONE,
-    department_id: NONE,
+    branch_id: SELECT_NONE,
+    plant_id: SELECT_NONE,
+    department_id: SELECT_NONE,
     vendor_id: null,
     must_change_password: true,
     role_ids: [],
@@ -128,9 +125,9 @@ function userValues(user: UserDetail): UserFormValues {
     password: '',
     phone: user.phone ?? '',
     employee_code: user.employee_code ?? '',
-    branch_id: user.branch_id ?? NONE,
-    plant_id: user.plant_id ?? NONE,
-    department_id: user.department_id ?? NONE,
+    branch_id: user.branch_id ?? SELECT_NONE,
+    plant_id: user.plant_id ?? SELECT_NONE,
+    department_id: user.department_id ?? SELECT_NONE,
     vendor_id: user.vendor_id,
     must_change_password: user.must_change_password,
     role_ids: (user.roles ?? []).map((role) => role.id),
@@ -185,11 +182,13 @@ export function UserFormDialog({
   })
 
   // Seeded once per opening, keyed on the id: a background refetch resolving
-  // mid-edit must not wipe what is being typed.
+  // mid-edit must not wipe what is being typed. An edit whose detail has not
+  // arrived yet is reset to blank rather than skipped, so the values of the
+  // account edited last cannot survive into this opening - the fields stay
+  // hidden until `user` resolves, and are seeded again when it does.
   const loadedId = user?.id ?? null
   useEffect(() => {
     if (!open) return
-    if (isEdit && !user) return
     reset(user ? userValues(user) : emptyUser())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isEdit, loadedId, reset])
@@ -206,10 +205,14 @@ export function UserFormDialog({
         employee_code: asText(values.employee_code),
       }
 
-      if (user) {
+      // Create-or-edit follows the *intent* (`userId`), never the fetched
+      // detail: on an edit whose detail failed to load, `user` is null, and
+      // branching on it turned "Save changes" into a POST that created a second
+      // account under an "Edit" heading.
+      if (userId) {
         // "Absent" and "null" both arrive as None on the server, so an
         // unassignment is a flag rather than a null id.
-        return api.patch<UserDetail>(`/users/${user.id}`, {
+        return api.patch<UserDetail>(`/users/${userId}`, {
           ...shared,
           ...(asId(values.branch_id)
             ? { branch_id: asId(values.branch_id) }
@@ -238,7 +241,10 @@ export function UserFormDialog({
     },
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.users.all })
-      toast.success(isEdit ? 'User updated' : 'User created', `${saved.full_name} - ${saved.email}`)
+      toast.success(
+        isEdit ? success.updated('User') : success.created('User'),
+        `${saved.full_name} - ${saved.email}`,
+      )
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),
@@ -277,258 +283,277 @@ export function UserFormDialog({
           noValidate
         >
           <DialogBody className="space-y-5">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="user-name" required>
-                  Full name
-                </Label>
-                <Input
-                  id="user-name"
-                  {...register('full_name')}
-                  autoComplete="off"
-                  aria-invalid={Boolean(errors.full_name)}
-                  className="mt-1.5"
-                />
-                <FieldError message={errors.full_name?.message} />
-              </div>
-
-              <div>
-                <Label htmlFor="user-email" required>
-                  Email
-                </Label>
-                <Input
-                  id="user-email"
-                  type="email"
-                  {...register('email')}
-                  autoComplete="off"
-                  aria-invalid={Boolean(errors.email)}
-                  className="mt-1.5"
-                />
-                <FieldError message={errors.email?.message} />
-              </div>
-
-              <div>
-                <Label htmlFor="user-phone">Phone</Label>
-                <Input
-                  id="user-phone"
-                  {...register('phone')}
-                  autoComplete="off"
-                  className="mt-1.5"
-                />
-                <FieldError message={errors.phone?.message} />
-              </div>
-
-              <div>
-                <Label htmlFor="user-employee-code">Employee code</Label>
-                <Input
-                  id="user-employee-code"
-                  {...register('employee_code')}
-                  autoComplete="off"
-                  className="mt-1.5"
-                />
-                <FieldError message={errors.employee_code?.message} />
-              </div>
-
-              <div className="sm:col-span-2">
-                <Label htmlFor="user-password" required={!isEdit}>
-                  {isEdit ? 'New password' : 'First password'}
-                </Label>
-                <Input
-                  id="user-password"
-                  type="password"
-                  {...register('password')}
-                  autoComplete="new-password"
-                  aria-invalid={Boolean(errors.password)}
-                  aria-describedby="user-password-policy"
-                  className="mt-1.5"
-                />
-                <FieldError message={errors.password?.message} />
-                <ul
-                  id="user-password-policy"
-                  className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"
-                >
-                  {PASSWORD_RULES.map((rule) => (
-                    <li
-                      key={rule.id}
-                      className={password && rule.satisfied(password) ? 'text-success' : undefined}
-                    >
-                      {rule.label}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div>
-                <Label htmlFor="user-branch">Branch</Label>
-                <Controller
-                  control={control}
-                  name="branch_id"
-                  render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger id="user-branch" className="mt-1.5">
-                        <SelectValue placeholder="No branch" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NONE}>No branch</SelectItem>
-                        {(branches.data ?? []).map((branch) => (
-                          <SelectItem key={branch.id} value={branch.id}>
-                            {branch.code} - {branch.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="user-plant">Plant</Label>
-                <Controller
-                  control={control}
-                  name="plant_id"
-                  render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger id="user-plant" className="mt-1.5">
-                        <SelectValue placeholder="No plant" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NONE}>No plant</SelectItem>
-                        {(plants.data ?? []).map((plant) => (
-                          <SelectItem key={plant.id} value={plant.id}>
-                            {plant.code} - {plant.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="user-department">Department</Label>
-                <Controller
-                  control={control}
-                  name="department_id"
-                  render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger id="user-department" className="mt-1.5">
-                        <SelectValue placeholder="No department" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NONE}>No department</SelectItem>
-                        {(departments.data ?? []).map((department) => (
-                          <SelectItem key={department.id} value={department.id}>
-                            {department.code} - {department.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                />
-              </div>
-
-              <div>
-                <Controller
-                  control={control}
-                  name="vendor_id"
-                  render={({ field }) => (
-                    <VendorPicker
-                      id="user-vendor"
-                      label="Vendor portal account"
-                      value={field.value}
-                      onChange={(next) => {
-                        field.onChange(next)
-                        // Vendor and internal roles are mutually exclusive, so
-                        // a selection made before the binding changed is no
-                        // longer legal and the API would refuse the whole save.
-                        setValue('role_ids', [])
-                      }}
-                      placeholder="Internal staff account"
-                    />
-                  )}
-                />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Binding an account to a vendor limits it to the vendor portal, and to vendor roles
-                  only.
-                </p>
-              </div>
-            </div>
-
-            {!isEdit && (
-              <fieldset className="rounded-lg border p-4">
-                <legend className="px-1.5 text-sm font-medium">Roles</legend>
-                {selectableRoles.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    {roles.isLoading
-                      ? 'Loading roles...'
-                      : vendorId
-                        ? 'No vendor roles exist yet. Create one on the Roles tab first.'
-                        : 'No roles available.'}
-                  </p>
-                ) : (
-                  <Controller
-                    control={control}
-                    name="role_ids"
-                    render={({ field }) => (
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        {selectableRoles.map((role) => {
-                          const checked = field.value.includes(role.id)
-                          return (
-                            <label
-                              key={role.id}
-                              className="flex cursor-pointer items-start gap-2.5 text-sm"
-                            >
-                              <Checkbox
-                                checked={checked}
-                                onCheckedChange={(next) =>
-                                  field.onChange(
-                                    next
-                                      ? [...field.value, role.id]
-                                      : field.value.filter((id: string) => id !== role.id),
-                                  )
-                                }
-                              />
-                              <span className="min-w-0">
-                                <span className="font-medium">{role.name}</span>
-                                <span className="block text-xs text-muted-foreground">
-                                  {role.permission_count} permissions
-                                </span>
-                              </span>
-                            </label>
-                          )
-                        })}
-                      </div>
-                    )}
-                  />
-                )}
-              </fieldset>
+            {isEdit && detail.error && (
+              <Alert variant="destructive">
+                <AlertTitle>Could not load this user</AlertTitle>
+                <AlertDescription>{detail.error.message}</AlertDescription>
+              </Alert>
             )}
 
-            <label className="flex items-start gap-2.5 text-sm">
-              <Controller
-                control={control}
-                name="must_change_password"
-                render={({ field }) => (
-                  <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+            {/* Never a form while `isEdit && !user`: it would hold the blank
+                defaults under an "Edit" heading and its save could only mislead. */}
+            {(!isEdit || user) && (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="user-name" required>
+                      Full name
+                    </Label>
+                    <Input
+                      id="user-name"
+                      {...register('full_name')}
+                      autoComplete="off"
+                      aria-invalid={Boolean(errors.full_name)}
+                      className="mt-1.5"
+                    />
+                    <FieldError message={errors.full_name?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="user-email" required>
+                      Email
+                    </Label>
+                    <Input
+                      id="user-email"
+                      type="email"
+                      {...register('email')}
+                      autoComplete="off"
+                      aria-invalid={Boolean(errors.email)}
+                      className="mt-1.5"
+                    />
+                    <FieldError message={errors.email?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="user-phone">Phone</Label>
+                    <Input
+                      id="user-phone"
+                      {...register('phone')}
+                      autoComplete="off"
+                      className="mt-1.5"
+                    />
+                    <FieldError message={errors.phone?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="user-employee-code">Employee code</Label>
+                    <Input
+                      id="user-employee-code"
+                      {...register('employee_code')}
+                      autoComplete="off"
+                      className="mt-1.5"
+                    />
+                    <FieldError message={errors.employee_code?.message} />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <Label htmlFor="user-password" required={!isEdit}>
+                      {isEdit ? 'New password' : 'First password'}
+                    </Label>
+                    <Input
+                      id="user-password"
+                      type="password"
+                      {...register('password')}
+                      autoComplete="new-password"
+                      aria-invalid={Boolean(errors.password)}
+                      aria-describedby="user-password-policy"
+                      className="mt-1.5"
+                    />
+                    <FieldError message={errors.password?.message} />
+                    <ul
+                      id="user-password-policy"
+                      className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"
+                    >
+                      {PASSWORD_RULES.map((rule) => (
+                        <li
+                          key={rule.id}
+                          className={
+                            password && rule.satisfied(password) ? 'text-success' : undefined
+                          }
+                        >
+                          {rule.label}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="user-branch">Branch</Label>
+                    <Controller
+                      control={control}
+                      name="branch_id"
+                      render={({ field }) => (
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <SelectTrigger id="user-branch" className="mt-1.5">
+                            <SelectValue placeholder="No branch" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={SELECT_NONE}>No branch</SelectItem>
+                            {(branches.data ?? []).map((branch) => (
+                              <SelectItem key={branch.id} value={branch.id}>
+                                {branch.code} - {branch.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="user-plant">Plant</Label>
+                    <Controller
+                      control={control}
+                      name="plant_id"
+                      render={({ field }) => (
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <SelectTrigger id="user-plant" className="mt-1.5">
+                            <SelectValue placeholder="No plant" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={SELECT_NONE}>No plant</SelectItem>
+                            {(plants.data ?? []).map((plant) => (
+                              <SelectItem key={plant.id} value={plant.id}>
+                                {plant.code} - {plant.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="user-department">Department</Label>
+                    <Controller
+                      control={control}
+                      name="department_id"
+                      render={({ field }) => (
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <SelectTrigger id="user-department" className="mt-1.5">
+                            <SelectValue placeholder="No department" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={SELECT_NONE}>No department</SelectItem>
+                            {(departments.data ?? []).map((department) => (
+                              <SelectItem key={department.id} value={department.id}>
+                                {department.code} - {department.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+
+                  <div>
+                    <Controller
+                      control={control}
+                      name="vendor_id"
+                      render={({ field }) => (
+                        <VendorPicker
+                          id="user-vendor"
+                          label="Vendor portal account"
+                          value={field.value}
+                          onChange={(next) => {
+                            field.onChange(next)
+                            // Vendor and internal roles are mutually exclusive, so
+                            // a selection made before the binding changed is no
+                            // longer legal and the API would refuse the whole save.
+                            setValue('role_ids', [])
+                          }}
+                          placeholder="Internal staff account"
+                        />
+                      )}
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Binding an account to a vendor limits it to the vendor portal, and to vendor
+                      roles only.
+                    </p>
+                  </div>
+                </div>
+
+                {!isEdit && (
+                  <fieldset className="rounded-lg border p-4">
+                    <legend className="px-1.5 text-sm font-medium">Roles</legend>
+                    {selectableRoles.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        {roles.isLoading
+                          ? 'Loading roles...'
+                          : roles.error
+                            ? 'The role list could not be loaded. Roles can be assigned once the account exists.'
+                            : vendorId
+                              ? 'No vendor roles exist yet. Create one on the Roles tab first.'
+                              : 'No roles available.'}
+                      </p>
+                    ) : (
+                      <Controller
+                        control={control}
+                        name="role_ids"
+                        render={({ field }) => (
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            {selectableRoles.map((role) => {
+                              const checked = field.value.includes(role.id)
+                              return (
+                                <label
+                                  key={role.id}
+                                  className="flex cursor-pointer items-start gap-2.5 text-sm"
+                                >
+                                  <Checkbox
+                                    checked={checked}
+                                    onCheckedChange={(next) =>
+                                      field.onChange(
+                                        next
+                                          ? [...field.value, role.id]
+                                          : field.value.filter((id: string) => id !== role.id),
+                                      )
+                                    }
+                                  />
+                                  <span className="min-w-0">
+                                    <span className="font-medium">{role.name}</span>
+                                    <span className="block text-xs text-muted-foreground">
+                                      {role.permission_count} permissions
+                                    </span>
+                                  </span>
+                                </label>
+                              )
+                            })}
+                          </div>
+                        )}
+                      />
+                    )}
+                  </fieldset>
                 )}
-              />
-              <span>
-                Require a password change at next sign-in
-                <span className="block text-xs text-muted-foreground">
-                  A password someone else chose has been typed into a chat window or read out over a
-                  telephone.
-                </span>
-              </span>
-            </label>
+
+                <label className="flex items-start gap-2.5 text-sm">
+                  <Controller
+                    control={control}
+                    name="must_change_password"
+                    render={({ field }) => (
+                      <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                    )}
+                  />
+                  <span>
+                    Require a password change at next sign-in
+                    <span className="block text-xs text-muted-foreground">
+                      A password someone else chose has been typed into a chat window or read out
+                      over a telephone.
+                    </span>
+                  </span>
+                </label>
+              </>
+            )}
           </DialogBody>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" loading={mutation.isPending}>
-              {isEdit ? 'Save changes' : 'Create user'}
-            </Button>
+            {(!isEdit || user) && (
+              <Button type="submit" loading={mutation.isPending}>
+                {isEdit ? 'Save changes' : 'Create user'}
+              </Button>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>
@@ -543,8 +568,8 @@ const assignmentSchema = z.object({
   reason: z
     .string()
     .trim()
-    .min(3, 'Give a reason of at least 3 characters')
-    .max(255, 'At most 255 characters'),
+    .min(REASON_MIN_LENGTH, `Give a reason of at least ${REASON_MIN_LENGTH} characters`)
+    .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
 })
 
 type AssignmentValues = z.infer<typeof assignmentSchema>
@@ -599,7 +624,7 @@ export function RoleAssignmentDialog({
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.users.all })
       const held = saved.roles?.length ?? 0
-      toast.success('Roles updated', `${saved.full_name} now holds ${held} role(s)`)
+      toast.success(success.updated('Roles'), `${saved.full_name} now holds ${held} role(s)`)
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),
@@ -608,6 +633,11 @@ export function RoleAssignmentDialog({
   const isVendorUser = Boolean(user?.vendor_id)
   const roleList = roles.data ?? []
   const loadingDetail = detail.isLoading
+  // The endpoint replaces the role set wholesale. With the detail unloaded the
+  // checklist would be seeded from the empty defaults and a save would strip
+  // every role the account holds; with the role list unloaded there is nothing
+  // to choose from. Either way the form must not be submittable.
+  const canSave = Boolean(user) && !roles.error
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -630,94 +660,120 @@ export function RoleAssignmentDialog({
         )}
 
         <form
-          onSubmit={handleSubmit((values) => mutation.mutate(values))}
+          onSubmit={handleSubmit((values) => {
+            if (!canSave) return
+            mutation.mutate(values)
+          })}
           className={loadingDetail ? 'hidden' : 'flex min-h-0 flex-col gap-4'}
           noValidate
         >
           <DialogBody className="space-y-4">
-            {isVendorUser && (
-              <Alert variant="info">
-                <AlertTitle>Vendor portal account</AlertTitle>
-                <AlertDescription>
-                  This account is bound to a vendor, so only vendor roles may be assigned to it.
-                </AlertDescription>
+            {detail.error && !detail.isLoading && (
+              <Alert variant="destructive">
+                <AlertTitle>Could not load this account&apos;s roles</AlertTitle>
+                <AlertDescription>{detail.error.message}</AlertDescription>
               </Alert>
             )}
 
-            <Controller
-              control={control}
-              name="role_ids"
-              render={({ field }) => (
-                <div className="space-y-2">
-                  {roles.isLoading && (
-                    <p className="text-sm text-muted-foreground">Loading roles...</p>
-                  )}
-                  {roleList.map((role) => {
-                    const blocked = isVendorUser !== role.is_vendor_role
-                    const checked = field.value.includes(role.id)
-                    return (
-                      <label
-                        key={role.id}
-                        className={
-                          blocked
-                            ? 'flex items-start gap-2.5 rounded-md border p-3 text-sm opacity-60'
-                            : 'flex cursor-pointer items-start gap-2.5 rounded-md border p-3 text-sm'
-                        }
-                      >
-                        <Checkbox
-                          checked={checked}
-                          disabled={blocked}
-                          onCheckedChange={(next) =>
-                            field.onChange(
-                              next
-                                ? [...field.value, role.id]
-                                : field.value.filter((id: string) => id !== role.id),
-                            )
-                          }
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="flex flex-wrap items-center gap-2">
-                            <span className="font-medium">{role.name}</span>
-                            <span className="font-mono text-xs text-muted-foreground">
-                              {role.code}
-                            </span>
-                            {role.is_system && <Badge variant="secondary">System</Badge>}
-                            {role.is_vendor_role && <Badge variant="muted">Vendor</Badge>}
-                          </span>
-                          <span className="mt-0.5 block text-xs text-muted-foreground">
-                            {role.description ?? `${role.permission_count} permissions`}
-                          </span>
-                        </span>
-                      </label>
-                    )
-                  })}
-                </div>
-              )}
-            />
+            {roles.error && (
+              <Alert variant="destructive">
+                <AlertTitle>Could not load the role list</AlertTitle>
+                <AlertDescription>{roles.error.message}</AlertDescription>
+              </Alert>
+            )}
 
-            <div>
-              <Label htmlFor="assign-reason" required>
-                Reason
-              </Label>
-              <Input
-                id="assign-reason"
-                {...register('reason')}
-                autoComplete="off"
-                aria-invalid={Boolean(errors.reason)}
-                className="mt-1.5"
-              />
-              <FieldError message={errors.reason?.message} />
-              <p className="mt-1 text-xs text-muted-foreground">
-                Kept in the audit trail. An access review six months from now reads this line.
-              </p>
-            </div>
+            {canSave && (
+              <>
+                {isVendorUser && (
+                  <Alert variant="info">
+                    <AlertTitle>Vendor portal account</AlertTitle>
+                    <AlertDescription>
+                      This account is bound to a vendor, so only vendor roles may be assigned to it.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <Controller
+                  control={control}
+                  name="role_ids"
+                  render={({ field }) => (
+                    <div className="space-y-2">
+                      {roles.isLoading && (
+                        <p className="text-sm text-muted-foreground">Loading roles...</p>
+                      )}
+                      {!roles.isLoading && roleList.length === 0 && (
+                        <p className="text-sm text-muted-foreground">
+                          No active roles exist yet. Create one on the Roles tab first.
+                        </p>
+                      )}
+                      {roleList.map((role) => {
+                        const blocked = isVendorUser !== role.is_vendor_role
+                        const checked = field.value.includes(role.id)
+                        return (
+                          <label
+                            key={role.id}
+                            className={
+                              blocked
+                                ? 'flex items-start gap-2.5 rounded-md border p-3 text-sm opacity-60'
+                                : 'flex cursor-pointer items-start gap-2.5 rounded-md border p-3 text-sm'
+                            }
+                          >
+                            <Checkbox
+                              checked={checked}
+                              disabled={blocked}
+                              onCheckedChange={(next) =>
+                                field.onChange(
+                                  next
+                                    ? [...field.value, role.id]
+                                    : field.value.filter((id: string) => id !== role.id),
+                                )
+                              }
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium">{role.name}</span>
+                                <span className="font-mono text-xs text-muted-foreground">
+                                  {role.code}
+                                </span>
+                                {role.is_system && <Badge variant="secondary">System</Badge>}
+                                {role.is_vendor_role && <Badge variant="muted">Vendor</Badge>}
+                              </span>
+                              <span className="mt-0.5 block text-xs text-muted-foreground">
+                                {role.description ?? `${role.permission_count} permissions`}
+                              </span>
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  )}
+                />
+
+                <div>
+                  <Label htmlFor="assign-reason" required>
+                    Reason
+                  </Label>
+                  <Input
+                    id="assign-reason"
+                    {...register('reason')}
+                    autoComplete="off"
+                    aria-invalid={Boolean(errors.reason)}
+                    className="mt-1.5"
+                  />
+                  <FieldError message={errors.reason?.message} />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Kept in the audit trail. An access review six months from now reads this line.
+                  </p>
+                </div>
+              </>
+            )}
           </DialogBody>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" loading={mutation.isPending}>
+            <Button type="submit" loading={mutation.isPending} disabled={!canSave}>
               <ShieldCheck />
               Save roles
             </Button>
@@ -735,8 +791,8 @@ const resetSchema = z.object({
   reason: z
     .string()
     .trim()
-    .min(3, 'Give a reason of at least 3 characters')
-    .max(255, 'At most 255 characters'),
+    .min(REASON_MIN_LENGTH, `Give a reason of at least ${REASON_MIN_LENGTH} characters`)
+    .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
 })
 
 type ResetValues = z.infer<typeof resetSchema>
@@ -784,7 +840,7 @@ export function ResetPasswordDialog({
       void queryClient.invalidateQueries({ queryKey: queryKeys.users.all })
       setIssued(result)
       toast.success(
-        'Password reset',
+        success.reset('Password'),
         `${result.sessions_revoked} session(s) revoked for ${user.email}`,
       )
     },

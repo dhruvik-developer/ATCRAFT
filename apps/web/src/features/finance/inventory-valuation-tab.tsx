@@ -30,8 +30,8 @@
  * remainder as a fault, and says so on screen instead of hiding the reason in a
  * tooltip.
  *
- * `average_cost` is a unit price (six places on the wire), not money at two.
- * See `formatUnitCost`.
+ * `average_cost` is a unit price (six places on the wire), not money at two,
+ * so it is displayed with `formatUnitPrice` rather than `formatMoney`.
  */
 
 import { useMutation, useQuery } from '@tanstack/react-query'
@@ -48,10 +48,17 @@ import { WarehouseSelect } from '@/features/inventory/pickers'
 import { ReportJobPanel } from '@/features/reports/job-panel'
 import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
 import { api } from '@/lib/api-client'
-import { formatDateTime, formatMoney, formatNumber, formatQuantity, toDecimal } from '@/lib/format'
+import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
+import {
+  formatDateTime,
+  formatMoney,
+  formatNumber,
+  formatQuantity,
+  formatUnitPrice,
+  toDecimal,
+} from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
-import type { DecimalString } from '@/types/api'
 
 import {
   financeKeys,
@@ -59,36 +66,16 @@ import {
   type InventoryValuationRow,
 } from './finance-types'
 
-const DEFAULT_LIMIT = 50
-
 /**
  * `average_cost` is a UNIT PRICE, not money.
  *
  * The API derives it as value divided by on-hand quantity and quantises it to
  * `UNIT_PRICE_QUANTUM` - six decimal places, against money's two. `formatMoney`
  * fixes two, so a washer that genuinely costs 0.004250 each renders as a cost
- * per unit of nothing at all. The wire pads to six places, so the padding is
- * trimmed off first and never fewer than money's two are shown: a round cost
- * still reads as a price, a sub-paisa one still reads as a number.
- *
- * `lib/format.ts` has no unit-price helper yet; when it gains one this should
- * use it, along with the purchase order, sales order and invoice-match grids
- * that format a unit price as money today.
+ * per unit of nothing at all. `formatUnitPrice` in `lib/format.ts` is the
+ * shared helper for that case; the purchase order, sales order and
+ * invoice-match grids still format a unit price as money and should move to it.
  */
-const UNIT_COST_MAX_PLACES = 6
-const MONEY_PLACES = 2
-
-function formatUnitCost(value: DecimalString): string {
-  const cost = toDecimal(value)
-  const places = Math.max(MONEY_PLACES, Math.min(UNIT_COST_MAX_PLACES, cost.decimalPlaces()))
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    minimumFractionDigits: MONEY_PLACES,
-    maximumFractionDigits: places,
-  }).format(cost.toNumber())
-}
-
 export function InventoryValuationTab() {
   const { can } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -98,7 +85,7 @@ export function InventoryValuationTab() {
 
   const warehouseId = searchParams.get('warehouse_id') ?? ''
   const page = Number(searchParams.get('page') ?? 1)
-  const limit = Number(searchParams.get('limit') ?? DEFAULT_LIMIT)
+  const limit = Number(searchParams.get('limit') ?? DEFAULT_PAGE_SIZE)
 
   /**
    * Write every key a handler changes in ONE update.
@@ -203,7 +190,7 @@ export function InventoryValuationTab() {
         header: 'Cost per unit',
         enableSorting: false,
         meta: { align: 'right' },
-        cell: ({ row }) => formatUnitCost(row.original.average_cost),
+        cell: ({ row }) => formatUnitPrice(row.original.average_cost),
       },
       {
         id: 'value',
@@ -246,16 +233,18 @@ export function InventoryValuationTab() {
     <div className="space-y-4">
       <ReportJobPanel controller={job} label="Full inventory valuation" />
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {/* A dash when nothing loaded, never a formatted zero: a failed read
+            must not look like a company whose stock is worth nothing. */}
         <StatTile
           label="Total value"
-          value={formatMoney(data?.summary.total_value)}
+          value={data ? formatMoney(data.summary.total_value) : '-'}
           hint="Across every position matching these filters"
           isLoading={valuation.isLoading}
         />
         <StatTile
           label="Total quantity"
-          value={formatQuantity(data?.summary.total_quantity)}
+          value={data ? formatQuantity(data.summary.total_quantity) : '-'}
           hint={
             data
               ? `${formatNumber(data.summary.row_count)} item and warehouse positions`
@@ -297,7 +286,7 @@ export function InventoryValuationTab() {
         onRefresh={() => void valuation.refetch()}
         getRowId={(row) => `${row.item_id}:${row.warehouse_id}`}
         virtualise={rows.length > 150}
-        maxHeight="60vh"
+        maxHeight="60svh"
         emptyTitle="Nothing to value"
         emptyDescription="No stock is held for these filters."
         toolbar={

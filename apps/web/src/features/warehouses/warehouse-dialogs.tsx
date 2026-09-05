@@ -10,7 +10,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import { Controller, useForm, type FieldValues, type UseFormSetError } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
 import { FieldError } from '@/components/shared'
@@ -32,11 +32,15 @@ import {
 import { Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useBranchOptions } from '@/hooks/use-organisation-options'
-import { api, ApiError } from '@/lib/api-client'
+import { api } from '@/lib/api-client'
+import { SELECT_NONE } from '@/lib/constants'
+import { applyFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
+import { asId, asText } from '@/lib/utils'
 
 import {
   LOCATION_TYPES,
@@ -46,34 +50,10 @@ import {
   type Warehouse,
 } from './warehouse-model'
 
-/** Radix forbids an empty option value, so "not set" needs a sentinel. */
-const NONE = '__none'
-
 const CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._\-/ ]*$/
 const CODE_MESSAGE =
   'Use letters, digits, dot, dash, slash, underscore or space, starting with a letter or digit'
 const DECIMAL = /^(\d{1,14}(\.\d{1,4})?)?$/
-
-const asId = (value: string): string | null => (value === NONE || value === '' ? null : value)
-const asText = (value: string): string | null => (value.trim() === '' ? null : value.trim())
-
-/** Puts a 422 back on the field that caused it instead of in a toast. */
-function applyFieldErrors<T extends FieldValues>(
-  error: unknown,
-  known: Set<string>,
-  setError: UseFormSetError<T>,
-): void {
-  if (!(error instanceof ApiError) || error.status !== 422) return
-  for (const [path, messages] of Object.entries(error.fieldErrors)) {
-    // FastAPI reports the location as `body.code`; the form knows it as `code`.
-    const field = path.split('.').pop() ?? path
-    if (!known.has(field)) continue
-    setError(field as Parameters<UseFormSetError<T>>[0], {
-      type: 'server',
-      message: Array.isArray(messages) ? messages.join('. ') : String(messages),
-    })
-  }
-}
 
 // ------------------------------------------------------------ warehouse -----
 
@@ -109,15 +89,13 @@ const warehouseSchema = z.object({
 
 type WarehouseFormValues = z.infer<typeof warehouseSchema>
 
-const WAREHOUSE_FIELDS = new Set(Object.keys(warehouseSchema.shape))
-
 function emptyWarehouse(): WarehouseFormValues {
   return {
     code: '',
     name: '',
     warehouse_type: 'RAW_MATERIAL',
-    branch_id: NONE,
-    parent_warehouse_id: NONE,
+    branch_id: SELECT_NONE,
+    parent_warehouse_id: SELECT_NONE,
     allow_negative_stock: false,
     is_default: false,
     address_line1: '',
@@ -137,8 +115,8 @@ function warehouseValues(warehouse: Warehouse): WarehouseFormValues {
     code: warehouse.code,
     name: warehouse.name,
     warehouse_type: warehouse.warehouse_type,
-    branch_id: warehouse.branch_id ?? NONE,
-    parent_warehouse_id: warehouse.parent_warehouse_id ?? NONE,
+    branch_id: warehouse.branch_id ?? SELECT_NONE,
+    parent_warehouse_id: warehouse.parent_warehouse_id ?? SELECT_NONE,
     allow_negative_stock: warehouse.allow_negative_stock,
     is_default: warehouse.is_default,
     address_line1: warehouse.address_line1 ?? '',
@@ -223,12 +201,12 @@ export function WarehouseFormDialog({
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.warehouses.all })
       toast.success(
-        isEdit ? 'Warehouse updated' : 'Warehouse created',
+        isEdit ? success.updated('Warehouse') : success.created('Warehouse'),
         `${saved.code} - ${saved.name}`,
       )
       onOpenChange(false)
     },
-    onError: (error) => applyFieldErrors(error, WAREHOUSE_FIELDS, setError),
+    onError: (error) => applyFieldErrors(error, setError),
   })
 
   return (
@@ -318,7 +296,7 @@ export function WarehouseFormDialog({
                         <SelectValue placeholder="No branch" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NONE}>No branch</SelectItem>
+                        <SelectItem value={SELECT_NONE}>No branch</SelectItem>
                         {(branches.data ?? []).map((branch) => (
                           <SelectItem key={branch.id} value={branch.id}>
                             {branch.code} - {branch.name}
@@ -342,7 +320,7 @@ export function WarehouseFormDialog({
                         <SelectValue placeholder="Top level" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NONE}>Top level</SelectItem>
+                        <SelectItem value={SELECT_NONE}>Top level</SelectItem>
                         {(parents.data ?? [])
                           .filter((option) => option.id !== warehouse?.id)
                           .map((option) => (
@@ -380,7 +358,7 @@ export function WarehouseFormDialog({
                 <FieldError message={errors.city?.message} />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <Label htmlFor="wh-state">State</Label>
                   <Input id="wh-state" {...register('state')} className="mt-1.5" />
@@ -473,6 +451,8 @@ export function WarehouseFormDialog({
                 </div>
               )}
             </div>
+
+            <FieldError message={errors.root?.message} />
           </DialogBody>
 
           <DialogFooter>
@@ -512,8 +492,6 @@ const locationSchema = z.object({
 })
 
 type LocationFormValues = z.infer<typeof locationSchema>
-
-const LOCATION_FIELDS = new Set(Object.keys(locationSchema.shape))
 
 const emptyLocation: LocationFormValues = {
   code: '',
@@ -569,10 +547,10 @@ export function LocationFormDialog({
       // The warehouse row carries a location_count, so the list is invalidated
       // alongside the panel that just gained a row.
       void queryClient.invalidateQueries({ queryKey: queryKeys.warehouses.all })
-      toast.success('Storage location created', `${saved.code} - ${saved.name}`)
+      toast.success(success.created('Storage location'), `${saved.code} - ${saved.name}`)
       onOpenChange(false)
     },
-    onError: (error) => applyFieldErrors(error, LOCATION_FIELDS, setError),
+    onError: (error) => applyFieldErrors(error, setError),
   })
 
   return (
@@ -676,6 +654,8 @@ export function LocationFormDialog({
               <Label htmlFor="loc-notes">Notes</Label>
               <Textarea id="loc-notes" {...register('notes')} className="mt-1.5" />
             </div>
+
+            <FieldError message={errors.root?.message} />
           </DialogBody>
 
           <DialogFooter>

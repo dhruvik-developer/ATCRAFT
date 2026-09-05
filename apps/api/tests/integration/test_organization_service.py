@@ -180,9 +180,7 @@ class TestBranch:
     ) -> None:
         branch = await _make_branch(session, tenant, "HO", is_head_office=True)
 
-        row = (
-            await session.execute(select(Branch).where(Branch.id == branch.id))
-        ).scalar_one()
+        row = (await session.execute(select(Branch).where(Branch.id == branch.id))).scalar_one()
         assert row.company_id == company.id
         assert row.created_by_id == tenant.user_id
 
@@ -217,12 +215,16 @@ class TestBranch:
 
         # Still exactly one after the refusal.
         rows = (
-            await session.execute(
-                select(Branch).where(
-                    Branch.company_id == tenant.company_id, Branch.is_head_office.is_(True)
+            (
+                await session.execute(
+                    select(Branch).where(
+                        Branch.company_id == tenant.company_id, Branch.is_head_office.is_(True)
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert [r.id for r in rows] == [first.id]
 
     async def test_promoting_a_second_branch_is_refused_while_one_is_flagged(
@@ -303,9 +305,7 @@ class TestBranch:
         branch = await _make_branch(session, tenant, "BR1")
         await BranchService(session, tenant).delete_branch(branch.id, reason="Site closed")
 
-        row = (
-            await session.execute(select(Branch).where(Branch.id == branch.id))
-        ).scalar_one()
+        row = (await session.execute(select(Branch).where(Branch.id == branch.id))).scalar_one()
         assert row.deleted_at is not None
         assert row.is_active is False
 
@@ -480,9 +480,7 @@ class TestDepartment:
     ) -> None:
         top, _child = await self._chain(session, tenant, ["D1", "D2"])
         with pytest.raises(BusinessRuleError, match="still has sub-departments"):
-            await DepartmentService(session, tenant).delete_department(
-                top.id, reason="Reorganised"
-            )
+            await DepartmentService(session, tenant).delete_department(top.id, reason="Reorganised")
 
     async def test_retiring_is_refused_while_a_user_is_assigned(
         self, session: AsyncSession, tenant: TenantContext, user
@@ -537,9 +535,7 @@ class TestFinancialYear:
     ) -> None:
         first = await _make_year(session, tenant, "2026-27", FY_2026)
         with pytest.raises(BusinessRuleError) as exc:
-            await _make_year(
-                session, tenant, "2026-H2", (date(2026, 10, 1), date(2027, 9, 30))
-            )
+            await _make_year(session, tenant, "2026-H2", (date(2026, 10, 1), date(2027, 9, 30)))
         assert exc.value.details["conflicting_financial_year_id"] == str(first.id)
 
     async def test_a_single_shared_day_counts_as_an_overlap(
@@ -548,9 +544,7 @@ class TestFinancialYear:
         """The range endpoints are inclusive: 31 March belongs to the year."""
         await _make_year(session, tenant, "2026-27", FY_2026)
         with pytest.raises(BusinessRuleError, match="overlaps active financial year"):
-            await _make_year(
-                session, tenant, "2027-28", (date(2027, 3, 31), date(2028, 3, 30))
-            )
+            await _make_year(session, tenant, "2027-28", (date(2027, 3, 31), date(2028, 3, 30)))
 
     async def test_an_inactive_year_does_not_block_an_overlapping_one(
         self, session: AsyncSession, tenant: TenantContext
@@ -644,9 +638,7 @@ class TestFinancialYear:
         year = await _make_year(session, tenant, "2026-27", FY_2026)
         await FinancialYearService(session, tenant).close_year(year.id, reason="Filed")
 
-        admin = TenantContext(
-            company_id=company.id, user_id=user.id, is_superuser=True
-        )
+        admin = TenantContext(company_id=company.id, user_id=user.id, is_superuser=True)
         reopened = await FinancialYearService(session, admin).reopen_year(
             year.id, reason="Audit adjustment"
         )

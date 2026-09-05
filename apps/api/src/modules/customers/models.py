@@ -54,7 +54,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.core.models import TenantMasterEntity
+from src.core.models import TenantMasterEntity, sql_array_literal
 from src.core.types import GUID, Money
 
 # The price-list vocabulary is owned by the products module. Importing the enum
@@ -90,16 +90,6 @@ class AddressType(StrEnum):
 
     BILLING = "BILLING"
     SHIPPING = "SHIPPING"
-
-
-def _sql_array_literal(values: type[StrEnum]) -> str:
-    """Render a StrEnum as a PostgreSQL array literal for a check constraint.
-
-    Generated from the enum so the database constraint cannot drift away from
-    the Python vocabulary the schemas validate against.
-    """
-    members = ",".join(f"'{member.value}'" for member in values)
-    return f"ARRAY[{members}]::varchar[]"
 
 
 #: Two-digit GST state code, as it appears in the first two characters of a
@@ -233,11 +223,11 @@ class Customer(TenantMasterEntity):
             postgresql_where=text("gstin IS NOT NULL AND deleted_at IS NULL"),
         ),
         CheckConstraint(
-            f"customer_type = ANY({_sql_array_literal(CustomerType)})",
+            f"customer_type = ANY({sql_array_literal(CustomerType)})",
             name="customer_type_known",
         ),
         CheckConstraint(
-            f"price_list_type = ANY({_sql_array_literal(PriceType)})",
+            f"price_list_type = ANY({sql_array_literal(PriceType)})",
             name="price_list_type_known",
         ),
         CheckConstraint("credit_days >= 0", name="credit_days_non_negative"),
@@ -331,7 +321,7 @@ class CustomerAddress(TenantMasterEntity):
             postgresql_where=text("is_default AND deleted_at IS NULL"),
         ),
         CheckConstraint(
-            f"address_type = ANY({_sql_array_literal(AddressType)})",
+            f"address_type = ANY({sql_array_literal(AddressType)})",
             name="address_type_known",
         ),
         CheckConstraint(

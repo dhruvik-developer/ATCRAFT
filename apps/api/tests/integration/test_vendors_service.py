@@ -40,8 +40,11 @@ from src.core.ids import new_id
 from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
 from src.modules.audit.models import AuditLog
+from src.modules.dispatch.models import Dispatch, DispatchType
 from src.modules.organization.models import Branch, Company, Department, Plant
+from src.modules.procurement.models import GoodsReceipt, GoodsReceiptStatus, PurchaseOrder
 from src.modules.products.models import Item, ItemCategory, ItemVendorLink, UnitOfMeasure
+from src.modules.quality.models import InspectionResult, InspectionStatus, QcInspection, QcStage
 from src.modules.users.models import Role, User, user_roles
 from src.modules.vendors.models import (
     Transporter,
@@ -77,6 +80,7 @@ from src.modules.vendors.service import (
 )
 from src.modules.warehouses.models import StorageLocation, Warehouse
 from tests import seed_support
+from tests.schema_support import report_database_setup_failure
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
@@ -108,83 +112,16 @@ _TABLES = [
 # -----------------------------------------------------------------------------
 #
 # The retirement guards and the rating adapter read tables belonging to
-# procurement, quality and dispatch. Those modules are built independently of
-# this one, so each table may or may not exist when this file runs, and the
-# service probes for it with ``to_regclass`` rather than importing it.
+# procurement, quality and dispatch. The service still probes for each with
+# ``to_regclass`` rather than importing the module, because a deployment can
+# carry vendors without them - and that branch is exercised here by *hiding*
+# the real table (see :func:`_hide_table`), never by standing in a copy.
 #
-# The tests do the same. Every stand-in below is created only when the real
-# table is absent (see :func:`_ensure_table`), so a module landing stops the
-# stand-in being used instead of colliding with it. Where a real table *is*
-# present the tests seed rows into it, which is the only way this file can
-# notice that the service and the real schema have drifted apart.
-#
-# Every stand-in therefore carries exactly the columns the seeding helpers
-# write, and those are exactly the real tables' NOT NULL columns without a
-# server-side default, plus whatever their CHECK constraints then demand - so
-# one INSERT statement serves both shapes.
-_PURCHASE_ORDERS_STUB = """
-CREATE TABLE purchase_orders (
-    id uuid PRIMARY KEY,
-    company_id uuid NOT NULL,
-    code varchar(64) NOT NULL,
-    vendor_id uuid NOT NULL,
-    po_date date NOT NULL,
-    expected_delivery_date date,
-    warehouse_id uuid NOT NULL,
-    status varchar(24) NOT NULL
-)
-"""
-
-_GOODS_RECEIPTS_STUB = """
-CREATE TABLE goods_receipts (
-    id uuid PRIMARY KEY,
-    company_id uuid NOT NULL,
-    code varchar(64) NOT NULL,
-    purchase_order_id uuid NOT NULL,
-    vendor_id uuid NOT NULL,
-    warehouse_id uuid NOT NULL,
-    receipt_date date NOT NULL,
-    status varchar(24) NOT NULL,
-    posted_at timestamptz,
-    posted_by_id uuid
-)
-"""
-
-_QC_INSPECTIONS_STUB = """
-CREATE TABLE qc_inspections (
-    id uuid PRIMARY KEY,
-    company_id uuid NOT NULL,
-    code varchar(64) NOT NULL,
-    qc_stage varchar(24) NOT NULL,
-    item_id uuid NOT NULL,
-    warehouse_id uuid NOT NULL,
-    vendor_id uuid,
-    reference_type varchar(48) NOT NULL,
-    inspected_quantity numeric(18, 4) NOT NULL,
-    sample_size numeric(18, 4) NOT NULL,
-    accepted_quantity numeric(18, 4) NOT NULL DEFAULT 0,
-    rejected_quantity numeric(18, 4) NOT NULL DEFAULT 0,
-    rejection_reason text,
-    result varchar(24) NOT NULL,
-    status varchar(24) NOT NULL,
-    inspector_user_id uuid,
-    inspected_at timestamptz
-)
-"""
-
-_DISPATCHES_STUB = """
-CREATE TABLE dispatches (
-    id uuid PRIMARY KEY,
-    company_id uuid NOT NULL,
-    code varchar(64) NOT NULL,
-    dispatch_type varchar(24) NOT NULL,
-    warehouse_id uuid NOT NULL,
-    transporter_id uuid,
-    status varchar(24) NOT NULL,
-    dispatch_date date NOT NULL,
-    actual_delivery_date date
-)
-"""
+# All three modules have landed, and ``tests/integration/conftest.py`` builds
+# every table before this file runs, so the rows below go into the real tables
+# through the owning models. A ``CREATE TABLE`` of another module's table in a
+# test is a row shape that module has not agreed to, which is why the four
+# stand-ins that used to live here were removed the moment they became dead.
 
 #: Statuses the real ``dispatches`` table will not accept without an arrival
 #: date (``delivered_dispatch_has_arrival_date``): the consignment is at the far
@@ -205,7 +142,10 @@ async def session() -> AsyncIterator[AsyncSession]:
         connection = await engine.connect()
     except Exception as exc:  # pragma: no cover - environment problem
         await engine.dispose()
-        pytest.skip(f"PostgreSQL is not reachable: {exc}")
+        # Not a blanket skip: the shared reporter skips only when the server is
+        # genuinely unreachable (and fails outright under CI), and re-raises a
+        # refused CREATE, a missing extension or a model that will not create.
+        report_database_setup_failure(exc)
 
     transaction = await connection.begin()
     await connection.run_sync(lambda sync_conn: Base.metadata.create_all(sync_conn, tables=_TABLES))
@@ -276,17 +216,6 @@ async def _table_exists(db: AsyncSession, name: str) -> bool:
     return found.scalar() is not None
 
 
-async def _ensure_table(db: AsyncSession, name: str, ddl: str) -> None:
-    """Stand ``name`` up only while the module that owns it is absent.
-
-    Idempotent and guarded, so the day that module lands its real table is used
-    instead - a stand-in that shadowed it would let this file keep passing
-    against a schema production no longer has.
-    """
-    if not await _table_exists(db, name):
-        await db.execute(text(ddl))
-
-
 async def _hide_table(db: AsyncSession, name: str) -> None:
     """Make ``name`` invisible for the rest of this test's transaction.
 
@@ -327,35 +256,32 @@ async def _seed_purchase_order(
     warehouse_id: uuid.UUID,
     expected_days: int | None = None,
 ) -> uuid.UUID:
-    """One purchase order, into the real table when procurement is present.
+    """One purchase order, in procurement's own table.
 
     ``expected_days`` is how many days ago the vendor promised delivery; None
     means the order promised nothing. The order is dated well before that, since
-    the real table refuses a promise made before the order existed.
+    the table refuses a promise made before the order existed.
+
+    A Core insert against the model's table rather than a hand-written column
+    list: the Python-side defaults (status, priority, currency, the money
+    columns) come from the model, so a column procurement adds later cannot
+    leave this helper writing a row the module would never produce.
     """
-    await _ensure_table(db, "purchase_orders", _PURCHASE_ORDERS_STUB)
     today = utcnow().date()
     order_id = new_id()
     await db.execute(
-        text(
-            "INSERT INTO purchase_orders "
-            "(id, company_id, code, vendor_id, po_date, expected_delivery_date, "
-            " warehouse_id, status) VALUES "
-            "(:id, :company_id, :code, :vendor_id, :po_date, :expected_delivery_date, "
-            " :warehouse_id, :status)"
-        ),
-        {
-            "id": order_id,
-            "company_id": tenant.company_id,
-            "code": f"PO/{uuid.uuid4().hex[:10].upper()}",
-            "vendor_id": vendor_id,
-            "po_date": today - timedelta(days=60),
-            "expected_delivery_date": (
+        insert(PurchaseOrder.__table__).values(
+            id=order_id,
+            company_id=tenant.company_id,
+            code=f"PO/{uuid.uuid4().hex[:10].upper()}",
+            vendor_id=vendor_id,
+            po_date=today - timedelta(days=60),
+            expected_delivery_date=(
                 None if expected_days is None else today - timedelta(days=expected_days)
             ),
-            "warehouse_id": warehouse_id,
-            "status": status,
-        },
+            warehouse_id=warehouse_id,
+            status=status,
+        )
     )
     return order_id
 
@@ -372,28 +298,22 @@ async def _seed_goods_receipt(
     """One posted delivery, ``received_days`` days ago.
 
     POSTED rather than DRAFT because only a posted receipt is evidence that the
-    goods actually arrived - and the real table insists a posted one names who
+    goods actually arrived - and the table insists a posted one names who
     posted it and when.
     """
-    await _ensure_table(db, "goods_receipts", _GOODS_RECEIPTS_STUB)
     await db.execute(
-        text(
-            "INSERT INTO goods_receipts "
-            "(id, company_id, code, purchase_order_id, vendor_id, warehouse_id, "
-            " receipt_date, status, posted_at, posted_by_id) VALUES "
-            "(:id, :company_id, :code, :purchase_order_id, :vendor_id, :warehouse_id, "
-            " :receipt_date, 'POSTED', now(), :posted_by_id)"
-        ),
-        {
-            "id": new_id(),
-            "company_id": tenant.company_id,
-            "code": f"GRN/{uuid.uuid4().hex[:10].upper()}",
-            "purchase_order_id": purchase_order_id,
-            "vendor_id": vendor_id,
-            "warehouse_id": warehouse_id,
-            "receipt_date": utcnow().date() - timedelta(days=received_days),
-            "posted_by_id": tenant.user_id,
-        },
+        insert(GoodsReceipt.__table__).values(
+            id=new_id(),
+            company_id=tenant.company_id,
+            code=f"GRN/{uuid.uuid4().hex[:10].upper()}",
+            purchase_order_id=purchase_order_id,
+            vendor_id=vendor_id,
+            warehouse_id=warehouse_id,
+            receipt_date=utcnow().date() - timedelta(days=received_days),
+            status=GoodsReceiptStatus.POSTED,
+            posted_at=utcnow(),
+            posted_by_id=tenant.user_id,
+        )
     )
 
 
@@ -409,11 +329,10 @@ async def _seed_qc_inspection(
     """One decided incoming inspection of this vendor's goods.
 
     Decided rather than pending: the rating aggregates a rejected quantity, and
-    the real table refuses to record one nobody signed for - a rejection needs a
+    the table refuses to record one nobody signed for - a rejection needs a
     reason (``refusal_states_a_reason``) and a decision needs an inspector and a
     time (``decision_is_attributed``).
     """
-    await _ensure_table(db, "qc_inspections", _QC_INSPECTIONS_STUB)
     # Through the shared ORM builder: every ``items.can_*`` capability flag is
     # NOT NULL with a Python-side default, so a hand-written column list here
     # would go stale the moment products adds another one.
@@ -422,39 +341,31 @@ async def _seed_qc_inspection(
     )
     inspected_quantity = Decimal(inspected)
     rejected_quantity = Decimal(rejected)
-    verdict = "REJECTED" if rejected_quantity > 0 else "ACCEPTED"
+    refused = rejected_quantity > 0
     await db.execute(
-        text(
-            "INSERT INTO qc_inspections "
-            "(id, company_id, code, qc_stage, item_id, warehouse_id, vendor_id, "
-            " reference_type, inspected_quantity, sample_size, accepted_quantity, "
-            " rejected_quantity, rejection_reason, result, status, inspector_user_id, "
-            " inspected_at) VALUES "
+        insert(QcInspection.__table__).values(
+            id=new_id(),
+            company_id=tenant.company_id,
+            code=f"QC/{uuid.uuid4().hex[:10].upper()}",
+            qc_stage=QcStage.INCOMING,
+            item_id=item.id,
+            warehouse_id=warehouse_id,
+            vendor_id=vendor_id,
+            # What procurement stamps on an inspection a goods receipt raised.
+            reference_type="goods_receipt",
+            inspected_quantity=inspected_quantity,
             # The whole lot was measured, so the sample is the lot - which is
             # also the only way to satisfy ``sample_within_lot`` without
             # inventing a sampling plan this test does not care about.
-            "(:id, :company_id, :code, 'INCOMING', :item_id, :warehouse_id, :vendor_id, "
-            " :reference_type, :inspected, :inspected, :accepted, "
-            " :rejected, :rejection_reason, :verdict, :verdict, :inspector_user_id, now())"
-        ),
-        {
-            "id": new_id(),
-            "company_id": tenant.company_id,
-            "code": f"QC/{uuid.uuid4().hex[:10].upper()}",
-            "item_id": item.id,
-            "warehouse_id": warehouse_id,
-            "vendor_id": vendor_id,
-            # What procurement stamps on an inspection a goods receipt raised.
-            "reference_type": "goods_receipt",
-            "inspected": inspected_quantity,
-            "accepted": inspected_quantity - rejected_quantity,
-            "rejected": rejected_quantity,
-            "rejection_reason": (
-                "Thread gauge out of tolerance" if rejected_quantity > 0 else None
-            ),
-            "verdict": verdict,
-            "inspector_user_id": tenant.user_id,
-        },
+            sample_size=inspected_quantity,
+            accepted_quantity=inspected_quantity - rejected_quantity,
+            rejected_quantity=rejected_quantity,
+            rejection_reason="Thread gauge out of tolerance" if refused else None,
+            result=InspectionResult.REJECTED if refused else InspectionResult.ACCEPTED,
+            status=InspectionStatus.REJECTED if refused else InspectionStatus.ACCEPTED,
+            inspector_user_id=tenant.user_id,
+            inspected_at=utcnow(),
+        )
     )
 
 
@@ -471,28 +382,19 @@ async def _seed_dispatch(
     must name a customer, and customers belong to a module this file does not
     seed.
     """
-    await _ensure_table(db, "dispatches", _DISPATCHES_STUB)
     dispatch_date = utcnow().date() - timedelta(days=2)
     await db.execute(
-        text(
-            "INSERT INTO dispatches "
-            "(id, company_id, code, dispatch_type, warehouse_id, transporter_id, "
-            " status, dispatch_date, actual_delivery_date) VALUES "
-            "(:id, :company_id, :code, 'TRANSFER', :warehouse_id, :transporter_id, "
-            " :status, :dispatch_date, :actual_delivery_date)"
-        ),
-        {
-            "id": new_id(),
-            "company_id": tenant.company_id,
-            "code": f"DSP/{uuid.uuid4().hex[:10].upper()}",
-            "warehouse_id": await _seed_warehouse(db, tenant),
-            "transporter_id": transporter_id,
-            "status": status,
-            "dispatch_date": dispatch_date,
-            "actual_delivery_date": (
-                dispatch_date if status in _ARRIVED_DISPATCH_STATUSES else None
-            ),
-        },
+        insert(Dispatch.__table__).values(
+            id=new_id(),
+            company_id=tenant.company_id,
+            code=f"DSP/{uuid.uuid4().hex[:10].upper()}",
+            dispatch_type=DispatchType.TRANSFER,
+            warehouse_id=await _seed_warehouse(db, tenant),
+            transporter_id=transporter_id,
+            status=status,
+            dispatch_date=dispatch_date,
+            actual_delivery_date=(dispatch_date if status in _ARRIVED_DISPATCH_STATUSES else None),
+        )
     )
 
 

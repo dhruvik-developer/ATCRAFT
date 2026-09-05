@@ -46,6 +46,7 @@ from src.core.errors import (
 from src.core.models import Base
 from src.core.pagination import PageParams
 from src.modules.audit.models import AuditAction, AuditLog
+from src.modules.customers.models import CustomerType
 from src.modules.inventory import service as inv
 from src.modules.inventory.models import InventoryTransaction, TransactionType
 from src.modules.packing import service
@@ -59,6 +60,10 @@ from src.modules.packing.schemas import (
     PackingOrderLineIn,
     SealCartonRequest,
 )
+from src.modules.products.models import ItemGroup, ProductionType
+from src.modules.warehouses.models import WarehouseType
+from tests import seed_support
+from tests.schema_support import report_database_setup_failure
 
 pytestmark = pytest.mark.integration
 
@@ -108,24 +113,16 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID]]:
                 )
             factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
             async with factory() as session, session.begin():
-                await session.execute(
-                    text(
-                        "INSERT INTO companies (id, code, name, country, currency, "
-                        "financial_year_start_month, timezone, is_active) "
-                        "VALUES (:id, :code, 'Atcraft', 'India', 'INR', 4, "
-                        "'Asia/Kolkata', true)"
-                    ),
-                    {"id": company_id, "code": f"PKG{uuid.uuid4().hex[:6].upper()}"},
-                )
-                await session.execute(
-                    text(
-                        "INSERT INTO users (id, company_id, email, full_name, password_hash, "
-                        "is_active, is_superuser, mfa_enabled, must_change_password, "
-                        "failed_login_attempts) "
-                        "VALUES (:id, :c, :email, 'Packer', 'x', true, false, false, "
-                        "false, 0)"
-                    ),
-                    {"id": user_id, "c": company_id, "email": "packer@atcraft.test"},
+                # Through the ORM builders, not a hand-written INSERT: this is
+                # one of the two files CLAUDE.md names for the column list that
+                # went stale twice.
+                await seed_support.seed_company(session, company_id=company_id, prefix="PKG")
+                await seed_support.seed_user(
+                    session,
+                    company_id=company_id,
+                    user_id=user_id,
+                    email="packer@atcraft.test",
+                    full_name="Packer",
                 )
         finally:
             await engine.dispose()
@@ -141,7 +138,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID]]:
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, user_id
     asyncio.run(teardown())
@@ -180,17 +177,14 @@ def _code(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8].upper()}"
 
 
+# Every master row below is built through ``tests.seed_support`` - the owning
+# module's ORM model, with its Python-side defaults - and only the id is handed
+# back, which is all the service calls in this file take. The hand-written
+# INSERTs these replaced were the column lists that broke 43 tests twice.
+
+
 async def seed_uom(session: AsyncSession, company_id: uuid.UUID) -> uuid.UUID:
-    uom_id = uuid.uuid4()
-    await session.execute(
-        text(
-            "INSERT INTO units_of_measure (id, company_id, code, name, uom_category, is_base, "
-            "decimal_places, is_active, created_at, updated_at) "
-            "VALUES (:id, :c, :code, 'Numbers', 'COUNT', false, 4, true, now(), now())"
-        ),
-        {"id": uom_id, "c": company_id, "code": f"U{uuid.uuid4().hex[:6].upper()}"},
-    )
-    return uom_id
+    return (await seed_support.seed_uom(session, company_id=company_id)).id
 
 
 async def seed_item(
@@ -204,73 +198,49 @@ async def seed_item(
     batch_tracked: bool = False,
     active: bool = True,
 ) -> uuid.UUID:
-    item_id = uuid.uuid4()
-    await session.execute(
-        text(
-            "INSERT INTO items (id, company_id, code, name, item_group, base_uom_id, gst_rate, "
-            "standard_cost, sale_price, dealer_price, production_type, lead_time_days, "
-            "reorder_level, reorder_quantity, min_order_quantity, safety_stock, "
-            "is_batch_tracked, is_serial_tracked, can_sell, is_active, "
-            "created_at, updated_at) "
-            "VALUES (:id, :c, :code, :name, :grp, :u, 18, 10, 100, 90, 'MAKE', 0, 0, 0, 0, 0, "
-            ":batch, :serial, true, :active, now(), now())"
-        ),
-        {
-            "id": item_id,
-            "c": company_id,
-            "u": uom_id,
-            "code": code,
-            "name": f"Item {code}",
-            "grp": group,
-            "batch": batch_tracked,
-            "serial": serial_tracked,
-            "active": active,
-        },
+    item = await seed_support.seed_item(
+        session,
+        company_id=company_id,
+        code=code,
+        base_uom_id=uom_id,
+        item_group=ItemGroup(group),
+        gst_rate=Decimal("18"),
+        standard_cost=Decimal("10"),
+        sale_price=Decimal("100"),
+        dealer_price=Decimal("90"),
+        production_type=ProductionType.MAKE,
+        can_sell=True,
+        is_batch_tracked=batch_tracked,
+        is_serial_tracked=serial_tracked,
+        is_active=active,
     )
-    return item_id
+    return item.id
 
 
 async def seed_warehouse(session: AsyncSession, company_id: uuid.UUID) -> uuid.UUID:
-    warehouse_id = uuid.uuid4()
-    code = _code("WH")
-    await session.execute(
-        text(
-            "INSERT INTO warehouses (id, company_id, code, name, warehouse_type, country, "
-            "is_active, is_default, allow_negative_stock, created_at, updated_at) "
-            "VALUES (:id, :c, :code, :name, 'FINISHED_GOODS', 'India', true, false, false, "
-            "now(), now())"
-        ),
-        {"id": warehouse_id, "c": company_id, "code": code, "name": f"Store {code}"},
+    warehouse = await seed_support.seed_warehouse(
+        session,
+        company_id=company_id,
+        code=_code("WH"),
+        warehouse_type=WarehouseType.FINISHED_GOODS,
     )
-    return warehouse_id
+    return warehouse.id
 
 
 async def seed_customer(
     session: AsyncSession, company_id: uuid.UUID, *, blocked: bool = False
 ) -> uuid.UUID:
-    customer_id = uuid.uuid4()
-    code = _code("CUST")
-    await session.execute(
-        text(
-            # ``ck_customers_block_has_timestamp`` refuses a hold with no
-            # recorded moment, so the timestamp is written in the same INSERT
-            # rather than patched in afterwards.
-            "INSERT INTO customers (id, company_id, code, name, customer_type, "
-            "price_list_type, credit_days, outstanding_amount, is_active, is_blocked, "
-            "block_reason, blocked_at, created_at, updated_at) "
-            "VALUES (:id, :c, :code, :name, 'CUSTOMER', 'SALE', 30, 0, true, :blocked, "
-            ":reason, CASE WHEN :blocked THEN now() END, now(), now())"
-        ),
-        {
-            "id": customer_id,
-            "c": company_id,
-            "code": code,
-            "name": f"Customer {code}",
-            "blocked": blocked,
-            "reason": "Credit hold" if blocked else None,
-        },
+    # A hold carries its reason and timestamp from the builder, in one row:
+    # ``ck_customers_block_has_timestamp`` refuses one patched in afterwards.
+    customer = await seed_support.seed_customer(
+        session,
+        company_id=company_id,
+        code=_code("CUST"),
+        customer_type=CustomerType.CUSTOMER,
+        credit_days=30,
+        blocked=blocked,
     )
-    return customer_id
+    return customer.id
 
 
 async def stock_in(
@@ -375,9 +345,7 @@ async def bench(ctx: tuple[AsyncSession, TenantContext]) -> Bench:
 async def started_order(
     session: AsyncSession, tenant: TenantContext, bench: Bench, *, quantity: str = "100"
 ):
-    order, _ = await service.create_order(
-        session, tenant, bench.order_payload(quantity=quantity)
-    )
+    order, _ = await service.create_order(session, tenant, bench.order_payload(quantity=quantity))
     await service.start_packing(session, tenant, order.id, reason="Bench is free")
     return order
 
@@ -451,9 +419,7 @@ async def test_the_sealed_carton_records_the_ledger_row_it_posted(
         session, tenant, order.id, carton.id, SealCartonRequest(reason="Sealed")
     )
 
-    stored = (
-        await session.execute(select(Carton).where(Carton.id == carton.id))
-    ).scalar_one()
+    stored = (await session.execute(select(Carton).where(Carton.id == carton.id))).scalar_one()
     # The CHECK constraint refuses a sealed carton without one; this proves the
     # service actually writes it rather than the constraint never being reached.
     assert stored.is_sealed is True
@@ -466,9 +432,7 @@ async def test_a_carton_cannot_be_sealed_when_there_are_no_boxes_left(
 ) -> None:
     session, tenant = ctx
     order = await started_order(session, tenant, bench)
-    carton = await service.add_carton(
-        session, tenant, order.id, bench.carton_payload(boxes="9999")
-    )
+    carton = await service.add_carton(session, tenant, order.id, bench.carton_payload(boxes="9999"))
 
     before = await available(session, tenant, bench.box_item_id, bench.warehouse_id)
     with pytest.raises(InsufficientStockError):
@@ -480,9 +444,7 @@ async def test_a_carton_cannot_be_sealed_when_there_are_no_boxes_left(
     # not one box moved. A partially applied seal would leave a sealed carton
     # with no ledger row, which the CHECK constraint would then reject on the
     # next flush of an unrelated write.
-    stored = (
-        await session.execute(select(Carton).where(Carton.id == carton.id))
-    ).scalar_one()
+    stored = (await session.execute(select(Carton).where(Carton.id == carton.id))).scalar_one()
     assert stored.is_sealed is False
     assert stored.material_transaction_id is None
     assert await available(session, tenant, bench.box_item_id, bench.warehouse_id) == before
@@ -511,9 +473,7 @@ async def test_an_empty_carton_may_not_be_sealed(
 ) -> None:
     session, tenant = ctx
     order = await started_order(session, tenant, bench)
-    empty = CartonCreate(
-        packing_material_item_id=bench.box_item_id, tare_weight_kg=Decimal("0.5")
-    )
+    empty = CartonCreate(packing_material_item_id=bench.box_item_id, tare_weight_kg=Decimal("0.5"))
     carton = await service.add_carton(session, tenant, order.id, empty)
 
     with pytest.raises(BusinessRuleError, match="empty"):
@@ -634,9 +594,7 @@ async def test_replacing_a_cartons_contents_nets_the_line_back_to_the_truth(
         CartonContentsReplace(
             reason="Recounted the box",
             contents=[
-                CartonContentIn(
-                    line_number=1, quantity=Decimal("25"), net_weight_kg=Decimal("6")
-                )
+                CartonContentIn(line_number=1, quantity=Decimal("25"), net_weight_kg=Decimal("6"))
             ],
         ),
     )
@@ -654,17 +612,15 @@ async def test_removing_an_unsealed_carton_gives_the_quantity_back(
         session, tenant, order.id, bench.carton_payload(quantity="40")
     )
 
-    await service.remove_carton(
-        session, tenant, order.id, carton.id, reason="Wrong goods went in"
-    )
+    await service.remove_carton(session, tenant, order.id, carton.id, reason="Wrong goods went in")
 
     detail = await service.get_order_detail(session, tenant, order.id)
     assert detail.lines[0].packed_quantity == Decimal("0.0000")
     remaining = (
         await session.execute(
-            select(func.count()).select_from(CartonContent).where(
-                CartonContent.carton_id == carton.id
-            )
+            select(func.count())
+            .select_from(CartonContent)
+            .where(CartonContent.carton_id == carton.id)
         )
     ).scalar_one()
     assert remaining == 0
@@ -681,9 +637,7 @@ async def test_a_sealed_carton_cannot_be_removed(
     )
 
     with pytest.raises(BusinessRuleError, match="cannot be removed"):
-        await service.remove_carton(
-            session, tenant, order.id, carton.id, reason="Changed my mind"
-        )
+        await service.remove_carton(session, tenant, order.id, carton.id, reason="Changed my mind")
 
 
 async def test_over_packing_a_line_across_two_cartons_is_refused(
@@ -694,9 +648,7 @@ async def test_over_packing_a_line_across_two_cartons_is_refused(
     await service.add_carton(session, tenant, order.id, bench.carton_payload(quantity="40"))
 
     with pytest.raises(BusinessRuleError, match="over-packed"):
-        await service.add_carton(
-            session, tenant, order.id, bench.carton_payload(quantity="20")
-        )
+        await service.add_carton(session, tenant, order.id, bench.carton_payload(quantity="20"))
 
 
 # -----------------------------------------------------------------------------
@@ -712,9 +664,7 @@ async def test_an_order_with_an_open_carton_cannot_be_completed(
     await service.add_carton(session, tenant, order.id, bench.carton_payload())
 
     with pytest.raises(BusinessRuleError, match="unsealed carton"):
-        await service.complete_packing(
-            session, tenant, order.id, CompleteRequest(reason="Done")
-        )
+        await service.complete_packing(session, tenant, order.id, CompleteRequest(reason="Done"))
 
 
 async def test_an_order_with_no_cartons_cannot_be_completed(
@@ -724,9 +674,7 @@ async def test_an_order_with_no_cartons_cannot_be_completed(
     order = await started_order(session, tenant, bench)
 
     with pytest.raises(BusinessRuleError, match="no cartons"):
-        await service.complete_packing(
-            session, tenant, order.id, CompleteRequest(reason="Done")
-        )
+        await service.complete_packing(session, tenant, order.id, CompleteRequest(reason="Done"))
 
 
 async def test_a_short_pack_is_refused_unless_it_is_asked_for(
@@ -867,9 +815,7 @@ async def test_cancelling_returns_the_packed_quantities_and_drops_open_cartons(
     order = await started_order(session, tenant, bench)
     await service.add_carton(session, tenant, order.id, bench.carton_payload(quantity="40"))
 
-    cancelled = await service.cancel_order(
-        session, tenant, order.id, reason="Customer cancelled"
-    )
+    cancelled = await service.cancel_order(session, tenant, order.id, reason="Customer cancelled")
     assert PackingOrderStatus(cancelled.status) is PackingOrderStatus.CANCELLED
 
     detail = await service.get_order_detail(session, tenant, order.id)
@@ -907,9 +853,7 @@ async def test_each_carton_gets_a_sequential_number_and_a_verifiable_barcode(
     session, tenant = ctx
     order = await started_order(session, tenant, bench)
 
-    first = await service.add_carton(
-        session, tenant, order.id, bench.carton_payload(quantity="10")
-    )
+    first = await service.add_carton(session, tenant, order.id, bench.carton_payload(quantity="10"))
     second = await service.add_carton(
         session, tenant, order.id, bench.carton_payload(quantity="10")
     )
@@ -925,15 +869,11 @@ async def test_a_removed_cartons_number_is_not_reused(
 ) -> None:
     session, tenant = ctx
     order = await started_order(session, tenant, bench)
-    first = await service.add_carton(
-        session, tenant, order.id, bench.carton_payload(quantity="10")
-    )
+    first = await service.add_carton(session, tenant, order.id, bench.carton_payload(quantity="10"))
     await service.add_carton(session, tenant, order.id, bench.carton_payload(quantity="10"))
     await service.remove_carton(session, tenant, order.id, first.id, reason="Wrong box")
 
-    third = await service.add_carton(
-        session, tenant, order.id, bench.carton_payload(quantity="10")
-    )
+    third = await service.add_carton(session, tenant, order.id, bench.carton_payload(quantity="10"))
     # Number 1 has been printed on a label somewhere; reusing it would make two
     # different boxes claim it.
     assert third.carton_number == 3
@@ -946,22 +886,15 @@ async def test_a_serial_can_be_traced_back_to_the_carton_holding_it(
     serial_item_id = await seed_item(
         session, tenant.company_id, bench.uom_id, code=_code("SER"), serial_tracked=True
     )
-    serial_id = uuid.uuid4()
-    await session.execute(
-        text(
-            "INSERT INTO stock_serials (id, company_id, item_id, serial_number, "
-            "warehouse_id, status, created_at, updated_at) "
-            "VALUES (:id, :c, :item, :sn, :wh, 'IN_STOCK', now(), now())"
-        ),
-        {
-            "id": serial_id,
-            "c": tenant.company_id,
-            "item": serial_item_id,
-            "sn": _code("SN"),
-            "wh": bench.warehouse_id,
-        },
-    )
-    await session.flush()
+    serial_id = (
+        await seed_support.seed_serial(
+            session,
+            company_id=tenant.company_id,
+            item_id=serial_item_id,
+            warehouse_id=bench.warehouse_id,
+            serial_number=_code("SN"),
+        )
+    ).id
 
     order, _ = await service.create_order(
         session,
@@ -1010,22 +943,15 @@ async def test_one_serial_cannot_be_packed_into_two_cartons(
     serial_item_id = await seed_item(
         session, tenant.company_id, bench.uom_id, code=_code("SER"), serial_tracked=True
     )
-    serial_id = uuid.uuid4()
-    await session.execute(
-        text(
-            "INSERT INTO stock_serials (id, company_id, item_id, serial_number, "
-            "warehouse_id, status, created_at, updated_at) "
-            "VALUES (:id, :c, :item, :sn, :wh, 'IN_STOCK', now(), now())"
-        ),
-        {
-            "id": serial_id,
-            "c": tenant.company_id,
-            "item": serial_item_id,
-            "sn": _code("SN"),
-            "wh": bench.warehouse_id,
-        },
-    )
-    await session.flush()
+    serial_id = (
+        await seed_support.seed_serial(
+            session,
+            company_id=tenant.company_id,
+            item_id=serial_item_id,
+            warehouse_id=bench.warehouse_id,
+            serial_number=_code("SN"),
+        )
+    ).id
 
     order, _ = await service.create_order(
         session,

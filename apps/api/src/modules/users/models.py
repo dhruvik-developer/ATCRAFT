@@ -20,6 +20,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     DateTime,
@@ -121,7 +122,12 @@ class User(TenantMasterEntity):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_superuser: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     mfa_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    mfa_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Fernet ciphertext, never the plaintext Base32 seed. 255 leaves room for
+    # encryption/version overhead while keeping the credential tightly bounded.
+    mfa_secret: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # The last accepted RFC 6238 time-step prevents a valid code being replayed
+    # during its 30-second window, even through another API worker.
+    mfa_last_used_step: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     # Account lockout (section 38). Counter is reset on any successful sign-in.
     failed_login_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -224,8 +230,9 @@ class UserSession(TenantEntity):
 class PasswordResetToken(TenantEntity):
     """A single-use password reset grant.
 
-    Only the SHA-256 digest is stored, so a database disclosure does not hand
-    over working reset links.
+    The redeemable lookup value is stored only as a SHA-256 digest. A separate
+    encrypted copy exists solely until the mail worker accepts delivery; it
+    makes the database row a durable outbox when the broker is unavailable.
     """
 
     __tablename__ = "password_reset_tokens"
@@ -236,6 +243,10 @@ class PasswordResetToken(TenantEntity):
     token_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # SMTP acceptance timestamp. A retried Celery task checks this before
+    # sending so the same reset link is not normally delivered twice.
+    email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    email_token_ciphertext: Mapped[str | None] = mapped_column(String(512), nullable=True)
     requested_ip: Mapped[str | None] = mapped_column(INET, nullable=True)
 
     __table_args__ = (Index("ix_password_reset_active", "user_id", "used_at", "expires_at"),)

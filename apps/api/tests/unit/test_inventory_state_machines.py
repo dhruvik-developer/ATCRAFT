@@ -60,12 +60,8 @@ class TestTransferFlow:
 
     def test_stock_on_a_vehicle_cannot_be_cancelled(self) -> None:
         """Cancelling in transit would leave the quantity owned by nobody."""
-        assert not TRANSFER_FLOW.can_transition(
-            TransferStatus.IN_TRANSIT, TransferStatus.CANCELLED
-        )
-        assert TRANSFER_FLOW.allowed_targets(TransferStatus.IN_TRANSIT) == [
-            TransferStatus.RECEIVED
-        ]
+        assert not TRANSFER_FLOW.can_transition(TransferStatus.IN_TRANSIT, TransferStatus.CANCELLED)
+        assert TRANSFER_FLOW.allowed_targets(TransferStatus.IN_TRANSIT) == [TransferStatus.RECEIVED]
 
     def test_a_received_transfer_is_terminal(self) -> None:
         assert TRANSFER_FLOW.is_terminal(TransferStatus.RECEIVED)
@@ -82,9 +78,7 @@ class TestTransferFlow:
             assert transition.is_irreversible
 
     def test_every_transition_needs_the_transfer_permission(self) -> None:
-        assert all(
-            t.permission is Permission.INVENTORY_TRANSFER for t in TRANSFER_FLOW.transitions
-        )
+        assert all(t.permission is Permission.INVENTORY_TRANSFER for t in TRANSFER_FLOW.transitions)
 
 
 class TestAdjustmentFlow:
@@ -114,9 +108,7 @@ class TestAdjustmentFlow:
     def test_a_posted_adjustment_is_terminal(self) -> None:
         assert ADJUSTMENT_FLOW.is_terminal(AdjustmentStatus.POSTED)
         with pytest.raises(InvalidStateTransitionError):
-            ADJUSTMENT_FLOW.assert_transition(
-                AdjustmentStatus.POSTED, AdjustmentStatus.CANCELLED
-            )
+            ADJUSTMENT_FLOW.assert_transition(AdjustmentStatus.POSTED, AdjustmentStatus.CANCELLED)
 
     def test_pending_approval_cannot_skip_straight_to_posted(self) -> None:
         assert not ADJUSTMENT_FLOW.can_transition(
@@ -126,15 +118,11 @@ class TestAdjustmentFlow:
 
 class TestPhysicalCountFlow:
     def test_the_happy_path(self) -> None:
-        assert COUNT_FLOW.can_transition(
-            PhysicalCountStatus.DRAFT, PhysicalCountStatus.IN_PROGRESS
-        )
+        assert COUNT_FLOW.can_transition(PhysicalCountStatus.DRAFT, PhysicalCountStatus.IN_PROGRESS)
         assert COUNT_FLOW.can_transition(
             PhysicalCountStatus.IN_PROGRESS, PhysicalCountStatus.COUNTED
         )
-        assert COUNT_FLOW.can_transition(
-            PhysicalCountStatus.COUNTED, PhysicalCountStatus.CONFIRMED
-        )
+        assert COUNT_FLOW.can_transition(PhysicalCountStatus.COUNTED, PhysicalCountStatus.CONFIRMED)
 
     def test_a_finished_sheet_can_be_reopened_for_a_recount(self) -> None:
         assert COUNT_FLOW.can_transition(
@@ -148,15 +136,11 @@ class TestPhysicalCountFlow:
 
     def test_a_draft_cannot_be_confirmed_without_counting(self) -> None:
         with pytest.raises(InvalidStateTransitionError):
-            COUNT_FLOW.assert_transition(
-                PhysicalCountStatus.DRAFT, PhysicalCountStatus.CONFIRMED
-            )
+            COUNT_FLOW.assert_transition(PhysicalCountStatus.DRAFT, PhysicalCountStatus.CONFIRMED)
 
     def test_confirmation_requires_the_reconcile_permission(self) -> None:
         """Counting is a storekeeper's job; writing the variance off is not."""
-        transition = COUNT_FLOW.find(
-            PhysicalCountStatus.COUNTED, PhysicalCountStatus.CONFIRMED
-        )
+        transition = COUNT_FLOW.find(PhysicalCountStatus.COUNTED, PhysicalCountStatus.CONFIRMED)
         assert transition is not None
         assert transition.permission is Permission.INVENTORY_RECONCILE
         assert transition.is_irreversible

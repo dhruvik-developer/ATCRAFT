@@ -1,158 +1,54 @@
-# Deployment
+# Production deployment
 
-Master rules sections 45–50, 70, 71.
+The canonical operational procedure is
+[`ONE-BOX-RUNBOOK.md`](../ONE-BOX-RUNBOOK.md). It covers the two independent
+deployments, host Nginx/TLS, backup and restore, isolation verification, and
+handover. Do not substitute a bare `docker compose up` command: the guarded
+deployment script supplies the project isolation boundary and release identity.
 
-Target: a single dedicated server, roughly 100 GB of storage, running the whole
-stack under Docker Compose. That is an appropriate starting point and should
-evolve only when measurement says it must.
-
-> **Read `ONE-BOX-RUNBOOK.md` first.** The box now runs **two independent
-> deployments** (main and dev), and the runbook is the operational document:
-> exact commands, the isolation model, and the verification script.
->
-> Superseded here: the single-stack topology below, TLS terminating in the
-> compose nginx, and `make prod-up`. TLS now terminates in a **host** nginx that
-> routes two domains to two loopback ports, and deployments are driven only by
-> `./scripts/deploy.sh <main|dev> <command>`.
->
-> Still current, and not repeated in the runbook: the storage sizing analysis,
-> what to look for when reviewing a migration before it goes near production,
-> and the rollback discussion.
-
----
-
-## Topology
-
-```
-Internet
-   │  443
-   ▼
- Nginx  ── TLS · rate limit · security headers · compression
-   │
-   ├── /       → frontend container (static, nginx)
-   └── /api    → backend container (gunicorn + uvicorn workers)
-                     │
-        ┌────────────┼────────────┐
-        ▼            ▼            ▼
-   PostgreSQL      Redis      Celery worker + beat
-   (volume)       (volume)          │
-        └────────────┬───────────────┘
-                     ▼
-              storage volume
-```
-
-Only Nginx publishes ports. Postgres and Redis are reachable only on the internal
-Compose network.
-
----
-
-## First deployment
-
-### 1. Server preparation
+## Release workflow
 
 ```bash
-sudo apt update && sudo apt upgrade -y
-curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker "$USER"          # log out and back in
+cd /srv/atcraft-main
+git fetch origin
+git pull --ff-only origin main
 
-sudo ufw allow OpenSSH
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw enable
+./scripts/deploy.sh main doctor
+./scripts/deploy.sh main up
+./scripts/deploy.sh main health
 ```
 
-### 2. Get the code
+`up` is intentionally an ordered release transaction:
 
-```bash
-sudo mkdir -p /opt/atcraft && sudo chown "$USER" /opt/atcraft
-git clone <repository-url> /opt/atcraft && cd /opt/atcraft
-git checkout main
-```
+1. Verify the expected branch, a clean working tree, a `HEAD` that is the
+   pushed upstream commit, real hostnames, strong deployment configuration,
+   and a private env-file mode.
+2. Build application images from refreshed, patch-pinned bases while the old
+   release is still serving. Images are tagged and labelled with the exact Git
+   revision.
+3. Stop Nginx, API, frontend, Celery worker, and Celery beat so no request or
+   background task writes during the schema transition.
+4. Take a PostgreSQL dump when this is an existing deployment.
+5. Update/start PostgreSQL and Redis, then run `alembic upgrade head` from the
+   new backend image.
+6. Start the new release only after migration succeeds and wait for all health
+   checks. The backend health check uses `/health/ready`, which checks both
+   PostgreSQL and Redis.
 
-### 3. Configure
+If migration fails, application traffic remains stopped and the script prints
+the backup path. Inspect or restore deliberately; do not start new code against
+an unverified schema.
 
-```bash
-cp .env.example .env
-python3 -c "import secrets; print('JWT_SECRET=' + secrets.token_urlsafe(64))"
-python3 -c "import secrets; print('POSTGRES_PASSWORD=' + secrets.token_urlsafe(32))"
-```
+This sequence provides correctness with a short maintenance window. Schema
+changes should still use expand/contract design when uptime requirements grow.
 
-Edit `.env`:
+## Storage sizing
 
-```ini
-APP_ENV=production
-APP_DEBUG=false
-LOG_JSON=true
-JWT_SECRET=<generated>
-POSTGRES_PASSWORD=<generated>
-DATABASE_URL=postgresql+asyncpg://atcraft:<password>@postgres:5432/atcraft_erp
-DATABASE_SYNC_URL=postgresql+psycopg://atcraft:<password>@postgres:5432/atcraft_erp
-CORS_ORIGINS=https://erp.atcraft.example
-STORAGE_PATH=/storage
-```
-
-```bash
-chmod 600 .env
-```
-
-The application refuses to start in production with a weak `JWT_SECRET`, with
-`APP_DEBUG=true`, or with a wildcard CORS origin alongside credentials. That is
-deliberate — a misconfigured production deployment is an incident.
-
-### 4. TLS
-
-```bash
-sudo apt install -y certbot
-sudo certbot certonly --standalone -d erp.atcraft.example
-sudo mkdir -p /opt/atcraft/infrastructure/nginx/certs
-sudo cp /etc/letsencrypt/live/erp.atcraft.example/fullchain.pem \
-        /opt/atcraft/infrastructure/nginx/certs/
-sudo cp /etc/letsencrypt/live/erp.atcraft.example/privkey.pem \
-        /opt/atcraft/infrastructure/nginx/certs/
-```
-
-Add a renewal hook that copies the new certificates and reloads Nginx.
-
-### 5. Start
-
-```bash
-cd /opt/atcraft
-set -a; source .env; set +a
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
-```
-
-### 6. Schema and baseline data
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml \
-  exec backend alembic upgrade head
-
-docker compose -f docker-compose.yml -f docker-compose.prod.yml \
-  exec backend python -m src.core.seed --company "Atcraft" --admin-email ops@atcraft.example
-```
-
-The seed prints a one-time administrator password and sets
-`must_change_password`. Change it at first sign-in.
-
-### 7. Verify
-
-```bash
-curl -fsS https://erp.atcraft.example/healthz
-curl -fsS https://erp.atcraft.example/api/v1/../health/ready   # via the backend
-docker compose ... logs --tail=50 backend celery-worker
-```
-
-Confirm `/docs` returns 404 in production.
-
----
-
-## Storage: 100 GB is not 100 GB
-
-Do not assume the application gets all of it.
+A 100 GB server does not provide 100 GB to application data. A reasonable
+initial budget is:
 
 | Consumer | Reserve |
-|---|---|
+|---|---:|
 | OS and packages | ~15 GB |
 | Docker images and layers | ~10 GB |
 | PostgreSQL data | ~30 GB |
@@ -161,162 +57,84 @@ Do not assume the application gets all of it.
 | Logs | ~5 GB |
 | Working headroom | ~15 GB |
 
-Monitor all of them. Log rotation is configured in the production compose file
-(20 MB × 5 per service); temporary files are purged by a scheduled task. Disk
-exhaustion takes PostgreSQL down hard, so alert at 80 %.
+Alert at 80% filesystem usage. Production Compose rotates container logs, but
+database growth, backups, uploads, and old image layers still need monitoring.
 
-**Backups do not live here.** See below.
+## Reviewing a migration
 
----
+- Check whether any statement takes `ACCESS EXCLUSIVE` on a large table.
+- Prefer nullable additions, batched backfills, and expand/contract changes.
+- Verify existing rows receive correct values and constraints validate safely.
+- Measure the migration against realistic row counts.
+- State explicitly whether downgrade loses information.
+- Never edit the deployed schema by hand.
 
 ## Backups
 
 ```bash
-# scripted daily, then copied OFF this machine
-docker compose ... exec -T postgres \
-  pg_dump -U atcraft -Fc atcraft_erp > /opt/atcraft/backups/atcraft-$(date +%F).dump
+./scripts/deploy.sh main backup
+./scripts/deploy.sh main backup-verify
 ```
 
-Requirements, all of them:
+A local dump is only the first copy. Schedule database and `storage-data`
+backups, encrypt and copy them off-box, enforce retention, and rehearse a full
+restore. The runbook contains exact commands and cautions.
 
-- automated and scheduled, not manual;
-- a retention policy — daily for 14 days, weekly for 8 weeks, monthly for 12;
-- **an external destination.** The master rules are blunt: never keep the only
-  backup on the production server;
-- the `storage/` volume backed up too — the database references files that must
-  still exist;
-- **restore tested.** A backup is not a backup until a restore has been performed
-  into a scratch environment and the application has come up against it. Do this
-  quarterly and record the date.
+The guarded `restore` command builds the checked-out immutable release before
+the outage, restores the archive transactionally, upgrades the restored schema
+to Alembic head, and exposes traffic only after the application tier is
+healthy. A migration failure leaves application traffic stopped for operator
+recovery.
 
-```bash
-# restore drill
-docker compose ... exec -T postgres \
-  pg_restore -U atcraft -d atcraft_erp_restore_test --clean --if-exists < backup.dump
-```
-
----
-
-## Updates
-
-```bash
-cd /opt/atcraft
-git pull origin main
-
-docker compose ... exec -T postgres pg_dump -U atcraft -Fc atcraft_erp > backups/pre-deploy.dump
-
-docker compose -f docker-compose.yml -f docker-compose.prod.yml build
-docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm backend alembic upgrade head
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-
-curl -fsS https://erp.atcraft.example/healthz
-docker compose ... logs --tail=100 backend
-```
-
-Migrations run **before** the new application starts, so the running code never
-meets a schema it does not expect.
-
-### Reviewing a migration before it goes near production
-
-- Does any statement take an `ACCESS EXCLUSIVE` lock on a large table? Prefer
-  `CREATE INDEX CONCURRENTLY` and `ADD COLUMN … NULL` plus a batched backfill.
-- Is existing data given correct values?
-- Does `downgrade()` actually restore the previous state, or lose data? Say so
-  explicitly if it does.
-- How long will it run against real row counts?
-
-Never edit a production schema by hand.
-
-### Rollback
-
-```bash
-git checkout <previous-tag>
-docker compose ... build && docker compose ... up -d
-# only if the schema changed and the rollback requires it:
-docker compose ... exec backend alembic downgrade -1
-```
-
-If a migration was destructive, restore `pre-deploy.dump` instead.
-
----
+Runtime documents belong in volumes, not Git. Both `storage/**` and
+`apps/api/storage/**` are ignored. If real documents appeared in an older Git
+commit, coordinate a history rewrite and invalidate old clones/artifacts; a
+normal deletion commit does not remove prior disclosure.
 
 ## Operations
 
 ```bash
-# health
-docker compose ... ps
-curl -fsS localhost/healthz
-
-# logs (structured JSON in production)
-docker compose ... logs -f --tail=100 backend
-docker compose ... logs -f celery-worker
-
-# queue depth
-docker compose ... exec redis redis-cli llen celery
-docker compose ... exec celery-worker celery -A src.workers.celery_app:celery_app inspect active
-
-# slow queries
-docker compose ... exec postgres psql -U atcraft -d atcraft_erp -c \
- "SELECT calls, round(mean_exec_time::numeric,1) ms, round(total_exec_time::numeric) total, query
-    FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 20;"
-
-# disk
-df -h && docker system df
+./scripts/deploy.sh main ps
+./scripts/deploy.sh main health
+./scripts/deploy.sh main logs backend
+./scripts/deploy.sh main migrate-status
 ```
 
-Metrics are exposed on the backend's `/metrics` for Prometheus. Grafana and
-Prometheus are not part of this stack — point an existing installation at it, or
-add them when there is someone to watch the dashboards.
+`/health/ready` and `/metrics` are available only through the loopback-bound
+deployment listener. Host Nginx returns 404 for them publicly. Unknown Host and
+TLS SNI values are rejected by `infrastructure/nginx/host/00-default.conf`.
 
----
+## Go-live gate
 
-## Scaling, in order
+Security:
 
-Do not skip steps, and do not add infrastructure ahead of evidence.
+- [ ] `doctor` succeeds with real `CORS_ORIGINS`, `ALLOWED_HOSTS`,
+      `PUBLIC_WEB_URL`, `EMAIL_FROM_ADDRESS` and `SMTP_HOST`; no `example.com`,
+      localhost CORS origin, wildcard host, or weak secret.
+- [ ] `./scripts/check-host-nginx.sh --installed` passes on the box.
+- [ ] `JWT_SECRET` and `CREDENTIAL_ENCRYPTION_KEY` are independently generated,
+      differ between deployments, and the credential key is backed up securely.
+- [ ] TLS, HTTP redirect, HSTS, certificate renewal, firewall, and the default
+      unknown-host rejection have been verified.
+- [ ] PostgreSQL and Redis publish no host port; deployment Nginx binds only to
+      its intended loopback port.
+- [ ] Seeded administrator and password-reset flows have been exercised.
+- [ ] Public `/docs`, `/redoc`, `/openapi.json`, `/metrics`, and `/health/*`
+      return 404.
 
-1. Fix SQL and indexes.
-2. Add Redis caching where it is safe.
-3. Move heavy work to Celery.
-4. Increase server resources.
-5. Move PostgreSQL to its own host.
-6. Add read replicas for reporting.
-7. Separate a genuinely hot component.
-8. Consider microservices — only when real scale or team structure demands it.
+Data and operations:
 
----
+- [ ] Alembic current revision matches head and the audit immutability trigger
+      is installed.
+- [ ] Automated encrypted off-box database and storage backups run with a
+      retention policy, and a restore drill has succeeded.
+- [ ] Container readiness, log rotation, disk alerts, error reporting, metrics,
+      and an on-call owner are in place.
+- [ ] The end-to-end manufacturing journey, real-role permissions, and expected
+      concurrency have been tested against the release candidate.
 
-## Go-live checklist
+## Scaling order
 
-**Security**
-- [ ] `JWT_SECRET` generated, unique, 64 bytes
-- [ ] `APP_DEBUG=false`, `APP_ENV=production`, `LOG_JSON=true`
-- [ ] database password rotated off the development default
-- [ ] `CORS_ORIGINS` set to the real origin, no wildcard
-- [ ] TLS working; HTTP redirects; HSTS present
-- [ ] `.env` is `chmod 600` and not in git
-- [ ] Postgres and Redis not published to the host
-- [ ] `/docs`, `/redoc`, `/openapi.json` return 404
-- [ ] seeded admin password changed
-- [ ] firewall allows only 22, 80, 443
-
-**Data**
-- [ ] migrations applied; `alembic current` matches head
-- [ ] baseline data seeded
-- [ ] audit-log immutability trigger present in the deployed schema
-- [ ] automated backups running to **external** storage
-- [ ] a restore has actually been tested
-
-**Operations**
-- [ ] all containers healthy; restart policies in place
-- [ ] log rotation configured
-- [ ] disk usage alerting at 80 %
-- [ ] `/metrics` scraped
-- [ ] Sentry DSN set, or the decision not to use it recorded
-- [ ] someone knows how to read the logs at 2 a.m.
-
-**Verification**
-- [ ] end-to-end journey passes against production: log in → create item → create
-      BOM → sales order → run MRP → purchase order → GRN → production → QC →
-      dispatch
-- [ ] a load test has been run at expected concurrency
-- [ ] permissions verified for each real role, not just the admin
+Fix SQL and indexes first, then add safe Redis caching, move heavy work to
+Celery, increase resources, and separate infrastructure only when measurements
+justify it. Kubernetes or microservices are not production-readiness features.

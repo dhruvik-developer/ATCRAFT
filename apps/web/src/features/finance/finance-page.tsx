@@ -9,7 +9,7 @@
  * the outstanding list into the ageing table would silently show the wrong
  * slice of a different dataset.
  *
- * Two tabs are permission-gated. That is presentation: the API refuses the
+ * Three tabs are permission-gated. That is presentation: the API refuses the
  * request regardless of which triggers this file renders (master rules 38).
  */
 
@@ -23,18 +23,21 @@ import {
   Scale,
   type LucideIcon,
 } from 'lucide-react'
+import { Suspense, lazy } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
-import { PageHeader } from '@/components/shared'
+import { PageHeader, PanelLoader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/overlays'
 import { useAuth } from '@/features/auth/auth-context'
 import { P } from '@/lib/permissions'
 
-import { AgeingTab } from './ageing-tab'
 import { GstSummaryTab } from './gst-summary-tab'
 import { InventoryValuationTab } from './inventory-valuation-tab'
 import { OutstandingTab } from './outstanding-tab'
+import { RETURN_PERIOD_PATTERN } from './finance-types'
+
+const AgeingTab = lazy(() => import('./ageing-tab').then((m) => ({ default: m.AgeingTab })))
 import { PartyLedgerTab } from './party-ledger-tab'
 
 type TabKey = 'outstanding' | 'ageing' | 'ledger' | 'valuation' | 'gst'
@@ -43,13 +46,16 @@ export default function FinancePage() {
   const { can } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
 
+  // Each gate is the right the tab's own endpoint declares: the statement
+  // routes sit on `ledger.view`, not on the `finance.view` that opens this page.
+  const canSeeLedger = can(P.LEDGER_VIEW)
   const canSeeValuation = can(P.INVENTORY_VALUATION_VIEW)
   const canSeeGst = can(P.GST_REPORT_VIEW)
 
   const tabs: { key: TabKey; label: string; icon: LucideIcon }[] = [
     { key: 'outstanding', label: 'Outstanding', icon: Coins },
     { key: 'ageing', label: 'Ageing', icon: CalendarClock },
-    { key: 'ledger', label: 'Ledger', icon: Scale },
+    ...(canSeeLedger ? [{ key: 'ledger' as const, label: 'Ledger', icon: Scale }] : []),
     ...(canSeeValuation
       ? [{ key: 'valuation' as const, label: 'Inventory valuation', icon: Layers }]
       : []),
@@ -63,7 +69,14 @@ export default function FinancePage() {
     ? (requested as TabKey)
     : 'outstanding'
 
-  const period = searchParams.get('period') ?? format(new Date(), 'yyyy-MM')
+  // A malformed period in a bookmark would disable the GST query and leave the
+  // tab reading as an empty return, so anything but `YYYY-MM` falls back to the
+  // current month.
+  const requestedPeriod = searchParams.get('period')
+  const period =
+    requestedPeriod && RETURN_PERIOD_PATTERN.test(requestedPeriod)
+      ? requestedPeriod
+      : format(new Date(), 'yyyy-MM')
 
   const selectTab = (next: string) => {
     setSearchParams(new URLSearchParams({ tab: next }), { replace: true })
@@ -99,7 +112,7 @@ export default function FinancePage() {
       />
 
       <Tabs value={tab} onValueChange={selectTab}>
-        <TabsList className="h-auto flex-wrap">
+        <TabsList>
           {tabs.map((entry) => (
             <TabsTrigger key={entry.key} value={entry.key}>
               <entry.icon className="h-4 w-4" aria-hidden />
@@ -113,12 +126,19 @@ export default function FinancePage() {
         </TabsContent>
 
         <TabsContent value="ageing">
-          <AgeingTab />
+          {/* Only this tab draws a chart, and it is not the default one. Loading
+              it lazily keeps recharts out of the finance page's own chunk, so a
+              clerk who only reads the outstanding table never downloads it. */}
+          <Suspense fallback={<PanelLoader />}>
+            <AgeingTab />
+          </Suspense>
         </TabsContent>
 
-        <TabsContent value="ledger">
-          <PartyLedgerTab />
-        </TabsContent>
+        {canSeeLedger && (
+          <TabsContent value="ledger">
+            <PartyLedgerTab />
+          </TabsContent>
+        )}
 
         {canSeeValuation && (
           <TabsContent value="valuation">

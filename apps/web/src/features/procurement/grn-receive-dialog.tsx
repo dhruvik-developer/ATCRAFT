@@ -61,9 +61,12 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useUomOptions } from '@/features/items/item-model'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
-import { api } from '@/lib/api-client'
-import { applyFieldErrors } from '@/lib/form-errors'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
+import { ApiError, api } from '@/lib/api-client'
+import { PICKER_PAGE_SIZE } from '@/lib/constants'
+import { applyFieldErrors, remapArrayIndices } from '@/lib/form-errors'
 import { formatDate, formatQuantity, toDateInput, toDecimal } from '@/lib/format'
+import { errorDescription, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -78,6 +81,7 @@ import {
   type PurchaseOrderDetail,
   type PurchaseOrderRow,
 } from './procurement-types'
+import { sentLineIndices } from './server-field-errors'
 
 const QUANTITY = /^$|^\d{1,14}(\.\d{1,4})?$/
 
@@ -105,15 +109,11 @@ function OpenPurchaseOrderPicker({
 }) {
   const [open, setOpen] = useState(false)
   const [term, setTerm] = useState('')
-  const [debouncedTerm, setDebouncedTerm] = useState('')
 
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedTerm(term.trim()), 300)
-    return () => clearTimeout(timer)
-  }, [term])
+  const debouncedTerm = useDebouncedValue(term)
 
   const params = {
-    limit: 20,
+    limit: PICKER_PAGE_SIZE,
     with_total: false,
     open_only: true,
     sort_by: 'expected_delivery_date',
@@ -154,7 +154,11 @@ function OpenPurchaseOrderPicker({
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="start" className="w-[26rem] p-0">
+      <PopoverContent
+        align="start"
+        collisionPadding={8}
+        className="w-[26rem] max-w-[var(--radix-popover-content-available-width)] p-0"
+      >
         <div className="relative border-b p-2">
           <Search
             className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -308,6 +312,31 @@ const schema = z
 
 type ReceiptFormValues = z.infer<typeof schema>
 
+/**
+ * Whether a form line goes into the payload.
+ *
+ * One predicate for both the filter that builds the payload and the index map
+ * that lands a server error back on the right form line - the two must agree,
+ * or a 422 for payload line 0 is shown on a line the storekeeper never touched.
+ */
+const isSentLine = (line: ReceiptFormValues['lines'][number]): boolean =>
+  toDecimal(line.received_quantity).greaterThan(0)
+
+/**
+ * What one submit actually achieved.
+ *
+ * Creating the receipt and posting it are two requests, and the draft is
+ * committed the moment the first succeeds. A post failure is therefore *not*
+ * a failure of the mutation: rethrowing it would leave the dialog open with
+ * the counts filled in, and the natural second click would create a second
+ * draft for the same lines. It is returned as an outcome instead, so the
+ * dialog closes over the draft that exists and says where to find it.
+ */
+type ReceiveOutcome =
+  | { kind: 'posted'; posted: GoodsReceiptPostResult }
+  | { kind: 'draft'; code: string }
+  | { kind: 'post_failed'; code: string; error: ApiError }
+
 function emptyHeader(): Omit<ReceiptFormValues, 'lines'> {
   return {
     receipt_date: toDateInput(new Date()),
@@ -413,12 +442,10 @@ export function GrnReceiveDialog({
   }, [loadedOrderId, reset])
 
   const post = useMutation({
-    mutationFn: async (values: ReceiptFormValues) => {
+    mutationFn: async (values: ReceiptFormValues): Promise<ReceiveOutcome> => {
       if (!order) throw new Error('No purchase order chosen')
 
-      const received = values.lines.filter((line) =>
-        toDecimal(line.received_quantity).greaterThan(0),
-      )
+      const received = values.lines.filter(isSentLine)
 
       // GoodsReceiptCreate forbids unknown keys, so every field here is one it
       // declares - and each line carries its own line_number, which the API
@@ -448,29 +475,62 @@ export function GrnReceiveDialog({
       // purchase order and raises the incoming QC inspections. They are
       // separate permissions, so a receipt is left as a draft for somebody else
       // to post when this user cannot.
-      if (!canPost) return { code: receipt.code, posted: null }
-      const posted = await api.post<GoodsReceiptPostResult>(
-        `/procurement/goods-receipts/${receipt.id}/post`,
-      )
-      return { code: posted.receipt.code, posted }
+      if (!canPost) return { kind: 'draft', code: receipt.code }
+      try {
+        const posted = await api.post<GoodsReceiptPostResult>(
+          `/procurement/goods-receipts/${receipt.id}/post`,
+        )
+        return { kind: 'posted', posted }
+      } catch (error) {
+        // The draft is committed; do not let a retry re-create it. An expired
+        // session is the one thing worth rethrowing, so the cache can sign out.
+        if (!(error instanceof ApiError) || error.isAuthError) throw error
+        return { kind: 'post_failed', code: receipt.code, error }
+      }
     },
-    onSuccess: ({ code, posted }) => {
+    onSuccess: (outcome) => {
+      // A receipt now exists in every case, so the register is refreshed
+      // before anything else is said about it.
       void queryClient.invalidateQueries({ queryKey: queryKeys.procurement.all })
-      // Posting writes stock movements, so every balance and availability read
-      // is dropped rather than left to expire (master rules 34).
-      void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.quality.all })
-      toast.success(
-        posted ? 'Goods receipt posted' : 'Goods receipt saved as a draft',
-        posted
-          ? posted.qc_hold_line_count > 0
-            ? `${code} is posted. ${posted.qc_hold_line_count} line(s) went to QC hold rather than free stock.`
-            : `${code} is posted and the accepted quantity is available stock.`
-          : `${code} is saved. Someone with posting rights must post it before the stock exists.`,
-      )
+      switch (outcome.kind) {
+        case 'posted': {
+          // Posting writes stock movements, so every balance and availability
+          // read is dropped rather than left to expire (master rules 34).
+          void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
+          void queryClient.invalidateQueries({ queryKey: queryKeys.quality.all })
+          const { posted } = outcome
+          const code = posted.receipt.code
+          toast.success(
+            success.posted('Goods receipt'),
+            posted.qc_hold_line_count > 0
+              ? `${code} is posted. ${posted.qc_hold_line_count} line(s) went to QC hold rather than free stock.`
+              : `${code} is posted and the accepted quantity is available stock.`,
+          )
+          break
+        }
+        case 'draft':
+          toast.success(
+            success.saved('Goods receipt'),
+            `${outcome.code} is saved as a draft. Someone with posting rights must post it before the stock exists.`,
+          )
+          break
+        case 'post_failed':
+          toast.warning(
+            'Goods receipt saved but not posted',
+            `${outcome.code} is a draft. ${errorDescription(outcome.error)} Post it from the receipts list.`,
+          )
+          break
+      }
       onOpenChange(false)
     },
-    onError: (error) => applyFieldErrors(error, setError),
+    // Only the create call can reject now, and its line errors are indexed by
+    // the payload - which holds just the lines with a received quantity.
+    onError: (error, values) =>
+      applyFieldErrors(
+        error,
+        setError,
+        remapArrayIndices('lines', sentLineIndices(values.lines, isSentLine)),
+      ),
   })
 
   const lines = watch('lines')

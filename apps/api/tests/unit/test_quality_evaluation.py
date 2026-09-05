@@ -300,9 +300,7 @@ def test_a_critical_failure_still_allows_rejecting_and_scrapping() -> None:
     thread = spec(name="Thread engages", parameter_type=ParameterType.BOOLEAN, critical=True)
     evaluation = evaluate_inspection([thread], {thread.id: False})
 
-    assert_critical_override(
-        evaluation, Disposition(rejected=Decimal("60"), scrap=Decimal("40"))
-    )
+    assert_critical_override(evaluation, Disposition(rejected=Decimal("60"), scrap=Decimal("40")))
 
 
 def test_without_a_critical_failure_any_disposition_is_permitted() -> None:

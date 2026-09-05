@@ -64,7 +64,7 @@ from src.modules.routing.service import (
     WorkCenterService,
     manufacture_lead_time_days,
 )
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 from tests.seed_support import seed_company, seed_user
 
 pytestmark = pytest.mark.integration
@@ -136,7 +136,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, other_company_id, author_id, reviewer_id
     asyncio.run(teardown())
@@ -220,9 +220,7 @@ async def ctx(
                     reviewer=TenantContext(company_id=company_id, user_id=reviewer_id),
                     reviewer_principal=_principal(company_id, reviewer_id),
                     author_principal=_principal(company_id, author_id),
-                    other_tenant=TenantContext(
-                        company_id=other_company_id, user_id=uuid.uuid4()
-                    ),
+                    other_tenant=TenantContext(company_id=other_company_id, user_id=uuid.uuid4()),
                 )
             await outer.rollback()
     finally:
@@ -514,9 +512,7 @@ async def test_updating_a_draft_replaces_the_whole_operation_set(ctx: Ctx) -> No
 
     detail = await ctx.routings().update_routing(
         routing.id,
-        RoutingUpdate(
-            operations=[operation(centre, sequence=20), operation(centre, sequence=30)]
-        ),
+        RoutingUpdate(operations=[operation(centre, sequence=20), operation(centre, sequence=30)]),
     )
 
     assert [op.sequence for op in detail.operations] == [20, 30]
@@ -620,9 +616,7 @@ async def test_costing_reads_the_work_centre_rate_through_the_join(ctx: Ctx) -> 
 async def test_the_lead_time_rounds_a_part_day_up(ctx: Ctx) -> None:
     item = await seed_item(ctx)
     centre = await seed_work_center(ctx, working_hours_per_day="8")
-    await approved_routing(
-        ctx, item, operation(centre, setup="486", run="0"), is_default=True
-    )
+    await approved_routing(ctx, item, operation(centre, setup="486", run="0"), is_default=True)
 
     result = await ctx.routings().item_lead_time(item.id, Decimal("1"))
 
@@ -636,9 +630,7 @@ async def test_lead_time_resolves_the_default_approved_routing(ctx: Ctx) -> None
     slow = await seed_work_center(ctx)
 
     await approved_routing(ctx, item, operation(fast, setup="60", run="0"))
-    await approved_routing(
-        ctx, item, operation(slow, setup="600", run="0"), is_default=True
-    )
+    await approved_routing(ctx, item, operation(slow, setup="600", run="0"), is_default=True)
 
     result = await ctx.routings().item_lead_time(item.id, Decimal("1"))
 
@@ -649,9 +641,7 @@ async def test_an_item_with_no_effective_routing_reports_no_lead_time(ctx: Ctx) 
     """MRP falls back to items.lead_time_days rather than planning zero days."""
     item = await seed_item(ctx)
 
-    assert await manufacture_lead_time_days(
-        ctx.session, ctx.author, item.id, Decimal("10")
-    ) is None
+    assert await manufacture_lead_time_days(ctx.session, ctx.author, item.id, Decimal("10")) is None
 
 
 async def test_a_routing_not_yet_effective_is_not_used_for_the_lead_time(ctx: Ctx) -> None:
@@ -665,9 +655,7 @@ async def test_a_routing_not_yet_effective_is_not_used_for_the_lead_time(ctx: Ct
         effective_from=today() + timedelta(days=30),
     )
 
-    assert await manufacture_lead_time_days(
-        ctx.session, ctx.author, item.id, Decimal("1")
-    ) is None
+    assert await manufacture_lead_time_days(ctx.session, ctx.author, item.id, Decimal("1")) is None
 
 
 async def test_draft_routings_never_drive_planning(ctx: Ctx) -> None:
@@ -675,9 +663,7 @@ async def test_draft_routings_never_drive_planning(ctx: Ctx) -> None:
     centre = await seed_work_center(ctx)
     await create_routing(ctx, item, operation(centre, setup="600", run="0"), is_default=True)
 
-    assert await manufacture_lead_time_days(
-        ctx.session, ctx.author, item.id, Decimal("1")
-    ) is None
+    assert await manufacture_lead_time_days(ctx.session, ctx.author, item.id, Decimal("1")) is None
 
 
 # -----------------------------------------------------------------------------

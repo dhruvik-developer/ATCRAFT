@@ -101,9 +101,7 @@ async def run_mrp(
         # A separate session: the one the failure happened on cannot be used to
         # write anything, so the run would otherwise stay RUNNING for ever.
         async with session_scope() as session:
-            await service.fail_run(
-                session, tenant, run_id=identifier, error=_failure_message(exc)
-            )
+            await service.fail_run(session, tenant, run_id=identifier, error=_failure_message(exc))
         log.error("mrp.task_failed", run_id=run_id, error=str(exc), exc_info=exc)
         raise
 

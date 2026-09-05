@@ -41,37 +41,53 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.cache import cache_delete, make_key
 from src.core.clock import utcnow
-from src.core.config import AppEnv, settings
+from src.core.config import EmailProvider, settings
 from src.core.database import transaction
 from src.core.deps import Principal, TenantContext
 from src.core.errors import (
     AccountLockedError,
+    AppError,
     AuthenticationError,
     BusinessRuleError,
     ErrorCode,
     InvalidCredentialsError,
     NotFoundError,
     TokenExpiredError,
+    ValidationError,
 )
 from src.core.logging import get_logger
+from src.core.messages import (
+    CURRENT_PASSWORD_INCORRECT,
+    INVALID_MFA_CHALLENGE,
+    SESSION_ENDED_FOR_SECURITY,
+)
 from src.core.pagination import PageParams
 from src.core.ratelimit import RateLimitPolicy, enforce_policy, reset_rate_limit
 from src.core.responses import OffsetPagination
 from src.core.security import (
+    MFA_CHALLENGE_TTL_MINUTES,
     constant_time_compare,
     create_access_token,
+    create_mfa_challenge_token,
     create_refresh_token,
     decode_token,
+    decrypt_totp_secret,
+    encrypt_password_reset_delivery_token,
+    encrypt_totp_secret,
     generate_secret_token,
+    generate_totp_secret,
     hash_password,
     hash_secret_token,
+    matching_totp_step,
     needs_rehash,
+    totp_provisioning_uri,
     validate_password_policy,
     verify_password,
 )
 from src.core.state_machine import StateMachine, Transition
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit
+from src.modules.auth.email_delivery import queue_password_reset_email
 from src.modules.auth.repository import (
     PasswordResetTokenRepository,
     UserSessionRepository,
@@ -79,6 +95,7 @@ from src.modules.auth.repository import (
     find_reset_token,
     get_account,
     get_account_summary,
+    increment_failed_attempts,
     record_login_attempt,
 )
 from src.modules.auth.schemas import (
@@ -89,6 +106,13 @@ from src.modules.auth.schemas import (
     LoginResponse,
     LogoutResult,
     MeResponse,
+    MfaChallengeResponse,
+    MfaChangeResult,
+    MfaCodeRequest,
+    MfaDisableRequest,
+    MfaSetupRequest,
+    MfaSetupResponse,
+    MfaVerifyRequest,
     PasswordResetConfirmPayload,
     PasswordResetRequestPayload,
     SessionRead,
@@ -130,6 +154,7 @@ FAILURE_AMBIGUOUS_EMAIL = "ambiguous_email"
 FAILURE_BAD_PASSWORD = "bad_password"  # noqa: S105 - a reason code, not a secret
 FAILURE_INACTIVE = "account_inactive"
 FAILURE_LOCKED = "account_locked"
+FAILURE_BAD_MFA = "bad_mfa"
 
 REVOKE_REASON_LOGOUT = "logout"
 REVOKE_REASON_LOGOUT_ALL = "logout_all"
@@ -161,7 +186,7 @@ class SessionState(StrEnum):
 
 
 SESSION_STATE_MACHINE: StateMachine[SessionState] = StateMachine(
-    entity="user_session",
+    entity="Session",
     initial=SessionState.ACTIVE,
     transitions=(
         Transition(SessionState.ACTIVE, SessionState.ROTATED, label="Rotate refresh token"),
@@ -254,7 +279,7 @@ class AuthService:
         *,
         ip_address: str | None = None,
         user_agent: str | None = None,
-    ) -> LoginResponse:
+    ) -> LoginResponse | MfaChallengeResponse:
         """Verify credentials and open a session."""
         # Two independent budgets: the per-email one stops a slow password spray
         # against one account from behind many addresses, the per-IP one stops a
@@ -315,6 +340,37 @@ class AuthService:
                 raise AccountLockedError()
             raise InvalidCredentialsError()
 
+        if account.mfa_enabled:
+            # A legacy row can have the flag set without a seed. Fail closed:
+            # issuing a normal session here would silently turn MFA off.
+            if not account.mfa_secret:
+                log.error(
+                    "auth.mfa_secret_missing",
+                    user_id=str(account.id),
+                    company_id=str(account.company_id),
+                )
+                raise AuthenticationError(
+                    "Multi-factor authentication is not available for this account.",
+                    code=ErrorCode.MFA_INVALID,
+                )
+
+            # The MFA completion request intentionally does not carry the
+            # password. Upgrade a legacy hash now, after it was verified, rather
+            # than postponing the upgrade forever for MFA-enabled accounts.
+            if needs_rehash(account.password_hash):
+                async with transaction(self.session):
+                    account.password_hash = hash_password(payload.password)
+
+            challenge_token, _ = create_mfa_challenge_token(
+                account.id,
+                account.company_id,
+                device_label=payload.device_label,
+            )
+            return MfaChallengeResponse(
+                challenge_token=challenge_token,
+                expires_in=MFA_CHALLENGE_TTL_MINUTES * 60,
+            )
+
         return await self._complete_login(
             account,
             plain_password=payload.password,
@@ -327,7 +383,7 @@ class AuthService:
         self,
         account: User,
         *,
-        plain_password: str,
+        plain_password: str | None,
         device_label: str | None,
         ip_address: str | None,
         user_agent: str | None,
@@ -342,7 +398,7 @@ class AuthService:
             account.last_login_at = now
             account.last_login_ip = ip_address
 
-            if needs_rehash(account.password_hash):
+            if plain_password is not None and needs_rehash(account.password_hash):
                 # Transparent upgrade of a legacy bcrypt or weak-parameter hash.
                 # password_changed_at is deliberately NOT touched: it is the
                 # cut-off deps.py uses to invalidate tokens issued before a
@@ -403,6 +459,85 @@ class AuthService:
             user=_authenticated_user(account),
         )
 
+    async def verify_mfa(
+        self,
+        payload: MfaVerifyRequest,
+        *,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> LoginResponse:
+        """Complete a password-authenticated login with a single-use TOTP."""
+        challenge = decode_token(payload.challenge_token, expected_type="mfa")
+        if not challenge.raw or "pwd" not in challenge.raw.get("amr", []):
+            raise AuthenticationError(INVALID_MFA_CHALLENGE, code=ErrorCode.TOKEN_INVALID)
+        await enforce_policy(RateLimitPolicy.MFA_VERIFY, str(challenge.subject))
+        await enforce_policy(RateLimitPolicy.MFA_VERIFY, f"ip:{ip_address or 'unknown'}")
+
+        result: LoginResponse | None = None
+        failure: AuthenticationError | None = None
+        async with transaction(self.session):
+            # Serialising on the user row makes the stored TOTP counter a real
+            # replay barrier across every Gunicorn worker, not a best-effort
+            # in-process check.
+            account = await get_account(
+                self.session,
+                challenge.subject,
+                challenge.company_id,
+                for_update=True,
+            )
+            if account is None or not account.is_active or not account.mfa_enabled:
+                failure = AuthenticationError(INVALID_MFA_CHALLENGE, code=ErrorCode.MFA_INVALID)
+            elif account.locked_until is not None and account.locked_until > utcnow():
+                failure = AccountLockedError()
+            elif not account.mfa_secret:
+                failure = AuthenticationError(
+                    "Multi-factor authentication is not available for this account.",
+                    code=ErrorCode.MFA_INVALID,
+                )
+            else:
+                secret = decrypt_totp_secret(account.mfa_secret)
+                step = matching_totp_step(secret, payload.code)
+                replayed = step is not None and (
+                    account.mfa_last_used_step is not None and step <= account.mfa_last_used_step
+                )
+                if step is None or replayed:
+                    locked = await self._register_failure(
+                        account,
+                        reason=FAILURE_BAD_MFA,
+                        ip_address=ip_address,
+                        user_agent=user_agent,
+                        count_against_lockout=True,
+                    )
+                    failure = (
+                        AccountLockedError()
+                        if locked
+                        else AuthenticationError(
+                            "The authentication code is incorrect or has already been used.",
+                            code=ErrorCode.MFA_INVALID,
+                        )
+                    )
+                else:
+                    account.mfa_last_used_step = step
+                    # Opportunistically encrypt a legacy plaintext seed during
+                    # rolling upgrades.
+                    if len(account.mfa_secret) == 32:
+                        account.mfa_secret = encrypt_totp_secret(secret)
+                    raw_device = challenge.raw.get("device")
+                    device_label = raw_device if isinstance(raw_device, str) else None
+                    result = await self._complete_login(
+                        account,
+                        plain_password=None,
+                        device_label=device_label,
+                        ip_address=ip_address,
+                        user_agent=user_agent,
+                    )
+
+        if failure is not None:
+            raise failure
+        if result is None:  # defensive: every branch above sets one of them
+            raise AuthenticationError(INVALID_MFA_CHALLENGE, code=ErrorCode.MFA_INVALID)
+        return result
+
     # --- refresh ------------------------------------------------------------
 
     async def refresh(
@@ -412,7 +547,20 @@ class AuthService:
         ip_address: str | None = None,
         user_agent: str | None = None,
     ) -> TokenPair:
-        """Rotate a refresh token, detecting replay of a spent one."""
+        """Rotate a refresh token, detecting replay of a spent one.
+
+        The session row is locked for the whole decision. Two requests
+        presenting the same token at once - an attacker replaying alongside
+        the victim, or two tabs whose refresh guards cannot see each other -
+        must not both read ACTIVE off an unlocked snapshot and both rotate:
+        the second would overwrite ``replaced_by_id``, no replay would be
+        recorded and two live successors would exist. Under the lock the
+        second waits, reads the rotation the first committed, and burns the
+        family as the module docstring promises.
+
+        A replay is written inside this transaction and raised after it
+        commits; every other refusal raises inside it, having written nothing.
+        """
         payload = decode_token(refresh_token, expected_type="refresh")
         await enforce_policy(RateLimitPolicy.REFRESH, str(payload.subject))
 
@@ -423,54 +571,58 @@ class AuthService:
 
         tenant = _tenant_for(payload.company_id, payload.subject)
         sessions = UserSessionRepository(self.session, tenant)
-        record = await sessions.get_by_session_id(payload.session_id)
-
-        if record is None or record.user_id != payload.subject:
-            raise AuthenticationError("Invalid authentication token.", code=ErrorCode.TOKEN_INVALID)
-
         presented_digest = hash_secret_token(refresh_token)
-        state = session_state(record)
 
-        # A digest that does not match, on a session that otherwise exists, can
-        # only be a token from outside this rotation chain - treated exactly
-        # like a replay.
-        if not constant_time_compare(record.refresh_token_hash, presented_digest):
-            await self._handle_replay(sessions, record, detail="digest_mismatch")
-            raise AuthenticationError(
-                "This session has been ended for security reasons. Please sign in again.",
-                code=ErrorCode.TOKEN_REVOKED,
-            )
-
-        if state is SessionState.ROTATED:
-            await self._handle_replay(sessions, record, detail="token_already_rotated")
-            raise AuthenticationError(
-                "This session has been ended for security reasons. Please sign in again.",
-                code=ErrorCode.TOKEN_REVOKED,
-            )
-        if state is SessionState.REVOKED:
-            raise AuthenticationError("Session has been revoked.", code=ErrorCode.TOKEN_REVOKED)
-        if state is SessionState.EXPIRED:
-            raise TokenExpiredError()
-
-        account = await get_account(self.session, record.user_id, record.company_id)
-        if account is None or not account.is_active:
-            raise AuthenticationError("Account is not available.", code=ErrorCode.ACCOUNT_INACTIVE)
-        if account.locked_until is not None and account.locked_until > utcnow():
-            raise AccountLockedError()
-
+        replay: str | None = None
         async with transaction(self.session):
-            SESSION_STATE_MACHINE.assert_transition(state, SessionState.ROTATED)
-            successor, tokens = await self._open_session(
-                sessions,
-                account,
-                ip_address=ip_address or record.ip_address,
-                user_agent=user_agent or record.user_agent,
-                device_label=record.device_label,
-            )
-            record.revoked_at = utcnow()
-            record.revoked_reason = REVOKE_REASON_ROTATED
-            record.replaced_by_id = successor.id
-            await self.session.flush()
+            record = await sessions.get_by_session_id(payload.session_id, for_update=True)
+            if record is None or record.user_id != payload.subject:
+                raise AuthenticationError(
+                    "Invalid authentication token.", code=ErrorCode.TOKEN_INVALID
+                )
+
+            state = session_state(record)
+            # A digest that does not match, on a session that otherwise exists,
+            # can only be a token from outside this rotation chain - treated
+            # exactly like a replay.
+            if not constant_time_compare(record.refresh_token_hash, presented_digest):
+                replay = "digest_mismatch"
+            elif state is SessionState.ROTATED:
+                replay = "token_already_rotated"
+
+            if replay is not None:
+                await self._handle_replay(sessions, record, detail=replay)
+            else:
+                if state is SessionState.REVOKED:
+                    raise AuthenticationError(
+                        "Session has been revoked.", code=ErrorCode.TOKEN_REVOKED
+                    )
+                if state is SessionState.EXPIRED:
+                    raise TokenExpiredError()
+
+                account = await get_account(self.session, record.user_id, record.company_id)
+                if account is None or not account.is_active:
+                    raise AuthenticationError(
+                        "Account is not available.", code=ErrorCode.ACCOUNT_INACTIVE
+                    )
+                if account.locked_until is not None and account.locked_until > utcnow():
+                    raise AccountLockedError()
+
+                SESSION_STATE_MACHINE.assert_transition(state, SessionState.ROTATED)
+                successor, tokens = await self._open_session(
+                    sessions,
+                    account,
+                    ip_address=ip_address or record.ip_address,
+                    user_agent=user_agent or record.user_agent,
+                    device_label=record.device_label,
+                )
+                record.revoked_at = utcnow()
+                record.revoked_reason = REVOKE_REASON_ROTATED
+                record.replaced_by_id = successor.id
+                await self.session.flush()
+
+        if replay is not None:
+            raise AuthenticationError(SESSION_ENDED_FOR_SECURITY, code=ErrorCode.TOKEN_REVOKED)
 
         # Routine rotation is not audited. It happens every few minutes per
         # signed-in user and describes no business change; auditing it would add
@@ -480,8 +632,8 @@ class AuthService:
         await _drop_session_cache(record.company_id, [record.session_id])
         log.info(
             "auth.session_rotated",
-            user_id=str(account.id),
-            company_id=str(account.company_id),
+            user_id=str(record.user_id),
+            company_id=str(record.company_id),
             from_session=record.session_id,
             to_session=successor.session_id,
         )
@@ -492,9 +644,10 @@ class AuthService:
     ) -> None:
         """Close the whole rotation family and record it.
 
-        Committed before the caller raises: the evidence and the containment
-        must survive the failed request, which is the entire point of detecting
-        the replay in the first place.
+        Joins the caller's transaction, and the caller lets that transaction
+        commit before raising: the evidence and the containment must survive
+        the failed request, which is the entire point of detecting the replay
+        in the first place.
         """
         async with transaction(self.session):
             revoked = await sessions.revoke_chain(record, reason=REVOKE_REASON_REPLAY)
@@ -625,32 +778,219 @@ class AuthService:
             allowed_warehouse_ids=list(principal.allowed_warehouse_ids),
         )
 
+    # --- multi-factor authentication ---------------------------------------
+
+    async def setup_mfa(
+        self,
+        principal: Principal,
+        payload: MfaSetupRequest,
+        *,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> MfaSetupResponse:
+        """Stage a new authenticator seed after re-checking the password.
+
+        The seed is inactive until ``confirm_mfa`` proves the authenticator was
+        configured correctly. Requiring the password stops a stolen, unattended
+        browser session from binding the attacker's authenticator.
+        """
+        account = await get_account(self.session, principal.user_id, principal.company_id)
+        if account is None:
+            raise NotFoundError("Account", principal.user_id)
+        if account.mfa_enabled:
+            raise BusinessRuleError("Multi-factor authentication is already enabled.")
+        refused = await self._check_current_password(
+            account,
+            payload.current_password,
+            purpose="MFA enrolment",
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        if refused is not None:
+            raise refused
+
+        secret = generate_totp_secret()
+        async with transaction(self.session):
+            account.mfa_secret = encrypt_totp_secret(secret)
+            account.mfa_last_used_step = None
+            await record_audit(
+                self.session,
+                company_id=account.company_id,
+                action=AuditAction.CONFIG_CHANGE,
+                entity_type=AUDIT_ENTITY_USER,
+                entity_id=account.id,
+                entity_code=account.email[:64],
+                summary=f"{account.email} started MFA enrolment",
+                user_id=account.id,
+                actor_label=account.full_name,
+                context={"mfa_enabled": False, "pending_enrolment": True},
+            )
+
+        return MfaSetupResponse(
+            secret=secret,
+            provisioning_uri=totp_provisioning_uri(
+                secret,
+                account_name=f"{account.email} ({str(account.company_id)[:8]})",
+            ),
+        )
+
+    async def confirm_mfa(self, principal: Principal, payload: MfaCodeRequest) -> MfaChangeResult:
+        """Activate a staged TOTP seed and retire other password-only sessions."""
+        revoked: list[str] = []
+        async with transaction(self.session):
+            account = await get_account(
+                self.session,
+                principal.user_id,
+                principal.company_id,
+                for_update=True,
+            )
+            if account is None:
+                raise NotFoundError("Account", principal.user_id)
+            if account.mfa_enabled:
+                raise BusinessRuleError("Multi-factor authentication is already enabled.")
+            if not account.mfa_secret:
+                raise BusinessRuleError("Start multi-factor setup before confirming it.")
+
+            secret = decrypt_totp_secret(account.mfa_secret)
+            step = matching_totp_step(secret, payload.code)
+            if step is None:
+                raise _mfa_code_rejected("The authentication code is incorrect.")
+
+            account.mfa_enabled = True
+            account.mfa_last_used_step = step
+            if len(account.mfa_secret) == 32:
+                account.mfa_secret = encrypt_totp_secret(secret)
+            sessions = UserSessionRepository(
+                self.session, _tenant_for(account.company_id, account.id)
+            )
+            revoked = await sessions.revoke_all_for_user(
+                account.id,
+                reason="mfa_enabled",
+                keep_session_id=principal.session_id,
+            )
+            await record_audit(
+                self.session,
+                company_id=account.company_id,
+                action=AuditAction.CONFIG_CHANGE,
+                entity_type=AUDIT_ENTITY_USER,
+                entity_id=account.id,
+                entity_code=account.email[:64],
+                summary=f"{account.email} enabled MFA",
+                user_id=account.id,
+                actor_label=account.full_name,
+                context={"mfa_enabled": True, "revoked_sessions": len(revoked)},
+            )
+
+        await _drop_session_cache(principal.company_id, revoked)
+        return MfaChangeResult(mfa_enabled=True, revoked_sessions=len(revoked))
+
+    async def disable_mfa(
+        self,
+        principal: Principal,
+        payload: MfaDisableRequest,
+        *,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> MfaChangeResult:
+        """Disable MFA only after both password and current TOTP are proved.
+
+        Success here turns a short-lived access token into a persistent,
+        MFA-free account, so a wrong password is throttled and counted like a
+        wrong password at sign-in. The failure record is written inside this
+        transaction and the refusal raised after it commits - raising inside
+        the block would roll the record back.
+        """
+        revoked: list[str] = []
+        refused: AppError | None = None
+        async with transaction(self.session):
+            account = await get_account(
+                self.session,
+                principal.user_id,
+                principal.company_id,
+                for_update=True,
+            )
+            if account is None:
+                raise NotFoundError("Account", principal.user_id)
+            if not account.mfa_enabled or not account.mfa_secret:
+                raise BusinessRuleError("Multi-factor authentication is not enabled.")
+            refused = await self._check_current_password(
+                account,
+                payload.current_password,
+                purpose="MFA disable",
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+            if refused is None:
+                secret = decrypt_totp_secret(account.mfa_secret)
+                step = matching_totp_step(secret, payload.code)
+                if step is None or (
+                    account.mfa_last_used_step is not None and step <= account.mfa_last_used_step
+                ):
+                    raise _mfa_code_rejected(
+                        "The authentication code is incorrect or has already been used."
+                    )
+
+                revoked = await self._disable_mfa_locked(account, principal)
+
+        if refused is not None:
+            raise refused
+        await _drop_session_cache(principal.company_id, revoked)
+        return MfaChangeResult(mfa_enabled=False, revoked_sessions=len(revoked))
+
+    async def _disable_mfa_locked(self, account: User, principal: Principal) -> list[str]:
+        """Clear the seed and retire the other sessions. Caller holds the lock."""
+        async with transaction(self.session):
+            account.mfa_enabled = False
+            account.mfa_secret = None
+            account.mfa_last_used_step = None
+            sessions = UserSessionRepository(
+                self.session, _tenant_for(account.company_id, account.id)
+            )
+            revoked = await sessions.revoke_all_for_user(
+                account.id,
+                reason="mfa_disabled",
+                keep_session_id=principal.session_id,
+            )
+            await record_audit(
+                self.session,
+                company_id=account.company_id,
+                action=AuditAction.CONFIG_CHANGE,
+                entity_type=AUDIT_ENTITY_USER,
+                entity_id=account.id,
+                entity_code=account.email[:64],
+                summary=f"{account.email} disabled MFA",
+                user_id=account.id,
+                actor_label=account.full_name,
+                context={"mfa_enabled": False, "revoked_sessions": len(revoked)},
+            )
+        return revoked
+
     # --- passwords ----------------------------------------------------------
 
     async def change_password(
-        self, principal: Principal, payload: ChangePasswordRequest
+        self,
+        principal: Principal,
+        payload: ChangePasswordRequest,
+        *,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
     ) -> ChangePasswordResult:
         """Replace the caller's password and sign every other device out."""
         account = await get_account(self.session, principal.user_id, principal.company_id)
         if account is None:
             raise NotFoundError("Account", principal.user_id)
 
-        if not verify_password(payload.current_password, account.password_hash):
-            # Audited: repeated failures here are how a stolen access token gets
-            # turned into a stolen password.
-            async with transaction(self.session):
-                await record_audit(
-                    self.session,
-                    company_id=account.company_id,
-                    action=AuditAction.LOGIN_FAILED,
-                    entity_type=AUDIT_ENTITY_USER,
-                    entity_id=account.id,
-                    entity_code=account.email[:64],
-                    summary="Password change refused: current password did not match",
-                    user_id=account.id,
-                    actor_label=account.full_name,
-                )
-            raise InvalidCredentialsError("The current password is incorrect.")
+        # Throttled, counted and audited: repeated failures here are how a
+        # stolen access token gets turned into a stolen password.
+        refused = await self._check_current_password(
+            account,
+            payload.current_password,
+            purpose="Password change",
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        if refused is not None:
+            raise refused
 
         validate_password_policy(payload.new_password, email=account.email)
         if verify_password(payload.new_password, account.password_hash):
@@ -715,17 +1055,24 @@ class AuthService:
 
         plaintext, digest = generate_secret_token()
         expires_at = utcnow() + timedelta(minutes=PASSWORD_RESET_TTL_MINUTES)
+        delivery_ciphertext = (
+            encrypt_password_reset_delivery_token(plaintext)
+            if settings.email_provider is not EmailProvider.disabled
+            else None
+        )
         tenant = _tenant_for(account.company_id, account.id)
         tokens = PasswordResetTokenRepository(self.session, tenant)
 
         async with transaction(self.session):
             superseded = await tokens.invalidate_outstanding(account.id)
-            tokens.create_token(
+            reset_record = tokens.create_token(
                 user_id=account.id,
                 token_hash=digest,
+                email_token_ciphertext=delivery_ciphertext,
                 expires_at=expires_at,
                 requested_ip=ip_address,
             )
+            await self.session.flush()
             await record_audit(
                 self.session,
                 company_id=account.company_id,
@@ -739,19 +1086,16 @@ class AuthService:
                 context={"superseded_tokens": superseded, "expires_at": expires_at},
             )
 
-        # Delivery belongs to the notifications module. Until it is mounted the
-        # link is available to an operator from the application log, and only
-        # outside production - printing a live credential into a production log
-        # would defeat storing nothing but its digest.
-        if settings.app_env is AppEnv.production:
-            log.info("auth.password_reset.issued", user_id=str(account.id))
-        else:
-            log.warning(
-                "auth.password_reset.issued_dev",
-                user_id=str(account.id),
-                reset_token=plaintext,
-                expires_at=expires_at.isoformat(),
-            )
+            if settings.email_provider is not EmailProvider.disabled:
+                queue_password_reset_email(
+                    self.session,
+                    company_id=account.company_id,
+                    reset_token_id=reset_record.id,
+                )
+
+        # Never log the plaintext token. Staging is internet-reachable too, and
+        # a copied log line would be a live account-takeover credential.
+        log.info("auth.password_reset.issued", user_id=str(account.id))
 
         return PasswordResetGrant(
             user_id=account.id,
@@ -793,6 +1137,12 @@ class AuthService:
             account.password_hash = hash_password(payload.new_password)
             account.password_changed_at = utcnow()
             account.must_change_password = False
+            # Mailbox recovery must also recover an account whose authenticator
+            # was lost. The user can enrol MFA again after signing in with the
+            # new password.
+            account.mfa_enabled = False
+            account.mfa_secret = None
+            account.mfa_last_used_step = None
             # The lockout is lifted: whoever holds the mailbox has proved
             # control of the account, and leaving it locked would hand an
             # attacker a denial of service through failed sign-ins alone.
@@ -912,6 +1262,53 @@ class AuthService:
             session_id=session_id,
         )
 
+    async def _check_current_password(
+        self,
+        account: User,
+        current_password: str,
+        *,
+        purpose: str,
+        ip_address: str | None,
+        user_agent: str | None,
+    ) -> AppError | None:
+        """Re-prove the password on an authenticated self-service route.
+
+        These routes are how a leaked access token becomes a leaked password
+        or an MFA-free account, so a wrong guess costs exactly what it costs at
+        sign-in: the per-account budget is consumed before the check, and a
+        miss goes through :meth:`_register_failure`, which bumps the lockout
+        counter and commits the attempt and audit rows. Without this the only
+        budget was the coarse per-client API limit - about 1 800 guesses per
+        access-token lifetime, with no lockout.
+
+        Returned rather than raised, because one caller is already inside the
+        transaction the failure record must commit in: raising there would
+        roll the record back. A miss answers 422, not 401. The web client has
+        exactly one meaning for a 401 on an authenticated route - the session
+        is dead - and signs the user out, so a typo in "current password"
+        bounced them to the login page before the form could show the message.
+        A field-level 422 lands under the field. The unauthenticated routes
+        (sign-in, MFA challenge, refresh) stay on 401.
+        """
+        await enforce_policy(RateLimitPolicy.LOGIN_PER_EMAIL, account.email)
+        if verify_password(current_password, account.password_hash):
+            return None
+        locked = await self._register_failure(
+            account,
+            reason=FAILURE_BAD_PASSWORD,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            count_against_lockout=True,
+            summary=f"{purpose} refused for {account.email}: current password did not match",
+        )
+        if locked:
+            return AccountLockedError()
+        return ValidationError(
+            CURRENT_PASSWORD_INCORRECT,
+            code=ErrorCode.INVALID_CREDENTIALS,
+            details={"fields": {"current_password": [CURRENT_PASSWORD_INCORRECT]}},
+        )
+
     async def _register_failure(
         self,
         account: User,
@@ -920,6 +1317,7 @@ class AuthService:
         ip_address: str | None,
         user_agent: str | None,
         count_against_lockout: bool,
+        summary: str | None = None,
     ) -> bool:
         """Persist a failed sign-in. Returns True when this attempt locked the
         account.
@@ -930,8 +1328,11 @@ class AuthService:
         locked_now = False
         async with transaction(self.session):
             if count_against_lockout:
-                account.failed_login_attempts += 1
-                deadline = lockout_deadline(account.failed_login_attempts, now=utcnow())
+                # Incremented in the database, not in Python - see
+                # increment_failed_attempts for why the read-modify-write lost
+                # concurrent failures.
+                attempts = await increment_failed_attempts(self.session, account)
+                deadline = lockout_deadline(attempts, now=utcnow())
                 if deadline is not None:
                     account.locked_until = deadline
                     locked_now = True
@@ -953,7 +1354,7 @@ class AuthService:
                 entity_type=AUDIT_ENTITY_USER,
                 entity_id=account.id,
                 entity_code=account.email[:64],
-                summary=f"Failed sign-in for {account.email} ({reason})",
+                summary=summary or f"Failed sign-in for {account.email} ({reason})",
                 user_id=account.id,
                 actor_label=account.full_name,
                 context={
@@ -1090,6 +1491,18 @@ def _session_read(record: UserSession, current_session_id: str | None) -> Sessio
         user_agent=record.user_agent,
         device_label=record.device_label,
         is_current=record.session_id == current_session_id,
+    )
+
+
+def _mfa_code_rejected(message: str) -> ValidationError:
+    """A wrong TOTP code on an authenticated route.
+
+    422 with a field-level detail, for the same reason as a wrong current
+    password: the web client treats any 401 on an authenticated route as a
+    dead session and signs the user out before the form can show the message.
+    """
+    return ValidationError(
+        message, code=ErrorCode.MFA_INVALID, details={"fields": {"code": [message]}}
     )
 
 

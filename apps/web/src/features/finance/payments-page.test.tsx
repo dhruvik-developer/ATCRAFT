@@ -84,6 +84,13 @@ const VENDOR = {
   lead_time_days: 14,
 }
 
+const CUSTOMER = {
+  id: 'cu000000-0000-7000-8000-000000000001',
+  code: 'CUS-0003',
+  name: 'Meridian Interiors',
+  is_blocked: false,
+}
+
 function payment(overrides: Partial<PaymentRow> = {}): PaymentRow {
   return {
     id: PAYMENT_ID,
@@ -480,6 +487,89 @@ describe('recording a payment', () => {
     expect(await screen.findByText('exceeds the vendor credit note balance')).toBeInTheDocument()
   })
 
+  it('shows a refusal of the whole body above the footer', async () => {
+    // `PaymentCreate._party_matches_direction` refuses the body as a whole, so
+    // the 422 arrives under `_root` rather than a field. No control owns that
+    // key: the shared mapping puts it on the form's root slot, which this
+    // dialog renders at the foot of the form, so the sentence is on screen.
+    const { user } = renderScreen(<PaymentsPage />, {
+      permissions: [P.PAYMENT_VIEW, P.PAYMENT_RECORD, P.VENDOR_VIEW],
+      routes: {
+        'GET /finance/payments': page([payment()]),
+        'GET /vendors': page([VENDOR]),
+        'POST /finance/payments': fail(422, 'VALIDATION_ERROR', 'Invalid payment', {
+          fields: { _root: ['A PAYMENT is recorded against a vendor, not a customer.'] },
+        }),
+      },
+    })
+
+    await screen.findByText(CODE)
+    await user.click(screen.getByRole('button', { name: 'Record payment' }))
+    const dialog = await screen.findByRole('dialog')
+
+    await user.click(within(dialog).getByRole('combobox', { name: 'Vendor' }))
+    await user.click(await screen.findByRole('option', { name: /VEN-0007/ }))
+    await user.type(within(dialog).getByRole('textbox', { name: 'Amount' }), '125000.50')
+    await user.click(within(dialog).getByRole('button', { name: 'Record payment' }))
+
+    expect(
+      await within(dialog).findByText('A PAYMENT is recorded against a vendor, not a customer.'),
+    ).toBeVisible()
+  })
+
+  it('moves the party side with the direction, so a receipt starts on a customer', async () => {
+    // `PaymentCreate._party_matches_direction`: a payment goes to a vendor and
+    // a receipt comes from a customer. Choosing "Receipt" therefore swaps the
+    // picker over rather than leaving a vendor box under a direction the API
+    // would refuse it on.
+    const { user } = renderScreen(<PaymentsPage />, {
+      permissions: [P.PAYMENT_VIEW, P.PAYMENT_RECORD, P.VENDOR_VIEW, P.CUSTOMER_VIEW],
+      routes: { 'GET /finance/payments': page([payment()]) },
+    })
+
+    await screen.findByText(CODE)
+    await user.click(screen.getByRole('button', { name: 'Record payment' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('combobox', { name: 'Vendor' })).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('combobox', { name: 'Direction' }))
+    await user.click(await screen.findByRole('option', { name: 'Receipt - money in' }))
+
+    expect(await within(dialog).findByRole('combobox', { name: 'Customer' })).toBeInTheDocument()
+    expect(within(dialog).queryByRole('combobox', { name: 'Vendor' })).not.toBeInTheDocument()
+  })
+
+  it('refuses a payment against a customer before the round trip', async () => {
+    // The API refuses the inverse pairing as a model-level 422 keyed `_root`,
+    // which no field on the form reads, while the global toast stays quiet for
+    // a 422 that carries field errors - so sent, the refusal would vanish. The
+    // rule is stated here, on the party side, and nothing is posted.
+    const { user, fetch } = renderScreen(<PaymentsPage />, {
+      permissions: [P.PAYMENT_VIEW, P.PAYMENT_RECORD, P.VENDOR_VIEW, P.CUSTOMER_VIEW],
+      routes: {
+        'GET /finance/payments': page([payment()]),
+        'GET /customers': page([CUSTOMER]),
+        'POST /finance/payments': ok(detail()),
+      },
+    })
+
+    await screen.findByText(CODE)
+    await user.click(screen.getByRole('button', { name: 'Record payment' }))
+    const dialog = await screen.findByRole('dialog')
+
+    await user.click(within(dialog).getByRole('combobox', { name: 'Party' }))
+    await user.click(await screen.findByRole('option', { name: 'Customer' }))
+    await user.click(await within(dialog).findByRole('combobox', { name: 'Customer' }))
+    await user.click(await screen.findByRole('option', { name: /CUS-0003/ }))
+    await user.type(within(dialog).getByRole('textbox', { name: 'Amount' }), '5000.00')
+    await user.click(within(dialog).getByRole('button', { name: 'Record payment' }))
+
+    expect(
+      await within(dialog).findByText('A payment is recorded against a vendor, not a customer.'),
+    ).toBeInTheDocument()
+    expect(fetch.calls.filter((call) => call.method === 'POST')).toHaveLength(0)
+  })
+
   it('refuses a third decimal place rather than letting the server round it away', async () => {
     // `to_money` quantises to two places, so a third would validate against the
     // contract's own four-place pattern and then be silently rounded off - the
@@ -731,6 +821,31 @@ describe('the lifecycle commands', () => {
     expect(fetch.requestFor('POST', `${DETAIL_PATH}/approve`)).toEqual({
       reason: 'Cleared by the works manager',
     })
+  })
+
+  it('refuses a written approval reason shorter than the API accepts, and sends nothing', async () => {
+    // The reason is optional, but `ReasonRequest.reason` is 3..500 whenever a
+    // body is sent. A two-character note would go out as `{reason: 'ok'}`,
+    // come back a 422 with a field error, and vanish: the mutation cache stays
+    // quiet for field errors on the understanding that a form shows them, and
+    // this dialog has no form. The rule is applied here, before the click is
+    // spent.
+    const { user, fetch } = renderScreen(
+      <PaymentCommandDialog command="approve" payment={payment()} onClose={() => {}} />,
+      {
+        permissions: [P.PAYMENT_VIEW, P.PAYMENT_APPROVE],
+        routes: { [`POST ${DETAIL_PATH}/approve`]: ok(detail({ status: 'APPROVED' })) },
+      },
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByRole('textbox', { name: 'Reason (optional)' }), 'ok')
+    await user.click(within(dialog).getByRole('button', { name: 'Approve payment' }))
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      'Record at least 3 characters of reason',
+    )
+    expect(fetch.calls.filter((call) => call.method === 'POST')).toHaveLength(0)
   })
 
   it('refuses to send a cancellation until the reason is long enough', async () => {

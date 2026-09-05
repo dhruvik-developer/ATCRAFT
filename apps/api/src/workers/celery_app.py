@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import smtplib
 from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar
 
@@ -98,13 +99,20 @@ celery_app.conf.update(
             "schedule": 86400.0,
             "options": {"queue": "default"},
         },
+        # Password-reset rows are a durable encrypted outbox. This sweep
+        # recovers an after-commit publish that happened while Redis was down.
+        "dispatch-pending-password-resets": {
+            "task": "notifications.dispatch_pending_password_resets",
+            "schedule": 60.0,
+            "options": {"queue": "notifications", "expires": 55},
+        },
     },
 )
 
 T = TypeVar("T")
 
 
-class AsyncTask(Task):  # type: ignore[misc]
+class AsyncTask(Task):
     """Base task that can run an async service function.
 
     The application's data layer is async, and duplicating every repository in a
@@ -196,6 +204,26 @@ def _on_task_end(
     clear_request_context()
 
 
+#: Tasks that talk SMTP. Their transport exceptions embed exactly what
+#: :mod:`src.core.mail` forbids from the log: ``SMTPRecipientsRefused`` is
+#: keyed by recipient address, and every ``SMTPResponseException`` carries the
+#: relay's response text. The tasks log their own stable row identifiers.
+MAIL_TASKS = frozenset(
+    {
+        "notifications.send_email",
+        "notifications.send_password_reset_email",
+        "notifications.dispatch_pending_password_resets",
+    }
+)
+
+#: Exception families whose ``str()`` can echo message content or addresses.
+_TRANSPORT_EXCEPTIONS = (smtplib.SMTPException, OSError)
+
+
+def _failure_is_confidential(task_name: str, exception: BaseException | None) -> bool:
+    return task_name in MAIL_TASKS and isinstance(exception, _TRANSPORT_EXCEPTIONS)
+
+
 @task_failure.connect
 def _on_task_failure(
     task_id: str | None = None,
@@ -203,14 +231,25 @@ def _on_task_failure(
     sender: Task | None = None,
     **kwargs: Any,
 ) -> None:
-    """Section 53: background job failures are handled, not silently dropped."""
+    """Section 53: background job failures are handled, not silently dropped.
+
+    A mail task's transport failure is logged by type only: its message and
+    traceback would carry the recipient address and the relay's reply, and
+    ``error`` is not a redacted key. Everything else keeps the full detail.
+    """
+    task_name = getattr(sender, "name", "unknown")
+    error_type = type(exception).__name__ if exception is not None else "unknown"
+    if _failure_is_confidential(task_name, exception):
+        log.error("task.failed", task=task_name, task_id=task_id, error_type=error_type)
+        return
     log.error(
         "task.failed",
-        task=getattr(sender, "name", "unknown"),
+        task=task_name,
         task_id=task_id,
+        error_type=error_type,
         error=str(exception),
         exc_info=exception,
     )
 
 
-__all__ = ["AsyncTask", "async_task", "celery_app"]
+__all__ = ["MAIL_TASKS", "AsyncTask", "async_task", "celery_app"]

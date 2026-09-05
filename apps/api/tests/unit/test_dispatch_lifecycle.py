@@ -15,7 +15,7 @@ from itertools import pairwise
 
 import pytest
 
-from src.core.errors import InvalidStateTransitionError
+from src.core.errors import BusinessRuleError, ErrorCode, InvalidStateTransitionError
 from src.core.permissions import Permission
 from src.modules.dispatch.models import (
     DELIVERED_STATUSES,
@@ -26,8 +26,14 @@ from src.modules.dispatch.models import (
 )
 from src.modules.dispatch.repository import DispatchItem
 from src.modules.dispatch.service import DISPATCH_LIFECYCLE as FLOW
-from src.modules.dispatch.service import build_line_movements
+from src.modules.dispatch.service import (
+    DISPATCHABLE_ORDER_STATUSES,
+    assert_order_dispatchable,
+    build_line_movements,
+)
 from src.modules.inventory.models import TransactionType
+from src.modules.sales.models import SalesOrderStatus
+from src.modules.sales.service import SALES_ORDER_LIFECYCLE as SALES_FLOW
 
 # The happy path, as a sequence, so the tests below can walk it.
 HAPPY_PATH = (
@@ -144,9 +150,7 @@ def test_a_viewer_is_offered_no_actions() -> None:
 
 
 def test_a_dispatch_clerk_is_offered_only_what_they_may_do() -> None:
-    actions = FLOW.available_actions(
-        DispatchStatus.DISPATCHED, held=[Permission.DISPATCH_UPDATE]
-    )
+    actions = FLOW.available_actions(DispatchStatus.DISPATCHED, held=[Permission.DISPATCH_UPDATE])
     targets = {action.target for action in actions}
     assert DispatchStatus.IN_TRANSIT in targets
     # Confirming delivery is somebody else's authority.
@@ -251,3 +255,49 @@ def test_every_movement_points_back_at_the_consignment() -> None:
         assert movement.reference_id == dispatch_id
         assert movement.reference_code == "DSP/2026-27/00003"
         assert movement.reason
+
+
+# -----------------------------------------------------------------------------
+# The sales-order gate: a consignment may only leave an order that is ready
+# -----------------------------------------------------------------------------
+
+
+def test_only_allocated_or_part_dispatched_orders_may_be_dispatched() -> None:
+    assert (
+        frozenset({SalesOrderStatus.ALLOCATED, SalesOrderStatus.PARTIALLY_DISPATCHED})
+        == DISPATCHABLE_ORDER_STATUSES
+    )
+
+
+def test_the_dispatchable_set_is_derived_from_the_sales_lifecycle() -> None:
+    # Not a second copy of the rule: if the sales module ever opens a
+    # CONFIRMED -> PARTIALLY_DISPATCHED edge, the gate follows it automatically.
+    for status in SalesOrderStatus:
+        expected = status is SalesOrderStatus.PARTIALLY_DISPATCHED or SALES_FLOW.can_transition(
+            status, SalesOrderStatus.PARTIALLY_DISPATCHED
+        )
+        assert (status in DISPATCHABLE_ORDER_STATUSES) is expected, status
+
+
+@pytest.mark.parametrize("status", sorted(DISPATCHABLE_ORDER_STATUSES))
+def test_a_ready_order_passes_the_gate_silently(status: SalesOrderStatus) -> None:
+    assert_order_dispatchable("SO/2026-27/00001", status)
+
+
+@pytest.mark.parametrize("status", sorted(set(SalesOrderStatus) - DISPATCHABLE_ORDER_STATUSES))
+def test_an_order_that_is_not_ready_is_refused_with_the_remedy_named(
+    status: SalesOrderStatus,
+) -> None:
+    with pytest.raises(BusinessRuleError) as raised:
+        assert_order_dispatchable("SO/2026-27/00001", status)
+
+    error = raised.value
+    # INVALID_STATE_TRANSITION so the frontend headlines it as "Action not
+    # allowed in this state"; the message itself says what to do about it.
+    assert error.code is ErrorCode.INVALID_STATE_TRANSITION
+    assert "SO/2026-27/00001" in error.message
+    assert "fully allocated" in error.message
+    assert error.details["sales_order_status"] == str(status)
+    assert set(error.details["dispatchable_statuses"]) == {
+        str(s) for s in DISPATCHABLE_ORDER_STATUSES
+    }

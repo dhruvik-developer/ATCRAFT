@@ -27,11 +27,19 @@ somewhere else.
 **Assumed.** `credit_limit IS NULL` means unlimited credit. `credit_limit = 0`
 means strictly no credit — a cash-only customer.
 
+Raising line quantities on a confirmed order re-runs the credit check against
+the full prospective order total — not the delta, because `outstanding_amount`
+never includes open orders — under the locked customer row, and only when the
+total grows. A reduction is never checked, so a customer now on hold can still
+shrink its exposure.
+
 **Why.** The two states are genuinely different and a single nullable number has
 to carry both. Treating `0` as "unlimited" would be dangerous by default; a
 customer set up with no limit yet would silently get infinite credit.
 
-**Where.** `src/modules/customers/service.py` — `assert_within_credit_limit`.
+**Where.** `src/modules/customers/service.py` — `assert_within_credit_limit`;
+the re-check on a confirmed order is `src/modules/sales/service.py` —
+`_update_confirmed`.
 
 **Impact if wrong.** Orders are blocked or allowed incorrectly at confirmation.
 Low rework cost.
@@ -86,7 +94,11 @@ a debit note.
 **Why.** Polishing and PVD have real, expected material loss. Silently absorbing
 loss beyond the agreed figure would hide a vendor problem.
 
-**Where.** `src/modules/job_work/service.py` — the receipt path.
+**Where.** `src/modules/job_work/service.py` — the receipt path,
+`assert_excess_loss_authorised`. Accepting loss beyond the allowance requires
+`job_work.close`, the module's senior right: a `job_work.receive` holder who
+sets `approve_excess_loss` is refused with `PERMISSION_DENIED`, and the receipt
+records the `job_work.close` holder as `excess_loss_approved_by_id`.
 
 **Impact if wrong.** Vendor recoveries are missed, or routine loss creates
 unnecessary approvals.
@@ -254,19 +266,31 @@ disruptive once documents exist. Confirm before go-live.
 
 ## 14. Refresh-token storage in the browser
 
-**Assumed.** The access token lives in memory only; the refresh token is
-persisted in `localStorage` so a page reload does not sign the user out.
+**Assumed.** The access token lives in memory only. The refresh JWT is never in
+a JSON body: the API sets it as an `HttpOnly`, `SameSite=Strict` cookie
+(`atcraft_refresh`, path `/api/v1/auth`, `Secure` when deployed) and a readable
+companion cookie `atcraft_csrf` carrying an HMAC of that JWT. `/auth/refresh`,
+`/auth/logout` and `/auth/logout-all` require the CSRF cookie's value echoed in
+`X-CSRF-Token`; both cookies rotate on every refresh. A reload restores the
+session because the browser still holds the cookie, and `localStorage` holds
+only a sign-out marker, never a credential.
 
-**Why.** It keeps the access token out of storage while preserving the session
-across reloads. The stronger option — an httpOnly `SameSite=Strict` refresh
-cookie — needs the API to set cookies and a CSRF strategy on the refresh
-endpoint.
+**Why.** Script cannot read an `HttpOnly` cookie, so an XSS payload cannot
+exfiltrate the refresh credential. The double-submit HMAC closes the hole a
+cookie opens - a cross-site form post carries cookies but cannot set a header,
+and a sibling host cannot forge an HMAC keyed on `JWT_SECRET`. The earlier
+design, which persisted the refresh token in `localStorage`, was replaced when
+this landed; `docs/security.md` no longer lists it as a gap.
 
-**Where.** `apps/web/src/lib/api-client.ts`, and `docs/security.md` records it
-as a known gap.
+**Where.** `src/modules/auth/cookies.py` (`set_refresh_cookies`,
+`require_refresh_csrf`), `src/modules/auth/router.py`, and
+`apps/web/src/lib/api-client.ts`.
 
-**Impact if wrong.** An XSS payload could exfiltrate the refresh token. This is
-the single most valuable hardening step before public internet exposure.
+**Impact if wrong.** A non-browser client that expected a `refresh_token`
+field must keep a cookie jar and send `X-CSRF-Token` instead - there is no
+body-based refresh. Serving the API on a different origin from the SPA would
+need the cookie's `SameSite` policy and the CORS credential settings revisited
+together.
 
 ---
 
@@ -671,22 +695,217 @@ place it was seen rather than `NULL` once it has shipped. Consumers must read
 
 ---
 
+## 31. Inventory is valued FIFO for every item
+
+**Assumed.** Stock is valued FIFO, for every item, by `inventory.service`
+against `inventory_cost_layers` / `inventory_cost_consumptions`. There is no
+per-item `valuation_method`; `inventory_balances.average_cost` is a derived
+display figure over the open layers, never an independent moving average.
+
+**Why.** The engine only ever costed FIFO. A per-item column defaulting to
+`WEIGHTED_AVERAGE` described a choice nothing honoured and was dropped in
+revision `7e8eb4bdd0ed` (`20260902_1147_drop_items_valuation_method.py`); see
+`docs/database.md` section 3.
+
+**Where.** `src/modules/inventory/service.py` - `consume_layers`,
+`cost_movement`, `FifoCostPreview`; `src/modules/inventory/models.py` -
+`InventoryCostLayer`, `InventoryCostLayerConsumption`.
+
+**Impact if wrong.** If weighted average or standard cost is required for any
+item class or statutory report, the column returns together with a costing
+dispatch that reads it - never the column alone.
+
+---
+
+## 32. Customer charges are receivable journals, not invoices
+
+**Assumed.** No customer-invoice document exists. Customer charges are posted as
+receivable journals through finance (`post_customer_adjustment`,
+`POST /finance/customer-adjustments`, gated on `payment.approve`), and the
+cached `customers.outstanding_amount` is only ever moved alongside such a
+journal - `OutstandingAdjustment.reference_type` / `reference_code` are
+required for that reason. The former `POST /customers/{id}/outstanding` route,
+which moved the cache with no ledger document, was removed.
+
+**Why.** A cached balance that can change without a ledger row is a figure
+nobody can reconcile: the ageing report reads the ledger, the credit check reads
+the cache, and the two drift apart on the first hand edit. Requiring the
+reference makes every movement of the cache traceable to the document that
+caused it.
+
+**Where.** `src/modules/finance/service.py` - `post_customer_adjustment`;
+`src/modules/customers/schemas.py` - `OutstandingAdjustment`.
+
+**Impact if wrong.** If Atcraft needs a real customer invoice - a statutory GST
+series, e-invoicing - that is a new document with its own numbering and posting
+path, and the adjustment route becomes the correction path beside it, not the
+charge path.
+
+---
+
+## 33. Vendor portal scope
+
+**Assumed.** A vendor principal's purchase-order reads and row locks are
+confined at `PurchaseOrderRepository._scoped` to that vendor's own orders.
+`PATCH /purchase-orders/{id}` and `POST /purchase-orders/{id}/submit` are
+buyer-only (`forbid_vendor_users`), even for the order's own vendor;
+acknowledge and shipment recording stay vendor-reachable.
+
+**Why.** Confining the query rather than the route means a vendor cannot reach
+another vendor's order by any path, including the locks a status change takes.
+Editing and submitting an order is the buyer's act: a vendor who could amend
+quantities or prices on an order addressed to them would be writing their own
+contract. Acknowledging it and recording the shipment are the two things the
+portal exists for.
+
+**Where.** `src/modules/procurement/repository.py` -
+`PurchaseOrderRepository._scoped`; `src/modules/procurement/router.py` - the
+`forbid_vendor_users` dependencies on the two routes.
+
+**Impact if wrong.** If a vendor is meant to propose changes to an order, that
+is a counter-proposal the buyer accepts - a new flow - not write access to the
+order. Open question 5 covers what a vendor may see.
+
+---
+
+## 34. Quotation requote
+
+**Assumed.** Rejecting or lapsing a vendor's offer is not final while the RFQ
+is open: a revised offer through `update_quotation` reopens the (RFQ, vendor)
+row to `RECEIVED`. Only `SELECTED` is terminal.
+
+**Why.** A buyer who rejects an offer as too dear and receives a better one from
+the same vendor should record it against the same RFQ, where the comparison
+lives, rather than raise a second RFQ or lose the history. One row per (RFQ,
+vendor) keeps the recommendation and the audit trail on a single line.
+Selection is final because it is what the purchase order was raised from.
+
+**Where.** `src/modules/procurement/service.py` - `update_quotation`.
+
+**Impact if wrong.** If a rejection is meant to close the door on a vendor for
+that RFQ, the reopening becomes a refused transition and a requote needs a new
+RFQ.
+
+---
+
+## 35. Purchase return stock pool
+
+**Assumed.** A return line leaves the pool the inspection put the stock in.
+When the caller names no pool, `DAMAGED` is used first when rejected stock
+covers the whole line, then `AVAILABLE`; a line that would need both pools is
+refused and must be split, naming the pool on each part. A line still on QC
+hold cannot be returned.
+
+**Why.** The canonical reason for a purchase return is goods that failed
+incoming inspection, so rejected stock goes first. A quantity that would need
+both pools is refused rather than split by the service, because the service
+would then be guessing a split it would have to defend. Stock on QC hold has
+not been decided on, and only an inspection can move it.
+
+**Where.** `src/modules/procurement/service_rules.py` - `resolve_return_pool`.
+
+**Impact if wrong.** If returns are meant to draw from a single pool regardless
+of inspection outcome, the resolution collapses to one branch; the split
+refusal stays, because the ledger still needs to know which pool each quantity
+left.
+
+---
+
+## 36. Receiving warehouse when an MRP run is scoped to several warehouses
+
+**Assumed.** A run scoped to several warehouses pools their stock, so a
+suggestion has no warehouse of its own. The production order raised from it is
+received into the item's default warehouse when that lies inside the run's
+scope, otherwise into the first warehouse the run named. A run scoped to one
+warehouse receives there regardless of the item default; a run scoped to none
+defers to the item default, and an item with no default is refused.
+
+**Why.** The choice has to be deterministic and inside the scope the planner
+asked for. The order boxes were ticked in on a form is neither a business rule
+nor stable.
+
+**Where.** `src/modules/production/service.py` - `mrp_receiving_warehouse`,
+called by `create_order_from_mrp`.
+
+**Impact if wrong.** Output is booked to a store the planner did not intend.
+The order's `warehouse_id` is editable while it is a draft, so the correction
+is one edit, but the intended store's reports under-count until it is made.
+
+---
+
+## 37. Only a super administrator may set a super administrator's password
+
+**Assumed.** A caller who does not hold super-administrator authority cannot
+set the password of an account that does - neither through
+`POST /users/{id}/reset-password` nor by sending a `password` on
+`PATCH /users/{id}`. Super-administrator authority is held by the
+`is_superuser` flag or by the `SUPER_ADMIN` role, and a caller holding it by
+either route is allowed. The refusal is `PERMISSION_DENIED` (403), naming
+`user.reset_password` as the right involved and carrying the reason.
+
+**Why.** `user.reset_password` is an ordinary administrative right. Without
+this rule anyone holding it could take over a super administrator's account by
+resetting its password, and with it acquire every permission in the system - a
+privilege escalation through the one door the authority guards do not
+otherwise cover. `REQUIRE_AUTHORITY_TO_REVOKE` refuses far weaker tampering for
+the same reason.
+
+**Where.** `src/modules/users/service.py` - `PROTECT_SUPER_ADMIN_PASSWORDS`,
+applied by `assert_may_set_password_for` on both the reset-password and the
+update paths of `UserService`.
+
+**Impact if wrong.** If a delegated administrator is meant to reset a super
+administrator's password - a break-glass rota, say - the constant turns the rule
+off in one place. The audit row still names who set the password.
+
+---
+
+## 38. A customer adjustment is posted in the company's own currency
+
+**Assumed.** A debit or credit note posted through
+`POST /finance/customer-adjustments` is denominated in the company's currency.
+`post_customer_adjustment` leaves `currency` unset on `post_journal`, so the
+entries take the same default an invoice and a receipt take when none is
+named; the request schema offers no currency field.
+
+**Why.** Receivable ageing and outstanding balances net per (party, currency) -
+section 27. A note in a currency nobody chose could never be settled by the
+receipt that follows it, and would sit in the ageing report as a debt in its
+own denomination indefinitely.
+
+**Where.** `src/modules/finance/service.py` - `post_customer_adjustment`;
+`src/modules/finance/schemas.py` - `CustomerAdjustmentCreate`.
+
+**Impact if wrong.** If a customer's account is kept in another currency (open
+question 3), the note needs a `currency` field validated against that account's
+denomination, and the outstanding delta has to be applied to that
+denomination's balance rather than the company-currency cache.
+
+---
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant
 module is used in production:
 
-1. **Inventory valuation method.** Weighted average is implemented. Is FIFO
-   required for statutory reporting?
+1. **Inventory valuation method.** FIFO is implemented for every item
+   (section 31). Is weighted average or standard cost required for any item
+   class or for statutory reporting? If so, `items.valuation_method` returns
+   together with the costing dispatch that honours it.
 2. **Approval thresholds.** At what value does a purchase order, a stock
-   adjustment or a price override require a second approval? Currently a single
-   configurable threshold per document type.
+   adjustment or a price override require a second approval? The
+   stock-adjustment threshold is a code constant
+   (`ADJUSTMENT_APPROVAL_VALUE_THRESHOLD`, 25 000, in
+   `src/modules/inventory/service.py`) pending the business decision; there is
+   no setting for it, and the OpenAPI description of `POST /inventory/adjustments`
+   says so.
 3. **Multi-currency.** Everything is INR today. Are imports or exports priced in
    another currency?
 4. **Batch and shelf life.** Which item groups genuinely require batch tracking,
    and is shelf-life expiry a blocking rule or a warning?
 5. **Vendor portal scope.** Which vendor roles may see pricing? The current
-   split shows a vendor their own purchase-order prices only.
+   split shows a vendor their own purchase-order prices only; what a vendor may
+   do to those orders is section 33.
 6. **Serial number format.** Generated by the system, or supplied by the vendor
    or the customer?
 7. **Partial dispatch.** May a sales-order line be dispatched in more than two

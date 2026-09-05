@@ -71,8 +71,12 @@ import {
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
-import { api } from '@/lib/api-client'
+import { useUserOptions } from '@/hooks/use-user-options'
+import { api, ApiError } from '@/lib/api-client'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
+import { fieldErrorSummary } from '@/lib/form-errors'
 import { formatDate, formatDateTime, formatFileSize, humanise } from '@/lib/format'
+import { messages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -91,15 +95,12 @@ import {
   fileKindOf,
   hasEntityReference,
   isExpired,
-  useUploaderOptions,
   type DocumentCategory,
   type DocumentRow,
   type FileKind,
   type SortableDocumentField,
+  type UploaderOption,
 } from './document-model'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /**
  * Every filter key this screen owns, named once.
@@ -210,8 +211,28 @@ function UploadDialog({
     mutationFn: (body: FormData) => api.post<DocumentRow>('/documents', body),
     onSuccess: (stored) => {
       void queryClient.invalidateQueries({ queryKey: documentKeys.all })
-      toast.success('File uploaded', `${stored.file_name} is stored and can be downloaded.`)
+      toast.success(
+        success.uploaded('File'),
+        `${stored.file_name} is stored and can be downloaded.`,
+      )
       close()
+    },
+    onError: (error) => {
+      // Plain state rather than react-hook-form (see above), so the 422 field
+      // detail is folded into the same error map the client-side checks fill.
+      // The mutation cache stays quiet for a 422 with field detail on the
+      // understanding that the form shows it.
+      if (!(error instanceof ApiError)) return
+      const fields = error.fieldErrors
+      const joined = (...keys: string[]) => {
+        const messages = keys.flatMap((key) => fields[key] ?? [])
+        return messages.length > 0 ? messages.join('. ') : undefined
+      }
+      setErrors({
+        file: joined('file'),
+        entity: joined('entity_type', 'entity_id'),
+        expires: joined('expires_at'),
+      })
     },
   })
 
@@ -572,6 +593,8 @@ export default function DocumentsPage() {
   const [pendingDelete, setPendingDelete] = useState<DocumentRow | null>(null)
   const [reason, setReason] = useState('')
   const [reasonTouched, setReasonTouched] = useState(false)
+  /** What the API said about a reason the client-side check had accepted. */
+  const [reasonServerError, setReasonServerError] = useState<string | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
 
   // One right covers all three reads - the list, the metadata and the download -
@@ -619,7 +642,7 @@ export default function DocumentsPage() {
   const { setParam } = list
   const filterCount = FILTER_KEYS.filter((key) => Boolean(searchParams.get(key))).length
 
-  const uploaders = useUploaderOptions(canViewUsers)
+  const uploaders = useUserOptions<UploaderOption>({ enabled: canViewUsers })
   const uploaderNames = useMemo(
     () => new Map((uploaders.data ?? []).map((entry) => [entry.id, entry.full_name] as const)),
     [uploaders.data],
@@ -677,11 +700,23 @@ export default function DocumentsPage() {
       api.delete(`/documents/${doc.id}`, { params: { reason: text } }),
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({ queryKey: documentKeys.all })
-      toast.success('Document deleted', `${variables.doc.file_name} and its file are gone.`)
+      toast.success(
+        success.deleted('Document'),
+        `${variables.doc.file_name} and its file are gone.`,
+      )
       setPendingDelete(null)
       setDetailDoc(null)
       setReason('')
       setReasonTouched(false)
+      setReasonServerError(null)
+    },
+    onError: (error) => {
+      // The reason travels as a query parameter, so the API keys its 422 as
+      // `query.reason`; it is the only field either way, so every message is
+      // shown under the input. The mutation cache stays quiet for a 422 with
+      // field detail on the understanding that the form shows it.
+      const message = fieldErrorSummary(error)
+      if (message) setReasonServerError(message)
     },
   })
 
@@ -889,7 +924,7 @@ export default function DocumentsPage() {
   ) : null
 
   const narrowed = filterCount > 0 || list.search !== ''
-  const reasonTooShort = reason.trim().length < 3
+  const reasonTooShort = reason.trim().length < REASON_MIN_LENGTH
 
   return (
     <>
@@ -929,14 +964,14 @@ export default function DocumentsPage() {
         toolbar={
           <>
             <Select
-              value={category || ALL}
-              onValueChange={(next) => setParam('category', next === ALL ? undefined : next)}
+              value={category || SELECT_ALL}
+              onValueChange={(next) => setParam('category', next === SELECT_ALL ? undefined : next)}
             >
-              <SelectTrigger className="w-[10.5rem]" aria-label="Filter by category">
+              <SelectTrigger className="w-full sm:w-[10.5rem]" aria-label="Filter by category">
                 <SelectValue placeholder="Any category" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any category</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any category</SelectItem>
                 {DOCUMENT_CATEGORIES.map((entry) => (
                   <SelectItem key={entry} value={entry}>
                     {humanise(entry)}
@@ -946,14 +981,16 @@ export default function DocumentsPage() {
             </Select>
 
             <Select
-              value={mimeType || ALL}
-              onValueChange={(next) => setParam('mime_type', next === ALL ? undefined : next)}
+              value={mimeType || SELECT_ALL}
+              onValueChange={(next) =>
+                setParam('mime_type', next === SELECT_ALL ? undefined : next)
+              }
             >
-              <SelectTrigger className="w-[10.5rem]" aria-label="Filter by file type">
+              <SelectTrigger className="w-full sm:w-[10.5rem]" aria-label="Filter by file type">
                 <SelectValue placeholder="Any file type" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any file type</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any file type</SelectItem>
                 {MIME_TYPES.map((entry) => (
                   <SelectItem key={entry} value={entry}>
                     {fileKindLabel(entry)}
@@ -962,14 +999,14 @@ export default function DocumentsPage() {
               </SelectContent>
             </Select>
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto">
               <Label htmlFor="documents-entity-type" className="sr-only">
                 Attached to record type
               </Label>
               <Input
                 id="documents-entity-type"
                 list="documents-entity-type-options"
-                className="w-[12rem]"
+                className="w-full sm:w-[12rem]"
                 placeholder="Attached to, e.g. qc_inspection"
                 autoComplete="off"
                 value={entityType}
@@ -986,7 +1023,7 @@ export default function DocumentsPage() {
               </Label>
               <Input
                 id="documents-entity-id"
-                className="w-[13rem] font-mono text-xs"
+                className="w-full font-mono text-xs sm:w-[13rem]"
                 placeholder="Record id (UUID)"
                 autoComplete="off"
                 value={entityId}
@@ -1003,14 +1040,16 @@ export default function DocumentsPage() {
 
             {canViewUsers ? (
               <Select
-                value={uploadedBy || ALL}
-                onValueChange={(next) => setParam('uploaded_by', next === ALL ? undefined : next)}
+                value={uploadedBy || SELECT_ALL}
+                onValueChange={(next) =>
+                  setParam('uploaded_by', next === SELECT_ALL ? undefined : next)
+                }
               >
-                <SelectTrigger className="w-[12rem]" aria-label="Filter by uploader">
+                <SelectTrigger className="w-full sm:w-[12rem]" aria-label="Filter by uploader">
                   <SelectValue placeholder="Anyone" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL}>Uploaded by anyone</SelectItem>
+                  <SelectItem value={SELECT_ALL}>Uploaded by anyone</SelectItem>
                   {(uploaders.data ?? []).map((entry) => (
                     <SelectItem key={entry.id} value={entry.id}>
                       {entry.full_name}
@@ -1036,14 +1075,16 @@ export default function DocumentsPage() {
             )}
 
             <Select
-              value={visibility || ALL}
-              onValueChange={(next) => setParam('visibility', next === ALL ? undefined : next)}
+              value={visibility || SELECT_ALL}
+              onValueChange={(next) =>
+                setParam('visibility', next === SELECT_ALL ? undefined : next)
+              }
             >
-              <SelectTrigger className="w-[11rem]" aria-label="Filter by visibility">
+              <SelectTrigger className="w-full sm:w-[11rem]" aria-label="Filter by visibility">
                 <SelectValue placeholder="Any visibility" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any visibility</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any visibility</SelectItem>
                 <SelectItem value="public">Company-wide</SelectItem>
                 <SelectItem value="restricted">Restricted</SelectItem>
               </SelectContent>
@@ -1100,6 +1141,7 @@ export default function DocumentsPage() {
             setPendingDelete(null)
             setReason('')
             setReasonTouched(false)
+            setReasonServerError(null)
           }
         }}
         title="Delete this document?"
@@ -1127,15 +1169,19 @@ export default function DocumentsPage() {
           <Input
             id="document-delete-reason"
             value={reason}
-            onChange={(event) => setReason(event.target.value)}
+            onChange={(event) => {
+              setReason(event.target.value)
+              setReasonServerError(null)
+            }}
             autoComplete="off"
-            // The API accepts 3 to 255 characters and rejects anything shorter.
-            maxLength={255}
+            maxLength={REASON_MAX_LENGTH}
             className="mt-1.5"
-            aria-invalid={reasonTouched && reasonTooShort}
+            aria-invalid={(reasonTouched && reasonTooShort) || Boolean(reasonServerError)}
           />
-          {reasonTouched && reasonTooShort && (
-            <FieldError message="Record at least three characters of reason" />
+          {reasonTouched && reasonTooShort ? (
+            <FieldError message={messages.errors.reasonTooShort} />
+          ) : (
+            <FieldError message={reasonServerError ?? undefined} />
           )}
         </div>
       </ConfirmDialog>

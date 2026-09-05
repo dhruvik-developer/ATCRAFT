@@ -315,8 +315,7 @@ class ReceiptLineIn(BaseModel):
     @model_validator(mode="after")
     def _something_came_back(self) -> ReceiptLineIn:
         if (
-            self.output_quantity + self.rejected_quantity + self.returned_unprocessed_quantity
-            <= 0
+            self.output_quantity + self.rejected_quantity + self.returned_unprocessed_quantity <= 0
             and not self.is_final
         ):
             raise ValueError(

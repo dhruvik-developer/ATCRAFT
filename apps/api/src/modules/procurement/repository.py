@@ -34,6 +34,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
+    ColumnElement,
     Select,
     String,
     and_,
@@ -51,6 +52,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
+from src.core.database import affected_rows
 from src.core.pagination import COUNT_CEILING, PageParams, SortParams
 from src.core.responses import OffsetPagination
 from src.core.types import GUID, Money, to_quantity
@@ -70,6 +72,7 @@ from src.modules.procurement.models import (
     PurchaseRequisitionLine,
     PurchaseReturn,
     PurchaseReturnLine,
+    PurchaseReturnStatus,
     PurchaseSourceType,
     ReceiptLineQcStatus,
     RequisitionStatus,
@@ -158,6 +161,9 @@ class PurchasableItem:
     is_active: bool
     is_batch_tracked: bool
     is_serial_tracked: bool
+    #: Where a document raised from planning is received when the run named no
+    #: warehouse. ``None`` when the item master has not chosen one.
+    default_warehouse_id: uuid.UUID | None = None
 
     @property
     def order_uom_id(self) -> uuid.UUID:
@@ -224,6 +230,7 @@ class PurchasableItemRepository(BaseRepository[Item]):
             Item.is_active,
             Item.is_batch_tracked,
             Item.is_serial_tracked,
+            Item.default_warehouse_id,
         ).where(
             Item.company_id == self.tenant.company_id,
             Item.deleted_at.is_(None),
@@ -245,6 +252,7 @@ class PurchasableItemRepository(BaseRepository[Item]):
                 is_active=row.is_active,
                 is_batch_tracked=row.is_batch_tracked,
                 is_serial_tracked=row.is_serial_tracked,
+                default_warehouse_id=row.default_warehouse_id,
             )
             for row in rows
         }
@@ -372,7 +380,7 @@ class ItemVendorLinkRepository(BaseRepository[ItemVendorLink]):
             .values(last_purchase_price=price_case, last_purchase_date=purchased_on)
             .execution_options(synchronize_session=False)
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 # -----------------------------------------------------------------------------
@@ -402,9 +410,7 @@ class RequisitionLineRepository(BaseRepository[PurchaseRequisitionLine]):
         stmt = (
             self._scoped()
             .where(PurchaseRequisitionLine.requisition_id.in_(list(requisition_ids)))
-            .order_by(
-                PurchaseRequisitionLine.requisition_id, PurchaseRequisitionLine.line_number
-            )
+            .order_by(PurchaseRequisitionLine.requisition_id, PurchaseRequisitionLine.line_number)
         )
         grouped: dict[uuid.UUID, list[PurchaseRequisitionLine]] = {}
         for line in (await self.session.execute(stmt)).scalars().all():
@@ -441,7 +447,7 @@ class RequisitionLineRepository(BaseRepository[PurchaseRequisitionLine]):
             PurchaseRequisitionLine.company_id == self.tenant.company_id,
             PurchaseRequisitionLine.requisition_id == requisition_id,
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 class RequisitionRepository(BaseRepository[PurchaseRequisition]):
@@ -457,9 +463,7 @@ class RequisitionRepository(BaseRepository[PurchaseRequisition]):
     }
 
     async def lock_for_update(self, requisition_id: uuid.UUID) -> PurchaseRequisition | None:
-        stmt = (
-            self._scoped().where(PurchaseRequisition.id == requisition_id).with_for_update()
-        )
+        stmt = self._scoped().where(PurchaseRequisition.id == requisition_id).with_for_update()
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
     def _filtered(self, filters: RequisitionFilters) -> Select[Any]:
@@ -504,14 +508,13 @@ class RequisitionRepository(BaseRepository[PurchaseRequisition]):
 
 class RfqLineRepository(BaseRepository[RfqLine]):
     model = RfqLine
+    entity_label = "RFQ line"
 
     async def list_for_rfq(self, rfq_id: uuid.UUID) -> list[RfqLine]:
         stmt = self._scoped().where(RfqLine.rfq_id == rfq_id).order_by(RfqLine.line_number)
         return list((await self.session.execute(stmt)).scalars().all())
 
-    async def list_for_rfqs(
-        self, rfq_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, list[RfqLine]]:
+    async def list_for_rfqs(self, rfq_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, list[RfqLine]]:
         if not rfq_ids:
             return {}
         stmt = (
@@ -528,11 +531,12 @@ class RfqLineRepository(BaseRepository[RfqLine]):
         stmt = delete(RfqLine).where(
             RfqLine.company_id == self.tenant.company_id, RfqLine.rfq_id == rfq_id
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 class RfqRepository(BaseRepository[Rfq]):
     model = Rfq
+    entity_label = "RFQ"
     searchable_fields = ("code",)
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "code": Rfq.code,
@@ -614,7 +618,7 @@ class QuotationLineRepository(BaseRepository[VendorQuotationLine]):
             VendorQuotationLine.company_id == self.tenant.company_id,
             VendorQuotationLine.quotation_id == quotation_id,
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 class QuotationRepository(BaseRepository[VendorQuotation]):
@@ -758,7 +762,7 @@ class PurchaseOrderLineRepository(BaseRepository[PurchaseOrderLine]):
             PurchaseOrderLine.company_id == self.tenant.company_id,
             PurchaseOrderLine.purchase_order_id == order_id,
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
     async def incoming_by_item(
         self,
@@ -863,9 +867,7 @@ class PurchaseOrderLineRepository(BaseRepository[PurchaseOrderLine]):
             .order_by(PurchaseOrderLine.item_id, due_date)
         )
         if warehouse_ids:
-            stmt = stmt.where(
-                PurchaseOrder.warehouse_id.in_(list(dict.fromkeys(warehouse_ids)))
-            )
+            stmt = stmt.where(PurchaseOrder.warehouse_id.in_(list(dict.fromkeys(warehouse_ids))))
 
         rows = (await self.session.execute(stmt)).all()
         # An item with nothing on order is simply absent: the planner reads this
@@ -892,6 +894,20 @@ class PurchaseOrderRepository(BaseRepository[PurchaseOrder]):
         "total_amount": PurchaseOrder.total_amount,
         "created_at": PurchaseOrder.created_at,
     }
+
+    def _scoped(self, *, include_deleted: bool = False) -> Select[tuple[PurchaseOrder]]:
+        """Tenant scope, plus the vendor scope for a portal principal.
+
+        Applied at the root of every statement this repository builds - ``get``,
+        ``get_many``, ``get_by_code``, ``lock_for_update`` and the list filters -
+        so a vendor user can neither read nor lock another vendor's order, and no
+        service path has to remember the rule (master rules section 16). An
+        internal user (``vendor_id is None``) is unaffected.
+        """
+        stmt = super()._scoped(include_deleted=include_deleted)
+        if self.tenant.vendor_id is not None:
+            stmt = stmt.where(PurchaseOrder.vendor_id == self.tenant.vendor_id)
+        return stmt
 
     async def get_by_code(self, code: str) -> PurchaseOrder | None:
         return await self.get_by_field("code", code)
@@ -942,10 +958,8 @@ class PurchaseOrderRepository(BaseRepository[PurchaseOrder]):
                 )
                 .exists()
             )
-        # A vendor principal sees only its own orders. The repository applies
-        # it rather than the route, so no future caller can forget (section 16).
-        if self.tenant.vendor_id is not None:
-            stmt = stmt.where(PurchaseOrder.vendor_id == self.tenant.vendor_id)
+        # The vendor-portal scope is not repeated here: ``_scoped`` already
+        # applied it to the statement this one was built from.
         return self._apply_search(stmt, filters.search)
 
     async def list_page_filtered(
@@ -987,11 +1001,11 @@ class PurchaseOrderRepository(BaseRepository[PurchaseOrder]):
             PurchaseOrderLine.required_date, PurchaseOrder.expected_delivery_date
         )
 
-        in_window = required_date.is_(None)
+        in_window: ColumnElement[bool] = required_date.is_(None)
         if date_from is not None and date_to is not None:
             in_window = or_(in_window, required_date.between(date_from, date_to))
 
-        same_source = literal(False)
+        same_source: ColumnElement[bool] = literal(False)
         if source_type is not None and source_id is not None:
             same_source = and_(
                 PurchaseOrder.source_type == source_type,
@@ -1240,6 +1254,38 @@ class PurchaseReturnLineRepository(BaseRepository[PurchaseReturnLine]):
         for line in (await self.session.execute(stmt)).scalars().all():
             grouped.setdefault(line.purchase_return_id, []).append(line)
         return grouped
+
+    async def posted_quantities_by_pool(
+        self, receipt_line_ids: Sequence[uuid.UUID]
+    ) -> dict[tuple[uuid.UUID, str], Decimal]:
+        """Quantity already returned from each pool, per receipt line.
+
+        One grouped statement for a whole return, counting only *posted*
+        returns: a draft has moved nothing yet, and the draft being posted must
+        not count itself. An empty id list is an empty answer, never an
+        unfiltered one.
+        """
+        if not receipt_line_ids:
+            return {}
+        stmt = (
+            select(
+                PurchaseReturnLine.goods_receipt_line_id,
+                PurchaseReturnLine.stock_state,
+                func.coalesce(func.sum(PurchaseReturnLine.quantity), 0).label("returned"),
+            )
+            .join(PurchaseReturn, PurchaseReturn.id == PurchaseReturnLine.purchase_return_id)
+            .where(
+                PurchaseReturnLine.company_id == self.tenant.company_id,
+                PurchaseReturnLine.goods_receipt_line_id.in_(list(set(receipt_line_ids))),
+                PurchaseReturn.status == PurchaseReturnStatus.POSTED,
+            )
+            .group_by(PurchaseReturnLine.goods_receipt_line_id, PurchaseReturnLine.stock_state)
+        )
+        rows = (await self.session.execute(stmt)).all()
+        return {
+            (row.goods_receipt_line_id, str(row.stock_state)): to_quantity(Decimal(row.returned))
+            for row in rows
+        }
 
 
 class PurchaseReturnRepository(BaseRepository[PurchaseReturn]):

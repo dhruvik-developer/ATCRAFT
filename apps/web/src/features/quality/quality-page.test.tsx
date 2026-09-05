@@ -236,7 +236,13 @@ describe('the inspection history', () => {
     ['HOLD' as const],
   ])('offers Inspect on a %s inspection, which the API will still decide', async (status) => {
     await openHistory(
-      [inspection({ code: `QC-${status}`, status, result: status === 'HOLD' ? 'HOLD' : 'PENDING' })],
+      [
+        inspection({
+          code: `QC-${status}`,
+          status,
+          result: status === 'HOLD' ? 'HOLD' : 'PENDING',
+        }),
+      ],
       [P.QC_VIEW, P.QC_DECIDE],
     )
 
@@ -250,7 +256,14 @@ describe('the inspection history', () => {
       // Offering an action the state machine will reject puts the inspector
       // through a full disposition form for a 409.
       await openHistory(
-        [inspection({ code: 'QC-SETTLED', status, result: 'ACCEPTED', inspected_at: '2026-08-30T09:00:00Z' })],
+        [
+          inspection({
+            code: 'QC-SETTLED',
+            status,
+            result: 'ACCEPTED',
+            inspected_at: '2026-08-30T09:00:00Z',
+          }),
+        ],
         [P.QC_VIEW, P.QC_DECIDE],
       )
 
@@ -408,7 +421,8 @@ describe('the inspection sheet', () => {
         }),
         [`POST /quality/inspections/${INSPECTION_ID}/decide`]: ok(decisionResponse()),
       },
-      [P.QC_VIEW, P.QC_DECIDE],
+      // Typing a reading is the `qc.inspect` half; deciding is the other.
+      [P.QC_VIEW, P.QC_INSPECT, P.QC_DECIDE],
     )
 
     await user.type(await screen.findByLabelText(/measured value/i), '13.05')
@@ -439,7 +453,7 @@ describe('the inspection sheet', () => {
   })
 
   it('refuses a split that does not add up to the inspected quantity', async () => {
-    const { user, fetch } = await openInspection({}, [P.QC_VIEW, P.QC_DECIDE])
+    const { user, fetch } = await openInspection({}, [P.QC_VIEW, P.QC_INSPECT, P.QC_DECIDE])
 
     await user.type(await screen.findByLabelText(/measured value/i), '13.05')
     await user.type(screen.getByLabelText('Accepted'), '80')
@@ -473,6 +487,52 @@ describe('the inspection sheet', () => {
     expect(
       fetch.calls.some((call) => call.path.endsWith('/results')),
       'an inspection with no parameters must not post an empty measurement set',
+    ).toBe(false)
+  })
+
+  it('sends a decide-only account straight to the decision, never to the readings post', async () => {
+    // `POST .../results` is `qc.inspect`; `POST .../decide` is `qc.decide`. An
+    // account holding only the second used to be shown every reading control,
+    // made to fill the mandatory ones, and then refused with a 403 on the
+    // readings post - so the decision it was entitled to record never happened.
+    const { user, fetch } = await openInspection(
+      {
+        [`GET /quality/inspections/${INSPECTION_ID}`]: ok(
+          detail({
+            results: [
+              {
+                id: '01a00000-0000-7000-8000-0000000000r1',
+                inspection_id: INSPECTION_ID,
+                parameter_id: PARAMETER_ID,
+                measured_value_numeric: '13.05',
+                measured_value_bool: null,
+                measured_value_text: null,
+                is_within_spec: true,
+                remark: null,
+                photo_document_id: null,
+              },
+            ],
+          }),
+        ),
+        [`POST /quality/inspections/${INSPECTION_ID}/decide`]: ok(decisionResponse()),
+      },
+      [P.QC_VIEW, P.QC_DECIDE],
+    )
+
+    // The inspector's reading is shown as recorded and cannot be changed here.
+    const reading = await screen.findByLabelText(/measured value/i)
+    expect(reading).toHaveValue('13.05')
+    expect(reading).toHaveAttribute('readonly')
+    expect(screen.getByText('Readings are recorded by an inspector')).toBeVisible()
+
+    await user.type(screen.getByLabelText('Accepted'), '100')
+    await user.type(screen.getByLabelText(/reason for this decision/i), 'Reading already on file')
+    await user.click(screen.getByRole('button', { name: /submit inspection/i }))
+
+    await waitFor(() => fetch.requestFor('POST', `/quality/inspections/${INSPECTION_ID}/decide`))
+    expect(
+      fetch.calls.some((call) => call.path.endsWith('/results')),
+      'a decide-only account must never be sent to the qc.inspect endpoint',
     ).toBe(false)
   })
 

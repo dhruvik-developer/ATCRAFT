@@ -42,7 +42,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import utcnow
-from src.core.database import transaction
+from src.core.database import affected_rows, transaction
 from src.core.deps import TenantContext
 from src.core.errors import (
     AuthorizationError,
@@ -54,6 +54,7 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
+from src.core.messages import NO_FIELDS_TO_UPDATE
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -61,6 +62,7 @@ from src.core.state_machine import StateMachine, Transition
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.vendors.models import (
+    DEFAULT_RATING_WINDOW_DAYS,
     MAX_VENDOR_RATING,
     Transporter,
     TransporterType,
@@ -120,10 +122,9 @@ REQUIRE_SEPARATE_APPROVER = True
 
 # --- rating engine tuning ----------------------------------------------------
 
-#: Default measurement window. Half a year is long enough to include seasonal
-#: variation and short enough that a vendor who fixed their delivery problem
-#: last quarter is not punished forever.
-DEFAULT_RATING_WINDOW_DAYS = 180
+# ``DEFAULT_RATING_WINDOW_DAYS`` and the window bounds live in ``models`` beside
+# ``MAX_VENDOR_RATING``, where the request schema and the router read them too;
+# the service re-exports the default for the callers that import it from here.
 
 # ASSUMPTION: fewer than this many datable receipts in the window is not enough
 # evidence to publish a score. A vendor rated 1.0 because their single delivery
@@ -876,7 +877,7 @@ class VendorService:
     async def update_vendor(self, vendor_id: uuid.UUID, payload: VendorUpdate) -> VendorRead:
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             vendor = await self.repo.get_or_404(vendor_id)
@@ -913,7 +914,6 @@ class VendorService:
                 setattr(vendor, field, value)
             self.repo.touch(vendor)
             await self.session.flush()
-            await self._refresh(vendor)
 
             if bank_changed:
                 self._log_bank_details_changed(vendor)
@@ -956,7 +956,6 @@ class VendorService:
             vendor.approved_at = utcnow()
             self.repo.touch(vendor)
             await self.session.flush()
-            await self._refresh(vendor)
 
             await record_status_change(
                 self.session,
@@ -988,7 +987,6 @@ class VendorService:
             vendor.approved_at = None
             self.repo.touch(vendor)
             await self.session.flush()
-            await self._refresh(vendor)
 
             await record_status_change(
                 self.session,
@@ -1024,7 +1022,6 @@ class VendorService:
             vendor.is_active = active
             self.repo.touch(vendor)
             await self.session.flush()
-            await self._refresh(vendor)
 
             await record_status_change(
                 self.session,
@@ -1139,7 +1136,6 @@ class VendorService:
             vendor.approved_at = None
             self.repo.touch(vendor)
             await self.session.flush()
-            await self._refresh(vendor)
 
             await record_status_change(
                 self.session,
@@ -1274,18 +1270,7 @@ class VendorService:
             )
             .execution_options(synchronize_session=False)
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
-
-    async def _refresh(self, instance: Vendor) -> None:
-        """Reload server-maintained columns after an UPDATE.
-
-        ``updated_at`` is set by ``onupdate=func.now()``, so SQLAlchemy expires
-        the attribute on flush and would lazy-load it when the response model
-        reads it. Under asyncio that implicit load raises MissingGreenlet at
-        serialisation time - a confusing 500 for what is really a missing round
-        trip, so take the round trip explicitly here.
-        """
-        await self.session.refresh(instance)
+        return affected_rows(await self.session.execute(stmt))
 
     @staticmethod
     def _audit_snapshot(vendor: Vendor) -> dict[str, Any]:
@@ -1383,7 +1368,7 @@ class VendorContactService:
     ) -> VendorContactRead:
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             contact = await self.repo.get_or_404(contact_id)
@@ -1544,7 +1529,7 @@ class VendorCategoryService:
     async def update(self, link_id: uuid.UUID, payload: VendorCategoryUpdate) -> VendorCategoryRead:
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             link = await self.repo.get_or_404(link_id)
@@ -1690,7 +1675,7 @@ class TransporterService:
     ) -> TransporterRead:
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             transporter = await self.repo.get_or_404(transporter_id)

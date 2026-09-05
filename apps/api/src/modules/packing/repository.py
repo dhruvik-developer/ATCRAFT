@@ -37,6 +37,7 @@ from sqlalchemy import Select, and_, delete, func, select
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
+from src.core.database import affected_rows
 from src.core.pagination import COUNT_CEILING, PageParams, SortParams
 from src.core.responses import OffsetPagination
 from src.modules.customers.models import Customer
@@ -416,7 +417,7 @@ class PackingOrderLineRepository(BaseRepository[PackingOrderLine]):
             )
             .execution_options(synchronize_session=False)
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 class CartonContentRepository(BaseRepository[CartonContent]):
@@ -455,7 +456,26 @@ class CartonContentRepository(BaseRepository[CartonContent]):
             )
             .execution_options(synchronize_session=False)
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
+
+    async def delete_for_cartons(self, carton_ids: Sequence[uuid.UUID]) -> int:
+        """Contents of several cartons in one statement - the cancel path.
+
+        An empty set deletes nothing: without the early return the ``IN ()``
+        would be dropped and the statement would clear every carton the tenant
+        owns.
+        """
+        if not carton_ids:
+            return 0
+        stmt = (
+            delete(CartonContent)
+            .where(
+                CartonContent.company_id == self.tenant.company_id,
+                CartonContent.carton_id.in_(list(dict.fromkeys(carton_ids))),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        return affected_rows(await self.session.execute(stmt))
 
     async def already_packed(
         self, serial_ids: Sequence[uuid.UUID], *, exclude_carton_id: uuid.UUID | None = None
@@ -518,16 +538,12 @@ class CartonRepository(BaseRepository[Carton]):
         Fetching it by id alone would let a carton from another order be sealed
         through a path whose permissions were checked against this one.
         """
-        stmt = self._scoped().where(
-            Carton.id == carton_id, Carton.packing_order_id == order_id
-        )
+        stmt = self._scoped().where(Carton.id == carton_id, Carton.packing_order_id == order_id)
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
     async def list_for_order(self, order_id: uuid.UUID) -> list[Carton]:
         stmt = (
-            self._scoped()
-            .where(Carton.packing_order_id == order_id)
-            .order_by(Carton.carton_number)
+            self._scoped().where(Carton.packing_order_id == order_id).order_by(Carton.carton_number)
         )
         return list((await self.session.execute(stmt)).scalars().all())
 

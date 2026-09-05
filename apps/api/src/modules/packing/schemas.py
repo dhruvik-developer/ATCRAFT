@@ -195,9 +195,7 @@ class CartonContentIn(BaseModel):
     #: weight is its tare.
     net_weight_kg: NonNegativeWeight = Decimal("0")
     batch_id: uuid.UUID | None = None
-    serial_ids: list[uuid.UUID] = Field(
-        default_factory=list, max_length=MAX_SERIALS_PER_CONTENT
-    )
+    serial_ids: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_SERIALS_PER_CONTENT)
 
     @model_validator(mode="after")
     def _serials_are_distinct(self) -> CartonContentIn:
@@ -238,9 +236,7 @@ class CartonCreate(BaseModel):
     def _dimensions_are_complete(self) -> CartonCreate:
         given = [self.length_cm, self.width_cm, self.height_cm]
         if any(value is not None for value in given) and any(value is None for value in given):
-            raise ValueError(
-                "Give all three dimensions or none: two of three computes no volume."
-            )
+            raise ValueError("Give all three dimensions or none: two of three computes no volume.")
         return self
 
 

@@ -27,14 +27,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
-import {
-  fail,
-  ok,
-  page,
-  renderScreen,
-  type FetchRecorder,
-  type RouteTable,
-} from '@/test/harness'
+import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } from '@/test/harness'
 
 import type { PurchaseOrderRow } from './procurement-types'
 import PurchaseOrderDetailPage from './purchase-order-detail-page'
@@ -227,7 +220,11 @@ function detailRoutes(status: PurchaseOrderRow['status'], extra: RouteTable = {}
   }
 }
 
-function renderDetail(status: PurchaseOrderRow['status'], permissions: string[], extra?: RouteTable) {
+function renderDetail(
+  status: PurchaseOrderRow['status'],
+  permissions: string[],
+  extra?: RouteTable,
+) {
   return renderScreen(<PurchaseOrderDetailPage />, {
     permissions,
     route: `${ORDERS_PATH}/${PO_ID}`,
@@ -253,8 +250,9 @@ describe('who may raise an order', () => {
       routes: bookRoutes([order()]),
     })
 
-    expect(await stable(() => screen.getByRole('button', { name: /new purchase order/i })))
-      .toBeVisible()
+    expect(
+      await stable(() => screen.getByRole('button', { name: /new purchase order/i })),
+    ).toBeVisible()
   })
 })
 
@@ -496,29 +494,24 @@ describe('what the order form sends', () => {
 })
 
 describe('the duplicate refusal', () => {
-  const duplicate = fail(
-    409,
-    'DUPLICATE_DOCUMENT',
-    'PO-0009 already covers 40 of this material',
-    {
-      candidate_count: 1,
-      candidates: [
-        {
-          purchase_order_id: '01a00000-0000-7000-8000-000000000po9',
-          purchase_order_code: 'PO-0009',
-          purchase_order_line_id: '01a00000-0000-7000-8000-00000000ln09',
-          item_id: ITEM_BRASS,
-          status: 'SENT',
-          open_quantity: '40.0000',
-          required_date: '2026-10-01',
-          confidence: 'EXACT',
-          match_reasons: ['Same item, same warehouse, within 14 days'],
-          recommended_action: 'CREATE_NEW_WITH_APPROVAL',
-          available_actions: ['CREATE_NEW_WITH_APPROVAL', 'MERGE_WITH_EXISTING'],
-        },
-      ],
-    },
-  )
+  const duplicate = fail(409, 'DUPLICATE_DOCUMENT', 'PO-0009 already covers 40 of this material', {
+    candidate_count: 1,
+    candidates: [
+      {
+        purchase_order_id: '01a00000-0000-7000-8000-000000000po9',
+        purchase_order_code: 'PO-0009',
+        purchase_order_line_id: '01a00000-0000-7000-8000-00000000ln09',
+        item_id: ITEM_BRASS,
+        status: 'SENT',
+        open_quantity: '40.0000',
+        required_date: '2026-10-01',
+        confidence: 'EXACT',
+        match_reasons: ['Same item, same warehouse, within 14 days'],
+        recommended_action: 'CREATE_NEW_WITH_APPROVAL',
+        available_actions: ['CREATE_NEW_WITH_APPROVAL', 'MERGE_WITH_EXISTING'],
+      },
+    ],
+  })
 
   const duplicatePermissions = [
     P.PURCHASE_ORDER_VIEW,
@@ -691,5 +684,32 @@ describe('the lifecycle on the order’s own screen', () => {
     // The buyer sees this sentence and nothing else about the refusal.
     await stable(() => screen.getByText(/at least three characters/i))
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+  })
+
+  it('stops the reason at the 255 characters the API accepts', async () => {
+    // `ReasonRequest` and `ApproveRequest` both cap the reason at 255. Past
+    // that the API answers a 422 naming the field, which the global toast
+    // suppresses on the assumption the form shows it - so the control has to
+    // stop the paste where it is typed.
+    const { user, fetch } = renderDetail('PENDING_APPROVAL', everyRight)
+
+    await settled(fetch)
+    await user.click(screen.getByRole('button', { name: 'Reject' }))
+    const reasonBox = await stable(() => screen.getByRole('textbox', { name: 'Reason' }))
+    expect(reasonBox).toHaveAttribute('maxlength', '255')
+  })
+
+  it('says the vendor is not available when tracking fails, rather than loading forever', async () => {
+    // The vendor's name comes from the tracking request alone. Its failure is
+    // reported by the panel; the header must not keep promising a name that
+    // is never coming.
+    renderDetail('DRAFT', [P.PURCHASE_ORDER_VIEW], {
+      [`GET ${ORDERS_PATH}/${PO_ID}/tracking`]: fail(500, 'INTERNAL', 'Tracking is unavailable'),
+    })
+
+    await stable(() => screen.getByRole('heading', { name: 'PO-0001' }))
+    await stable(() => screen.getByText('Could not load tracking'))
+    expect(screen.getByRole('link', { name: 'Not available' })).toBeVisible()
+    expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
   })
 })

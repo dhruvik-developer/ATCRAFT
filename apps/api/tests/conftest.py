@@ -38,7 +38,6 @@ os.environ.setdefault("CACHE_ENABLED", "false")
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 
 
-
 def _dotenv_defaults() -> dict[str, str]:
     """Read POSTGRES_*/REDIS_* defaults from the repository-root .env.
 
@@ -72,7 +71,10 @@ def _cfg(key: str, fallback: str) -> str:
 TEST_DB_NAME = _cfg("TEST_POSTGRES_DB", "atcraft_erp_test")
 _pg_user = _cfg("POSTGRES_USER", "atcraft")
 _pg_password = _cfg("POSTGRES_PASSWORD", "atcraft_dev_password")
-_pg_host = _cfg("POSTGRES_HOST", "localhost")
+# 127.0.0.1, not localhost: the container publishes on IPv4 only, and a host
+# that resolves localhost to ::1 first waits out a connect timeout per
+# attempt before falling back.
+_pg_host = _cfg("POSTGRES_HOST", "127.0.0.1")
 _pg_port = _cfg("POSTGRES_PORT", "5432")
 
 os.environ["DATABASE_URL"] = (
@@ -94,7 +96,7 @@ from src.core.deps import Principal, TenantContext
 from src.core.models import Base
 from src.core.permissions import Permission
 from src.core.security import hash_password
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 
 ADMIN_DSN = f"postgresql+asyncpg://{_pg_user}:{_pg_password}@{_pg_host}:{_pg_port}/postgres"
 TEST_DSN = os.environ["DATABASE_URL"]
@@ -152,11 +154,11 @@ def _database() -> None:
     try:
         asyncio.run(_setup())
     except Exception as exc:  # pragma: no cover - environment problem, not a failure
-        pytest.skip(
-            f"PostgreSQL is not reachable at {_pg_host}:{_pg_port} ({exc}). "
-            "Start it with `make dev` before running integration tests.",
-            allow_module_level=True,
-        )
+        # Only an unreachable server is an environment problem. A refused CREATE
+        # DATABASE, a missing extension or a model that fails create_all is a
+        # defect, and re-raises; under CI even the unreachable case fails, so a
+        # pipeline cannot exit 0 having run nothing.
+        report_database_setup_failure(exc, purpose=f"the shared suite at {_pg_host}:{_pg_port}")
 
 
 @pytest.fixture

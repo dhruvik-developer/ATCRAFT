@@ -99,6 +99,13 @@ router = APIRouter(prefix="/production", tags=["Production"], responses=COMMON_E
 PageDep = Annotated[PageParams, Depends(page_params)]
 SortDep = Annotated[SortParams, Depends(sort_params)]
 
+# Deletion carries its reason in the query string: a DELETE body is legal but
+# several HTTP clients and proxies drop it, and the reason is not optional
+# (master rules section 83).
+ReasonQuery = Annotated[
+    str, Query(min_length=3, max_length=255, description="Why the draft is being deleted")
+]
+
 
 # -----------------------------------------------------------------------------
 # Filter dependencies
@@ -284,9 +291,7 @@ async def list_material_issues(
     params: PageDep,
     sort: SortDep,
 ) -> PaginatedResponse[MaterialIssueRead]:
-    items, pagination = await service.list_material_issues(
-        session, tenant, filters, params, sort
-    )
+    items, pagination = await service.list_material_issues(session, tenant, filters, params, sort)
     return PaginatedResponse[MaterialIssueRead](data=items, pagination=pagination)
 
 
@@ -319,9 +324,7 @@ async def get_material_issue(
         "to post an issue, `material_return.create` to post a return."
     ),
     dependencies=[
-        require_any_permission(
-            Permission.MATERIAL_ISSUE_CREATE, Permission.MATERIAL_RETURN_CREATE
-        )
+        require_any_permission(Permission.MATERIAL_ISSUE_CREATE, Permission.MATERIAL_RETURN_CREATE)
     ],
 )
 async def post_material_issue(
@@ -514,9 +517,9 @@ async def update_order(
     dependencies=[require_permission(Permission.PRODUCTION_ORDER_CANCEL)],
 )
 async def delete_order(
-    order_id: uuid.UUID, session: DbSession, tenant: Tenant
+    order_id: uuid.UUID, reason: ReasonQuery, session: DbSession, tenant: Tenant
 ) -> ApiResponse[None]:
-    await service.delete_draft_order(session, tenant, order_id)
+    await service.delete_draft_order(session, tenant, order_id, reason=reason)
     return ApiResponse[None].ok(None, "Draft production order deleted")
 
 
@@ -791,9 +794,7 @@ async def list_production_entries(
     # The path segment is the authority on which job is being read; a query
     # parameter naming a different one would be ambiguous, so it is overwritten.
     scoped = filters.model_copy(update={"production_order_id": order_id})
-    items, pagination = await service.list_production_entries(
-        session, tenant, scoped, params, sort
-    )
+    items, pagination = await service.list_production_entries(session, tenant, scoped, params, sort)
     return PaginatedResponse[ProductionEntryRead](data=items, pagination=pagination)
 
 

@@ -64,6 +64,7 @@ import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatMoney, humanise, toDateInput, toDecimal } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { toast } from '@/lib/toast'
 
@@ -400,7 +401,7 @@ export function JobWorkOrderFormDialog({
       // that touches them.
       void queryClient.invalidateQueries({ queryKey: jobWorkKeys.all })
       toast.success(
-        amending ? 'Draft amended' : 'Job work order raised',
+        amending ? success.updated('Job work order') : success.created('Job work order'),
         amending
           ? `${saved.code} is updated. It still needs approval before material can be issued.`
           : `${saved.code} is saved as a draft. Approve it before issuing material to the vendor.`,
@@ -561,8 +562,8 @@ export function JobWorkOrderFormDialog({
                         />
                         <FieldError message={errors.warehouse_id?.message} />
                         <p className="mt-1 text-xs text-muted-foreground">
-                          The job-work pool that holds the material while it is away belongs to
-                          this store.
+                          The job-work pool that holds the material while it is away belongs to this
+                          store.
                         </p>
                       </div>
 
@@ -634,7 +635,7 @@ export function JobWorkOrderFormDialog({
                   </div>
 
                   <div className="flex items-start">
-                    <label className="mt-6 flex items-center gap-2.5 text-sm">
+                    <label className="flex items-center gap-2.5 text-sm lg:mt-6">
                       <Controller
                         control={control}
                         name="requires_qc"
@@ -750,7 +751,9 @@ export function JobWorkOrderFormDialog({
                               inputMode="decimal"
                               placeholder="Same as out"
                               className="mt-1.5 text-right tabular"
-                              aria-invalid={Boolean(errors.lines?.[index]?.expected_output_quantity)}
+                              aria-invalid={Boolean(
+                                errors.lines?.[index]?.expected_output_quantity,
+                              )}
                             />
                             <FieldError
                               message={errors.lines?.[index]?.expected_output_quantity?.message}
@@ -767,7 +770,9 @@ export function JobWorkOrderFormDialog({
                               {...register(`lines.${index}.expected_loss_percentage`)}
                               inputMode="decimal"
                               className="mt-1.5 text-right tabular"
-                              aria-invalid={Boolean(errors.lines?.[index]?.expected_loss_percentage)}
+                              aria-invalid={Boolean(
+                                errors.lines?.[index]?.expected_loss_percentage,
+                              )}
                             />
                             <FieldError
                               message={errors.lines?.[index]?.expected_loss_percentage?.message}

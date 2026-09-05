@@ -27,10 +27,15 @@
 
 import { writeFileSync } from 'node:fs'
 
-const API = process.env.ISO_API ?? 'http://localhost:8000/api/v1'
+import { ADMIN_EMAIL, ADMIN_PASSWORD, API_URL as API } from '../lib/env.mjs'
+
+// Tenant A is the suite's administrator unless told otherwise; tenant B has to
+// be created by the caller, as nothing in the seed makes a second company.
+// Both accounts must have completed their forced password change: a
+// temporary-password principal is refused every route this script reads.
 const A = {
-  email: process.env.ISO_A_EMAIL ?? 'admin@atcraft.example',
-  password: process.env.ISO_A_PASSWORD ?? 'ChangeMe!Atcraft2026',
+  email: process.env.ISO_A_EMAIL ?? ADMIN_EMAIL,
+  password: process.env.ISO_A_PASSWORD ?? ADMIN_PASSWORD,
   label: 'Atcraft',
 }
 const B = {

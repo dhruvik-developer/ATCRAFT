@@ -60,6 +60,7 @@ from src.modules.products.schemas import (
     ItemFilters,
     ItemStatusChange,
     ItemSummary,
+    ItemSummaryWithCost,
     ItemUpdate,
     PriceCreate,
     PriceOut,
@@ -304,12 +305,13 @@ async def search_items(
     filters: FiltersDep,
     params: PageDep,
     sort: SortDep,
-) -> PaginatedResponse[ItemSummary]:
+) -> PaginatedResponse[ItemSummary | ItemSummaryWithCost]:
     order_by = sort.resolve(ItemRepository.sortable_fields, default=None)
     rows, pagination = await service.search_items(
         session, tenant, principal, filters, params, sort_by=order_by
     )
-    return paginated(rows, pagination)
+    response_rows: list[ItemSummary | ItemSummaryWithCost] = list(rows)
+    return paginated(response_rows, pagination)
 
 
 @router.get(
@@ -328,11 +330,12 @@ async def stream_items(
     principal: CurrentUser,
     filters: FiltersDep,
     params: CursorDep,
-) -> CursorPaginatedResponse[ItemSummary]:
+) -> CursorPaginatedResponse[ItemSummary | ItemSummaryWithCost]:
     rows, pagination = await service.search_items_keyset(
         session, tenant, principal, filters, params
     )
-    return cursor_paginated(rows, pagination)
+    response_rows: list[ItemSummary | ItemSummaryWithCost] = list(rows)
+    return cursor_paginated(response_rows, pagination)
 
 
 @router.get(

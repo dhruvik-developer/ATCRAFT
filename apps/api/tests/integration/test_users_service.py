@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.clock import utcnow
 from src.core.deps import Principal, TenantContext
 from src.core.errors import (
+    AuthorizationError,
     BusinessRuleError,
     DuplicateError,
     ErrorCode,
@@ -47,6 +48,7 @@ from src.modules.users.schemas import (
     UserUpdate,
 )
 from src.modules.users.service import (
+    SUPER_ADMIN_PASSWORD_PROTECTED,
     SUPER_ADMIN_ROLE_CODES,
     RoleService,
     UserService,
@@ -187,9 +189,7 @@ class TestCreateUser:
     ) -> None:
         created = await UserService(session, tenant).create_user(principal, _payload(_email()))
 
-        stored = (
-            await session.execute(select(User).where(User.id == created.id))
-        ).scalar_one()
+        stored = (await session.execute(select(User).where(User.id == created.id))).scalar_one()
         assert stored.password_hash.startswith("$argon2")
         assert verify_password(GOOD_PASSWORD, stored.password_hash)
         assert stored.password_changed_at is not None
@@ -239,9 +239,7 @@ class TestCreateUser:
         )
 
         row = (
-            await session.execute(
-                select(user_roles).where(user_roles.c.user_id == created.id)
-            )
+            await session.execute(select(user_roles).where(user_roles.c.user_id == created.id))
         ).one()
         assert row.role_id == buyer_role.id
         # The whole reason membership is written against the table directly.
@@ -281,9 +279,7 @@ class TestCreateUser:
     async def test_direct_grants_cannot_exceed_the_callers_own_authority(
         self, session: AsyncSession, tenant: TenantContext, principal: Principal
     ) -> None:
-        weak = _principal_with(
-            principal, Permission.USER_CREATE, Permission.PERMISSION_ASSIGN
-        )
+        weak = _principal_with(principal, Permission.USER_CREATE, Permission.PERMISSION_ASSIGN)
         with pytest.raises(PermissionDeniedError) as excinfo:
             await UserService(session, tenant).create_user(
                 weak, _payload(_email(), extra_permissions=[str(Permission.PAYMENT_APPROVE)])
@@ -537,9 +533,7 @@ class TestPasswordAuthority:
 
         clerk = _principal_with(principal, Permission.USER_VIEW, Permission.USER_UPDATE)
         with pytest.raises(PermissionDeniedError):
-            await service.update_user(
-                clerk, victim.id, UserUpdate(password="Hijack3d!Pass99xZ")
-            )
+            await service.update_user(clerk, victim.id, UserUpdate(password="Hijack3d!Pass99xZ"))
 
     async def test_the_same_caller_may_still_edit_everything_else(
         self,
@@ -628,9 +622,7 @@ class TestRoleAssignment:
         await session.flush()
 
         service = UserService(session, tenant)
-        created = await service.create_user(
-            principal, _payload(_email(), role_ids=[buyer_role.id])
-        )
+        created = await service.create_user(principal, _payload(_email(), role_ids=[buyer_role.id]))
 
         updated = await service.assign_roles(
             principal, created.id, RoleAssignment(role_ids=[other.id], reason="Moved to stores")
@@ -638,10 +630,14 @@ class TestRoleAssignment:
         assert updated.role_codes == [other.code]
 
         rows = (
-            await session.execute(
-                select(user_roles.c.role_id).where(user_roles.c.user_id == created.id)
+            (
+                await session.execute(
+                    select(user_roles.c.role_id).where(user_roles.c.user_id == created.id)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert set(rows) == {other.id}
 
     async def test_an_unchanged_set_is_refused_rather_than_audited_as_a_change(
@@ -652,9 +648,7 @@ class TestRoleAssignment:
         buyer_role: Role,
     ) -> None:
         service = UserService(session, tenant)
-        created = await service.create_user(
-            principal, _payload(_email(), role_ids=[buyer_role.id])
-        )
+        created = await service.create_user(principal, _payload(_email(), role_ids=[buyer_role.id]))
         with pytest.raises(BusinessRuleError):
             await service.assign_roles(
                 principal,
@@ -848,9 +842,7 @@ class TestLifecycle:
 
         # Deactivation is guarded by the same rule, for the same reason.
         with pytest.raises(BusinessRuleError):
-            await service.set_active(
-                principal, only_admin.id, active=False, reason="Cleanup"
-            )
+            await service.set_active(principal, only_admin.id, active=False, reason="Cleanup")
 
         # And so is removing the authority by reassigning roles.
         with pytest.raises(BusinessRuleError):
@@ -898,7 +890,7 @@ class TestPasswordReset:
         )
 
         result = await service.reset_password(
-            created.id, PasswordResetRequest(reason="Forgot it")
+            principal, created.id, PasswordResetRequest(reason="Forgot it")
         )
         assert result.temporary_password is not None
         assert result.must_change_password
@@ -926,7 +918,7 @@ class TestPasswordReset:
         await session.flush()
 
         result = await service.reset_password(
-            created.id, PasswordResetRequest(reason="Credentials exposed")
+            principal, created.id, PasswordResetRequest(reason="Credentials exposed")
         )
         assert result.sessions_revoked == 1
 
@@ -942,8 +934,120 @@ class TestPasswordReset:
         created = await service.create_user(principal, _payload(_email()))
         with pytest.raises(ValidationError):
             await service.reset_password(
-                created.id, PasswordResetRequest(new_password="short", reason="Nope")
+                principal, created.id, PasswordResetRequest(new_password="short", reason="Nope")
             )
+
+    # -- super-administrator targets ------------------------------------------
+    #
+    # ``user.reset_password`` is an ordinary administrative right. On its own it
+    # must not be enough to take over a super-administrator's account by either
+    # route a password can be set (PROTECT_SUPER_ADMIN_PASSWORDS).
+
+    @staticmethod
+    async def _super_role(session: AsyncSession, company) -> Role:
+        role = Role(
+            company_id=company.id,
+            code=next(iter(SUPER_ADMIN_ROLE_CODES)),
+            name="Super Administrator",
+            permissions=[str(p) for p in Permission],
+            is_system=True,
+            is_active=True,
+        )
+        session.add(role)
+        await session.flush()
+        return role
+
+    @staticmethod
+    def _assert_protected(excinfo: pytest.ExceptionInfo[AuthorizationError]) -> None:
+        assert excinfo.value.code == ErrorCode.PERMISSION_DENIED
+        assert excinfo.value.message == SUPER_ADMIN_PASSWORD_PROTECTED
+
+    async def test_a_reset_holder_cannot_reset_a_super_admin_role_holder(
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal, company
+    ) -> None:
+        super_role = await self._super_role(session, company)
+        service = UserService(session, tenant)
+        target = await service.create_user(
+            principal, _payload(_email("root"), role_ids=[super_role.id])
+        )
+        helpdesk = _principal_with(principal, Permission.USER_RESET_PASSWORD)
+
+        with pytest.raises(AuthorizationError) as excinfo:
+            await service.reset_password(
+                helpdesk, target.id, PasswordResetRequest(reason="Takeover")
+            )
+        self._assert_protected(excinfo)
+
+        with pytest.raises(AuthorizationError) as excinfo:
+            await service.update_user(helpdesk, target.id, UserUpdate(password=GOOD_PASSWORD))
+        self._assert_protected(excinfo)
+
+        stored = await session.get(User, target.id)
+        assert stored is not None
+        assert verify_password(GOOD_PASSWORD, stored.password_hash)
+
+    async def test_a_reset_holder_cannot_reset_a_superuser_flag_holder(
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal, company
+    ) -> None:
+        """The flag is the other route to the same authority; both are guarded."""
+        service = UserService(session, tenant)
+        target = await service.create_user(principal, _payload(_email("flag")))
+        stored = await session.get(User, target.id)
+        assert stored is not None
+        stored.is_superuser = True
+        await session.flush()
+
+        helpdesk = _principal_with(principal, Permission.USER_RESET_PASSWORD)
+
+        with pytest.raises(AuthorizationError) as excinfo:
+            await service.reset_password(
+                helpdesk, target.id, PasswordResetRequest(reason="Takeover")
+            )
+        self._assert_protected(excinfo)
+
+        with pytest.raises(AuthorizationError) as excinfo:
+            await service.update_user(helpdesk, target.id, UserUpdate(password=GOOD_PASSWORD))
+        self._assert_protected(excinfo)
+
+        assert verify_password(GOOD_PASSWORD, stored.password_hash)
+
+    async def test_a_super_administrator_may_reset_another(
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal, company
+    ) -> None:
+        super_role = await self._super_role(session, company)
+        service = UserService(session, tenant)
+        target = await service.create_user(
+            principal, _payload(_email("root"), role_ids=[super_role.id])
+        )
+
+        by_role = Principal(
+            user_id=principal.user_id,
+            company_id=principal.company_id,
+            email=principal.email,
+            full_name=principal.full_name,
+            is_superuser=False,
+            permissions=frozenset({str(Permission.USER_RESET_PASSWORD)}),
+            role_codes=(next(iter(SUPER_ADMIN_ROLE_CODES)),),
+        )
+        result = await service.reset_password(
+            by_role, target.id, PasswordResetRequest(reason="Handover")
+        )
+        assert result.temporary_password is not None
+        stored = await session.get(User, target.id)
+        assert stored is not None
+        assert verify_password(result.temporary_password, stored.password_hash)
+
+        by_flag = Principal(
+            user_id=principal.user_id,
+            company_id=principal.company_id,
+            email=principal.email,
+            full_name=principal.full_name,
+            is_superuser=True,
+            permissions=frozenset(),
+            role_codes=(),
+        )
+        await service.update_user(by_flag, target.id, UserUpdate(password="Chosen!Pass99xZ"))
+        assert verify_password("Chosen!Pass99xZ", stored.password_hash)
 
 
 # -----------------------------------------------------------------------------
@@ -987,9 +1091,7 @@ class TestReads:
         buyer_role: Role,
     ) -> None:
         service = UserService(session, tenant)
-        holder = await service.create_user(
-            principal, _payload(_email(), role_ids=[buyer_role.id])
-        )
+        holder = await service.create_user(principal, _payload(_email(), role_ids=[buyer_role.id]))
         await service.create_user(principal, _payload(_email()))
 
         items, _ = await service.list_users(
@@ -1030,9 +1132,7 @@ class TestReads:
         buyer_role: Role,
     ) -> None:
         service = UserService(session, tenant)
-        created = await service.create_user(
-            principal, _payload(_email(), role_ids=[buyer_role.id])
-        )
+        created = await service.create_user(principal, _payload(_email(), role_ids=[buyer_role.id]))
 
         buyer_role.is_active = False
         await session.flush()
@@ -1155,9 +1255,7 @@ class TestRoles:
         self, session: AsyncSession, tenant: TenantContext, buyer_role: Role
     ) -> None:
         await RoleService(session, tenant).delete_role(buyer_role.id, reason="Obsolete")
-        stored = (
-            await session.execute(select(Role).where(Role.id == buyer_role.id))
-        ).scalar_one()
+        stored = (await session.execute(select(Role).where(Role.id == buyer_role.id))).scalar_one()
         assert stored.deleted_at is not None
 
     async def test_list_reports_permission_counts_without_shipping_the_arrays(

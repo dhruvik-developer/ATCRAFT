@@ -17,16 +17,20 @@ in the identity map would still show its pre-update values.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import timedelta
 
+import pyotp
 import pytest
 from argon2 import PasswordHasher
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import Request
+from fastapi.security import HTTPAuthorizationCredentials
+from sqlalchemy import func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.core.clock import utcnow
-from src.core.deps import Principal
+from src.core.deps import Principal, get_current_principal
 from src.core.errors import (
     AccountLockedError,
     AuthenticationError,
@@ -34,23 +38,40 @@ from src.core.errors import (
     ErrorCode,
     InvalidCredentialsError,
     NotFoundError,
+    PasswordChangeRequiredError,
     ValidationError,
 )
+from src.core.messages import CURRENT_PASSWORD_INCORRECT
 from src.core.pagination import PageParams
-from src.core.security import decode_token, hash_password, hash_secret_token, verify_password
+from src.core.security import (
+    decode_token,
+    decrypt_password_reset_delivery_token,
+    decrypt_totp_secret,
+    hash_password,
+    hash_secret_token,
+    verify_password,
+)
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.auth.schemas import (
     ChangePasswordRequest,
     LoginRequest,
+    MfaCodeRequest,
+    MfaDisableRequest,
+    MfaSetupRequest,
+    MfaVerifyRequest,
     PasswordResetConfirmPayload,
     PasswordResetRequestPayload,
+    TokenPair,
 )
 from src.modules.auth.service import (
+    FAILURE_BAD_MFA,
     FAILURE_BAD_PASSWORD,
     REVOKE_REASON_REPLAY,
+    REVOKE_REASON_ROTATED,
     AuthService,
 )
 from src.modules.users.models import LoginAttempt, PasswordResetToken, User, UserSession
+from tests import seed_support
 
 pytestmark = pytest.mark.integration
 
@@ -135,6 +156,47 @@ async def account_state(session: AsyncSession, account_id: uuid.UUID) -> tuple:
     return (await session.execute(stmt)).one()
 
 
+async def refusal_summaries(session: AsyncSession, account: User) -> list[str]:
+    """Summaries of the LOGIN_FAILED audit rows written against one account."""
+    stmt = (
+        select(AuditLog.summary)
+        .where(
+            AuditLog.company_id == account.company_id,
+            AuditLog.action == AuditAction.LOGIN_FAILED,
+            AuditLog.entity_id == account.id,
+        )
+        .order_by(AuditLog.created_at, AuditLog.id)
+    )
+    return [row[0] for row in (await session.execute(stmt)).all()]
+
+
+async def mfa_enabled(session: AsyncSession, account_id: uuid.UUID) -> bool:
+    return bool(
+        (await session.execute(select(User.mfa_enabled).where(User.id == account_id))).scalar_one()
+    )
+
+
+async def enable_mfa(session: AsyncSession, principal: Principal) -> str:
+    """Enrol and confirm an authenticator for the principal's account. Returns the seed."""
+    service = AuthService(session)
+    setup = await service.setup_mfa(principal, MfaSetupRequest(current_password=PASSWORD))
+    await service.confirm_mfa(principal, MfaCodeRequest(code=pyotp.TOTP(setup.secret).now()))
+    return setup.secret
+
+
+def wrong_code_for(secret: str) -> str:
+    """A six-digit code the authenticator would not produce anywhere near now.
+
+    Picked against the live window rather than hard-coded: a fixed "000000" is
+    the current code once in a million runs, and a test that fails once in a
+    million runs is one nobody can act on.
+    """
+    totp = pyotp.TOTP(secret)
+    now = utcnow()
+    live = {totp.at(now + timedelta(seconds=offset)) for offset in (-60, -30, 0, 30, 60)}
+    return next(code for code in ("000000", "111111", "222222", "333333") if code not in live)
+
+
 # -----------------------------------------------------------------------------
 # Sign in
 # -----------------------------------------------------------------------------
@@ -178,6 +240,102 @@ async def test_login_writes_history_and_an_audit_entry(session: AsyncSession, co
         await session.execute(select(User.last_login_at).where(User.id == account.id))
     ).scalar_one()
     assert last_login_at is not None
+
+
+async def test_mfa_login_requires_and_consumes_a_totp_code(session: AsyncSession, company) -> None:
+    account = await make_account(session, company)
+    initial = await sign_in(session, account)
+    setup = await AuthService(session).setup_mfa(
+        principal_for(account, initial.session_id),
+        MfaSetupRequest(current_password=PASSWORD),
+    )
+
+    stored = (
+        await session.execute(select(User.mfa_secret).where(User.id == account.id))
+    ).scalar_one()
+    assert stored != setup.secret
+    assert decrypt_totp_secret(stored) == setup.secret
+
+    current_code = pyotp.TOTP(setup.secret).now()
+    enabled = await AuthService(session).confirm_mfa(
+        principal_for(account, initial.session_id), MfaCodeRequest(code=current_code)
+    )
+    assert enabled.mfa_enabled is True
+
+    sessions_before = await session.scalar(
+        select(func.count()).select_from(UserSession).where(UserSession.user_id == account.id)
+    )
+    challenge = await sign_in(session, account)
+    assert challenge.mfa_required is True
+    assert decode_token(challenge.challenge_token, expected_type="mfa").subject == account.id
+    sessions_after_password = await session.scalar(
+        select(func.count()).select_from(UserSession).where(UserSession.user_id == account.id)
+    )
+    assert sessions_after_password == sessions_before
+
+    # Confirmation consumed the current step. The next step is within the
+    # accepted drift window and proves both replay prevention and clock skew.
+    next_code = pyotp.TOTP(setup.secret).at(utcnow() + timedelta(seconds=30))
+    completed = await AuthService(session).verify_mfa(
+        MfaVerifyRequest(challenge_token=challenge.challenge_token, code=next_code),
+        ip_address=CLIENT_IP,
+        user_agent=CLIENT_AGENT,
+    )
+    assert decode_token(completed.access_token, expected_type="access").subject == account.id
+
+    replay_challenge = await sign_in(session, account)
+    with pytest.raises(AuthenticationError) as excinfo:
+        await AuthService(session).verify_mfa(
+            MfaVerifyRequest(
+                challenge_token=replay_challenge.challenge_token,
+                code=next_code,
+            ),
+            ip_address=CLIENT_IP,
+            user_agent=CLIENT_AGENT,
+        )
+    assert excinfo.value.code == ErrorCode.MFA_INVALID
+    assert (False, FAILURE_BAD_MFA) in await attempt_rows(session, account.email)
+
+
+async def test_temporary_password_is_enforced_by_shared_principal_dependency(
+    session: AsyncSession, company
+) -> None:
+    account = await make_account(session, company)
+    account.must_change_password = True
+    await session.flush()
+    issued = await sign_in(session, account)
+    credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=issued.access_token)
+
+    blocked_request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/products/items",
+            "headers": [],
+            "query_string": b"",
+            "scheme": "https",
+            "server": ("test", 443),
+            "client": ("127.0.0.1", 1),
+        }
+    )
+    with pytest.raises(PasswordChangeRequiredError) as excinfo:
+        await get_current_principal(blocked_request, session, credentials)
+    assert getattr(excinfo.value, "code", None) == ErrorCode.PASSWORD_CHANGE_REQUIRED
+
+    allowed_request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/api/v1/auth/me",
+            "headers": [],
+            "query_string": b"",
+            "scheme": "https",
+            "server": ("test", 443),
+            "client": ("127.0.0.1", 1),
+        }
+    )
+    principal = await get_current_principal(allowed_request, session, credentials)
+    assert principal.must_change_password is True
 
 
 async def test_unknown_address_answers_exactly_like_a_wrong_password(
@@ -348,6 +506,97 @@ async def test_replaying_a_spent_refresh_token_burns_the_whole_chain(
     assert replay_audits == 1
 
 
+async def test_two_concurrent_refreshes_of_one_token_let_exactly_one_through(engine) -> None:
+    """The row lock in ``refresh`` is what makes replay detection hold up.
+
+    Two requests present the same refresh token at the same moment - two tabs
+    whose refresh guards cannot see each other, or an attacker replaying
+    alongside the victim. Without the lock both read ACTIVE off an unlocked
+    snapshot and both rotate: two live successors and no replay recorded. With
+    it, the second waits, reads the rotation the first committed, and burns the
+    family - successor included, which is the token the legitimate client is
+    now holding.
+
+    Two sessions on two connections, committing for real: two transactions
+    cannot contend for a row lock inside one outer transaction, so the shared
+    ``session`` fixture cannot express this. The rows are removed afterwards.
+    """
+    factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    company_id = uuid.uuid4()
+    async with factory() as setup, setup.begin():
+        company = await seed_support.seed_company(setup, company_id=company_id, prefix="AUTHC")
+        email = (await make_account(setup, company)).email
+
+    try:
+        async with factory() as signer:
+            issued = await AuthService(signer).login(
+                LoginRequest(email=email, password=PASSWORD),
+                ip_address=CLIENT_IP,
+                user_agent=CLIENT_AGENT,
+            )
+
+        async def present_the_token() -> TokenPair | AuthenticationError:
+            async with factory() as contender:
+                try:
+                    return await AuthService(contender).refresh(issued.refresh_token)
+                except AuthenticationError as exc:
+                    return exc
+
+        outcomes = await asyncio.gather(present_the_token(), present_the_token())
+        rotated = [outcome for outcome in outcomes if isinstance(outcome, TokenPair)]
+        refused = [outcome for outcome in outcomes if isinstance(outcome, AuthenticationError)]
+        assert len(rotated) == 1 and len(refused) == 1, outcomes
+        assert refused[0].code == ErrorCode.TOKEN_REVOKED
+        successor = rotated[0].session_id
+
+        async with factory() as reader:
+            rows = (
+                await reader.execute(
+                    select(
+                        UserSession.session_id, UserSession.revoked_at, UserSession.revoked_reason
+                    ).where(UserSession.company_id == company_id)
+                )
+            ).all()
+            replay_audits = await reader.scalar(
+                select(func.count())
+                .select_from(AuditLog)
+                .where(
+                    AuditLog.company_id == company_id,
+                    AuditLog.action == AuditAction.LOGIN_FAILED,
+                    AuditLog.entity_type == "user_session",
+                )
+            )
+        chain = {session_id: (revoked_at, reason) for session_id, revoked_at, reason in rows}
+        assert set(chain) == {issued.session_id, successor}
+        # Every generation is closed. The successor carries the replay reason;
+        # the root was already closed by the rotation itself, and revoke_chain
+        # leaves an already-revoked row as it found it.
+        assert chain[successor][0] is not None
+        assert chain[successor][1] == REVOKE_REASON_REPLAY
+        assert chain[issued.session_id][0] is not None
+        assert chain[issued.session_id][1] == REVOKE_REASON_ROTATED
+        assert replay_audits == 1
+
+        async with factory() as later:
+            with pytest.raises(AuthenticationError) as excinfo:
+                await AuthService(later).refresh(rotated[0].refresh_token)
+            assert excinfo.value.code == ErrorCode.TOKEN_REVOKED
+    finally:
+        async with factory() as janitor, janitor.begin():
+            params = {"company_id": company_id}
+            await janitor.execute(
+                text("DELETE FROM user_sessions WHERE company_id = :company_id"), params
+            )
+            await janitor.execute(
+                text("DELETE FROM login_attempts WHERE company_id = :company_id"), params
+            )
+            await janitor.execute(
+                text("DELETE FROM audit_logs WHERE company_id = :company_id"), params
+            )
+            await janitor.execute(text("DELETE FROM users WHERE company_id = :company_id"), params)
+            await janitor.execute(text("DELETE FROM companies WHERE id = :company_id"), params)
+
+
 async def test_refresh_is_refused_once_the_session_is_revoked(
     session: AsyncSession, company
 ) -> None:
@@ -496,17 +745,33 @@ async def test_change_password_ends_the_other_sessions_only(session: AsyncSessio
 async def test_change_password_requires_the_current_password(
     session: AsyncSession, company
 ) -> None:
+    """A wrong current password is a field error, not a dead session.
+
+    The web client signs the user out on any 401 from an authenticated route,
+    so the refusal is a 422 under the field - and it costs exactly what a wrong
+    password costs at sign-in: an attempt row, a counter tick and an audit
+    entry, all committed before the error is raised.
+    """
     account = await make_account(session, company)
     issued = await sign_in(session, account)
 
-    with pytest.raises(InvalidCredentialsError):
+    with pytest.raises(ValidationError) as excinfo:
         await AuthService(session).change_password(
             principal_for(account, issued.session_id),
             ChangePasswordRequest(current_password="not-my-password", new_password=NEW_PASSWORD),
         )
+    assert excinfo.value.code == ErrorCode.INVALID_CREDENTIALS
+    assert excinfo.value.status_code == 422
+    assert excinfo.value.details == {"fields": {"current_password": [CURRENT_PASSWORD_INCORRECT]}}
 
-    _, _, stored_hash, _ = await account_state(session, account.id)
+    failed, locked_until, stored_hash, _ = await account_state(session, account.id)
     assert verify_password(PASSWORD, stored_hash)
+    assert failed == 1
+    assert locked_until is None
+    assert (False, FAILURE_BAD_PASSWORD) in await attempt_rows(session, account.email)
+    assert await refusal_summaries(session, account) == [
+        f"Password change refused for {account.email}: current password did not match"
+    ]
 
 
 async def test_change_password_enforces_the_policy(session: AsyncSession, company) -> None:
@@ -535,6 +800,106 @@ async def test_change_password_refuses_a_reworded_identical_password(
         await AuthService(session).change_password(
             principal_for(account, issued.session_id), payload
         )
+
+
+async def test_repeated_wrong_current_passwords_lock_the_account(
+    session: AsyncSession, company
+) -> None:
+    """A stolen access token must not be a free password oracle: the self-service
+    routes draw on the same per-account budget as sign-in."""
+    from src.core.config import settings
+
+    account = await make_account(session, company)
+    issued = await sign_in(session, account)
+    principal = principal_for(account, issued.session_id)
+    guess = ChangePasswordRequest(current_password="not-my-password", new_password=NEW_PASSWORD)
+
+    for _ in range(settings.login_max_failed_attempts - 1):
+        with pytest.raises(ValidationError):
+            await AuthService(session).change_password(principal, guess)
+    with pytest.raises(AccountLockedError):
+        await AuthService(session).change_password(principal, guess)
+
+    failed, locked_until, stored_hash, _ = await account_state(session, account.id)
+    assert failed == settings.login_max_failed_attempts
+    assert locked_until is not None and locked_until > utcnow()
+    assert verify_password(PASSWORD, stored_hash)
+
+
+async def test_mfa_enrolment_and_disable_require_the_current_password(
+    session: AsyncSession, company
+) -> None:
+    """Binding or unbinding an authenticator re-proves the password, and a wrong
+    one is refused the same way a wrong one at password change is."""
+    account = await make_account(session, company)
+    issued = await sign_in(session, account)
+    principal = principal_for(account, issued.session_id)
+
+    with pytest.raises(ValidationError) as refused_setup:
+        await AuthService(session).setup_mfa(
+            principal, MfaSetupRequest(current_password="not-my-password")
+        )
+    assert refused_setup.value.code == ErrorCode.INVALID_CREDENTIALS
+    assert refused_setup.value.status_code == 422
+    assert refused_setup.value.details == {
+        "fields": {"current_password": [CURRENT_PASSWORD_INCORRECT]}
+    }
+
+    secret = await enable_mfa(session, principal)
+    with pytest.raises(ValidationError) as refused_disable:
+        await AuthService(session).disable_mfa(
+            principal,
+            MfaDisableRequest(current_password="not-my-password", code=pyotp.TOTP(secret).now()),
+        )
+    assert refused_disable.value.code == ErrorCode.INVALID_CREDENTIALS
+    assert refused_disable.value.status_code == 422
+    assert refused_disable.value.details == {
+        "fields": {"current_password": [CURRENT_PASSWORD_INCORRECT]}
+    }
+
+    failed, _, _, _ = await account_state(session, account.id)
+    assert failed == 2
+    assert await mfa_enabled(session, account.id) is True
+    assert await refusal_summaries(session, account) == [
+        f"MFA enrolment refused for {account.email}: current password did not match",
+        f"MFA disable refused for {account.email}: current password did not match",
+    ]
+
+
+async def test_a_wrong_authenticator_code_is_a_field_error(session: AsyncSession, company) -> None:
+    """Confirming or disabling MFA with a code the authenticator did not produce
+    answers 422 under the ``code`` field - a 401 here would sign the user out
+    of the very page that is trying to show them the mistake."""
+    account = await make_account(session, company)
+    issued = await sign_in(session, account)
+    principal = principal_for(account, issued.session_id)
+    setup = await AuthService(session).setup_mfa(
+        principal, MfaSetupRequest(current_password=PASSWORD)
+    )
+
+    with pytest.raises(ValidationError) as refused_confirm:
+        await AuthService(session).confirm_mfa(
+            principal, MfaCodeRequest(code=wrong_code_for(setup.secret))
+        )
+    assert refused_confirm.value.code == ErrorCode.MFA_INVALID
+    assert refused_confirm.value.status_code == 422
+    assert list(refused_confirm.value.details["fields"]) == ["code"]
+    assert await mfa_enabled(session, account.id) is False
+
+    await AuthService(session).confirm_mfa(
+        principal, MfaCodeRequest(code=pyotp.TOTP(setup.secret).now())
+    )
+    assert await mfa_enabled(session, account.id) is True
+
+    with pytest.raises(ValidationError) as refused_disable:
+        await AuthService(session).disable_mfa(
+            principal,
+            MfaDisableRequest(current_password=PASSWORD, code=wrong_code_for(setup.secret)),
+        )
+    assert refused_disable.value.code == ErrorCode.MFA_INVALID
+    assert refused_disable.value.status_code == 422
+    assert list(refused_disable.value.details["fields"]) == ["code"]
+    assert await mfa_enabled(session, account.id) is True
 
 
 # -----------------------------------------------------------------------------
@@ -675,6 +1040,69 @@ async def test_reset_clears_a_lockout(session: AsyncSession, company) -> None:
     assert locked_until is None
     signed_in = await sign_in(session, account, NEW_PASSWORD)
     assert signed_in.session_id
+
+
+async def test_reset_recovers_an_account_with_a_lost_authenticator(
+    session: AsyncSession, company
+) -> None:
+    account = await make_account(session, company)
+    account.mfa_enabled = True
+    account.mfa_secret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+    account.mfa_last_used_step = 123
+    await session.flush()
+
+    grant = await AuthService(session).request_password_reset(
+        PasswordResetRequestPayload(email=account.email)
+    )
+    assert grant is not None
+    await AuthService(session).confirm_password_reset(
+        PasswordResetConfirmPayload(token=grant.token, new_password=NEW_PASSWORD)
+    )
+
+    mfa_state = (
+        await session.execute(
+            select(User.mfa_enabled, User.mfa_secret, User.mfa_last_used_step).where(
+                User.id == account.id
+            )
+        )
+    ).one()
+    assert mfa_state == (False, None, None)
+
+
+async def test_reset_stages_the_link_for_delivery_inside_the_commit(
+    session: AsyncSession,
+    company,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.core.config import EmailProvider, settings
+    from src.modules.auth import service as auth_service_module
+
+    account = await make_account(session, company)
+    staged: list[dict[str, object]] = []
+    monkeypatch.setattr(settings, "email_provider", EmailProvider.smtp)
+    monkeypatch.setattr(
+        auth_service_module,
+        "queue_password_reset_email",
+        lambda _session, **payload: staged.append(payload),
+    )
+
+    grant = await AuthService(session).request_password_reset(
+        PasswordResetRequestPayload(email=account.email)
+    )
+
+    assert grant is not None
+    assert len(staged) == 1
+    assert staged[0]["company_id"] == company.id
+    reset_id = staged[0]["reset_token_id"]
+    assert isinstance(reset_id, uuid.UUID)
+
+    stored = await session.scalar(
+        select(PasswordResetToken).where(PasswordResetToken.id == reset_id)
+    )
+    assert stored is not None
+    assert stored.email_token_ciphertext is not None
+    assert grant.token not in stored.email_token_ciphertext
+    assert decrypt_password_reset_delivery_token(stored.email_token_ciphertext) == grant.token
 
 
 # -----------------------------------------------------------------------------

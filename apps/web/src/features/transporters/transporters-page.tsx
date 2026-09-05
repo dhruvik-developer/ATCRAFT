@@ -40,6 +40,7 @@ import {
 import { Badge, Checkbox, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDate } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -62,9 +63,6 @@ import {
   type Transporter,
   type TransporterState,
 } from './transporter-model'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /**
  * Every filter key this screen owns, named once.
@@ -350,16 +348,16 @@ export default function TransportersPage() {
         toolbar={
           <>
             <Select
-              value={transporterType || ALL}
+              value={transporterType || SELECT_ALL}
               onValueChange={(value) =>
-                setParam('transporter_type', value === ALL ? undefined : value)
+                setParam('transporter_type', value === SELECT_ALL ? undefined : value)
               }
             >
-              <SelectTrigger className="w-[170px]" aria-label="Filter by carrier type">
+              <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by carrier type">
                 <SelectValue placeholder="All types" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All types</SelectItem>
+                <SelectItem value={SELECT_ALL}>All types</SelectItem>
                 {TRANSPORTER_TYPES.map((type) => (
                   <SelectItem key={type} value={type}>
                     {TRANSPORTER_TYPE_LABELS[type]}
@@ -369,14 +367,16 @@ export default function TransportersPage() {
             </Select>
 
             <Select
-              value={activeState || ALL}
-              onValueChange={(value) => setParam('is_active', value === ALL ? undefined : value)}
+              value={activeState || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('is_active', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[170px]" aria-label="Filter by availability">
+              <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by availability">
                 <SelectValue placeholder="Any availability" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any availability</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any availability</SelectItem>
                 <SelectItem value="true">Active</SelectItem>
                 <SelectItem value="false">Inactive</SelectItem>
               </SelectContent>

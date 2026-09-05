@@ -8,7 +8,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { Check, ChevronsUpDown, Loader2, Search, X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -22,11 +22,13 @@ import {
   SelectValue,
 } from '@/components/ui/overlays'
 import { Input, Label } from '@/components/ui/primitives'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
+import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
 
-import type { ItemOption, WarehouseOption } from './types'
+import { WAREHOUSE_LOOKUP_PARAMS, type ItemOption, type WarehouseOption } from './types'
 
 /** Radix Select forbids an empty item value, so "no filter" needs a sentinel. */
 const ALL = '__all__'
@@ -59,7 +61,7 @@ export function WarehouseSelect({
   disabled?: boolean
   className?: string
 }) {
-  const params = { limit: 200, sort_by: 'code', sort_dir: 'asc', with_total: false }
+  const params = WAREHOUSE_LOOKUP_PARAMS
   const warehouses = useQuery({
     queryKey: queryKeys.warehouses.list(params),
     queryFn: () => api.getPage<WarehouseOption>('/warehouses', { params }),
@@ -139,19 +141,15 @@ export function ItemPicker({
 }) {
   const [open, setOpen] = useState(false)
   const [term, setTerm] = useState('')
-  const [debouncedTerm, setDebouncedTerm] = useState('')
   const [picked, setPicked] = useState<ItemOption | null>(null)
 
   // One request per keystroke would put a trigram scan of the item master
   // behind every character typed.
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedTerm(term.trim()), 300)
-    return () => clearTimeout(timer)
-  }, [term])
+  const debouncedTerm = useDebouncedValue(term)
 
   const searchParams = useMemo(
     () => ({
-      limit: 20,
+      limit: PICKER_PAGE_SIZE,
       with_total: false,
       is_active: true,
       ...filters,
@@ -210,7 +208,7 @@ export function ItemPicker({
               <ChevronsUpDown className="opacity-50" aria-hidden />
             </Button>
           </PopoverTrigger>
-          <PopoverContent align="start" className="w-[22rem] p-0">
+          <PopoverContent align="start" className="w-[min(22rem,calc(100vw-2rem))] p-0">
             <div className="relative border-b p-2">
               <Search
                 className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"

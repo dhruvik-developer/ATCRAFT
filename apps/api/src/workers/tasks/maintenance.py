@@ -55,7 +55,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import utcnow
 from src.core.config import settings
-from src.core.database import session_scope, transaction
+from src.core.database import affected_rows, session_scope, transaction
 from src.core.deps import TenantContext
 from src.core.logging import get_logger
 from src.modules.allocation import service as allocation_service
@@ -239,7 +239,7 @@ async def purge_expired_sessions(request_id: str | None = None, **_: Any) -> dic
     removed = 0
 
     async with session_scope() as session:
-        for _ in range(MAX_PURGE_BATCHES):
+        for _batch in range(MAX_PURGE_BATCHES):
             stale = (
                 select(UserSession.id)
                 .where(UserSession.expires_at <= cutoff)
@@ -247,10 +247,8 @@ async def purge_expired_sessions(request_id: str | None = None, **_: Any) -> dic
                 .scalar_subquery()
             )
             async with transaction(session):
-                result = await session.execute(
-                    delete(UserSession).where(UserSession.id.in_(stale))
-                )
-            deleted = int(result.rowcount or 0)
+                result = await session.execute(delete(UserSession).where(UserSession.id.in_(stale)))
+            deleted = affected_rows(result)
             removed += deleted
             if deleted < PURGE_BATCH:
                 break

@@ -45,9 +45,7 @@ def d(value: str) -> Decimal:
 def test_a_disposition_accounting_for_the_whole_lot_is_accepted() -> None:
     validate_disposition(
         d("100"),
-        Disposition(
-            accepted=d("70"), rejected=d("10"), rework=d("12"), hold=d("5"), scrap=d("3")
-        ),
+        Disposition(accepted=d("70"), rejected=d("10"), rework=d("12"), hold=d("5"), scrap=d("3")),
     )
 
 
@@ -102,12 +100,10 @@ def test_the_dominant_disposition_names_the_result() -> None:
     # rejected one. The rejection *rate* is computed from the quantities, never
     # from this label.
     assert (
-        derive_result(Disposition(accepted=d("95"), rejected=d("5")))
-        is InspectionResult.ACCEPTED
+        derive_result(Disposition(accepted=d("95"), rejected=d("5"))) is InspectionResult.ACCEPTED
     )
     assert (
-        derive_result(Disposition(accepted=d("5"), rejected=d("95")))
-        is InspectionResult.REJECTED
+        derive_result(Disposition(accepted=d("5"), rejected=d("95"))) is InspectionResult.REJECTED
     )
 
 
@@ -115,15 +111,10 @@ def test_an_even_split_goes_to_the_more_severe_disposition() -> None:
     # The optimistic reading of an even split is the one that puts doubtful
     # material into a customer's hands.
     assert (
-        derive_result(Disposition(accepted=d("50"), rejected=d("50")))
-        is InspectionResult.REJECTED
+        derive_result(Disposition(accepted=d("50"), rejected=d("50"))) is InspectionResult.REJECTED
     )
-    assert (
-        derive_result(Disposition(accepted=d("50"), rework=d("50"))) is InspectionResult.REWORK
-    )
-    assert (
-        derive_result(Disposition(rejected=d("50"), scrap=d("50"))) is InspectionResult.SCRAP
-    )
+    assert derive_result(Disposition(accepted=d("50"), rework=d("50"))) is InspectionResult.REWORK
+    assert derive_result(Disposition(rejected=d("50"), scrap=d("50"))) is InspectionResult.SCRAP
 
 
 @pytest.mark.parametrize("verdict", list(SEVERITY_ORDER))
@@ -202,9 +193,7 @@ def test_every_status_a_disposition_can_produce_is_a_real_lifecycle_state() -> N
 
 
 def test_the_first_decision_posts_its_whole_disposition() -> None:
-    delta = disposition_delta(
-        Disposition(), Disposition(accepted=d("80"), rejected=d("20"))
-    )
+    delta = disposition_delta(Disposition(), Disposition(accepted=d("80"), rejected=d("20")))
     assert delta.accepted == d("80")
     assert delta.rejected == d("20")
 
@@ -262,9 +251,7 @@ def test_neither_a_rejection_nor_a_scrapping_can_be_reduced(
 
 def test_held_quantity_may_be_moved_between_rework_and_hold_freely() -> None:
     # Neither ever left the QC pool, so restating them costs no movement at all.
-    delta = disposition_delta(
-        Disposition(hold=d("100")), Disposition(rework=d("100"))
-    )
+    delta = disposition_delta(Disposition(hold=d("100")), Disposition(rework=d("100")))
     assert delta.accepted == d("0")
     assert delta.rejected == d("0")
     assert delta.scrap == d("0")

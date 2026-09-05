@@ -34,6 +34,7 @@ from sqlalchemy import ColumnElement, Select, and_, delete, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
+from src.core.database import affected_rows
 from src.core.pagination import COUNT_CEILING, PageParams, SortParams
 from src.core.responses import OffsetPagination
 from src.modules.customers.models import Customer, CustomerAddress
@@ -384,11 +385,18 @@ class SalesOrderLineRepository(BaseRepository[SalesOrderLine]):
             SalesOrderLine.company_id == self.tenant.company_id,
             SalesOrderLine.sales_order_id == order_id,
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
+
+
+#: The record's user-facing name, shared by the not-found path here and the
+#: service's own messages so the same missing order never answers "SalesOrder
+#: not found" from one route and "Sales order not found" from another.
+SALES_ORDER_ENTITY = "Sales order"
 
 
 class SalesOrderRepository(BaseRepository[SalesOrder]):
     model = SalesOrder
+    entity_label = SALES_ORDER_ENTITY
     searchable_fields = ("code", "customer_po_number")
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "code": SalesOrder.code,

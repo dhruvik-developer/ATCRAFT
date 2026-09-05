@@ -209,9 +209,7 @@ def test_setup_is_charged_once_per_run_and_run_time_per_unit() -> None:
 def test_setup_amortises_over_a_larger_batch() -> None:
     """The whole reason setup is per-run: a hundred-piece batch must not be
     priced as if the machine were set up a hundred times."""
-    operations = [
-        FakeOperation(setup_time_minutes=Decimal("60"), cost_per_hour=Decimal("100"))
-    ]
+    operations = [FakeOperation(setup_time_minutes=Decimal("60"), cost_per_hour=Decimal("100"))]
     single = engine.operation_cost_per_run(cast(Any, operations), Decimal("1"))
     hundred = engine.operation_cost_per_run(cast(Any, operations), Decimal("100"))
     assert single == hundred == Decimal("100")

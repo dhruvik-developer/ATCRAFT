@@ -11,12 +11,11 @@ route *template*.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from prometheus_client import (
     CollectorRegistry,
     Counter,
-    Gauge,
     Histogram,
     generate_latest,
 )
@@ -48,31 +47,6 @@ http_request_duration = Histogram(
     registry=registry,
 )
 
-# --- Database -----------------------------------------------------------------
-
-db_query_duration = Histogram(
-    "atcraft_db_query_duration_seconds",
-    "Database query latency by logical operation",
-    ["operation"],
-    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 5.0),
-    registry=registry,
-)
-
-db_pool_in_use = Gauge(
-    "atcraft_db_pool_connections_in_use",
-    "Connections currently checked out of the pool",
-    registry=registry,
-)
-
-# --- Cache --------------------------------------------------------------------
-
-cache_operations = Counter(
-    "atcraft_cache_operations_total",
-    "Cache operations by namespace and result",
-    ["namespace", "result"],
-    registry=registry,
-)
-
 # --- Background jobs ----------------------------------------------------------
 
 celery_tasks_total = Counter(
@@ -90,33 +64,26 @@ celery_task_duration = Histogram(
     registry=registry,
 )
 
-celery_queue_depth = Gauge(
-    "atcraft_celery_queue_depth",
-    "Messages waiting in a Celery queue",
-    ["queue"],
-    registry=registry,
-)
-
 # --- Business signals ---------------------------------------------------------
 # Section 56 lists infrastructure metrics; these are the ones that actually get
 # somebody out of bed, because they mean the ERP is producing wrong answers.
+#
+# Every metric declared here is observed somewhere: prometheus_client exports a
+# registered series immediately, so a declared-but-never-incremented counter
+# advertises a permanent 0 and an operator alerting on it gets a false
+# all-clear. Add a metric together with the ``.inc()`` / ``.observe()`` at its
+# seam, or not at all.
 
 inventory_conflicts = Counter(
     "atcraft_inventory_lock_conflicts_total",
-    "Reservation attempts that lost a row lock and were retried or rejected",
+    "Stock postings refused because a row lock was not granted in time",
     ["operation"],
     registry=registry,
 )
 
 insufficient_stock_events = Counter(
     "atcraft_insufficient_stock_total",
-    "Reservation or allocation attempts refused for lack of available stock",
-    registry=registry,
-)
-
-negative_balance_blocked = Counter(
-    "atcraft_negative_balance_blocked_total",
-    "Writes rejected by the non-negative stock constraint - always investigate",
+    "Stock postings and reservations refused for lack of available stock",
     registry=registry,
 )
 
@@ -131,13 +98,6 @@ mrp_run_duration = Histogram(
     "atcraft_mrp_run_duration_seconds",
     "End-to-end MRP run time",
     buckets=(1, 5, 15, 30, 60, 120, 300, 600, 1800),
-    registry=registry,
-)
-
-approval_events = Counter(
-    "atcraft_approval_events_total",
-    "Approval decisions by entity type and outcome",
-    ["entity", "decision"],
     registry=registry,
 )
 
@@ -191,6 +151,32 @@ def setup_tracing(app: Any) -> None:
         log.warning("otel.setup_failed", error=str(exc))
 
 
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from sentry_sdk.types import Event, Hint
+
+
+def _scrub_sentry_event(event: Event, _hint: Hint) -> Event | None:
+    """Remove request-adjacent data before an exception leaves the deployment.
+
+    ``send_default_pii=False`` is necessary but does not mean "send no request
+    context". Headers, URLs, breadcrumbs and arbitrary logging extras can still
+    contain account numbers, document identifiers or search terms. Stack frames
+    and the exception itself are enough to diagnose a server fault, so keep
+    those and discard the data-bearing context unconditionally.
+
+    Typed with Sentry's own ``Event``/``Hint`` rather than ``dict[str, Any]``:
+    the SDK declares ``before_send`` as returning ``Event | None`` (``None``
+    drops the event), and while sentry-sdk was merely an optional extra mypy
+    saw ``init`` as untyped and could not check this signature at all. It is a
+    ``TypedDict``, so ``pop`` needs the cast below - the keys are dynamic by
+    design here.
+    """
+    scrubbed = cast(dict[str, Any], event)
+    for key in ("request", "user", "breadcrumbs", "extra"):
+        scrubbed.pop(key, None)
+    return event
+
+
 def setup_sentry() -> None:
     """Application error tracking, if a DSN is configured."""
     if not settings.sentry_dsn:
@@ -201,32 +187,40 @@ def setup_sentry() -> None:
         sentry_sdk.init(
             dsn=settings.sentry_dsn,
             environment=str(settings.app_env),
-            traces_sample_rate=0.1,
+            # Prometheus owns performance telemetry. Sentry receives exceptions
+            # only: transaction spans can include SQL and request URLs.
+            traces_sample_rate=0.0,
             # Section 54: never ship request bodies or headers to a third party;
             # they contain business data and bearer tokens.
             send_default_pii=False,
             max_request_body_size="never",
+            include_local_variables=False,
+            max_breadcrumbs=0,
+            before_send=_scrub_sentry_event,
         )
         log.info("sentry.enabled", environment=str(settings.app_env))
     except ImportError:
-        log.warning("sentry.unavailable", hint='pip install ".[sentry]"')
+        # sentry-sdk is a runtime dependency, not an extra: it is installed with
+        # the application and SENTRY_DSN alone switches it on. Reaching here
+        # means the environment was not installed from the lock.
+        log.warning(
+            "sentry.unavailable",
+            hint=(
+                "sentry-sdk is installed with the application and SENTRY_DSN enables it; "
+                "reinstall from the lock to restore it"
+            ),
+        )
 
 
 __all__ = [
-    "approval_events",
-    "cache_operations",
-    "celery_queue_depth",
     "celery_task_duration",
     "celery_tasks_total",
-    "db_pool_in_use",
-    "db_query_duration",
     "http_request_duration",
     "http_requests_total",
     "insufficient_stock_events",
     "inventory_conflicts",
     "mrp_run_duration",
     "mrp_runs_total",
-    "negative_balance_blocked",
     "registry",
     "render_metrics",
     "setup_sentry",

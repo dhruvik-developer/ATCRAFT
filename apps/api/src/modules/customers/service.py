@@ -51,6 +51,7 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
+from src.core.messages import NO_FIELDS_TO_UPDATE
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -664,7 +665,7 @@ class CustomerService:
         clear_transporter = bool(changes.pop("clear_default_transporter", False))
 
         if not changes and not (clear_credit_limit or clear_sales_user or clear_transporter):
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             customer = await self.repo.get_or_404(customer_id)
@@ -988,7 +989,7 @@ class CustomerService:
     ) -> AddressRead:
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             customer = await self.repo.get_or_404(customer_id)
@@ -1169,7 +1170,7 @@ class CustomerService:
     ) -> ContactRead:
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             customer = await self.repo.get_or_404(customer_id)

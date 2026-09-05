@@ -33,6 +33,7 @@ from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, load_only
 
 from src.common.repository import BaseRepository
+from src.core.database import affected_rows
 from src.core.pagination import PageParams, SortParams, paginate
 from src.core.responses import OffsetPagination
 from src.modules.bom.models import Bom, BomLine, BomOperation, BomStatus
@@ -150,9 +151,7 @@ class ItemLookupRepository(BaseRepository[Item]):
             for row in rows
         }
 
-    async def last_purchase_prices(
-        self, item_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, Decimal]:
+    async def last_purchase_prices(self, item_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, Decimal]:
         """Fallback cost for items with no standard cost on file.
 
         ``DISTINCT ON`` picks the preferred vendor first, then the most recent
@@ -193,6 +192,10 @@ class ItemLookupRepository(BaseRepository[Item]):
 
 class BomRepository(BaseRepository[Bom]):
     model = Bom
+    #: What ``BaseRepository.get_or_404`` calls the record in its not-found
+    #: sentence. Set explicitly because the automatic split of the class name
+    #: would say "Bom", and every other message in this module says "BOM".
+    entity_label = "BOM"
     searchable_fields = ("code", "revision")
     sortable_fields = {  # noqa: RUF012 - class-level configuration, mirrors the base class
         "code": Bom.code,
@@ -330,6 +333,10 @@ class BomRepository(BaseRepository[Bom]):
 
 class BomLineRepository(BaseRepository[BomLine]):
     model = BomLine
+    #: What ``BaseRepository.get_or_404`` calls the record in its not-found
+    #: sentence. Set explicitly because the automatic split of the class name
+    #: would say "Bom", and every other message in this module says "BOM".
+    entity_label = "BOM line"
     sortable_fields = {"line_number": BomLine.line_number}  # noqa: RUF012
 
     async def list_for_bom(self, bom_id: uuid.UUID) -> list[BomLine]:
@@ -342,9 +349,7 @@ class BomLineRepository(BaseRepository[BomLine]):
         stmt = self._scoped().where(BomLine.bom_id == bom_id).order_by(BomLine.line_number)
         return list((await self.session.execute(stmt)).scalars().all())
 
-    async def lines_for_boms(
-        self, bom_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, list[BomLine]]:
+    async def lines_for_boms(self, bom_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, list[BomLine]]:
         """Every line of every BOM at one explosion level, in one statement.
 
         This is the query that keeps the engine at O(depth) round-trips instead
@@ -374,7 +379,7 @@ class BomLineRepository(BaseRepository[BomLine]):
             .where(BomLine.company_id == self.tenant.company_id, BomLine.bom_id == bom_id)
             .execution_options(synchronize_session=False)
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
     async def direct_parents_page(
         self,
@@ -435,6 +440,10 @@ class BomLineRepository(BaseRepository[BomLine]):
 
 class BomOperationRepository(BaseRepository[BomOperation]):
     model = BomOperation
+    #: What ``BaseRepository.get_or_404`` calls the record in its not-found
+    #: sentence. Set explicitly because the automatic split of the class name
+    #: would say "Bom", and every other message in this module says "BOM".
+    entity_label = "BOM operation"
     sortable_fields = {"operation_sequence": BomOperation.operation_sequence}  # noqa: RUF012
 
     async def list_for_bom(self, bom_id: uuid.UUID) -> list[BomOperation]:
@@ -470,7 +479,7 @@ class BomOperationRepository(BaseRepository[BomOperation]):
             )
             .execution_options(synchronize_session=False)
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 __all__ = [

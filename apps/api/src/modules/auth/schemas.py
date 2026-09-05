@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
@@ -111,23 +112,37 @@ class TokenPair(BaseModel):
 
 
 class LoginResponse(TokenPair):
+    """Internal login result; the route moves ``refresh_token`` to a cookie."""
+
     user: AuthenticatedUser
 
 
-class RefreshRequest(BaseModel):
-    refresh_token: str = Field(min_length=20, max_length=4096)
+class AccessTokenResponse(BaseModel):
+    """Browser-visible half of a token pair; never contains a refresh secret."""
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    refresh_expires_in: int
+    session_id: str
 
 
-class LogoutRequest(BaseModel):
-    """Optional body.
+class BrowserLoginResponse(AccessTokenResponse):
+    mfa_required: Literal[False] = False
+    user: AuthenticatedUser
 
-    The session normally comes from the ``sid`` claim on the access token; the
-    refresh token is accepted too, so a client that has already discarded its
-    access token can still close the session properly instead of leaving it live
-    until expiry.
-    """
 
-    refresh_token: str | None = Field(default=None, max_length=4096)
+class MfaChallengeResponse(BaseModel):
+    """Password stage succeeded; no session exists until TOTP verification."""
+
+    mfa_required: Literal[True] = True
+    challenge_token: str
+    expires_in: int
+
+
+class MfaVerifyRequest(BaseModel):
+    challenge_token: str = Field(min_length=20, max_length=4096)
+    code: str = Field(pattern=r"^[0-9]{6}$")
 
 
 class LogoutResult(BaseModel):
@@ -185,6 +200,33 @@ class ChangePasswordResult(BaseModel):
     revoked_sessions: int
 
 
+# -----------------------------------------------------------------------------
+# Multi-factor authentication
+# -----------------------------------------------------------------------------
+
+
+class MfaSetupRequest(BaseModel):
+    current_password: str = PasswordField
+
+
+class MfaSetupResponse(BaseModel):
+    secret: str
+    provisioning_uri: str
+
+
+class MfaCodeRequest(BaseModel):
+    code: str = Field(pattern=r"^[0-9]{6}$")
+
+
+class MfaDisableRequest(MfaCodeRequest):
+    current_password: str = PasswordField
+
+
+class MfaChangeResult(BaseModel):
+    mfa_enabled: bool
+    revoked_sessions: int
+
+
 class PasswordResetRequestPayload(BaseModel):
     email: EmailStr
     company_code: str | None = Field(default=None, max_length=32)
@@ -239,18 +281,25 @@ class SessionRead(BaseModel):
 
 
 __all__ = [
+    "AccessTokenResponse",
     "AcknowledgedResult",
     "AuthenticatedUser",
+    "BrowserLoginResponse",
     "ChangePasswordRequest",
     "ChangePasswordResult",
     "LoginRequest",
     "LoginResponse",
-    "LogoutRequest",
     "LogoutResult",
     "MeResponse",
+    "MfaChallengeResponse",
+    "MfaChangeResult",
+    "MfaCodeRequest",
+    "MfaDisableRequest",
+    "MfaSetupRequest",
+    "MfaSetupResponse",
+    "MfaVerifyRequest",
     "PasswordResetConfirmPayload",
     "PasswordResetRequestPayload",
-    "RefreshRequest",
     "SessionRead",
     "TokenPair",
 ]

@@ -73,6 +73,7 @@ from src.modules.sales.models import (
     SalesOrderStatus,
 )
 from src.modules.sales.repository import (
+    SALES_ORDER_ENTITY,
     AvailabilityRepository,
     ItemLookupRepository,
     OrderPartyRepository,
@@ -984,6 +985,34 @@ def _apply_priced_line(line: SalesOrderLine, priced: PricedLine) -> SalesOrderLi
     return line
 
 
+def prospective_totals(
+    lines: Sequence[SalesOrderLine],
+    *,
+    changed: Sequence[tuple[SalesOrderLine, Decimal]],
+    is_interstate: bool,
+) -> OrderTotals:
+    """What the header would total if the changed lines took their new quantities.
+
+    Pure: nothing is written, so the credit decision can be made *before* any
+    reservation moves. Unchanged lines keep their stored quantity; every line
+    keeps its agreed price and discount terms, exactly as the later re-pricing
+    in ``_update_confirmed`` does.
+    """
+    new_quantities = {id(line): quantity for line, quantity in changed}
+    amounts = [
+        compute_line_amounts(
+            quantity=new_quantities.get(id(line), Decimal(line.quantity)),
+            unit_price=Decimal(line.unit_price),
+            tax_rate=Decimal(line.tax_rate),
+            is_interstate=is_interstate,
+            discount_percentage=Decimal(line.discount_percentage) or None,
+            discount_amount=Decimal(line.discount_amount),
+        )
+        for line in lines
+    ]
+    return sum_order_totals(amounts)
+
+
 def _apply_totals(order: SalesOrder, totals: OrderTotals) -> None:
     order.subtotal = totals.subtotal
     order.discount_amount = totals.discount_amount
@@ -1138,7 +1167,7 @@ async def update_order(
     async with transaction(session):
         order = await repo.lock_for_update(order_id)
         if order is None:
-            raise NotFoundError("Sales order", order_id)
+            raise NotFoundError(SALES_ORDER_ENTITY, order_id)
 
         status = SalesOrderStatus(order.status)
         before = snapshot(order, ORDER_AUDITED_FIELDS)
@@ -1372,6 +1401,23 @@ async def _update_confirmed(
         line.notes = sent.notes
 
     if changed:
+        # Rule 4 (module docstring): the credit check ran inside the confirming
+        # transaction for the total *at that moment*. Growing the order afterwards
+        # is new exposure the check never saw, so it is re-run here, against the
+        # locked customer row and before the item advisory locks - the same
+        # order ``confirm_order`` takes. The full prospective total is checked,
+        # not the delta, because ``outstanding_amount`` never includes open
+        # orders.
+        # ASSUMPTION: only an *increase* is re-checked. A reduction stays
+        # unchecked so a customer now on hold can still shrink its exposure
+        # (docs/assumptions.md, credit limit semantics).
+        prospective = prospective_totals(
+            existing, changed=changed, is_interstate=order.is_interstate
+        )
+        if prospective.total_amount > Decimal(order.total_amount):
+            await assert_customer_can_order(
+                session, tenant, order.customer_id, prospective.total_amount, lock=True
+            )
         await _rereserve_changed_lines(session, tenant, order=order, changed=changed, port=port)
 
     # Amounts follow the quantity: the agreed unit price and discount terms stay,
@@ -1519,7 +1565,7 @@ async def approve_order(
     async with transaction(session):
         order = await repo.lock_for_update(order_id)
         if order is None:
-            raise NotFoundError("Sales order", order_id)
+            raise NotFoundError(SALES_ORDER_ENTITY, order_id)
 
         if SalesOrderStatus(order.status) is not SalesOrderStatus.DRAFT:
             raise BusinessRuleError(
@@ -1587,7 +1633,7 @@ async def confirm_order(
     async with transaction(session):
         order = await repo.lock_for_update(order_id)
         if order is None:
-            raise NotFoundError("Sales order", order_id)
+            raise NotFoundError(SALES_ORDER_ENTITY, order_id)
 
         current = SalesOrderStatus(order.status)
         # Validated before any work is done, so a wrong-state request costs one
@@ -1727,7 +1773,7 @@ async def cancel_order(
     async with transaction(session):
         order = await repo.lock_for_update(order_id)
         if order is None:
-            raise NotFoundError("Sales order", order_id)
+            raise NotFoundError(SALES_ORDER_ENTITY, order_id)
 
         SALES_ORDER_LIFECYCLE.assert_transition(
             SalesOrderStatus(order.status), SalesOrderStatus.CANCELLED
@@ -1839,6 +1885,7 @@ __all__ = [
     "list_orders",
     "order_detail",
     "price_line",
+    "prospective_totals",
     "reservable_quantity",
     "resolve_tax_treatment",
     "resolve_unit_price",

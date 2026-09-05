@@ -128,8 +128,7 @@ class TemplateParameterIn(BaseModel):
             self.allowed_values
         ):
             raise ValueError(
-                f"'{self.parameter_name}': allowed values apply to SELECT and TEXT parameters "
-                "only."
+                f"'{self.parameter_name}': allowed values apply to SELECT and TEXT parameters only."
             )
         if self.allowed_values is not None and len(set(self.allowed_values)) != len(
             self.allowed_values

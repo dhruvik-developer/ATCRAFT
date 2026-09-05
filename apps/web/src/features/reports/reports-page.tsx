@@ -30,7 +30,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { differenceInCalendarDays, subDays } from 'date-fns'
 import { ArrowLeft, FileBarChart, Play } from 'lucide-react'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useSearchParams } from 'react-router-dom'
 import { z } from 'zod'
@@ -65,6 +65,7 @@ import {
   toDateInput,
 } from '@/lib/format'
 import { queryKeys, staleTimes } from '@/lib/query-client'
+import type { PaginatedEnvelope } from '@/types/api'
 
 import { ReportJobPanel } from './job-panel'
 import { useReportJob, type AcceptedJobData } from './report-jobs'
@@ -81,6 +82,35 @@ import {
 const DEFAULT_RANGE_DAYS = 30
 /** `REPORT_MAX_RANGE_DAYS` in the API. Checked here so the trip is not wasted. */
 const MAX_RANGE_DAYS = 366
+/** `REPORT_SNAPSHOT_TTL_HOURS` in the API: how long a generated file is reused. */
+const REPORT_SNAPSHOT_TTL_HOURS = 24
+
+/**
+ * The same route answers 200 with a page of rows or 202 with a job. The
+ * envelope is the only tell: a paginated answer carries an array, an accepted
+ * one carries the job description. Reading it this way keeps the escalation
+ * working without asking the client to guess in advance which it will get.
+ */
+function isAcceptedJob(payload: unknown): payload is AcceptedJobData {
+  return (
+    payload !== null &&
+    typeof payload === 'object' &&
+    !Array.isArray(payload) &&
+    'status_url' in payload
+  )
+}
+
+/** The same parameters, whatever order the two happen to list them in. */
+function sameQuery(a: URLSearchParams, b: URLSearchParams): boolean {
+  const serialise = (params: URLSearchParams) =>
+    [...params.entries()]
+      .sort(([keyA, valueA], [keyB, valueB]) =>
+        keyA === keyB ? valueA.localeCompare(valueB) : keyA.localeCompare(keyB),
+      )
+      .map(([key, value]) => `${key}=${value}`)
+      .join('&')
+  return serialise(a) === serialise(b)
+}
 
 /**
  * The filters every report route accepts.
@@ -97,7 +127,12 @@ const FILTERS: { name: string; label: string; kind: FilterKind; help?: string }[
   { name: 'item_id', label: 'Item', kind: 'ITEM' },
   { name: 'vendor_id', label: 'Vendor', kind: 'VENDOR' },
   { name: 'customer_id', label: 'Customer', kind: 'CUSTOMER' },
-  { name: 'status', label: 'Status', kind: 'STATUS', help: 'Exact status code, where the report has one' },
+  {
+    name: 'status',
+    label: 'Status',
+    kind: 'STATUS',
+    help: 'Exact status code, where the report has one',
+  },
   {
     name: 'min_days',
     label: 'Age threshold (days)',
@@ -115,7 +150,7 @@ export default function ReportsPage() {
    * descriptors - so it is read whole rather than paged. It is not a data list.
    */
   const catalogue = useQuery({
-    queryKey: ['reports', 'catalogue'],
+    queryKey: queryKeys.reports.catalogue,
     queryFn: () => api.get<ReportDescriptor[]>('/reports/catalogue'),
     staleTime: staleTimes.reference,
   })
@@ -354,28 +389,36 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
     // A report is only fetched once it has been asked for, and a period report
     // never without both ends of its range - half a range is a 422.
     enabled:
-      hasRun && (!requiresPeriod || Boolean(applied.date_from)) && (!requiresPeriod || Boolean(applied.date_to)),
+      hasRun &&
+      (!requiresPeriod || Boolean(applied.date_from)) &&
+      (!requiresPeriod || Boolean(applied.date_to)),
     staleTime: staleTimes.transactional,
   })
 
-  /**
-   * The same route answers 200 with a page of rows or 202 with a job. The
-   * envelope is the only tell: a paginated answer carries an array, an accepted
-   * one carries the job description. Reading it this way keeps the escalation
-   * working without asking the client to guess in advance which it will get.
-   */
   const payload = list.data as unknown
   const rows = Array.isArray(payload) ? (payload as ReportRow[]) : []
-  const accepted =
-    !Array.isArray(payload) && payload !== null && typeof payload === 'object' &&
-    'status_url' in (payload as Record<string, unknown>)
-      ? (payload as AcceptedJobData)
-      : null
+  const accepted = isAcceptedJob(payload) ? payload : null
+
+  /**
+   * Whether the operator closed the job strip for the answer in hand.
+   *
+   * `controller.reset` sets the job back to idle, but `list.data` still holds
+   * the accepted envelope - so without this the screen would render neither a
+   * strip nor a table nor a word about why.
+   */
+  const [dismissed, setDismissed] = useState(false)
 
   const { start } = job
   useEffect(() => {
     if (accepted) start(accepted)
+    // A fresh answer reinstates the strip, whatever happened to the last one.
+    setDismissed(false)
   }, [accepted, start])
+
+  const dismiss = () => {
+    setDismissed(true)
+    job.reset()
+  }
 
   const runInline = form.handleSubmit((values) => {
     const next = new URLSearchParams({ report: definition.key, run: '1' })
@@ -389,13 +432,27 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
     }
     // Replacing the whole query string resets paging and the search box, which
     // belong to the previous run rather than this one.
+    const unchanged = sameQuery(next, searchParams)
     setSearchParams(next, { replace: true })
+    setDismissed(false)
+    if (!unchanged) return
+
+    // The query key is built from the URL, so an identical URL leaves TanStack
+    // with nothing to do and the operator with a button that did nothing. The
+    // server also reuses its snapshot for the same parameters
+    // (REPORT_SNAPSHOT_TTL_HOURS), so a 202 comes back byte-identical and
+    // structural sharing hands back the very same `accepted` object: the
+    // effect above never re-fires, and the job has to be started from here. A
+    // *different* answer is a new object, which that effect does start.
+    void list.refetch().then((result) => {
+      const data = (result.data as PaginatedEnvelope<ReportRow> | undefined)?.data as unknown
+      if (isAcceptedJob(data) && data === accepted) start(data)
+    })
   })
 
   const errors = form.formState.errors
   const valueErrors = errors.values as unknown as
-    | Record<string, { message?: string } | undefined>
-    | undefined
+    Record<string, { message?: string } | undefined> | undefined
 
   const columns = useMemo<ColumnDef<ReportRow, unknown>[]>(
     // Identifier columns are declared by the API but are UUIDs; they identify a
@@ -483,7 +540,7 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
         </CardContent>
       </Card>
 
-      <ReportJobPanel controller={job} label={definition.title} />
+      <ReportJobPanel controller={{ ...job, reset: dismiss }} label={definition.title} />
 
       {!hasRun ? (
         <EmptyState
@@ -491,7 +548,15 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
           title="Set the parameters and run the report"
           description="Nothing is fetched until you ask for it, so an unbounded query never reaches the database."
         />
-      ) : accepted ? null : (
+      ) : accepted ? (
+        dismissed ? (
+          <EmptyState
+            icon={FileBarChart}
+            title="The download was dismissed"
+            description={`Run the report again to bring it back. The same parameters reuse the file already generated for ${REPORT_SNAPSHOT_TTL_HOURS} hours, so nothing new is queued.`}
+          />
+        ) : null
+      ) : (
         <DataTable
           columns={columns}
           data={rows}
@@ -511,7 +576,7 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
               : JSON.stringify(row)
           }
           virtualise={rows.length > 150}
-          maxHeight="60vh"
+          maxHeight="60svh"
           emptyTitle="No rows for these parameters"
           emptyDescription="Widen the date range or clear a filter and run it again."
         />

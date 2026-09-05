@@ -16,15 +16,79 @@ collision waiting for an import order to expose it.
 
 One implementation lives here. It names no tables, so nothing in it can go stale,
 and it is idempotent, so any number of modules may call it.
+
+The same file owns :func:`report_database_setup_failure`, the one place that
+decides what a database set-up error means for the run - so a module fixture
+that builds its own schema cannot quietly turn a broken model into a skip.
 """
 
 from __future__ import annotations
 
+import os
+from typing import NoReturn
+
+import asyncpg
+import pytest
 from sqlalchemy import Column, Table
 
 from src.core.models import Base
 from src.core.registry import import_all_models
 from src.core.types import GUID
+
+#: asyncpg's own "the server is not taking connections" family. Anything else
+#: it raises - a refused CREATE DATABASE, a missing extension, a broken model
+#: failing ``create_all`` - is a real failure and must surface as one.
+_ASYNCPG_UNREACHABLE = (
+    asyncpg.CannotConnectNowError,
+    asyncpg.TooManyConnectionsError,
+    asyncpg.PostgresConnectionError,
+)
+
+
+def database_unreachable(exc: BaseException) -> bool:
+    """Whether ``exc`` means PostgreSQL could not be reached at all.
+
+    A refused port arrives as ``ConnectionRefusedError`` and an unknown host as
+    ``socket.gaierror`` - both ``OSError`` - and SQLAlchemy wraps asyncpg's
+    start-up refusals in a ``DBAPIError`` whose cause chain ends at the asyncpg
+    exception. The chain is walked so the wrapping does not hide the cause.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, OSError | _ASYNCPG_UNREACHABLE):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def report_database_setup_failure(
+    exc: BaseException, *, purpose: str = "integration tests"
+) -> NoReturn:
+    """Turn a database set-up error into the right pytest outcome, and only that.
+
+    Three outcomes, chosen by what went wrong and where:
+
+    * The server is unreachable on a developer machine: skip, with the command
+      that starts it. Nothing about the code is known to be wrong.
+    * The server is unreachable under CI (``CI`` is set): fail. A pipeline that
+      never brought PostgreSQL up must not report a green run that executed
+      nothing.
+    * Anything else - the database could not be created, an extension is
+      missing, ``create_all`` rejected a model: re-raise. These are defects in
+      the schema or the environment contract, and a blanket skip here once hid
+      all of them behind "PostgreSQL is not reachable".
+    """
+    if not database_unreachable(exc):
+        raise exc
+    message = (
+        f"PostgreSQL is not reachable for {purpose} ({exc!r}). "
+        "Start it with `make dev` before running database-backed tests."
+    )
+    if os.environ.get("CI"):
+        pytest.fail(message, pytrace=False)
+    pytest.skip(message, allow_module_level=True)
 
 
 def register_missing_fk_targets() -> set[str]:

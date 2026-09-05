@@ -7,20 +7,21 @@
  *
  * Token storage
  * -------------
- * The access token lives in memory only - it never reaches localStorage, so an
- * XSS payload cannot read it out of storage after the fact. The refresh token is
- * persisted, because a full page reload must not sign the user out.
- *
- * The stronger design is an httpOnly, SameSite=Strict refresh cookie, which
- * script cannot read at all. That requires the API to set cookies and a CSRF
- * strategy on the refresh endpoint; it is the recommended hardening step before
- * this is exposed to the public internet, and is recorded in docs/security.md.
+ * The access token lives in memory only. The refresh credential is an HttpOnly,
+ * SameSite=Strict cookie set by the API, so JavaScript never receives or stores
+ * it. A readable, non-secret CSRF cookie is both the double-submit value for
+ * state-changing auth calls and the hint used to restore a session after F5.
  */
 
+import { API_BASE_URL, CSRF_COOKIE_NAME, STORAGE_KEYS } from '@/lib/constants'
 import type { ApiEnvelope, PaginatedEnvelope } from '@/types/api'
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) || '/api/v1'
-const REFRESH_STORAGE_KEY = 'atcraft.refresh_token'
+const BASE_URL = API_BASE_URL
+const SESSION_SUPPRESS_KEY = STORAGE_KEYS.sessionSuppressed
+
+/** Messages composed here rather than in lib/messages: that module imports this one. */
+const SERVICE_UNAVAILABLE_MESSAGE = 'The service is temporarily unavailable. Please try again.'
+const REQUEST_FAILED_MESSAGE = 'Request failed'
 
 // ---------------------------------------------------------------- errors ----
 
@@ -56,10 +57,31 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * For a lookup that is decoration on its screen - labels on a grid, a
+ * placement select - fetched under a right that does not imply the lookup's
+ * own: a 403 becomes an empty list, and every other failure still propagates,
+ * because an empty picker after a 500 reads as "none exist".
+ *
+ *     catch (error) { return emptyOnPermissionError<Row>(error) }
+ */
+export function emptyOnPermissionError<T>(error: unknown): T[] {
+  if (error instanceof ApiError && error.isPermissionError) return []
+  throw error
+}
+
 // ----------------------------------------------------------------- tokens ---
 
 let accessToken: string | null = null
-let refreshToken: string | null = localStorage.getItem(REFRESH_STORAGE_KEY)
+
+function cookieValue(name: string): string | null {
+  const prefix = `${encodeURIComponent(name)}=`
+  const found = document.cookie
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix))
+  return found ? decodeURIComponent(found.slice(prefix.length)) : null
+}
 
 type AuthListener = (authenticated: boolean) => void
 const authListeners = new Set<AuthListener>()
@@ -69,22 +91,25 @@ export function onAuthChange(listener: AuthListener): () => void {
   return () => authListeners.delete(listener)
 }
 
-export function setTokens(access: string | null, refresh?: string | null): void {
+export function setTokens(access: string | null): void {
   accessToken = access
-  if (refresh !== undefined) {
-    refreshToken = refresh
-    if (refresh) localStorage.setItem(REFRESH_STORAGE_KEY, refresh)
-    else localStorage.removeItem(REFRESH_STORAGE_KEY)
-  }
+  if (access) localStorage.removeItem(SESSION_SUPPRESS_KEY)
   authListeners.forEach((l) => l(Boolean(access)))
 }
 
 export function clearTokens(): void {
-  setTokens(null, null)
+  accessToken = null
+  // JavaScript cannot and must not erase the HttpOnly cookie. This marker stops
+  // a failed logout request from silently restoring that cookie on the next
+  // reload; a later successful login/refresh clears it.
+  localStorage.setItem(SESSION_SUPPRESS_KEY, '1')
+  authListeners.forEach((listener) => listener(false))
 }
 
 export function hasRefreshToken(): boolean {
-  return Boolean(refreshToken)
+  return (
+    localStorage.getItem(SESSION_SUPPRESS_KEY) !== '1' && Boolean(cookieValue(CSRF_COOKIE_NAME))
+  )
 }
 
 // ------------------------------------------------------- refresh handling ---
@@ -101,14 +126,14 @@ export function hasRefreshToken(): boolean {
 let refreshInFlight: Promise<boolean> | null = null
 
 async function refreshAccessToken(): Promise<boolean> {
-  if (!refreshToken) return false
+  if (!hasRefreshToken()) return false
 
   refreshInFlight ??= (async () => {
     try {
       const response = await fetch(`${BASE_URL}/auth/refresh`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: refreshToken }),
+        credentials: 'include',
+        headers: { 'X-CSRF-Token': cookieValue(CSRF_COOKIE_NAME) ?? '' },
       })
       if (!response.ok) {
         clearTokens()
@@ -116,13 +141,12 @@ async function refreshAccessToken(): Promise<boolean> {
       }
       const body = (await response.json()) as ApiEnvelope<{
         access_token: string
-        refresh_token: string
       }>
       if (!body.data?.access_token) {
         clearTokens()
         return false
       }
-      setTokens(body.data.access_token, body.data.refresh_token)
+      setTokens(body.data.access_token)
       return true
     } catch {
       clearTokens()
@@ -180,8 +204,8 @@ async function toApiError(response: Response): Promise<ApiError> {
       response.status,
       response.status >= 500 ? 'SERVICE_UNAVAILABLE' : 'UNKNOWN',
       response.status >= 500
-        ? 'The service is temporarily unavailable. Please try again.'
-        : response.statusText || 'Request failed',
+        ? SERVICE_UNAVAILABLE_MESSAGE
+        : response.statusText || REQUEST_FAILED_MESSAGE,
       undefined,
       requestId,
     )
@@ -194,6 +218,10 @@ async function request<T>(method: string, path: string, options: RequestOptions 
   const send = async (): Promise<Response> => {
     const finalHeaders = new Headers(headers)
     if (!anonymous && accessToken) finalHeaders.set('Authorization', `Bearer ${accessToken}`)
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) {
+      const csrf = cookieValue(CSRF_COOKIE_NAME)
+      if (csrf) finalHeaders.set('X-CSRF-Token', csrf)
+    }
 
     let payload: BodyInit | undefined
     if (body instanceof FormData) {
@@ -208,6 +236,7 @@ async function request<T>(method: string, path: string, options: RequestOptions 
     return fetch(buildUrl(path, params), {
       ...rest,
       method,
+      credentials: rest.credentials ?? 'include',
       headers: finalHeaders,
       body: payload,
     })

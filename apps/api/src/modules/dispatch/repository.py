@@ -47,6 +47,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
 from src.core.clock import utcnow
+from src.core.database import affected_rows
 from src.core.pagination import COUNT_CEILING, CursorParams, PageParams, SortParams
 from src.core.responses import CursorPagination, OffsetPagination
 from src.modules.customers.models import Customer
@@ -399,9 +400,7 @@ class LedgerLookupRepository(BaseRepository[InventoryTransaction]):
 
     model = InventoryTransaction
 
-    async def posted_for(
-        self, reference_type: str, reference_id: uuid.UUID
-    ) -> list[uuid.UUID]:
+    async def posted_for(self, reference_type: str, reference_id: uuid.UUID) -> list[uuid.UUID]:
         stmt = (
             select(InventoryTransaction.id)
             .where(
@@ -524,7 +523,7 @@ class DispatchLineRepository(BaseRepository[DispatchLine]):
             DispatchLine.company_id == self.tenant.company_id,
             DispatchLine.dispatch_id == dispatch_id,
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 class DispatchTrackingEventRepository(BaseRepository[DispatchTrackingEvent]):
@@ -884,7 +883,7 @@ async def mark_delay_notified(
         .values(delay_notified_at=at or utcnow())
         .execution_options(synchronize_session=False)
     )
-    return int((await session.execute(stmt)).rowcount or 0)
+    return affected_rows(await session.execute(stmt))
 
 
 # -----------------------------------------------------------------------------

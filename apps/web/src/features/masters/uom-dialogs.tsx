@@ -57,12 +57,13 @@ import {
   Label,
 } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
+import { applyFieldErrors } from '@/lib/form-errors'
 import { humanise, toDecimal } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
 import {
-  applyFieldErrors,
   conversionStatement,
   FACTOR_PATTERN,
   formatFactor,
@@ -95,8 +96,6 @@ const uomSchema = z.object({
 })
 
 type UomFormValues = z.infer<typeof uomSchema>
-
-const UOM_FIELDS = new Set(Object.keys(uomSchema.shape))
 
 function emptyUom(): UomFormValues {
   return {
@@ -178,10 +177,13 @@ export function UomFormDialog({
       // The item form's unit picker reads the shared branch; a unit added here
       // must not stay invisible to it for the reference-data stale window.
       void queryClient.invalidateQueries({ queryKey: queryKeys.uoms.all })
-      toast.success(isEdit ? 'Unit updated' : 'Unit created', `${saved.code} - ${saved.name}`)
+      toast.success(
+        isEdit ? success.updated('Unit') : success.created('Unit'),
+        `${saved.code} - ${saved.name}`,
+      )
       onOpenChange(false)
     },
-    onError: (error) => applyFieldErrors(error, setError, UOM_FIELDS),
+    onError: (error) => applyFieldErrors(error, setError),
   })
 
   // Clearing the base flag is refused outright by the service: a family without
@@ -331,6 +333,8 @@ export function UomFormDialog({
                 </p>
               </div>
             </div>
+
+            <FieldError message={errors.root?.message} />
           </DialogBody>
 
           <DialogFooter>
@@ -371,8 +375,6 @@ const conversionSchema = z
   })
 
 type ConversionFormValues = z.infer<typeof conversionSchema>
-
-const CONVERSION_FIELDS = new Set(['from_uom_id', 'to_uom_id', 'factor'])
 
 /**
  * Add a conversion between two units.
@@ -452,12 +454,12 @@ export function ConversionFormDialog({
       void queryClient.invalidateQueries({ queryKey: mastersKeys.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.uoms.all })
       toast.success(
-        'Conversion added',
+        success.created('Conversion'),
         conversionStatement(fromUnit?.code ?? '', toUnit?.code ?? '', saved.factor),
       )
       onOpenChange(false)
     },
-    onError: (error) => applyFieldErrors(error, setError, CONVERSION_FIELDS),
+    onError: (error) => applyFieldErrors(error, setError),
   })
 
   const inverse = FACTOR_PATTERN.test(factor.trim()) ? inverseFactor(factor.trim()) : null
@@ -510,7 +512,10 @@ export function ConversionFormDialog({
                 <FieldError message={errors.from_uom_id?.message} />
               </div>
 
-              <ArrowRight className="mb-2.5 hidden h-4 w-4 text-muted-foreground sm:block" aria-hidden />
+              <ArrowRight
+                className="mb-2.5 hidden h-4 w-4 text-muted-foreground sm:block"
+                aria-hidden
+              />
 
               <div>
                 <Label htmlFor="conversion-to" required>
@@ -520,11 +525,7 @@ export function ConversionFormDialog({
                   control={control}
                   name="to_uom_id"
                   render={({ field }) => (
-                    <Select
-                      value={field.value}
-                      onValueChange={field.onChange}
-                      disabled={!fromUnit}
-                    >
+                    <Select value={field.value} onValueChange={field.onChange} disabled={!fromUnit}>
                       <SelectTrigger
                         id="conversion-to"
                         className="mt-1.5"
@@ -596,6 +597,8 @@ export function ConversionFormDialog({
                 )}
               </AlertDescription>
             </Alert>
+
+            <FieldError message={errors.root?.message} />
           </DialogBody>
 
           <DialogFooter>
@@ -637,12 +640,11 @@ export function ConversionDeleteDialog({
   const queryClient = useQueryClient()
 
   const mutation = useMutation({
-    mutationFn: (target: ConversionRow) =>
-      api.delete(`/products/uom-conversions/${target.id}`),
+    mutationFn: (target: ConversionRow) => api.delete(`/products/uom-conversions/${target.id}`),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: mastersKeys.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.uoms.all })
-      toast.success('Conversion removed', statement)
+      toast.success(success.deleted('Conversion'), statement)
       onOpenChange(false)
     },
   })
@@ -711,8 +713,11 @@ export function UomConversionCheckDialog({
     enabled: open && Boolean(asked),
     staleTime: staleTimes.reference,
     // A pair with no defined conversion is a business answer, not a transient
-    // failure - retrying it three times only delays the message.
+    // failure - retrying it three times only delays the message...
     retry: false,
+    // ...and it is rendered inline below, so the global "Could not load data"
+    // toast would mis-title a correct answer and duplicate the alert.
+    meta: { suppressErrorToast: true },
   })
 
   // The answer is labelled from the ids the SERVER echoed back, not from the
@@ -720,7 +725,9 @@ export function UomConversionCheckDialog({
   // has since picked is exactly the silent mislabelling this dialog exists to
   // rule out.
   const result = answer.data ?? null
-  const answeredFrom = result ? (units.find((unit) => unit.id === result.from_uom_id) ?? null) : null
+  const answeredFrom = result
+    ? (units.find((unit) => unit.id === result.from_uom_id) ?? null)
+    : null
   const answeredTo = result ? (units.find((unit) => unit.id === result.to_uom_id) ?? null) : null
 
   const quantityIsValid =

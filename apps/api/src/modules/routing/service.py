@@ -49,6 +49,7 @@ from src.core.errors import (
     NotFoundError,
 )
 from src.core.logging import get_logger
+from src.core.messages import NO_FIELDS_TO_UPDATE
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -66,6 +67,7 @@ from src.modules.routing.models import (
     WorkCenter,
 )
 from src.modules.routing.repository import (
+    WORK_CENTER_ENTITY,
     CostedOperation,
     CostedRouting,
     ItemLookupRepository,
@@ -173,7 +175,7 @@ class MasterLifecycleState(StrEnum):
 
 
 WORK_CENTER_LIFECYCLE: StateMachine[MasterLifecycleState] = StateMachine(
-    entity="WorkCenter",
+    entity=WORK_CENTER_ENTITY,
     initial=MasterLifecycleState.ACTIVE,
     transitions=(
         Transition(
@@ -514,9 +516,7 @@ def cost_breakdown(
     lines: list[OperationCostRead] = []
     for operation in routing.operations:
         charged = chargeable_operation_time(operation, quantity)
-        time_cost = to_money(
-            charged / MINUTES_PER_HOUR * operation.work_center_cost_per_hour
-        )
+        time_cost = to_money(charged / MINUTES_PER_HOUR * operation.work_center_cost_per_hour)
         total = calculate_operation_cost(operation, quantity)
         lines.append(
             OperationCostRead(
@@ -552,9 +552,7 @@ def cost_breakdown(
         # zero; it is money per unit, so it keeps money scale.
         cost_per_unit=to_money(total_cost / quantity),
         working_hours_per_day=hours_per_day,
-        lead_time_days=total_lead_time_days(
-            routing, quantity, working_hours_per_day=hours_per_day
-        ),
+        lead_time_days=total_lead_time_days(routing, quantity, working_hours_per_day=hours_per_day),
         operations=lines,
     )
 
@@ -625,7 +623,7 @@ class WorkCenterService:
     ) -> WorkCenterRead:
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             work_center = await self.repo.get_or_404(work_center_id)
@@ -757,9 +755,7 @@ def lifecycle_state(work_center: WorkCenter) -> MasterLifecycleState:
     """Derive the lifecycle state of a work centre from its flags."""
     if work_center.deleted_at is not None:
         return MasterLifecycleState.ARCHIVED
-    return (
-        MasterLifecycleState.ACTIVE if work_center.is_active else MasterLifecycleState.INACTIVE
-    )
+    return MasterLifecycleState.ACTIVE if work_center.is_active else MasterLifecycleState.INACTIVE
 
 
 # -----------------------------------------------------------------------------
@@ -816,7 +812,7 @@ class MachineService:
     async def update_machine(self, machine_id: uuid.UUID, payload: MachineUpdate) -> MachineRead:
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
-            raise BusinessRuleError("No fields were supplied to update.")
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         async with transaction(self.session):
             machine = await self.repo.get_or_404(machine_id)
@@ -873,10 +869,7 @@ class MachineService:
             current = MachineStatus(machine.status)
             MACHINE_AVAILABILITY.assert_transition(current, payload.status)
 
-            if (
-                current is MachineStatus.MAINTENANCE
-                and payload.status is MachineStatus.AVAILABLE
-            ):
+            if current is MachineStatus.MAINTENANCE and payload.status is MachineStatus.AVAILABLE:
                 machine.last_maintenance_date = today()
             if payload.next_maintenance_date is not None:
                 machine.next_maintenance_date = payload.next_maintenance_date
@@ -952,7 +945,7 @@ class MachineService:
         rates = await self.work_centers.rates([work_center_id])
         work_center = rates.get(work_center_id)
         if work_center is None:
-            raise NotFoundError("WorkCenter", work_center_id)
+            raise NotFoundError(WORK_CENTER_ENTITY, work_center_id)
         if not work_center.is_active:
             raise BusinessRuleError(
                 f"Work centre {work_center.code} is inactive and cannot take machines.",
@@ -1022,9 +1015,7 @@ class RoutingService:
         operations = await self.operations.list_for_routing(routing.id)
         return [RoutingOperationRead.model_validate(op) for op in operations]
 
-    async def routing_cost(
-        self, routing_id: uuid.UUID, quantity: Decimal
-    ) -> RoutingCostRead:
+    async def routing_cost(self, routing_id: uuid.UUID, quantity: Decimal) -> RoutingCostRead:
         """Cost and lead time for a quantity, recomputed live and never stored.
 
         Nothing is written back: opening a costing screen must not mutate an
@@ -1118,9 +1109,7 @@ class RoutingService:
 
         return _detail(routing, operations)
 
-    async def update_routing(
-        self, routing_id: uuid.UUID, payload: RoutingUpdate
-    ) -> RoutingDetail:
+    async def update_routing(self, routing_id: uuid.UUID, payload: RoutingUpdate) -> RoutingDetail:
         """Edit a DRAFT routing. Operations are replaced wholesale when supplied."""
         async with transaction(self.session):
             routing = await self.repo.get_or_404(routing_id)
@@ -1450,7 +1439,7 @@ class RoutingService:
         for operation in operations:
             centre = rates.get(operation.work_center_id)
             if centre is None:
-                raise NotFoundError("WorkCenter", operation.work_center_id)
+                raise NotFoundError(WORK_CENTER_ENTITY, operation.work_center_id)
             if not centre.is_active:
                 raise BusinessRuleError(
                     f"Operation {operation.sequence}: work centre {centre.code} is "
@@ -1468,9 +1457,7 @@ class RoutingService:
                     centre=centre,
                 )
 
-    async def _assert_operations_still_valid(
-        self, operations: Sequence[RoutingOperation]
-    ) -> None:
+    async def _assert_operations_still_valid(self, operations: Sequence[RoutingOperation]) -> None:
         """Re-check work centres and machines at approval time.
 
         A routing can sit in draft for weeks, and the centre it plans work at may
@@ -1611,9 +1598,7 @@ async def manufacture_lead_time_days(
     routing, and the caller must fall back to ``items.lead_time_days`` rather
     than plan on zero days.
     """
-    result = await RoutingService(session, tenant).item_lead_time(
-        item_id, quantity, as_of=as_of
-    )
+    result = await RoutingService(session, tenant).item_lead_time(item_id, quantity, as_of=as_of)
     return result.lead_time_days if result.routing_id is not None else None
 
 

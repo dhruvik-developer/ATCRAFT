@@ -125,24 +125,65 @@ section "2. Deployment 1 cannot reach deployment 2's database"
 # nothing else. This is the crossing that matters most: both deployments use
 # the same service names, so a shared network would make this succeed silently
 # and every write would land in the wrong database.
-if dc_main exec -T backend python - <<'PY' 2>/dev/null
-import socket, sys
-# Deployment 2's containers, addressed the way its own stack addresses them.
-for host in ("atcraft-dev-postgres-1", "atcraft-dev_postgres_1", "atcraft-dev-redis-1"):
-    try:
-        socket.getaddrinfo(host, 5432)
-    except socket.gaierror:
-        continue
-    print(f"RESOLVED {host}")
-    sys.exit(1)
-sys.exit(0)
+#
+# Deployment 2's container names are derived from its project name, never
+# typed: deploy.sh accepts any COMPOSE_PROJECT_NAME that mentions "dev", so a
+# hard-coded "atcraft-dev-postgres-1" would, for a project named anything else,
+# resolve nowhere from either side and let "nothing resolved" pass as evidence.
+# The same probe therefore runs first from inside deployment 2 as a positive
+# control: its own postgres name must resolve there, or the negative result
+# from deployment 1 proves nothing and is reported as a skip, not a pass.
+#
+# Prints PROBED, then one line per name that resolved. A missing PROBED line
+# means the probe itself did not run (container down, exec refused), which is
+# a different fact from "nothing resolved" and must not read as one.
+resolve_dev_names() {   # $1 = main|dev: whose backend container asks
+  "dc_$1" exec -T -e T_PROJECT="$DEV_PROJECT" backend python - <<'PY' 2>/dev/null
+import os, socket
+project = os.environ["T_PROJECT"]
+print("PROBED")
+# Compose v2 names containers <project>-<service>-N; v1 used underscores.
+for service in ("postgres", "redis"):
+    for host in (f"{project}-{service}-1", f"{project}_{service}_1"):
+        try:
+            socket.getaddrinfo(host, None)
+        except socket.gaierror:
+            continue
+        print(host)
 PY
-then
-  pass "deployment 2's container names do not resolve from inside deployment 1"
-  note "Compose puts DNS for a project on that project's network only."
-else
-  fail "deployment 1 resolved a deployment-2 hostname"
-fi
+}
+
+control="$(resolve_dev_names dev)"
+case "$control" in
+  PROBED*) ;;
+  *) control="" ;;
+esac
+control_names="$(printf '%s\n' "$control" | sed '1d' | tr '\n' ' ' | sed 's/ $//')"
+case " $control_names " in
+  *" ${DEV_PROJECT}-postgres-1 "*|*" ${DEV_PROJECT}_postgres_1 "*)
+    note "positive control: inside deployment 2 these resolve: $control_names"
+    crossed="$(resolve_dev_names main)"
+    case "$crossed" in
+      PROBED)
+        pass "deployment 2's container names do not resolve from inside deployment 1"
+        note "Compose puts DNS for a project on that project's network only."
+        ;;
+      PROBED*)
+        fail "deployment 1 resolved deployment 2's container name(s): $(printf '%s\n' "$crossed" | sed '1d' | tr '\n' ' ')"
+        ;;
+      *)
+        skip "could not run the name probe inside deployment 1's backend - is it up?"
+        ;;
+    esac
+    ;;
+  *)
+    if [ -z "$control" ]; then
+      skip "could not run the name probe inside deployment 2's backend - is it up?"
+    else
+      skip "deployment 2's own postgres name (${DEV_PROJECT}-postgres-1) does not resolve inside deployment 2 - a negative result from deployment 1 would prove nothing"
+    fi
+    ;;
+esac
 
 # Reaching the other cluster by IP, which is what remains when DNS is not the
 # obstacle. Docker's default bridge policy blocks inter-network traffic; this

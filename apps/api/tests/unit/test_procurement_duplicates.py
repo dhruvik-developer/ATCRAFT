@@ -172,9 +172,7 @@ def test_same_source_demand_beats_the_date_window():
         source_type=PurchaseSourceType.MRP_SUGGESTION,
         source_id=MRP_RUN,
     )
-    result = classify(
-        candidate, source_type=PurchaseSourceType.MRP_SUGGESTION, source_id=MRP_RUN
-    )
+    result = classify(candidate, source_type=PurchaseSourceType.MRP_SUGGESTION, source_id=MRP_RUN)
 
     assert result is not None
     assert result.confidence is DuplicateConfidence.EXACT
@@ -198,12 +196,8 @@ def test_two_manual_orders_never_share_a_source():
 
 
 def test_a_different_source_id_is_not_the_same_demand():
-    candidate = make_candidate(
-        source_type=PurchaseSourceType.SALES_ORDER, source_id=uuid.uuid4()
-    )
-    result = classify(
-        candidate, source_type=PurchaseSourceType.SALES_ORDER, source_id=uuid.uuid4()
-    )
+    candidate = make_candidate(source_type=PurchaseSourceType.SALES_ORDER, source_id=uuid.uuid4())
+    result = classify(candidate, source_type=PurchaseSourceType.SALES_ORDER, source_id=uuid.uuid4())
     # Still matched on vendor/item/warehouse/date, but not as an EXACT duplicate.
     assert result is not None
     assert result.confidence is not DuplicateConfidence.EXACT
@@ -245,9 +239,7 @@ def test_an_unsent_order_can_be_merged_into():
 
 def test_a_sent_order_cannot_be_merged_into():
     """The vendor already has the document; adding a line to it silently is a lie."""
-    actions = available_actions_for(
-        status=PurchaseOrderStatus.SENT, received_quantity=Decimal("0")
-    )
+    actions = available_actions_for(status=PurchaseOrderStatus.SENT, received_quantity=Decimal("0"))
     assert DuplicateAction.MERGE_WITH_EXISTING not in actions
     assert DuplicateAction.INCREASE_EXISTING_QUANTITY in actions
 
@@ -291,9 +283,7 @@ def test_same_source_recommends_cancelling_the_duplicate():
         source_type=PurchaseSourceType.MRP_SUGGESTION,
         source_id=MRP_RUN,
     )
-    result = classify(
-        candidate, source_type=PurchaseSourceType.MRP_SUGGESTION, source_id=MRP_RUN
-    )
+    result = classify(candidate, source_type=PurchaseSourceType.MRP_SUGGESTION, source_id=MRP_RUN)
     assert result is not None
     assert result.recommended_action is DuplicateAction.CANCEL_DUPLICATE
 
@@ -311,9 +301,7 @@ def test_a_sent_order_with_nothing_received_recommends_increasing_its_quantity()
 
 
 def test_a_part_delivered_order_recommends_a_new_order_with_approval():
-    result = classify(
-        make_candidate(status=PurchaseOrderStatus.PARTIALLY_RECEIVED, received="40")
-    )
+    result = classify(make_candidate(status=PurchaseOrderStatus.PARTIALLY_RECEIVED, received="40"))
     assert result is not None
     assert result.recommended_action is DuplicateAction.CREATE_NEW_WITH_APPROVAL
 
@@ -330,9 +318,7 @@ def test_same_source_on_a_part_delivered_order_does_not_recommend_cancelling():
         source_type=PurchaseSourceType.MRP_SUGGESTION,
         source_id=MRP_RUN,
     )
-    result = classify(
-        candidate, source_type=PurchaseSourceType.MRP_SUGGESTION, source_id=MRP_RUN
-    )
+    result = classify(candidate, source_type=PurchaseSourceType.MRP_SUGGESTION, source_id=MRP_RUN)
     assert result is not None
     assert result.confidence is DuplicateConfidence.EXACT
     assert result.recommended_action is DuplicateAction.CREATE_NEW_WITH_APPROVAL

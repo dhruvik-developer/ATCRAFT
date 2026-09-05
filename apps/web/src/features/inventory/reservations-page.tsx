@@ -52,8 +52,10 @@ import {
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
+import { REASON_MAX_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { daysUntil, formatDate, formatQuantity, humanise, toDecimal } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -161,7 +163,10 @@ const createSchema = z.object({
     .string()
     .trim()
     .min(10, 'Say why this stock is being held, in enough detail to audit later.')
-    .max(255, 'Keep the reason under 255 characters - the API stores no more.'),
+    .max(
+      REASON_MAX_LENGTH,
+      `Keep the reason under ${REASON_MAX_LENGTH} characters - the API stores no more.`,
+    ),
 })
 
 type CreateForm = z.infer<typeof createSchema>
@@ -391,8 +396,8 @@ function CreateReservationDialog({ onClose }: { onClose: () => void }) {
                 )}
               />
               <p className="mt-1.5 text-xs text-muted-foreground">
-                A hard reservation cannot be taken by a reallocation without an approver signing
-                the loss.
+                A hard reservation cannot be taken by a reallocation without an approver signing the
+                loss.
               </p>
               <FieldError message={errors.reservation_type?.message} />
             </div>
@@ -526,6 +531,8 @@ function CreateReservationDialog({ onClose }: { onClose: () => void }) {
             />
             <FieldError message={errors.reason?.message} />
           </div>
+
+          <FieldError message={errors.root?.message} />
         </DialogBody>
 
         <DialogFooter>
@@ -572,7 +579,7 @@ function ReleaseReservationDialog({
       }),
     onSuccess: () => {
       toast.success(
-        'Reservation released',
+        success.released('Reservation'),
         formatQuantity(reservation.remaining_quantity) +
           ' of ' +
           (reservation.item_code ?? 'this item') +
@@ -619,6 +626,7 @@ function ReleaseReservationDialog({
           {...form.register('reason')}
         />
         <FieldError message={form.formState.errors.reason?.message} />
+        <FieldError message={form.formState.errors.root?.message} />
       </div>
     </ConfirmDialog>
   )
@@ -840,7 +848,9 @@ function ReallocationDialog({
 
               {alternatives.length > 0 ? (
                 <div>
-                  <p className="mb-2 text-sm font-medium">Also considered ({alternatives.length})</p>
+                  <p className="mb-2 text-sm font-medium">
+                    Also considered ({alternatives.length})
+                  </p>
                   <ul className="space-y-2">
                     {alternatives.map((candidate) => {
                       const route = DEMAND_ROUTES[candidate.demand_type]
@@ -905,6 +915,8 @@ function ReallocationDialog({
               )}
             </>
           )}
+
+          <FieldError message={form.formState.errors.root?.message} />
         </DialogBody>
 
         <DialogFooter>
@@ -1178,11 +1190,12 @@ export default function ReservationsPage() {
               label="Warehouse"
               hideLabel
               includeAll
+              className="w-full sm:w-auto"
               value={warehouseId}
               onChange={(next) => list.setParam('warehouse_id', next || undefined)}
             />
 
-            <div>
+            <div className="w-full sm:w-auto">
               <Label htmlFor="reservations-demand-type" className="sr-only">
                 Demand type
               </Label>
@@ -1195,7 +1208,7 @@ export default function ReservationsPage() {
                 <SelectTrigger
                   id="reservations-demand-type"
                   aria-label="Demand type"
-                  className="min-w-[170px]"
+                  className="sm:min-w-[170px]"
                 >
                   <SelectValue placeholder="All demand types" />
                 </SelectTrigger>
@@ -1210,7 +1223,7 @@ export default function ReservationsPage() {
               </Select>
             </div>
 
-            <div>
+            <div className="w-full sm:w-auto">
               <Label htmlFor="reservations-type" className="sr-only">
                 Reservation type
               </Label>
@@ -1223,7 +1236,7 @@ export default function ReservationsPage() {
                 <SelectTrigger
                   id="reservations-type"
                   aria-label="Reservation type"
-                  className="min-w-[150px]"
+                  className="sm:min-w-[150px]"
                 >
                   <SelectValue placeholder="Hard and soft" />
                 </SelectTrigger>
@@ -1235,7 +1248,7 @@ export default function ReservationsPage() {
               </Select>
             </div>
 
-            <div>
+            <div className="w-full sm:w-auto">
               <Label htmlFor="reservations-status" className="sr-only">
                 Status
               </Label>
@@ -1246,7 +1259,7 @@ export default function ReservationsPage() {
                 <SelectTrigger
                   id="reservations-status"
                   aria-label="Status"
-                  className="min-w-[160px]"
+                  className="sm:min-w-[160px]"
                 >
                   <SelectValue placeholder="All statuses" />
                 </SelectTrigger>

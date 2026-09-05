@@ -30,6 +30,7 @@ from src.modules.procurement.service_rules import (
     PURCHASE_RETURN_LIFECYCLE,
     QUOTATION_LIFECYCLE,
     REQUISITION_LIFECYCLE,
+    REQUOTABLE_QUOTATION_STATUSES,
     RFQ_LIFECYCLE,
 )
 
@@ -281,9 +282,7 @@ def test_a_requisition_must_be_approved_before_it_can_be_converted():
         REQUISITION_LIFECYCLE.assert_transition(
             RequisitionStatus.PENDING_APPROVAL, RequisitionStatus.CONVERTED
         )
-    REQUISITION_LIFECYCLE.assert_transition(
-        RequisitionStatus.APPROVED, RequisitionStatus.CONVERTED
-    )
+    REQUISITION_LIFECYCLE.assert_transition(RequisitionStatus.APPROVED, RequisitionStatus.CONVERTED)
 
 
 def test_a_rejected_requisition_is_terminal():
@@ -292,9 +291,7 @@ def test_a_rejected_requisition_is_terminal():
 
 
 def test_approving_and_raising_a_requisition_are_different_permissions():
-    submit = REQUISITION_LIFECYCLE.find(
-        RequisitionStatus.DRAFT, RequisitionStatus.PENDING_APPROVAL
-    )
+    submit = REQUISITION_LIFECYCLE.find(RequisitionStatus.DRAFT, RequisitionStatus.PENDING_APPROVAL)
     approve = REQUISITION_LIFECYCLE.find(
         RequisitionStatus.PENDING_APPROVAL, RequisitionStatus.APPROVED
     )
@@ -315,10 +312,30 @@ def test_an_unsent_rfq_cannot_be_closed():
 
 
 def test_a_decided_quotation_cannot_be_decided_again():
-    for terminal in (QuotationStatus.SELECTED, QuotationStatus.REJECTED, QuotationStatus.EXPIRED):
-        assert QUOTATION_LIFECYCLE.is_terminal(terminal)
+    """Only a SELECTED offer is final - a purchase order is raised against it.
+
+    A rejected or lapsed offer is not decided *again* either: it cannot jump
+    straight to SELECTED. It can only be reopened by a revised offer, which
+    takes it back through RECEIVED (docs/assumptions.md, requoting).
+    """
+    assert QUOTATION_LIFECYCLE.is_terminal(QuotationStatus.SELECTED)
+    assert QUOTATION_LIFECYCLE.allowed_targets(QuotationStatus.SELECTED) == []
+    for reopenable in (QuotationStatus.REJECTED, QuotationStatus.EXPIRED):
+        assert not QUOTATION_LIFECYCLE.is_terminal(reopenable)
         with pytest.raises(InvalidStateTransitionError):
-            QUOTATION_LIFECYCLE.assert_transition(terminal, QuotationStatus.SELECTED)
+            QUOTATION_LIFECYCLE.assert_transition(reopenable, QuotationStatus.SELECTED)
+        assert QUOTATION_LIFECYCLE.allowed_targets(reopenable) == [QuotationStatus.RECEIVED]
+
+
+def test_a_rejected_or_lapsed_quotation_is_reopened_by_a_requote():
+    """The buyer asked the vendor to requote; the system must let them."""
+    for reopenable in REQUOTABLE_QUOTATION_STATUSES:
+        requote = QUOTATION_LIFECYCLE.find(reopenable, QuotationStatus.RECEIVED)
+        assert requote is not None
+        assert requote.permission is Permission.QUOTATION_MANAGE
+        assert requote.label == "Requote"
+    assert {QuotationStatus.REJECTED, QuotationStatus.EXPIRED} == REQUOTABLE_QUOTATION_STATUSES
+    assert QuotationStatus.SELECTED not in REQUOTABLE_QUOTATION_STATUSES
 
 
 def test_a_quotation_can_be_selected_without_a_formal_review_step():

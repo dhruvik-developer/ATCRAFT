@@ -51,7 +51,10 @@ import {
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
+import { reportFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatNumber, formatPercent, humanise, toDecimal } from '@/lib/format'
+import { messages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -70,9 +73,6 @@ import {
   type VendorRatingRequest,
   type VendorRow,
 } from './vendor-types'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /** Which lifecycle command a reason dialog is currently collecting a reason for. */
 type PendingCommand = {
@@ -444,11 +444,11 @@ export default function VendorsPage() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.vendors.all })
       toast.success(
         {
-          approve: 'Vendor approved',
+          approve: success.approved('Vendor'),
           'withdraw-approval': 'Approval withdrawn',
           activate: 'Vendor reactivated',
           deactivate: 'Vendor suspended',
-          retire: 'Vendor retired',
+          retire: success.retired('Vendor'),
         }[variables.action],
         `${variables.vendor.code} - ${variables.vendor.name}`,
       )
@@ -456,6 +456,9 @@ export default function VendorsPage() {
       setReason('')
       setReasonTouched(false)
     },
+    // Fired from a confirm box, not a form: a 422 on `reason` has no control
+    // to land on, and the mutation cache stays quiet for it.
+    onError: (error) => reportFieldErrors(error, 'Could not complete this vendor action'),
   })
 
   const columns = useMemo<ColumnDef<VendorRow, unknown>[]>(() => {
@@ -695,7 +698,7 @@ export default function VendorsPage() {
   ) : null
 
   const copy = pending ? COMMAND_COPY[pending.action] : null
-  const reasonTooShort = reason.trim().length < 3
+  const reasonTooShort = reason.trim().length < REASON_MIN_LENGTH
 
   return (
     <>
@@ -726,14 +729,16 @@ export default function VendorsPage() {
         toolbar={
           <>
             <Select
-              value={vendorType || ALL}
-              onValueChange={(value) => setParam('vendor_type', value === ALL ? undefined : value)}
+              value={vendorType || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('vendor_type', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[210px]" aria-label="Filter by vendor type">
+              <SelectTrigger className="w-full sm:w-[210px]" aria-label="Filter by vendor type">
                 <SelectValue placeholder="All types" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All types</SelectItem>
+                <SelectItem value={SELECT_ALL}>All types</SelectItem>
                 {VENDOR_TYPES.map((type) => (
                   <SelectItem key={type} value={type}>
                     {humanise(type)}
@@ -743,14 +748,16 @@ export default function VendorsPage() {
             </Select>
 
             <Select
-              value={approval || ALL}
-              onValueChange={(value) => setParam('approval', value === ALL ? undefined : value)}
+              value={approval || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('approval', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[170px]" aria-label="Filter by approval">
+              <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by approval">
                 <SelectValue placeholder="Any approval" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any approval</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any approval</SelectItem>
                 <SelectItem value="approved">Approved</SelectItem>
                 <SelectItem value="pending">Not approved</SelectItem>
               </SelectContent>
@@ -760,7 +767,7 @@ export default function VendorsPage() {
               value={activeState}
               onValueChange={(value) => setParam('is_active', value === 'true' ? undefined : value)}
             >
-              <SelectTrigger className="w-[150px]" aria-label="Filter by status">
+              <SelectTrigger className="w-full sm:w-[150px]" aria-label="Filter by status">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -837,7 +844,7 @@ export default function VendorsPage() {
           <Label htmlFor="vendor-command-reason" required>
             Reason
           </Label>
-          {/* 255 is the ceiling on both carriers the five commands use:
+          {/* The same 3..255 bound on both carriers the five commands use:
               StatusChangeRequest.reason for the four POSTs, and the
               ReasonQuery the DELETE reads out of the query string. */}
           <Input
@@ -846,11 +853,11 @@ export default function VendorsPage() {
             onChange={(event) => setReason(event.target.value)}
             autoComplete="off"
             className="mt-1.5"
-            maxLength={255}
+            maxLength={REASON_MAX_LENGTH}
             aria-invalid={reasonTouched && reasonTooShort}
           />
           {reasonTouched && reasonTooShort && (
-            <FieldError message="Record at least three characters of reason" />
+            <FieldError message={messages.errors.reasonTooShort} />
           )}
         </div>
       </ConfirmDialog>

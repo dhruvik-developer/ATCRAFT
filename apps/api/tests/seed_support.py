@@ -18,9 +18,21 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.clock import utcnow
+from src.core.ids import new_id
+from src.modules.customers.models import Customer, CustomerType
+from src.modules.inventory.models import StockSerial
 from src.modules.organization.models import Company
-from src.modules.products.models import Item, ItemGroup, UnitOfMeasure, UomCategory
+from src.modules.products.models import (
+    Item,
+    ItemCategory,
+    ItemGroup,
+    UnitOfMeasure,
+    UomCategory,
+)
+from src.modules.products.service import build_category_path
 from src.modules.users.models import User
+from src.modules.vendors.models import Vendor, VendorType
 from src.modules.warehouses.models import Warehouse, WarehouseType
 
 
@@ -144,6 +156,118 @@ async def seed_warehouse(
         code=code,
         name=name or f"Store {code}",
         warehouse_type=warehouse_type,
+        **overrides,
+    )
+    session.add(record)
+    await session.flush()
+    return record
+
+
+async def seed_category(
+    session: AsyncSession,
+    *,
+    company_id: uuid.UUID,
+    code: str | None = None,
+    name: str | None = None,
+    **overrides: Any,
+) -> ItemCategory:
+    """A root category.
+
+    The materialised ``path`` is built by the products module's own rule rather
+    than spelled here, so a test cannot seed a shape the ancestor queries would
+    never produce. The id is minted up front because the path embeds it.
+    """
+    category_id = new_id()
+    code = code or f"CAT-{_suffix()}"
+    record = ItemCategory(
+        id=category_id,
+        company_id=company_id,
+        code=code,
+        name=name or code.title(),
+        path=build_category_path(None, category_id),
+        depth=0,
+        **overrides,
+    )
+    session.add(record)
+    await session.flush()
+    return record
+
+
+async def seed_customer(
+    session: AsyncSession,
+    *,
+    company_id: uuid.UUID,
+    code: str | None = None,
+    name: str | None = None,
+    customer_type: CustomerType = CustomerType.CUSTOMER,
+    blocked: bool = False,
+    **overrides: Any,
+) -> Customer:
+    """A customer, optionally on credit hold.
+
+    ``blocked`` writes the reason and the timestamp together: the table's own
+    CHECK constraints refuse a hold with either missing, so a test that wants
+    one cannot flip the flag and patch the rest in afterwards.
+    """
+    code = code or f"CUST-{_suffix()}"
+    if blocked:
+        overrides.setdefault("is_blocked", True)
+        overrides.setdefault("block_reason", "Credit hold")
+        overrides.setdefault("blocked_at", utcnow())
+    record = Customer(
+        company_id=company_id,
+        code=code,
+        name=name or f"Customer {code}",
+        customer_type=customer_type,
+        **overrides,
+    )
+    session.add(record)
+    await session.flush()
+    return record
+
+
+async def seed_vendor(
+    session: AsyncSession,
+    *,
+    company_id: uuid.UUID,
+    code: str | None = None,
+    name: str | None = None,
+    vendor_types: tuple[VendorType, ...] = (VendorType.RAW_MATERIAL_SUPPLIER,),
+    **overrides: Any,
+) -> Vendor:
+    code = code or f"VEND-{_suffix()}"
+    record = Vendor(
+        company_id=company_id,
+        code=code,
+        name=name or f"Vendor {code}",
+        vendor_types=[str(kind) for kind in vendor_types],
+        **overrides,
+    )
+    session.add(record)
+    await session.flush()
+    return record
+
+
+async def seed_serial(
+    session: AsyncSession,
+    *,
+    company_id: uuid.UUID,
+    item_id: uuid.UUID,
+    warehouse_id: uuid.UUID | None = None,
+    serial_number: str | None = None,
+    **overrides: Any,
+) -> StockSerial:
+    """One serial number, in stock at ``warehouse_id`` unless told otherwise.
+
+    This is a *fixture* for modules that consume serials (packing, dispatch);
+    inventory's own tests mint theirs through ``post_movement`` because that is
+    the only path production takes.
+    """
+    record = StockSerial(
+        company_id=company_id,
+        item_id=item_id,
+        warehouse_id=warehouse_id,
+        serial_number=serial_number or f"SN-{_suffix()}",
         **overrides,
     )
     session.add(record)

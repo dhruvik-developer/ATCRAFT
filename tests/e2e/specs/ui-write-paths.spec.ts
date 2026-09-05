@@ -1,7 +1,7 @@
 /**
  * Writes, driven through the UI the way a person drives it.
  *
- * `order-to-dispatch.spec.ts` beside this one proves the modules are wired
+ * `order-to-receipt.spec.ts` beside this one proves the modules are wired
  * together, and does most of its work through the API on purpose - twelve
  * form-filling detours would make it slow and brittle without testing anything
  * the backend suites do not already cover.
@@ -26,27 +26,22 @@
 
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 
+import { API_URL, BASE_URL } from '../lib/env.mjs'
+import { readyAdminToken, signInThroughForm } from '../lib/session.mjs'
+
 const RUN = process.env.E2E_RUN_ID ?? Date.now().toString(36).toUpperCase().slice(-5)
-const API = process.env.E2E_API_URL ?? 'http://localhost:8000/api/v1'
-const BASE = process.env.E2E_BASE_URL ?? 'http://localhost:4173'
-const EMAIL = process.env.E2E_ADMIN_EMAIL ?? 'admin@atcraft.example'
-const PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'ChangeMe!Atcraft2026'
 
 let token = ''
 
-test.beforeAll(async ({ playwright }) => {
-  const request = await playwright.request.newContext()
-  const response = await request.post(`${API}/auth/login`, {
-    data: { email: EMAIL, password: PASSWORD },
-  })
-  expect(response.ok(), 'API login failed - is the stack running and seeded?').toBeTruthy()
-  token = (await response.json()).data.access_token
-  await request.dispose()
+test.beforeAll(async () => {
+  // Bootstraps the seeded account past its forced password change on a fresh
+  // database, and is a single successful login on every run after that.
+  token = await readyAdminToken()
 })
 
 /** Read back through the API: the only proof the write actually landed. */
 async function apiSearch(request: APIRequestContext, path: string): Promise<unknown[]> {
-  const response = await request.get(`${API}${path}`, {
+  const response = await request.get(`${API_URL}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   })
   expect(response.ok(), `${path} -> ${response.status()}`).toBeTruthy()
@@ -102,13 +97,11 @@ test.use({ storageState: { cookies: [], origins: [] } })
 let shared: Page
 
 test.beforeAll(async ({ browser }) => {
-  const context = await browser.newContext()
+  // `baseURL` is passed explicitly: it is the same constant the config reads,
+  // so every `page.goto('/route')` below resolves against one server.
+  const context = await browser.newContext({ baseURL: BASE_URL })
   shared = await context.newPage()
-  await shared.goto(`${BASE}/login`)
-  await shared.getByRole('textbox', { name: /email/i }).fill(EMAIL)
-  await shared.getByRole('textbox', { name: /password/i }).fill(PASSWORD)
-  await shared.getByRole('button', { name: /sign in|log ?in/i }).click()
-  await shared.waitForURL((u) => !u.pathname.includes('/login'), { timeout: 20_000 })
+  await signInThroughForm(shared)
 })
 
 test.afterAll(async () => {
@@ -121,7 +114,7 @@ test('a customer is created through the form and exists in the API', async ({ re
   const page = shared
   const code = `E2E-CUST-${RUN}`
 
-  await page.goto(`${BASE}/customers`)
+  await page.goto(`/customers`)
   await page.getByRole('button', { name: /new customer|add customer|create/i }).first().click()
 
   const dialog = page.getByRole('dialog')
@@ -155,7 +148,7 @@ test('the form shows the server\'s validation message rather than swallowing it'
   // nothing - which is the failure mode this asserts against.
   const code = `E2E-CUST-${RUN}`
 
-  await page.goto(`${BASE}/customers`)
+  await page.goto(`/customers`)
   await page.getByRole('button', { name: /new customer|add customer|create/i }).first().click()
 
   const dialog = page.getByRole('dialog')
@@ -179,7 +172,7 @@ test('the form shows the server\'s validation message rather than swallowing it'
 
 test('a required field is refused before anything reaches the network', async () => {
   const page = shared
-  await page.goto(`${BASE}/customers`)
+  await page.goto(`/customers`)
   await page.getByRole('button', { name: /new customer|add customer|create/i }).first().click()
 
   const dialog = page.getByRole('dialog')
@@ -202,26 +195,81 @@ test('a required field is refused before anything reaches the network', async ()
 
 test('a stock adjustment posts and moves the ledger', async ({ request }) => {
   const page = shared
-  const [item] = await apiSearch(request, '/products/items?limit=1&sort_by=code')
-  const itemId = (item as { id: string }).id
-  const before = await apiSearch(request, `/inventory/ledger?item_id=${itemId}&limit=1`)
 
-  await page.goto(`${BASE}/inventory/movements`)
-  const adjust = page.getByRole('button', { name: /adjust|new adjustment/i }).first()
-  if (!(await adjust.isVisible().catch(() => false))) {
-    test.skip(true, 'no adjustment affordance on this screen build')
-  }
-  await adjust.click()
+  // A fresh item, so the ledger is provably empty before and holds exactly the
+  // one posted adjustment afterwards. The previous version of this test read
+  // the first seeded item's ledger twice around a dialog it only ever
+  // cancelled, and compared two `limit=1` reads - which can never differ.
+  const [unit] = await apiSearch(request, '/products/uoms?limit=1')
+  const code = `E2E-ADJ-${RUN}`
+  const created = await request.post(`${API_URL}/products/items`, {
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    data: {
+      code,
+      name: `E2E Adjustment Item ${RUN}`,
+      item_group: 'RAW_MATERIAL',
+      base_uom_id: (unit as { id: string }).id,
+      production_type: 'BUY',
+      can_purchase: true,
+      // Five units at this cost is well under ADJUSTMENT_APPROVAL_VALUE_THRESHOLD,
+      // so the draft can be posted straight away without a second approver.
+      standard_cost: '10.00',
+    },
+  })
+  expect(created.ok(), `could not create the item to adjust: ${created.status()}`).toBeTruthy()
+  const itemId = (await created.json()).data.id as string
+  const reason = `E2E adjustment ${RUN}: five found on the shelf after the cycle count`
 
-  const dialog = page.getByRole('dialog')
+  expect(
+    await apiSearch(request, `/inventory/ledger?item_id=${itemId}&limit=5`),
+    'a freshly created item already has ledger history',
+  ).toHaveLength(0)
+
+  await page.goto('/inventory/movements?tab=adjustments')
+
+  // Not a skip. An administrator holds inventory.adjust, so a missing control
+  // is a defect on the screen, and a skip would report it as nothing at all.
+  const raise = page.getByRole('button', { name: 'New adjustment' })
+  await expect(raise, 'the New adjustment control is not offered to an administrator').toBeVisible()
+  await raise.click()
+
+  const dialog = page.getByRole('dialog', { name: 'New stock adjustment' })
   await expect(dialog).toBeVisible()
-  // The rest is deliberately tolerant: the point is that a posted adjustment
-  // writes a ledger row, not that a particular field order was used.
-  await chooseCombobox(page, /warehouse/i).catch(() => '')
-  await dialog.getByRole('button', { name: /cancel|close/i }).first().click()
 
-  const after = await apiSearch(request, `/inventory/ledger?item_id=${itemId}&limit=1`)
-  expect(after.length).toBeGreaterThanOrEqual(before.length)
+  await chooseCombobox(page, /^warehouse$/i)
+  await page.getByRole('combobox', { name: 'Reason code' }).click()
+  await page.getByRole('option', { name: 'Correction' }).click()
+  await fill(page, /^reason$/i, reason)
+
+  // The item picker is a combobox with its own search box; the option carries
+  // the code, which is how a storekeeper finds a part too.
+  await page.getByRole('combobox', { name: 'Item, line 1' }).click()
+  await page.getByRole('textbox', { name: 'Search items' }).fill(code)
+  await page.getByRole('option', { name: code }).first().click()
+  await fill(page, /^quantity$/i, '5')
+
+  await dialog.getByRole('button', { name: 'Raise adjustment' }).click()
+  await expect(dialog).toBeHidden({ timeout: 15_000 })
+
+  // Raising it makes a draft; stock does not move until it is posted. Find the
+  // row by its reason and post it through the row action, as a person would.
+  await page.getByPlaceholder('Search adjustment code or reason').fill(reason)
+  const row = page.getByRole('row').filter({ hasText: reason }).first()
+  await expect(row).toBeVisible({ timeout: 15_000 })
+  await row.getByRole('button', { name: 'Post' }).click()
+  const confirm = page.getByRole('button', { name: 'Post adjustment' })
+  await confirm.click()
+  await expect(confirm).toBeHidden({ timeout: 15_000 })
+
+  // The proof is on the ledger: exactly one entry, of the adjustment type, and
+  // the balance it produced.
+  const after = await apiSearch(request, `/inventory/ledger?item_id=${itemId}&limit=5`)
+  expect(after, 'posting the adjustment wrote no ledger entry').toHaveLength(1)
+  expect((after[0] as { transaction_type?: string }).transaction_type).toBe('ADJUSTMENT_INCREASE')
+
+  const balances = await apiSearch(request, `/inventory/balances?item_id=${itemId}`)
+  const available = (balances[0] as { available_quantity?: string } | undefined)?.available_quantity
+  expect(Number(available ?? 0), 'the balance did not move by the posted quantity').toBe(5)
 })
 
 // ------------------------------------------------------------ permissions ---
@@ -234,7 +282,7 @@ test('a control the user has no right to is not on the page', async ({ request }
   const email = `readonly.${RUN.toLowerCase()}@atcraft.example`
   const password = 'ReadOnly!Atcraft2026'
 
-  const created = await request.post(`${API}/users`, {
+  const created = await request.post(`${API_URL}/users`, {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     data: {
       email,
@@ -254,14 +302,14 @@ test('a control the user has no right to is not on the page', async ({ request }
     window.sessionStorage.clear()
   })
   await page.context().clearCookies()
-  await page.goto(`${BASE}/login`)
+  await page.goto(`/login`)
   await expect(page.getByRole('textbox', { name: /email/i })).toBeVisible({ timeout: 15_000 })
   await page.getByRole('textbox', { name: /email/i }).fill(email)
   await page.getByRole('textbox', { name: /password/i }).fill(password)
   await page.getByRole('button', { name: /sign in|log ?in/i }).click()
   await page.waitForURL((u) => !u.pathname.includes('/login'), { timeout: 20_000 })
 
-  await page.goto(`${BASE}/customers`)
+  await page.goto(`/customers`)
   await expect(page.getByRole('table').first()).toBeVisible({ timeout: 15_000 })
 
   // customer.view without customer.create: the list is readable and the create

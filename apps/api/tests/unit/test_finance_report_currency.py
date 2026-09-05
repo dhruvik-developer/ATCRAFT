@@ -26,8 +26,8 @@ from decimal import Decimal
 
 import pytest
 
+from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
 from src.core.errors import ValidationError
-from src.modules.finance.models import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
 from src.modules.finance.repository import AGEING_TOTAL_COLUMNS, AgeingCurrencyTotal
 from src.modules.finance.service import normalise_currency, primary_report_currency
 

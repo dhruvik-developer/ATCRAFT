@@ -27,7 +27,7 @@
 
 import Decimal from 'decimal.js'
 
-import { toDecimal } from '@/lib/format'
+import { MONEY_PLACES, UNIT_PRICE_PLACES, toDecimal } from '@/lib/format'
 import { queryKeys } from '@/lib/query-client'
 import type { DecimalString, SchemaOf } from '@/types/api'
 
@@ -173,6 +173,15 @@ export type InventoryValuationSummary = SchemaOf<'InventoryValuationSummary'>
 export type InventoryValuationPage = SchemaOf<'InventoryValuationPage'>
 
 // --------------------------------------------------------- GST summary -----
+
+/**
+ * `YYYY-MM`, with the month constrained so a stray URL cannot ask for month 13.
+ *
+ * Shared by the Finance page, which validates the period it reads off the URL,
+ * and the GST tab, which expands it to the month's bounds - one pattern, so the
+ * two cannot disagree about what a return period looks like.
+ */
+export const RETURN_PERIOD_PATTERN = /^(\d{4})-(0[1-9]|1[0-2])$/
 
 /** One HSN-and-rate slab of a GST section. `tax_rate` is a percentage as filed. */
 export type GstRateRow = SchemaOf<'GstRateRow'>
@@ -364,17 +373,14 @@ export const goodsReceiptDetailKey = (id: string) =>
 // ------------------------------------------------------------- pricing -----
 
 /**
- * Money scale, and the rounding the API applies at every step.
+ * Money and unit-price scales come from `lib/format.ts`.
  *
  * `to_money` in `apps/api/src/core/types.py` quantizes to two places with
- * ROUND_HALF_UP - the convention Indian GST invoicing expects - and decimal.js
- * is configured with the same rounding in `lib/format.ts`, so the two agree.
- * Named once here rather than left as a bare `2` in six places.
+ * ROUND_HALF_UP - the convention Indian GST invoicing expects - and
+ * `to_unit_price` to six; decimal.js is configured with the same rounding in
+ * `lib/format.ts`, so the arithmetic here and the display there agree by
+ * construction rather than by two files holding the same number.
  */
-const MONEY_PLACES = 2
-
-/** Unit price scale: `to_unit_price` quantizes to six places. */
-const UNIT_PRICE_PLACES = 6
 
 const ZERO = new Decimal(0)
 

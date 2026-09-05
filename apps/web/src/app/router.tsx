@@ -2,8 +2,10 @@
  * Route table.
  *
  * Feature pages are lazy-loaded: a store keeper who never opens Finance should
- * not download the finance bundle (master rules 36 - code splitting). The shell,
- * auth and dashboard are eager, since they are needed on first paint.
+ * not download the finance bundle (master rules 36 - code splitting). The shell
+ * and the auth screens are eager, since they are needed on first paint; the
+ * dashboard is lazy like every other page, and the login page warms its chunk
+ * while the user is typing so the post-sign-in navigation is instant.
  */
 
 import { Loader2 } from 'lucide-react'
@@ -11,63 +13,77 @@ import { Suspense, lazy, type ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 import { AppLayout } from '@/app/app-layout'
+import { prefetchRoute, routeLoaders } from '@/app/route-loaders'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/features/auth/auth-context'
 import { LoginPage } from '@/features/auth/login-page'
 import { P, type PermissionKey } from '@/lib/permissions'
 
 // --- lazy feature routes -----------------------------------------------------
-const DashboardPage = lazy(() => import('@/features/dashboard/dashboard-page'))
-const ItemsPage = lazy(() => import('@/features/items/items-page'))
-const ItemDetailPage = lazy(() => import('@/features/items/item-detail-page'))
-const WarehousesPage = lazy(() => import('@/features/warehouses/warehouses-page'))
-const InventoryBalancesPage = lazy(() => import('@/features/inventory/balances-page'))
-const InventoryLedgerPage = lazy(() => import('@/features/inventory/ledger-page'))
-const ReservationsPage = lazy(() => import('@/features/inventory/reservations-page'))
-const MovementsPage = lazy(() => import('@/features/inventory/movements-page'))
-const BomListPage = lazy(() => import('@/features/bom/bom-list-page'))
-const BomDetailPage = lazy(() => import('@/features/bom/bom-detail-page'))
-const RoutingPage = lazy(() => import('@/features/routing/routing-page'))
-const SalesOrdersPage = lazy(() => import('@/features/sales/sales-orders-page'))
-const SalesOrderDetailPage = lazy(() => import('@/features/sales/sales-order-detail-page'))
-const CustomersPage = lazy(() => import('@/features/customers/customers-page'))
-const MrpPage = lazy(() => import('@/features/mrp/mrp-page'))
-const MrpRunDetailPage = lazy(() => import('@/features/mrp/mrp-run-detail-page'))
-const RequisitionsPage = lazy(() => import('@/features/procurement/requisitions-page'))
-const PurchaseOrdersPage = lazy(() => import('@/features/procurement/purchase-orders-page'))
-const PurchaseOrderDetailPage = lazy(
-  () => import('@/features/procurement/purchase-order-detail-page'),
+// The import functions live in route-loaders.ts so the sidebar can warm a
+// chunk on hover through the same promise `lazy` will resolve on click.
+const DashboardPage = lazy(routeLoaders['/'])
+const ItemsPage = lazy(routeLoaders['/items'])
+const ItemDetailPage = lazy(routeLoaders['/items/:itemId'])
+const WarehousesPage = lazy(routeLoaders['/warehouses'])
+const InventoryBalancesPage = lazy(routeLoaders['/inventory'])
+const InventoryLedgerPage = lazy(routeLoaders['/inventory/ledger'])
+const ReservationsPage = lazy(routeLoaders['/inventory/reservations'])
+const MovementsPage = lazy(routeLoaders['/inventory/movements'])
+const BomListPage = lazy(routeLoaders['/bom'])
+const BomDetailPage = lazy(routeLoaders['/bom/:bomId'])
+const RoutingPage = lazy(routeLoaders['/routing'])
+const SalesOrdersPage = lazy(routeLoaders['/sales-orders'])
+const SalesOrderDetailPage = lazy(routeLoaders['/sales-orders/:orderId'])
+const CustomersPage = lazy(routeLoaders['/customers'])
+const MrpPage = lazy(routeLoaders['/mrp'])
+const MrpRunDetailPage = lazy(routeLoaders['/mrp/runs/:runId'])
+const RequisitionsPage = lazy(routeLoaders['/procurement/requisitions'])
+const PurchaseOrdersPage = lazy(routeLoaders['/procurement/purchase-orders'])
+const PurchaseOrderDetailPage = lazy(routeLoaders['/procurement/purchase-orders/:poId'])
+const GoodsReceiptsPage = lazy(routeLoaders['/procurement/goods-receipts'])
+const VendorsPage = lazy(routeLoaders['/vendors'])
+const ProductionPage = lazy(routeLoaders['/production'])
+const ProductionDetailPage = lazy(routeLoaders['/production/:orderId'])
+const AssemblyPage = lazy(routeLoaders['/assembly'])
+const JobWorkPage = lazy(routeLoaders['/job-work'])
+const QualityPage = lazy(routeLoaders['/quality'])
+const PackingPage = lazy(routeLoaders['/packing'])
+const DispatchPage = lazy(routeLoaders['/dispatch'])
+const FinancePage = lazy(routeLoaders['/finance'])
+const VendorInvoicesPage = lazy(routeLoaders['/finance/vendor-invoices'])
+const ReportsPage = lazy(routeLoaders['/reports'])
+const AuditPage = lazy(routeLoaders['/audit'])
+const UsersPage = lazy(routeLoaders['/admin/users'])
+const OrganisationPage = lazy(routeLoaders['/admin/organisation'])
+const NotificationsPage = lazy(routeLoaders['/notifications'])
+const PaymentsPage = lazy(routeLoaders['/finance/payments'])
+const AccountsPage = lazy(routeLoaders['/finance/accounts'])
+const RfqsPage = lazy(routeLoaders['/procurement/rfqs'])
+const RfqDetailPage = lazy(routeLoaders['/procurement/rfqs/:rfqId'])
+const QuotationsPage = lazy(routeLoaders['/procurement/quotations'])
+const PurchaseReturnsPage = lazy(routeLoaders['/procurement/purchase-returns'])
+const TransportersPage = lazy(routeLoaders['/transporters'])
+const WorkOrdersPage = lazy(routeLoaders['/production/work-orders'])
+const QcTemplatesPage = lazy(routeLoaders['/quality/templates'])
+const DocumentsPage = lazy(routeLoaders['/documents'])
+const MastersPage = lazy(routeLoaders['/masters'])
+const LocationsPage = lazy(routeLoaders['/warehouses/locations'])
+const DealersPage = lazy(routeLoaders['/dealers'])
+const ProfilePage = lazy(routeLoaders['/profile'])
+const ChangePasswordPage = lazy(routeLoaders['/change-password'])
+
+// Lazy like every other page, and unlike the login screen beside them. These
+// two are the only other routes an unauthenticated visitor can reach, and they
+// are the reason react-hook-form, zod and @hookform/resolvers - 26 KB gzipped -
+// sat in the eager entry chunk: the login form itself no longer uses them, so
+// loading these on demand takes the whole form stack off the first paint.
+const ForgotPasswordPage = lazy(() =>
+  import('@/features/auth/password-reset-pages').then((m) => ({ default: m.ForgotPasswordPage })),
 )
-const GoodsReceiptsPage = lazy(() => import('@/features/procurement/goods-receipts-page'))
-const VendorsPage = lazy(() => import('@/features/vendors/vendors-page'))
-const ProductionPage = lazy(() => import('@/features/production/production-page'))
-const ProductionDetailPage = lazy(() => import('@/features/production/production-detail-page'))
-const AssemblyPage = lazy(() => import('@/features/assembly/assembly-page'))
-const JobWorkPage = lazy(() => import('@/features/job-work/job-work-page'))
-const QualityPage = lazy(() => import('@/features/quality/quality-page'))
-const PackingPage = lazy(() => import('@/features/packing/packing-page'))
-const DispatchPage = lazy(() => import('@/features/dispatch/dispatch-page'))
-const FinancePage = lazy(() => import('@/features/finance/finance-page'))
-const VendorInvoicesPage = lazy(() => import('@/features/finance/vendor-invoices-page'))
-const ReportsPage = lazy(() => import('@/features/reports/reports-page'))
-const AuditPage = lazy(() => import('@/features/audit/audit-page'))
-const UsersPage = lazy(() => import('@/features/admin/users-page'))
-const OrganisationPage = lazy(() => import('@/features/admin/organisation-page'))
-const NotificationsPage = lazy(() => import('@/features/notifications/notifications-page'))
-const PaymentsPage = lazy(() => import('@/features/finance/payments-page'))
-const AccountsPage = lazy(() => import('@/features/finance/accounts-page'))
-const RfqsPage = lazy(() => import('@/features/procurement/rfqs-page'))
-const RfqDetailPage = lazy(() => import('@/features/procurement/rfq-detail-page'))
-const QuotationsPage = lazy(() => import('@/features/procurement/quotations-page'))
-const PurchaseReturnsPage = lazy(() => import('@/features/procurement/purchase-returns-page'))
-const TransportersPage = lazy(() => import('@/features/transporters/transporters-page'))
-const WorkOrdersPage = lazy(() => import('@/features/production/work-orders-page'))
-const QcTemplatesPage = lazy(() => import('@/features/quality/qc-templates-page'))
-const DocumentsPage = lazy(() => import('@/features/documents/documents-page'))
-const MastersPage = lazy(() => import('@/features/masters/masters-page'))
-const LocationsPage = lazy(() => import('@/features/warehouses/locations-page'))
-const DealersPage = lazy(() => import('@/features/customers/dealers-page'))
-const ProfilePage = lazy(() => import('@/features/auth/profile-page'))
+const ResetPasswordPage = lazy(() =>
+  import('@/features/auth/password-reset-pages').then((m) => ({ default: m.ResetPasswordPage })),
+)
 
 function PageLoader() {
   return (
@@ -78,12 +94,18 @@ function PageLoader() {
 }
 
 function RequireAuth({ children }: { children: ReactNode }) {
-  const { isAuthenticated, isRestoring } = useAuth()
+  const { isAuthenticated, isRestoring, user } = useAuth()
   const location = useLocation()
 
   // Restoring must not redirect: a hard reload has a refresh token but no user
   // yet, and bouncing to /login here would sign people out on every F5.
   if (isRestoring) {
+    // A hard reload otherwise serialises three round trips: `/auth/me`, then the
+    // route's chunk, then the page's own queries. The chunk depends on none of
+    // them, so start it now and let it download alongside the auth call. Safe to
+    // call during render - `prefetchRoute` only kicks off a module import, is
+    // idempotent, and ignores a path it has no loader for (every detail route).
+    prefetchRoute(location.pathname)
     return (
       <div className="grid min-h-dvh place-items-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -93,6 +115,13 @@ function RequireAuth({ children }: { children: ReactNode }) {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
+  }
+
+  // A temporary password is a restricted authentication state, not a banner
+  // the user may ignore. Keep it outside AppLayout so the shell cannot fire
+  // unrelated requests that the API correctly refuses until it is replaced.
+  if (user?.must_change_password && location.pathname !== '/change-password') {
+    return <Navigate to="/change-password" replace />
   }
 
   return <>{children}</>
@@ -148,6 +177,32 @@ export function AppRouter() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/forgot-password"
+        element={
+          <Suspense fallback={<PageLoader />}>
+            <ForgotPasswordPage />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/reset-password"
+        element={
+          <Suspense fallback={<PageLoader />}>
+            <ResetPasswordPage />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/change-password"
+        element={
+          <RequireAuth>
+            <Suspense fallback={<PageLoader />}>
+              <ChangePasswordPage />
+            </Suspense>
+          </RequireAuth>
+        }
+      />
 
       <Route
         element={
@@ -202,16 +257,16 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
     element: <InventoryLedgerPage />,
     permissions: [P.INVENTORY_LEDGER_VIEW],
   },
+  // `GET /allocation/reservations` declares RESERVATION_VIEW. `allocation.view`
+  // only unlocks the availability panel inside the page, which gates it itself.
   {
     path: '/inventory/reservations',
     element: <ReservationsPage />,
-    permissions: [P.RESERVATION_VIEW, P.ALLOCATION_VIEW],
+    permissions: [P.RESERVATION_VIEW],
   },
-  {
-    path: '/inventory/movements',
-    element: <MovementsPage />,
-    permissions: [P.INVENTORY_TRANSFER, P.INVENTORY_ADJUST],
-  },
+  // Transfers, adjustments and physical counts are all listed under
+  // INVENTORY_VIEW; each write right stays on the page's own button.
+  { path: '/inventory/movements', element: <MovementsPage />, permissions: [P.INVENTORY_VIEW] },
 
   { path: '/bom', element: <BomListPage />, permissions: [P.BOM_VIEW] },
   { path: '/bom/:bomId', element: <BomDetailPage />, permissions: [P.BOM_VIEW] },
@@ -288,10 +343,20 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
 
   { path: '/transporters', element: <TransportersPage />, permissions: [P.TRANSPORTER_VIEW] },
   { path: '/dealers', element: <DealersPage />, permissions: [P.DEALER_VIEW] },
-  { path: '/masters', element: <MastersPage />, permissions: [P.CATEGORY_VIEW, P.UOM_VIEW] },
+  // The page admits `price.view` on its own: `GET /products/items/{id}/prices`
+  // declares PRICE_VIEW, and the Prices tab is gated on it inside the page.
+  {
+    path: '/masters',
+    element: <MastersPage />,
+    permissions: [P.CATEGORY_VIEW, P.UOM_VIEW, P.PRICE_VIEW],
+  },
   { path: '/warehouses/locations', element: <LocationsPage />, permissions: [P.LOCATION_VIEW] },
 
-  { path: '/production/work-orders', element: <WorkOrdersPage />, permissions: [P.WORK_ORDER_VIEW] },
+  {
+    path: '/production/work-orders',
+    element: <WorkOrdersPage />,
+    permissions: [P.WORK_ORDER_VIEW],
+  },
   { path: '/quality/templates', element: <QcTemplatesPage />, permissions: [P.QC_VIEW] },
   { path: '/documents', element: <DocumentsPage />, permissions: [P.DOCUMENT_VIEW] },
 

@@ -28,9 +28,10 @@
 import { useQuery } from '@tanstack/react-query'
 import Decimal from 'decimal.js'
 
-import { api } from '@/lib/api-client'
+import { api, emptyOnPermissionError } from '@/lib/api-client'
+import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { toDecimal } from '@/lib/format'
-import { staleTimes } from '@/lib/query-client'
+import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { DecimalString } from '@/types/api'
 
 // ------------------------------------------------------------ vocabulary ----
@@ -565,41 +566,33 @@ export function progressPercent(produced: DecimalString, planned: DecimalString)
  * machine register is not readable by this account, so the field simply offers
  * nothing rather than the dialog refusing to open.
  */
+const MACHINE_REGISTER_PARAMS = {
+  limit: LOOKUP_LIST_LIMIT,
+  is_active: true,
+  with_total: false,
+  sort_by: 'code',
+  sort_dir: 'asc',
+} as const
+
 export function useMachineOptions(enabled: boolean) {
   return useQuery({
-    queryKey: ['routing', 'machines', 'options'] as const,
+    // From `queryKeys`, not a hand-written literal: the scoped sibling in
+    // `work-order-model.ts` keys the same endpoint through the same factory,
+    // and only a shared factory makes the two provably distinct - these params
+    // carry no `work_center_id`, so the keys cannot collide.
+    queryKey: queryKeys.routing.machines(MACHINE_REGISTER_PARAMS),
     queryFn: async () => {
       try {
         return (
           await api.getPage<MachineOption>('/routing/machines', {
-            params: { limit: 200, is_active: true, sort_by: 'code', sort_dir: 'asc' },
+            params: { ...MACHINE_REGISTER_PARAMS },
           })
         ).data
-      } catch {
-        return []
+      } catch (error) {
+        return emptyOnPermissionError<MachineOption>(error)
       }
     },
-    staleTime: staleTimes.master,
-    enabled,
-  })
-}
-
-/** Operators, for the operator field on a production booking. Soft-failing. */
-export function useOperatorOptions(enabled: boolean) {
-  return useQuery({
-    queryKey: ['users', 'operators', 'options'] as const,
-    queryFn: async () => {
-      try {
-        return (
-          await api.getPage<OperatorOption>('/users', {
-            params: { limit: 200, is_active: true, sort_by: 'full_name', sort_dir: 'asc' },
-          })
-        ).data
-      } catch {
-        return []
-      }
-    },
-    staleTime: staleTimes.master,
+    staleTime: staleTimes.reference,
     enabled,
   })
 }

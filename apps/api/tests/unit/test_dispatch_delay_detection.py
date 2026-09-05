@@ -71,9 +71,7 @@ def test_a_consignment_with_no_promised_date_is_never_late() -> None:
 def test_a_delivered_consignment_cannot_become_late_afterwards() -> None:
     for status in DELIVERED_STATUSES:
         assert (
-            is_delayed(
-                status=status, expected_delivery_date=PROMISED, as_of=date(2026, 12, 31)
-            )
+            is_delayed(status=status, expected_delivery_date=PROMISED, as_of=date(2026, 12, 31))
             is False
         ), status
 
@@ -96,9 +94,7 @@ def test_exactly_the_in_flight_statuses_can_be_late() -> None:
     late_statuses = {
         status
         for status in DispatchStatus
-        if is_delayed(
-            status=status, expected_delivery_date=PROMISED, as_of=date(2026, 10, 1)
-        )
+        if is_delayed(status=status, expected_delivery_date=PROMISED, as_of=date(2026, 10, 1))
     }
     assert late_statuses == set(IN_FLIGHT_STATUSES)
 
@@ -134,9 +130,7 @@ def test_arriving_after_the_promise_is_late_and_needs_an_explanation() -> None:
 
 
 def test_arriving_on_or_before_the_promise_is_on_time() -> None:
-    assert (
-        arrived_late(expected_delivery_date=PROMISED, actual_delivery_date=PROMISED) is False
-    )
+    assert arrived_late(expected_delivery_date=PROMISED, actual_delivery_date=PROMISED) is False
     assert (
         arrived_late(expected_delivery_date=PROMISED, actual_delivery_date=date(2026, 9, 8))
         is False
@@ -145,8 +139,7 @@ def test_arriving_on_or_before_the_promise_is_on_time() -> None:
 
 def test_with_no_promise_an_arrival_is_never_late() -> None:
     assert (
-        arrived_late(expected_delivery_date=None, actual_delivery_date=date(2026, 9, 30))
-        is False
+        arrived_late(expected_delivery_date=None, actual_delivery_date=date(2026, 9, 30)) is False
     )
 
 

@@ -60,8 +60,10 @@ import { useAuth } from '@/features/auth/auth-context'
 import { CustomerPicker } from '@/features/customers/customer-picker'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import type { SalesOrderRow } from '@/features/sales/sales-types'
+import { useTransporterOptions } from '@/features/transporters/transporter-model'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
+import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import {
   formatDate,
@@ -73,9 +75,11 @@ import {
   toDateInput,
   toDecimal,
 } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
+import { asId } from '@/lib/utils'
 
 import { BatchSelect, SerialPicker } from './stock-pickers'
 import {
@@ -99,9 +103,6 @@ const VENDOR_TYPES = new Set(['JOB_WORK', 'PURCHASE_RETURN'])
 
 const MOBILE = /^$|^[0-9+\- ]{7,15}$/
 const BOXES = /^$|^\d{1,6}$/
-
-/** Radix Select forbids an empty option value, so "not stated" needs a sentinel. */
-const NONE = '__none'
 
 const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 
@@ -266,6 +267,57 @@ function LineEditor({
  * move its lines on, so it is offered whenever the customer is known. Only the
  * customer's open orders are asked for - the server does the narrowing.
  */
+/**
+ * Pick the carrier from the Transporters register.
+ *
+ * `courier_name` beside it is free text and stays: a one-off carrier does not
+ * earn a master record. But the register exists, it has an activate/deactivate
+ * lifecycle, and `DispatchCreate.transporter_id` has always accepted it - the
+ * screen simply never offered it, so `transporter_name` on the dispatch list
+ * was null on every row and the register an operator maintained was referenced
+ * by nothing.
+ *
+ * Soft-failing by design: `useTransporterOptions` returns an empty list when
+ * this account holds `dispatch.create` without `transporter.view`, and the
+ * field then offers only "Not from the register" rather than blocking a
+ * dispatch over a lookup.
+ */
+function TransporterSelect({
+  value,
+  onChange,
+  enabled,
+}: {
+  value: string
+  onChange: (value: string) => void
+  enabled: boolean
+}) {
+  const transporters = useTransporterOptions({ enabled })
+  const rows = transporters.data ?? []
+
+  return (
+    <div>
+      <Label htmlFor="dispatch-transporter">Transporter</Label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger id="dispatch-transporter" className="mt-1.5">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={SELECT_NONE}>Not from the register</SelectItem>
+          {rows.map((transporter) => (
+            <SelectItem key={transporter.id} value={transporter.id}>
+              {transporter.code} - {transporter.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="mt-1.5 text-xs text-muted-foreground">
+        Choosing a registered carrier is what puts a name against this consignment on the dispatch
+        register. Use Courier name below for a one-off.
+      </p>
+    </div>
+  )
+}
+
 function SalesOrderSelect({
   customerId,
   value,
@@ -275,7 +327,12 @@ function SalesOrderSelect({
   value: string
   onChange: (value: string) => void
 }) {
-  const params = { customer_id: customerId, open_only: true, limit: 50, with_total: false }
+  const params = {
+    customer_id: customerId,
+    open_only: true,
+    limit: LOOKUP_LIST_LIMIT,
+    with_total: false,
+  }
   const orders = useQuery({
     queryKey: queryKeys.sales.list(params),
     queryFn: () => api.getPage<SalesOrderRow>('/sales', { params }),
@@ -284,6 +341,9 @@ function SalesOrderSelect({
   })
 
   const rows = orders.data?.data ?? []
+  // A plain select has no search, so a customer with more open orders than one
+  // page holds is told the list is cut rather than left to hunt for a missing one.
+  const truncated = orders.data?.pagination?.has_next ?? false
 
   return (
     <div className="space-y-1.5">
@@ -293,7 +353,7 @@ function SalesOrderSelect({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value={NONE}>
+          <SelectItem value={SELECT_NONE}>
             {customerId ? 'Not against an order' : 'Choose a customer first'}
           </SelectItem>
           {rows.map((order) => (
@@ -303,6 +363,12 @@ function SalesOrderSelect({
           ))}
         </SelectContent>
       </Select>
+      {truncated && (
+        <p className="text-xs text-warning">
+          Showing the first {LOOKUP_LIST_LIMIT} open orders for this customer - an older one is not
+          offered here.
+        </p>
+      )}
       <p className="text-xs text-muted-foreground">
         Naming it lets the release consume the order's reservations and move its lines on.
       </p>
@@ -323,6 +389,7 @@ const createSchema = z
     dispatch_date: z.string().min(1, 'Dispatch date is required'),
     expected_delivery_date: z.string(),
 
+    transporter_id: z.string(),
     courier_name: z.string().trim().max(120, 'At most 120 characters'),
     transport_name: z.string().trim().max(120, 'At most 120 characters'),
     tracking_id: z.string().trim().max(64, 'At most 64 characters'),
@@ -387,9 +454,10 @@ function emptyCreate(): CreateFormValues {
     customer_id: null,
     vendor_id: null,
     warehouse_id: '',
-    sales_order_id: NONE,
+    sales_order_id: SELECT_NONE,
     dispatch_date: toDateInput(new Date()),
     expected_delivery_date: '',
+    transporter_id: SELECT_NONE,
     courier_name: '',
     transport_name: '',
     tracking_id: '',
@@ -401,7 +469,7 @@ function emptyCreate(): CreateFormValues {
     total_boxes: '',
     total_weight_kg: '',
     freight_amount: '',
-    freight_paid_by: NONE,
+    freight_paid_by: SELECT_NONE,
     notes: '',
   }
 }
@@ -458,9 +526,10 @@ export function CreateDispatchDialog({
         // Only a SALES consignment may name a sales order; the API refuses the
         // pairing outright on any other type.
         sales_order_id:
-          needsCustomer && values.sales_order_id !== NONE ? values.sales_order_id : null,
+          needsCustomer && values.sales_order_id !== SELECT_NONE ? values.sales_order_id : null,
         dispatch_date: values.dispatch_date,
         expected_delivery_date: orNull(values.expected_delivery_date),
+        transporter_id: asId(values.transporter_id),
         courier_name: orNull(values.courier_name),
         transport_name: orNull(values.transport_name),
         tracking_id: orNull(values.tracking_id),
@@ -473,7 +542,7 @@ export function CreateDispatchDialog({
         // Weight and freight stay decimal strings on the wire.
         total_weight_kg: orNull(values.total_weight_kg),
         freight_amount: orNull(values.freight_amount),
-        freight_paid_by: values.freight_paid_by === NONE ? null : values.freight_paid_by,
+        freight_paid_by: values.freight_paid_by === SELECT_NONE ? null : values.freight_paid_by,
         notes: orNull(values.notes),
         lines: lines.map((draft) => draft.line),
       }),
@@ -483,7 +552,7 @@ export function CreateDispatchDialog({
       // transition - but allocation now shows the units spoken for.
       void queryClient.invalidateQueries({ queryKey: queryKeys.allocation.all })
       toast.success(
-        'Dispatch created',
+        success.created('Dispatch'),
         `${dispatch.code} is staged. Mark it ready, then release it to move the stock.`,
       )
       onOpenChange(false)
@@ -650,6 +719,18 @@ export function CreateDispatchDialog({
             <div>
               <h3 className="text-sm font-medium">Carrier</h3>
               <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <Controller
+                  control={control}
+                  name="transporter_id"
+                  render={({ field }) => (
+                    <TransporterSelect
+                      value={field.value}
+                      onChange={field.onChange}
+                      enabled={open && can(P.TRANSPORTER_VIEW)}
+                    />
+                  )}
+                />
+
                 <div>
                   <Label htmlFor="dispatch-courier">Courier name</Label>
                   <Input
@@ -799,7 +880,7 @@ export function CreateDispatchDialog({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value={NONE}>Not stated</SelectItem>
+                          <SelectItem value={SELECT_NONE}>Not stated</SelectItem>
                           {FREIGHT_PAID_BY.map((who) => (
                             <SelectItem key={who} value={who}>
                               {humanise(who)}

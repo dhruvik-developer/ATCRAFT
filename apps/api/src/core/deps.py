@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Annotated
 
 from fastapi import Depends, Request
+from fastapi.params import Depends as DependsParam
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,11 +28,13 @@ from sqlalchemy.orm import selectinload
 
 from src.core.cache import cache_get, cache_set, make_key
 from src.core.clock import utcnow
+from src.core.config import settings
 from src.core.database import get_db
 from src.core.errors import (
     AuthenticationError,
     AuthorizationError,
     ErrorCode,
+    PasswordChangeRequiredError,
     PermissionDeniedError,
 )
 from src.core.logging import bind_request_context, get_logger
@@ -48,6 +51,18 @@ bearer_scheme = HTTPBearer(auto_error=False, description="Bearer access token")
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 
+def password_change_route_allowed(path: str) -> bool:
+    """Whether a temporary-password principal may call ``path``."""
+    prefix = settings.api_v1_prefix.rstrip("/")
+    allowed = {
+        f"{prefix}/auth/me",
+        f"{prefix}/auth/change-password",
+        f"{prefix}/auth/logout",
+        f"{prefix}/auth/logout-all",
+    }
+    return path.rstrip("/") in allowed
+
+
 @dataclass(frozen=True, slots=True)
 class Principal:
     """The authenticated caller, fully resolved.
@@ -62,6 +77,7 @@ class Principal:
     full_name: str
     is_superuser: bool
     permissions: frozenset[str]
+    must_change_password: bool = False
     session_id: str | None = None
     role_codes: tuple[str, ...] = ()
     vendor_id: uuid.UUID | None = None
@@ -187,6 +203,7 @@ async def _load_principal(session: AsyncSession, payload: TokenPayload) -> Princ
         full_name=user.full_name,
         is_superuser=user.is_superuser,
         permissions=permissions,
+        must_change_password=user.must_change_password,
         session_id=payload.session_id,
         role_codes=role_codes,
         vendor_id=user.vendor_id,
@@ -245,30 +262,22 @@ async def get_current_principal(
 
     principal = await _load_principal(session, payload)
 
+    # A temporary/admin-reset password grants access only to the small
+    # self-service surface required to replace it and end sessions. This lives
+    # in the shared authentication dependency so a newly added business route
+    # cannot accidentally forget the restriction.
+    if principal.must_change_password and not password_change_route_allowed(request.url.path):
+        raise PasswordChangeRequiredError()
+
     bind_request_context(user_id=principal.user_id, company_id=principal.company_id)
     request.state.principal = principal
     return principal
 
 
-async def get_optional_principal(
-    request: Request,
-    session: DbSession,
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)] = None,
-) -> Principal | None:
-    """For endpoints that behave differently when signed in but do not require it."""
-    if credentials is None or not credentials.credentials:
-        return None
-    try:
-        return await get_current_principal(request, session, credentials)
-    except AuthenticationError:
-        return None
-
-
 CurrentUser = Annotated[Principal, Depends(get_current_principal)]
-OptionalUser = Annotated[Principal | None, Depends(get_optional_principal)]
 
 
-def require_permission(*permissions: Permission, mode: str = "all") -> object:
+def require_permission(*permissions: Permission, mode: str = "all") -> DependsParam:
     """Dependency factory gating a route on permissions.
 
         @router.post("/purchase-orders/{id}/approve",
@@ -297,7 +306,7 @@ def require_permission(*permissions: Permission, mode: str = "all") -> object:
     return Depends(_dependency)
 
 
-def require_any_permission(*permissions: Permission) -> object:
+def require_any_permission(*permissions: Permission) -> DependsParam:
     return require_permission(*permissions, mode="any")
 
 
@@ -359,14 +368,13 @@ def permissions_of(principal: Principal, subset: Sequence[Permission]) -> list[s
 __all__ = [
     "CurrentUser",
     "DbSession",
-    "OptionalUser",
     "Principal",
     "Tenant",
     "TenantContext",
     "forbid_vendor_users",
     "get_current_principal",
-    "get_optional_principal",
     "get_tenant_context",
+    "password_change_route_allowed",
     "permissions_of",
     "require_any_permission",
     "require_permission",

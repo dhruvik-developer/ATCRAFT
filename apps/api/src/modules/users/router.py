@@ -286,15 +286,17 @@ async def deactivate_user(
 async def reset_password(
     session: DbSession,
     tenant: Tenant,
+    principal: CurrentUser,
     user_id: uuid.UUID,
     payload: PasswordResetRequest,
 ) -> ApiResponse[PasswordResetResult]:
     """Set a new password, force a change at next sign-in and revoke sessions.
 
     Omit ``new_password`` to have the server generate one; it is returned in this
-    response and nowhere else.
+    response and nowhere else. A super administrator's password can only be set
+    by another super administrator, whatever permissions the caller holds.
     """
-    result = await UserService(session, tenant).reset_password(user_id, payload)
+    result = await UserService(session, tenant).reset_password(principal, user_id, payload)
     message = (
         "Password reset; the temporary password is shown once and is not recoverable"
         if result.temporary_password

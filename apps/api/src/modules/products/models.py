@@ -51,6 +51,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
+from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
 from src.core.models import TenantMasterEntity
 from src.core.types import GUID, Money, Quantity, UnitPrice
 
@@ -531,7 +532,10 @@ class ItemPrice(TenantMasterEntity):
 
     price_type: Mapped[PriceType] = mapped_column(String(16), nullable=False)
     currency: Mapped[str] = mapped_column(
-        String(3), nullable=False, default="INR", server_default="INR"
+        String(CURRENCY_CODE_LENGTH),
+        nullable=False,
+        default=DEFAULT_CURRENCY,
+        server_default=DEFAULT_CURRENCY,
     )
     price: Mapped[Decimal] = mapped_column(UnitPrice, nullable=False)
 
@@ -611,7 +615,10 @@ class ItemVendorLink(TenantMasterEntity):
     last_purchase_price: Mapped[Decimal | None] = mapped_column(UnitPrice, nullable=True)
     last_purchase_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     currency: Mapped[str] = mapped_column(
-        String(3), nullable=False, default="INR", server_default="INR"
+        String(CURRENCY_CODE_LENGTH),
+        nullable=False,
+        default=DEFAULT_CURRENCY,
+        server_default=DEFAULT_CURRENCY,
     )
 
     is_active: Mapped[bool] = mapped_column(

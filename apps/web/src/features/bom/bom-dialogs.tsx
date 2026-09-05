@@ -9,16 +9,10 @@
  */
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
 import { useEffect } from 'react'
-import {
-  Controller,
-  useFieldArray,
-  useForm,
-  type FieldValues,
-  type UseFormSetError,
-} from 'react-hook-form'
+import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
 import { FieldError } from '@/components/shared'
@@ -41,40 +35,18 @@ import { Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useUomOptions } from '@/features/items/item-model'
-import { api, ApiError } from '@/lib/api-client'
+import { api } from '@/lib/api-client'
+import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
+import { applyFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
-import { queryKeys } from '@/lib/query-client'
+import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
-import { BOM_TYPES, type BomDetail } from './bom-model'
-
-/** Radix forbids an empty option value, so "not set" needs a sentinel. */
-const NONE = '__none'
+import { BOM_TYPES, type BomDetail, type BomRow } from './bom-model'
 
 const DECIMAL = /^\d{1,14}(\.\d{1,4})?$/
-
-/**
- * Puts a 422 back on the control that caused it instead of in a toast.
- *
- * FastAPI reports the location as `body.version`; the form knows the field as
- * `version`, so only the last segment is used.
- */
-function applyFieldErrors<T extends FieldValues>(
-  error: unknown,
-  known: ReadonlySet<string>,
-  setError: UseFormSetError<T>,
-): void {
-  if (!(error instanceof ApiError) || error.status !== 422) return
-  for (const [path, messages] of Object.entries(error.fieldErrors)) {
-    const field = path.split('.').pop() ?? path
-    if (!known.has(field)) continue
-    setError(field as never, {
-      type: 'server',
-      message: Array.isArray(messages) ? messages.join('. ') : String(messages),
-    })
-  }
-}
 
 // ------------------------------------------------------------- new BOM ------
 
@@ -96,29 +68,41 @@ const lineSchema = z.object({
   is_optional: z.boolean(),
 })
 
-const createSchema = z.object({
-  item_id: z.string().min(1, 'Choose the item this BOM produces'),
-  bom_type: z.enum(BOM_TYPES),
-  // The version number is minted by the API under a per-item advisory lock
-  // (`service.next_version`); a client that sends one is ignored at best and
-  // racing at worst, so the field is gone.
-  revision: z.string().trim().max(16, 'Revision is at most 16 characters'),
-  output_quantity: z
-    .string()
-    .trim()
-    .regex(DECIMAL, 'Enter a quantity with up to 4 decimal places')
-    .refine((value) => value !== '0', 'Output quantity must be more than zero'),
-  base_uom_id: z.string().min(1, 'Base unit is required'),
-  effective_from: z.string().min(1, 'An effective-from date is required'),
-  effective_to: z.string(),
-  is_default: z.boolean(),
-  notes: z.string().trim().max(1000, 'Notes are at most 1000 characters'),
-  lines: z.array(lineSchema).min(1, 'A bill needs at least one component line'),
-})
+const createSchema = z
+  .object({
+    item_id: z.string().min(1, 'Choose the item this BOM produces'),
+    bom_type: z.enum(BOM_TYPES),
+    // Only an ALTERNATE names the bill it stands in for. The API refuses an
+    // ALTERNATE without one (`BomCreate._check`), and the form used to offer
+    // the type with no way to say which bill - so every alternate was a 422.
+    parent_bom_id: z.string(),
+    // The version number is minted by the API under a per-item advisory lock
+    // (`service.next_version`); a client that sends one is ignored at best and
+    // racing at worst, so the field is gone.
+    revision: z.string().trim().max(16, 'Revision is at most 16 characters'),
+    output_quantity: z
+      .string()
+      .trim()
+      .regex(DECIMAL, 'Enter a quantity with up to 4 decimal places')
+      .refine((value) => value !== '0', 'Output quantity must be more than zero'),
+    base_uom_id: z.string().min(1, 'Base unit is required'),
+    effective_from: z.string().min(1, 'An effective-from date is required'),
+    effective_to: z.string(),
+    is_default: z.boolean(),
+    notes: z.string().trim().max(1000, 'Notes are at most 1000 characters'),
+    lines: z.array(lineSchema).min(1, 'A bill needs at least one component line'),
+  })
+  .superRefine((values, context) => {
+    if (values.bom_type === 'ALTERNATE' && values.parent_bom_id === '') {
+      context.addIssue({
+        code: 'custom',
+        path: ['parent_bom_id'],
+        message: 'Name the bill this alternate stands in for',
+      })
+    }
+  })
 
 type CreateValues = z.infer<typeof createSchema>
-
-const CREATE_FIELDS: ReadonlySet<string> = new Set(Object.keys(createSchema.shape))
 
 function todayInput(): string {
   return new Date().toISOString().slice(0, 10)
@@ -132,6 +116,7 @@ function emptyCreateValues(): CreateValues {
   return {
     item_id: '',
     bom_type: 'PRODUCTION',
+    parent_bom_id: '',
     revision: 'A',
     output_quantity: '1',
     base_uom_id: '',
@@ -160,6 +145,8 @@ export function BomFormDialog({
     handleSubmit,
     reset,
     setError,
+    setValue,
+    watch,
     formState: { errors },
   } = useForm<CreateValues>({
     resolver: zodResolver(createSchema),
@@ -172,11 +159,37 @@ export function BomFormDialog({
     if (open) reset(emptyCreateValues())
   }, [open, reset])
 
+  const itemId = watch('item_id')
+  const bomType = watch('bom_type')
+
+  // The bills an alternate may stand in for: every version of the same item.
+  // `create_bom` requires only that the parent is for `item_id` - not that it
+  // is approved - so the list is not narrowed by status.
+  const alternativeParams = {
+    item_id: itemId,
+    limit: LOOKUP_LIST_LIMIT,
+    with_total: false,
+    sort_by: 'code',
+    sort_dir: 'asc',
+  }
+  const alternatives = useQuery({
+    queryKey: queryKeys.bom.list(alternativeParams),
+    queryFn: () => api.getPage<BomRow>('/bom', { params: alternativeParams }),
+    enabled: open && bomType === 'ALTERNATE' && Boolean(itemId),
+    staleTime: staleTimes.master,
+  })
+
+  // A parent belongs to the produced item, so changing the item clears it.
+  useEffect(() => {
+    setValue('parent_bom_id', '')
+  }, [itemId, setValue])
+
   const mutation = useMutation({
     mutationFn: (values: CreateValues) =>
       api.post<BomDetail>('/bom', {
         item_id: values.item_id,
         bom_type: values.bom_type,
+        parent_bom_id: values.bom_type === 'ALTERNATE' ? values.parent_bom_id : null,
         revision: values.revision.trim() || null,
         // Quantities stay decimal strings all the way to the wire.
         output_quantity: values.output_quantity.trim(),
@@ -197,10 +210,10 @@ export function BomFormDialog({
       }),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.bom.all })
-      toast.success('BOM created', `${created.code} starts as a draft.`)
+      toast.success(success.created('BOM'), `${created.code} starts as a draft.`)
       onOpenChange(false)
     },
-    onError: (error) => applyFieldErrors(error, CREATE_FIELDS, setError),
+    onError: (error) => applyFieldErrors(error, setError),
   })
 
   return (
@@ -275,6 +288,65 @@ export function BomFormDialog({
               </div>
             </div>
 
+            {bomType === 'ALTERNATE' && (
+              <div>
+                <Label htmlFor="bom-parent" required>
+                  Replaces
+                </Label>
+                <Controller
+                  control={control}
+                  name="parent_bom_id"
+                  render={({ field }) => (
+                    <Select
+                      value={field.value || SELECT_NONE}
+                      onValueChange={(value) => field.onChange(value === SELECT_NONE ? '' : value)}
+                      disabled={!itemId || alternatives.isLoading}
+                    >
+                      <SelectTrigger
+                        id="bom-parent"
+                        className="mt-1.5"
+                        aria-label="Replaces"
+                        aria-invalid={Boolean(errors.parent_bom_id)}
+                      >
+                        <SelectValue
+                          placeholder={
+                            !itemId
+                              ? 'Choose the produced item first'
+                              : alternatives.isLoading
+                                ? 'Loading...'
+                                : 'Select the bill this one stands in for'
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(alternatives.data?.data ?? []).map((candidate) => (
+                          <SelectItem key={candidate.id} value={candidate.id}>
+                            {candidate.code} v{candidate.version} ({humanise(candidate.status)})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                <FieldError message={errors.parent_bom_id?.message} />
+                {alternatives.error && (
+                  <FieldError
+                    message={"The item's bills could not be read: " + alternatives.error.message}
+                  />
+                )}
+                {itemId && alternatives.data && alternatives.data.data.length === 0 && (
+                  <p className="mt-1 text-xs text-warning">
+                    This item has no bill yet. An alternate stands in for an existing one, so create
+                    that first.
+                  </p>
+                )}
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Any version of the same item qualifies; the API refuses a bill made for a
+                  different item.
+                </p>
+              </div>
+            )}
+
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <Label htmlFor="bom-output" required>
@@ -303,8 +375,8 @@ export function BomFormDialog({
                   name="base_uom_id"
                   render={({ field }) => (
                     <Select
-                      value={field.value || NONE}
-                      onValueChange={(value) => field.onChange(value === NONE ? '' : value)}
+                      value={field.value || SELECT_NONE}
+                      onValueChange={(value) => field.onChange(value === SELECT_NONE ? '' : value)}
                     >
                       <SelectTrigger
                         id="bom-uom"
@@ -386,7 +458,12 @@ export function BomFormDialog({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>Components</Label>
-                <Button type="button" variant="outline" size="sm" onClick={() => append(emptyLine())}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => append(emptyLine())}
+                >
                   <Plus />
                   Add line
                 </Button>
@@ -395,7 +472,7 @@ export function BomFormDialog({
               {fields.map((field, index) => (
                 <div
                   key={field.id}
-                  className="grid items-start gap-3 rounded-md border p-3 sm:grid-cols-[minmax(0,1fr)_7rem_6rem_auto]"
+                  className="grid items-start gap-3 rounded-md border p-3 sm:grid-cols-2 md:grid-cols-[minmax(0,1fr)_7rem_6rem_auto]"
                 >
                   <div className="min-w-0">
                     <Controller
@@ -473,6 +550,15 @@ export function BomFormDialog({
                       <Trash2 />
                     </Button>
                   </div>
+
+                  {/* A rule about the line as a whole - a substitute naming
+                      itself, say - lands on the row rather than on a field,
+                      and would otherwise render nowhere. */}
+                  {errors.lines?.[index]?.message && (
+                    <div className="sm:col-span-2 md:col-span-4">
+                      <FieldError message={errors.lines?.[index]?.message} />
+                    </div>
+                  )}
                 </div>
               ))}
 
@@ -489,6 +575,8 @@ export function BomFormDialog({
               />
               <FieldError message={errors.notes?.message} />
             </div>
+
+            <FieldError message={errors.root?.message} />
           </DialogBody>
 
           <DialogFooter>
@@ -528,8 +616,6 @@ const copySchema = z.object({
 })
 
 type CopyValues = z.infer<typeof copySchema>
-
-const COPY_FIELDS: ReadonlySet<string> = new Set(Object.keys(copySchema.shape))
 
 function copyDefaults(): CopyValues {
   return {
@@ -590,11 +676,14 @@ export function CopyBomDialog({
       }),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.bom.all })
-      toast.success('New version created', `${created.code} is a draft copy of ${bom.code}.`)
+      toast.success(
+        success.created('New version'),
+        `${created.code} is a draft copy of ${bom.code}.`,
+      )
       onOpenChange(false)
       onCopied(created)
     },
-    onError: (error) => applyFieldErrors(error, COPY_FIELDS, setError),
+    onError: (error) => applyFieldErrors(error, setError),
   })
 
   return (
@@ -705,6 +794,8 @@ export function CopyBomDialog({
               />
               <FieldError message={errors.notes?.message} />
             </div>
+
+            <FieldError message={errors.root?.message} />
           </DialogBody>
 
           <DialogFooter>

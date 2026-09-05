@@ -54,8 +54,10 @@ import { Badge, Checkbox, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { CustomerPicker } from '@/features/customers/customer-picker'
 import { useListQuery } from '@/hooks/use-list-query'
-import { api } from '@/lib/api-client'
+import { ApiError, api } from '@/lib/api-client'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatNumber, formatQuantity, humanise } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -65,6 +67,7 @@ import { CreateDispatchDialog, DispatchTimelineDialog } from './dispatch-dialogs
 import {
   DISPATCH_STATUSES,
   DISPATCH_TYPES,
+  NOTE_MAX_LENGTH,
   delayDays,
   isDeliverable,
   isDispatchCancellable,
@@ -75,9 +78,6 @@ import {
   type DispatchRow,
   type DispatchTrackingRow,
 } from './dispatch-types'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /** The URL keys the dispatch list filters on. */
 const DISPATCH_FILTER_KEYS = [
@@ -126,8 +126,14 @@ interface PendingAction {
   /** What the note box is asking for, and whether the API insists on it. */
   noteLabel: string
   noteRequired: boolean
+  /**
+   * A delivery confirmed after its promised date must say why: the API refuses
+   * it without `delay_reason`, and the confirmation payload is closed, so the
+   * box is asked for up front rather than learned from the rejection.
+   */
+  delayReasonRequired?: boolean
   /** The transition's own payload shape - they are not interchangeable. */
-  buildBody: (note: string) => Record<string, unknown>
+  buildBody: (note: string, delayReason: string) => Record<string, unknown>
 }
 
 /**
@@ -140,10 +146,12 @@ interface PendingAction {
 function ActionConfirm({ pending, onDone }: { pending: PendingAction | null; onDone: () => void }) {
   const queryClient = useQueryClient()
   const [note, setNote] = useState('')
+  const [delayReason, setDelayReason] = useState('')
   const [touched, setTouched] = useState(false)
 
   const run = useMutation({
-    mutationFn: (action: PendingAction) => api.post(action.path, action.buildBody(note.trim())),
+    mutationFn: (action: PendingAction) =>
+      api.post(action.path, action.buildBody(note.trim(), delayReason.trim())),
     onSuccess: (_result, action) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.dispatch.all })
       // Dispatching consumes the reservation and posts the stock movement, so
@@ -153,6 +161,7 @@ function ActionConfirm({ pending, onDone }: { pending: PendingAction | null; onD
       void queryClient.invalidateQueries({ queryKey: queryKeys.sales.all })
       toast.success(action.successTitle, action.successBody)
       setNote('')
+      setDelayReason('')
       setTouched(false)
       onDone()
     },
@@ -160,13 +169,28 @@ function ActionConfirm({ pending, onDone }: { pending: PendingAction | null; onD
 
   if (!pending) return null
 
+  // `Reason` is bounded 3..255 on every transition that takes one. A 422 keyed
+  // on the field is one the mutation cache stays quiet about, on the
+  // assumption the form shows it - so the band is checked here, and whatever
+  // the server still refuses is rendered under the box rather than lost.
+  const trimmedNote = note.trim()
+  const reasonTooShort = pending.noteRequired && trimmedNote.length < REASON_MIN_LENGTH
+  const reasonTooLong = pending.noteRequired && trimmedNote.length > REASON_MAX_LENGTH
+  const noteInvalid = reasonTooShort || reasonTooLong
+  const delayReasonMissing = Boolean(pending.delayReasonRequired) && delayReason.trim() === ''
+  const serverErrors = run.error instanceof ApiError ? run.error.fieldErrors : {}
+  const noteServerError = serverErrors.reason?.[0] ?? serverErrors.delivery_note?.[0]
+  const delayServerError = serverErrors.delay_reason?.[0]
+
   return (
     <ConfirmDialog
       open
       onOpenChange={(next) => {
         if (!next) {
           setNote('')
+          setDelayReason('')
           setTouched(false)
+          run.reset()
           onDone()
         }
       }}
@@ -175,28 +199,57 @@ function ActionConfirm({ pending, onDone }: { pending: PendingAction | null; onD
       confirmLabel={pending.confirmLabel}
       loading={run.isPending}
       onConfirm={() => {
-        if (pending.noteRequired && note.trim() === '') {
+        if (noteInvalid || delayReasonMissing) {
           setTouched(true)
           return
         }
         run.mutate(pending)
       }}
     >
-      <div>
-        <Label htmlFor="dispatch-action-note" required={pending.noteRequired}>
-          {pending.noteLabel}
-        </Label>
-        <Input
-          id="dispatch-action-note"
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          autoComplete="off"
-          className="mt-1.5"
-          aria-invalid={touched && pending.noteRequired && note.trim() === ''}
-        />
-        {touched && pending.noteRequired && note.trim() === '' && (
-          <FieldError message="The API records this transition - it needs a reason" />
+      <div className="space-y-3">
+        {pending.delayReasonRequired && (
+          <div>
+            <Label htmlFor="dispatch-action-delay-reason" required>
+              Delay reason
+            </Label>
+            <Input
+              id="dispatch-action-delay-reason"
+              value={delayReason}
+              onChange={(event) => setDelayReason(event.target.value)}
+              autoComplete="off"
+              maxLength={NOTE_MAX_LENGTH}
+              className="mt-1.5"
+              aria-invalid={(touched && delayReasonMissing) || Boolean(delayServerError)}
+            />
+            {touched && delayReasonMissing && (
+              <FieldError message="This consignment arrived after its promised date - the API records why before it will confirm the delivery" />
+            )}
+            <FieldError message={delayServerError} />
+          </div>
         )}
+
+        <div>
+          <Label htmlFor="dispatch-action-note" required={pending.noteRequired}>
+            {pending.noteLabel}
+          </Label>
+          <Input
+            id="dispatch-action-note"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            autoComplete="off"
+            // The delivery note is `Notes` (2000), not `Reason` (255): a blanket
+            // 255 here would silently truncate a note the API accepts.
+            maxLength={pending.noteRequired ? REASON_MAX_LENGTH : NOTE_MAX_LENGTH}
+            className="mt-1.5"
+            aria-invalid={(touched && noteInvalid) || Boolean(noteServerError)}
+          />
+          {touched && noteInvalid && (
+            <FieldError
+              message={`The API records this transition - it needs a reason of ${REASON_MIN_LENGTH} to ${REASON_MAX_LENGTH} characters`}
+            />
+          )}
+          <FieldError message={noteServerError} />
+        </div>
       </div>
     </ConfirmDialog>
   )
@@ -245,6 +298,10 @@ function DispatchesTab({
   const [searchParams, setSearchParams] = useSearchParams()
 
   const canUpdate = can(P.DISPATCH_UPDATE)
+  // Sending the goods is the stock-moving act, and `POST /{id}/dispatch`
+  // declares `dispatch.create` for it - not `dispatch.update`, which the
+  // staging, in-transit and cancel transitions take.
+  const canCreate = can(P.DISPATCH_CREATE)
   const canConfirmDelivery = can(P.DISPATCH_CONFIRM_DELIVERY)
 
   const status = searchParams.get('status') ?? ''
@@ -395,7 +452,7 @@ function DispatchesTab({
       cell: ({ row }) => {
         const dispatch = row.original
         const canReady = canUpdate && isReadyable(dispatch.status)
-        const canGo = canUpdate && isDispatchable(dispatch.status)
+        const canGo = canCreate && isDispatchable(dispatch.status)
         const canTransit = canUpdate && isMarkableInTransit(dispatch.status)
         const canDeliver = canConfirmDelivery && isDeliverable(dispatch.status)
         const canCancel = canUpdate && isDispatchCancellable(dispatch.status)
@@ -424,7 +481,7 @@ function DispatchesTab({
                       description:
                         'The consignment is packed and staged at the gate. Nothing has left yet and no stock has moved - a dispatch can only be released once it is ready.',
                       confirmLabel: 'Mark ready',
-                      successTitle: 'Ready for dispatch',
+                      successTitle: success.statusChanged('Dispatch', 'ready'),
                       successBody: `${dispatch.code} is staged and can now be released.`,
                       noteLabel: 'Reason',
                       noteRequired: true,
@@ -447,7 +504,7 @@ function DispatchesTab({
                       description:
                         'This releases the consignment: the reservation is consumed and the stock leaves the warehouse. A serial-tracked line ships the units named on it. It cannot be undone from this screen.',
                       confirmLabel: 'Dispatch',
-                      successTitle: 'Dispatched',
+                      successTitle: success.released('Consignment'),
                       successBody: `${dispatch.code} has left. Stock has moved out.`,
                       noteLabel: 'Reason',
                       noteRequired: true,
@@ -470,7 +527,7 @@ function DispatchesTab({
                       description:
                         'Records that the carrier has picked the consignment up and it is on the road.',
                       confirmLabel: 'Mark in transit',
-                      successTitle: 'Marked in transit',
+                      successTitle: success.statusChanged('Dispatch', 'in transit'),
                       successBody: `${dispatch.code} is on the road.`,
                       noteLabel: 'Reason',
                       noteRequired: true,
@@ -485,26 +542,36 @@ function DispatchesTab({
 
               {canDeliver && (
                 <DropdownMenuItem
-                  onSelect={() =>
+                  onSelect={() => {
+                    // Past its promised date, the API refuses the confirmation
+                    // without a `delay_reason` (`confirm_delivery`), so it is
+                    // asked for here rather than learned from the rejection.
+                    // The server check stays the backstop: its `today()` and
+                    // this browser's clock can disagree at midnight.
+                    const daysLate = delayDays(dispatch.expected_delivery_date, false)
                     onAction({
                       dispatch,
                       path: `/dispatch/${dispatch.id}/deliver`,
                       title: `Confirm delivery of ${dispatch.code}?`,
                       description:
-                        'Records that the consignment reached its destination. Anything requiring inspection on arrival moves to QC pending.',
+                        daysLate === null
+                          ? 'Records that the consignment reached its destination. Anything requiring inspection on arrival moves to QC pending.'
+                          : `Promised for ${formatDate(dispatch.expected_delivery_date)}, ${daysLate} day${daysLate === 1 ? '' : 's'} late - a reason is required. Anything requiring inspection on arrival moves to QC pending.`,
                       confirmLabel: 'Confirm delivery',
-                      successTitle: 'Delivery confirmed',
+                      successTitle: success.confirmed('Delivery'),
                       successBody: `${dispatch.code} is delivered.`,
                       // The delivery payload has no `reason` - it records a note
                       // against the delivery instead, and it is optional.
                       noteLabel: 'Delivery note (optional)',
                       noteRequired: false,
-                      buildBody: (note) => ({
+                      delayReasonRequired: daysLate !== null,
+                      buildBody: (note, delayReason) => ({
                         source: 'MANUAL',
+                        ...(daysLate !== null ? { delay_reason: delayReason } : {}),
                         ...(note ? { delivery_note: note } : {}),
                       }),
                     })
-                  }
+                  }}
                 >
                   <CheckCircle2 />
                   Confirm delivery
@@ -521,7 +588,7 @@ function DispatchesTab({
                       description:
                         'The consignment is abandoned before it leaves. Nothing has moved out, so nothing is returned - but the document stays on the record.',
                       confirmLabel: 'Cancel dispatch',
-                      successTitle: 'Dispatch cancelled',
+                      successTitle: success.cancelled('Dispatch'),
                       successBody: `${dispatch.code} will not go out.`,
                       noteLabel: 'Reason',
                       noteRequired: true,
@@ -540,7 +607,7 @@ function DispatchesTab({
     })
 
     return defs
-  }, [canUpdate, canConfirmDelivery, onTrack, onAction])
+  }, [canUpdate, canCreate, canConfirmDelivery, onTrack, onAction])
 
   return (
     <DataTable
@@ -563,14 +630,14 @@ function DispatchesTab({
       toolbar={
         <>
           <Select
-            value={status || ALL}
-            onValueChange={(value) => setParam('status', value === ALL ? undefined : value)}
+            value={status || SELECT_ALL}
+            onValueChange={(value) => setParam('status', value === SELECT_ALL ? undefined : value)}
           >
-            <SelectTrigger className="w-[180px]" aria-label="Filter by status">
+            <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by status">
               <SelectValue placeholder="All statuses" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>All statuses</SelectItem>
+              <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
               {DISPATCH_STATUSES.map((value) => (
                 <SelectItem key={value} value={value}>
                   {humanise(value)}
@@ -580,14 +647,16 @@ function DispatchesTab({
           </Select>
 
           <Select
-            value={type || ALL}
-            onValueChange={(value) => setParam('dispatch_type', value === ALL ? undefined : value)}
+            value={type || SELECT_ALL}
+            onValueChange={(value) =>
+              setParam('dispatch_type', value === SELECT_ALL ? undefined : value)
+            }
           >
-            <SelectTrigger className="w-[170px]" aria-label="Filter by type">
+            <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by type">
               <SelectValue placeholder="All types" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>All types</SelectItem>
+              <SelectItem value={SELECT_ALL}>All types</SelectItem>
               {DISPATCH_TYPES.map((value) => (
                 <SelectItem key={value} value={value}>
                   {humanise(value)}
@@ -812,14 +881,14 @@ function TrackingTab() {
       toolbar={
         <>
           <Select
-            value={status || ALL}
-            onValueChange={(value) => setParam('status', value === ALL ? undefined : value)}
+            value={status || SELECT_ALL}
+            onValueChange={(value) => setParam('status', value === SELECT_ALL ? undefined : value)}
           >
-            <SelectTrigger className="w-[180px]" aria-label="Filter by status">
+            <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by status">
               <SelectValue placeholder="All statuses" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>All statuses</SelectItem>
+              <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
               {DISPATCH_STATUSES.map((value) => (
                 <SelectItem key={value} value={value}>
                   {humanise(value)}
@@ -829,14 +898,16 @@ function TrackingTab() {
           </Select>
 
           <Select
-            value={type || ALL}
-            onValueChange={(value) => setParam('dispatch_type', value === ALL ? undefined : value)}
+            value={type || SELECT_ALL}
+            onValueChange={(value) =>
+              setParam('dispatch_type', value === SELECT_ALL ? undefined : value)
+            }
           >
-            <SelectTrigger className="w-[170px]" aria-label="Filter by direction">
+            <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by direction">
               <SelectValue placeholder="All types" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>All types</SelectItem>
+              <SelectItem value={SELECT_ALL}>All types</SelectItem>
               {DISPATCH_TYPES.map((value) => (
                 <SelectItem key={value} value={value}>
                   {humanise(value)}

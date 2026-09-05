@@ -235,9 +235,7 @@ class StockReservationRepository(BaseRepository[StockReservation]):
             stmt = stmt.where(StockReservation.warehouse_id == warehouse_id)
         return Decimal(str((await self.session.execute(stmt)).scalar_one()))
 
-    async def due_for_expiry(
-        self, moment: datetime, *, limit: int
-    ) -> list[StockReservation]:
+    async def due_for_expiry(self, moment: datetime, *, limit: int) -> list[StockReservation]:
         """Open reservations whose expiry has passed, oldest first.
 
         Bounded by ``limit`` because the housekeeping sweep locks a balance row

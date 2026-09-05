@@ -31,7 +31,14 @@ from src.core.responses import (
     ApiResponse,
     PaginatedResponse,
 )
-from src.modules.vendors.models import TransporterType, VendorContactRole, VendorType
+from src.modules.vendors.models import (
+    DEFAULT_RATING_WINDOW_DAYS,
+    MAX_RATING_WINDOW_DAYS,
+    MIN_RATING_WINDOW_DAYS,
+    TransporterType,
+    VendorContactRole,
+    VendorType,
+)
 from src.modules.vendors.schemas import (
     ApprovalRequest,
     StatusChangeRequest,
@@ -58,7 +65,6 @@ from src.modules.vendors.schemas import (
     VendorUpdate,
 )
 from src.modules.vendors.service import (
-    DEFAULT_RATING_WINDOW_DAYS,
     TransporterService,
     VendorCategoryService,
     VendorContactService,
@@ -112,7 +118,7 @@ def vendor_filters(
         state_code=state_code,
         # Pydantic converts to Decimal on the model; the query parameter is a
         # float only because that is what a query string can express.
-        min_rating=min_rating,  # type: ignore[arg-type]
+        min_rating=min_rating,
         include_deleted=include_deleted,
     )
 
@@ -525,7 +531,12 @@ async def preview_vendor_rating(
     session: DbSession,
     tenant: Tenant,
     window_days: Annotated[
-        int, Query(ge=7, le=1095, description="Measurement window in days")
+        int,
+        Query(
+            ge=MIN_RATING_WINDOW_DAYS,
+            le=MAX_RATING_WINDOW_DAYS,
+            description="Measurement window in days",
+        ),
     ] = DEFAULT_RATING_WINDOW_DAYS,
 ) -> ApiResponse[VendorRatingRead]:
     rating = await VendorService(session, tenant).preview_rating(vendor_id, window_days=window_days)

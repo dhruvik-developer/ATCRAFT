@@ -34,6 +34,7 @@ from sqlalchemy import Select, and_, delete, func, select
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
+from src.core.database import affected_rows
 from src.core.pagination import COUNT_CEILING, PageParams, SortParams
 from src.core.responses import OffsetPagination
 from src.modules.assembly.models import (
@@ -163,9 +164,7 @@ class SerialLookupRepository(BaseRepository[StockSerial]):
             for row in (await self.session.execute(stmt)).all()
         }
 
-    async def already_consumed(
-        self, serial_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, str]:
+    async def already_consumed(self, serial_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
         """Serials some *other* assembly already swallowed, mapped to its code.
 
         The database cannot express "a serial appears in at most one component's
@@ -228,9 +227,7 @@ class AssemblyComponentRepository(BaseRepository[AssemblyOrderComponent]):
         stmt = (
             self._scoped()
             .where(AssemblyOrderComponent.assembly_order_id.in_(list(dict.fromkeys(order_ids))))
-            .order_by(
-                AssemblyOrderComponent.assembly_order_id, AssemblyOrderComponent.line_number
-            )
+            .order_by(AssemblyOrderComponent.assembly_order_id, AssemblyOrderComponent.line_number)
         )
         grouped: dict[uuid.UUID, list[AssemblyOrderComponent]] = {}
         for row in (await self.session.execute(stmt)).scalars().all():
@@ -251,7 +248,7 @@ class AssemblyComponentRepository(BaseRepository[AssemblyOrderComponent]):
             )
             .execution_options(synchronize_session=False)
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 class AssemblyOrderRepository(BaseRepository[AssemblyOrder]):

@@ -38,6 +38,7 @@ import {
 import { Badge, Checkbox, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatMoney, formatNumber, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -55,9 +56,6 @@ import {
   toStateCodeInput,
   type Dealer,
 } from './dealer-model'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /**
  * Every filter key this screen owns, named once.
@@ -352,17 +350,19 @@ export default function DealersPage() {
         toolbar={
           <>
             <Select
-              value={channel || ALL}
-              onValueChange={(next) => setParam('customer_type', next === ALL ? undefined : next)}
+              value={channel || SELECT_ALL}
+              onValueChange={(next) =>
+                setParam('customer_type', next === SELECT_ALL ? undefined : next)
+              }
             >
-              <SelectTrigger className="w-[10.5rem]" aria-label="Filter by channel">
+              <SelectTrigger className="w-full sm:w-[10.5rem]" aria-label="Filter by channel">
                 <SelectValue placeholder="Both channels" />
               </SelectTrigger>
               <SelectContent>
                 {/* Only the two dealer channels are offered: the endpoint
                     refuses CUSTOMER and OEM outright rather than answering an
                     empty page, so listing them would build a 422 into a menu. */}
-                <SelectItem value={ALL}>Both channels</SelectItem>
+                <SelectItem value={SELECT_ALL}>Both channels</SelectItem>
                 {DEALER_CHANNELS.map((entry) => (
                   <SelectItem key={entry} value={entry}>
                     {DEALER_CHANNEL_LABELS[entry]}
@@ -372,14 +372,16 @@ export default function DealersPage() {
             </Select>
 
             <Select
-              value={priceList || ALL}
-              onValueChange={(next) => setParam('price_list_type', next === ALL ? undefined : next)}
+              value={priceList || SELECT_ALL}
+              onValueChange={(next) =>
+                setParam('price_list_type', next === SELECT_ALL ? undefined : next)
+              }
             >
-              <SelectTrigger className="w-[10.5rem]" aria-label="Filter by price list">
+              <SelectTrigger className="w-full sm:w-[10.5rem]" aria-label="Filter by price list">
                 <SelectValue placeholder="Any price list" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any price list</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any price list</SelectItem>
                 {PRICE_TYPES.map((entry) => (
                   <SelectItem key={entry} value={entry}>
                     {PRICE_TYPE_LABELS[entry]} prices
@@ -389,14 +391,17 @@ export default function DealersPage() {
             </Select>
 
             <Select
-              value={standing || ALL}
-              onValueChange={(next) => setParam('standing', next === ALL ? undefined : next)}
+              value={standing || SELECT_ALL}
+              onValueChange={(next) => setParam('standing', next === SELECT_ALL ? undefined : next)}
             >
-              <SelectTrigger className="w-[11.5rem]" aria-label="Filter by credit standing">
+              <SelectTrigger
+                className="w-full sm:w-[11.5rem]"
+                aria-label="Filter by credit standing"
+              >
                 <SelectValue placeholder="Any standing" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any standing</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any standing</SelectItem>
                 <SelectItem value="blocked">Blocked only</SelectItem>
                 <SelectItem value="clear">Not blocked</SelectItem>
                 <SelectItem value="over_limit">Over credit limit</SelectItem>
@@ -404,7 +409,7 @@ export default function DealersPage() {
             </Select>
 
             <Select value={status} onValueChange={(next) => setParam('is_active', next)}>
-              <SelectTrigger className="w-[9.5rem]" aria-label="Filter by status">
+              <SelectTrigger className="w-full sm:w-[9.5rem]" aria-label="Filter by status">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

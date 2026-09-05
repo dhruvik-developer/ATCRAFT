@@ -33,7 +33,8 @@ export const packingKeys = {
   list: (params: unknown) => ['packing', 'list', params] as const,
   detail: (id: string) => ['packing', 'detail', id] as const,
   cartons: (id: string) => ['packing', 'cartons', id] as const,
-  materials: (warehouseId: string) => ['packing', 'materials', warehouseId] as const,
+  materials: (warehouseId: string, search = '') =>
+    ['packing', 'materials', warehouseId, search] as const,
   packingListJob: (jobId: string) => ['packing', 'packing-list-job', jobId] as const,
 }
 

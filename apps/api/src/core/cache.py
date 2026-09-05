@@ -17,11 +17,12 @@ Cache the item master around it instead.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import uuid
-from collections.abc import Awaitable, Callable
-from typing import Any, TypeVar
+from collections.abc import Awaitable
+from typing import Any, cast
 
 import redis.asyncio as aioredis
 from redis.asyncio.client import Redis
@@ -30,8 +31,6 @@ from src.core.config import settings
 from src.core.logging import get_logger
 
 log = get_logger(__name__)
-
-T = TypeVar("T")
 
 KEY_PREFIX = "atcraft"
 
@@ -46,13 +45,9 @@ class CacheNamespace:
     """
 
     REFERENCE = ("ref", 3600)  # UoM, categories, warehouse types
-    MASTER = ("master", 600)  # items, partners, warehouses
     PERMISSIONS = ("perm", 300)  # user permission set - invalidated on role change
-    LIST = ("list", 120)  # filtered list pages
     DASHBOARD = ("dash", 60)  # summary tiles
     REPORT = ("report", 300)  # completed report payloads
-    SESSION = ("sess", 900)  # short-lived workflow state
-    IDEMPOTENCY = ("idem", 86400)  # request de-duplication keys
 
 
 async def get_redis() -> Redis:
@@ -79,11 +74,45 @@ async def close_redis() -> None:
         _redis = None
 
 
+def discard_redis() -> Redis | None:
+    """Forget the cached client so the next caller builds a fresh one.
+
+    Synchronous, and deliberately does not await the close: the caller may be a
+    task that has just been cancelled, where any ``await`` re-raises
+    ``CancelledError`` before the close could finish. The abandoned pool's
+    sockets are released when it is collected.
+    """
+    global _redis
+    client, _redis = _redis, None
+    return client
+
+
 async def check_redis_ready() -> bool:
+    """Whether Redis answers. Never leaves a poisoned client behind.
+
+    A cancelled command is the case that matters. ``/health/ready`` bounds each
+    dependency check with ``asyncio.wait_for``, and a timeout cancels the
+    ``ping`` *mid-command*: redis-py returns the connection to the pool with the
+    reply still unread, then hands that same connection to the next command,
+    which fails on the stale data. Nothing ever repairs it, so one slow moment -
+    a container starting under load, a brief network stall - made this probe
+    answer "Redis is down" for the life of the process while Redis was perfectly
+    healthy. The backend's Docker health check reads exactly this endpoint, so
+    the container reported unhealthy for ever and ``up --wait`` never returned,
+    with the application serving traffic correctly the whole time.
+
+    Dropping the client on any failure means the next probe reconnects, which is
+    what makes the endpoint recover on its own.
+    """
     try:
         client = await get_redis()
         return bool(await client.ping())
+    except asyncio.CancelledError:
+        discard_redis()
+        # Cancellation is not an outcome to report; it belongs to the caller.
+        raise
     except Exception:
+        discard_redis()
         return False
 
 
@@ -145,49 +174,6 @@ async def cache_delete(*keys: str) -> None:
         log.warning("cache.delete_failed", keys=keys, error=str(exc))
 
 
-async def cache_invalidate_namespace(namespace: str, company_id: uuid.UUID | str | None) -> None:
-    """Drop every key in one namespace for one tenant.
-
-    Uses SCAN, not KEYS: KEYS blocks the Redis event loop for the whole scan and
-    a single call can stall every other request in the system.
-    """
-    if not settings.cache_enabled:
-        return
-    pattern = f"{KEY_PREFIX}:{company_id or 'global'}:{namespace}:*"
-    try:
-        client = await get_redis()
-        batch: list[str] = []
-        async for key in client.scan_iter(match=pattern, count=500):
-            batch.append(key)
-            if len(batch) >= 500:
-                await client.delete(*batch)
-                batch.clear()
-        if batch:
-            await client.delete(*batch)
-    except Exception as exc:
-        log.warning("cache.invalidate_failed", pattern=pattern, error=str(exc))
-
-
-async def cache_aside(
-    key: str,
-    loader: Callable[[], Awaitable[T]],
-    ttl: int | None = None,
-) -> T:
-    """Classic read-through: HIT returns; MISS loads, stores, returns.
-
-    Deliberately not a decorator - an explicit call keeps it obvious at the call
-    site which reads are served from cache, which matters when debugging a
-    "why is this stale?" report.
-    """
-    cached = await cache_get(key)
-    if cached is not None:
-        return cached  # type: ignore[return-value]
-    value = await loader()
-    if value is not None:
-        await cache_set(key, value, ttl)
-    return value
-
-
 # -----------------------------------------------------------------------------
 # Targeted invalidation
 # -----------------------------------------------------------------------------
@@ -201,14 +187,6 @@ async def invalidate_user_permissions(user_id: uuid.UUID, company_id: uuid.UUID)
     """
     ns, _ = CacheNamespace.PERMISSIONS
     await cache_delete(make_key(ns, company_id, str(user_id)))
-
-
-async def invalidate_entity(entity: str, company_id: uuid.UUID) -> None:
-    """Drop cached master data and list pages after a write to ``entity``."""
-    master_ns, _ = CacheNamespace.MASTER
-    list_ns, _ = CacheNamespace.LIST
-    await cache_invalidate_namespace(f"{master_ns}:{entity}", company_id)
-    await cache_invalidate_namespace(f"{list_ns}:{entity}", company_id)
 
 
 # -----------------------------------------------------------------------------
@@ -247,7 +225,9 @@ async def release_lock(name: str, token: str) -> bool:
     lock a different worker now legitimately owns.
     """
     client = await get_redis()
-    result = await client.eval(_RELEASE_SCRIPT, 1, f"{KEY_PREFIX}:lock:{name}", token)
+    result = await cast(
+        Awaitable[Any], client.eval(_RELEASE_SCRIPT, 1, f"{KEY_PREFIX}:lock:{name}", token)
+    )
     return bool(result)
 
 
@@ -255,15 +235,12 @@ __all__ = [
     "KEY_PREFIX",
     "CacheNamespace",
     "acquire_lock",
-    "cache_aside",
     "cache_delete",
     "cache_get",
-    "cache_invalidate_namespace",
     "cache_set",
     "check_redis_ready",
     "close_redis",
     "get_redis",
-    "invalidate_entity",
     "invalidate_user_permissions",
     "make_key",
     "release_lock",

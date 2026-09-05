@@ -143,7 +143,8 @@ export function OutstandingTab() {
         header: 'Invoiced',
         enableSorting: false,
         meta: { align: 'right' },
-        cell: ({ row }) => formatMoney(row.original.total_amount, { currency: row.original.currency }),
+        cell: ({ row }) =>
+          formatMoney(row.original.total_amount, { currency: row.original.currency }),
       },
       {
         id: 'paid_amount',

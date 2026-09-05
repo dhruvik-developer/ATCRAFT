@@ -40,20 +40,27 @@ import type { DecimalString, OffsetPagination, SchemaOf } from '@/types/api'
 
 /**
  * The shared registry in `lib/query-client` has no ledger branch, so the keys
- * live here in the same hierarchical shape: invalidating `ledgerKeys.all`
- * clears every account list, account detail and statement at once.
+ * live here in the same hierarchical shape - and they sit under
+ * `financeKeys.all` (`finance-types.ts`) on purpose: approving a payment or an
+ * invoice invalidates that root, and a statement keyed anywhere else would keep
+ * showing pre-posting balances until it went stale on its own. Invalidating
+ * `ledgerKeys.all` still clears every account list, account detail and
+ * statement at once.
  *
  * `account(id)` sits under the list root deliberately - the chart-of-accounts
  * screen resolves a parent account by id for a chip and for the detail dialog,
  * and sharing the key means those two reads of the same account are one
  * request, not two.
+ *
+ * `kind` is the lower-case URL segment while `financeKeys.ledger` takes the
+ * upper-case party type, so the two statement keys cannot collide.
  */
 export const ledgerKeys = {
-  all: ['ledger'] as const,
-  accounts: (params: unknown) => ['ledger', 'accounts', params] as const,
-  account: (id: string) => ['ledger', 'accounts', 'detail', id] as const,
+  all: ['finance', 'ledger'] as const,
+  accounts: (params: unknown) => ['finance', 'ledger', 'accounts', params] as const,
+  account: (id: string) => ['finance', 'ledger', 'accounts', 'detail', id] as const,
   statement: (kind: PartyKind, partyId: string, params: unknown) =>
-    ['ledger', 'statement', kind, partyId, params] as const,
+    ['finance', 'ledger', kind, partyId, params] as const,
 }
 
 // ----------------------------------------------------------- wire shapes ----

@@ -123,9 +123,7 @@ VALUATION_ENTITY = "inventory_valuation"
 def _styles() -> dict[str, ParagraphStyle]:
     base = getSampleStyleSheet()
     return {
-        "title": ParagraphStyle(
-            "PackingTitle", parent=base["Title"], fontSize=16, spaceAfter=4
-        ),
+        "title": ParagraphStyle("PackingTitle", parent=base["Title"], fontSize=16, spaceAfter=4),
         "heading": ParagraphStyle(
             "PackingHeading", parent=base["Heading2"], fontSize=11, spaceBefore=8, spaceAfter=4
         ),
@@ -214,9 +212,7 @@ def _line_table(data: dict[str, Any], styles: dict[str, ParagraphStyle]) -> list
     return [Paragraph("Ordered", styles["heading"]), table]
 
 
-def _carton_block(
-    carton: dict[str, Any], styles: dict[str, ParagraphStyle]
-) -> list[Any]:
+def _carton_block(carton: dict[str, Any], styles: dict[str, ParagraphStyle]) -> list[Any]:
     """One carton's heading and content table, kept on a single page."""
     heading = Paragraph(
         f"Carton {carton['carton_number']} &mdash; {carton['barcode']} "
@@ -332,6 +328,7 @@ def _safe_file_name(code: str) -> str:
 @async_task(name="reports.generate_packing_list", queue="reports")
 async def generate_packing_list(
     packing_order_id: str,
+    snapshot_id: str,
     company_id: str,
     user_id: str,
     request_id: str | None = None,
@@ -339,84 +336,125 @@ async def generate_packing_list(
 ) -> dict[str, Any]:
     """Render one packing order's packing list and file it in the document store.
 
+    The job row (``snapshot_id``) is driven through the same lifecycle as every
+    other background report: claimed on entry, completed with the document id
+    once the row is written, and failed on a fresh session if anything raises -
+    see :func:`generate_report` for why each of those matters. Without it the
+    client polls a job that stays QUEUED for ever.
+
     Arguments are plain strings because Celery serialises task payloads as JSON;
     ``request_id`` is not used here but is read by the ``task_prerun`` signal so
     the API's correlation id follows the work into the worker's logs (section 55).
     """
     tenant = TenantContext(company_id=uuid.UUID(company_id), user_id=uuid.UUID(user_id))
     order_id = uuid.UUID(packing_order_id)
+    identifier = uuid.UUID(snapshot_id)
     moment = utcnow()
 
-    async with session_scope() as session:
-        data = await packing_service.packing_list_data(session, tenant, order_id)
+    try:
+        async with session_scope() as session:
+            try:
+                snapshot = await reports_service.start_snapshot(session, tenant, identifier)
+            except InvalidStateTransitionError:
+                log.warning("reports.packing_list_not_queued", snapshot_id=snapshot_id)
+                return {
+                    "snapshot_id": snapshot_id,
+                    "status": "SKIPPED",
+                    "reason": "the job is no longer queued",
+                }
 
-        payload = await anyio.to_thread.run_sync(render_packing_list_pdf, data)
-        checksum = hashlib.sha256(payload).hexdigest()
+            data = await packing_service.packing_list_data(session, tenant, order_id)
 
-        rule = KNOWN_TYPES[PDF_MIME_TYPE]
-        storage_key = build_storage_key(
-            category=DocumentCategory.REPORT,
-            company_id=tenant.company_id,
-            rule=rule,
-            moment=moment,
-            file_id=new_id(),
-        )
-        destination = resolve_storage_path(storage_key)
-        await anyio.to_thread.run_sync(_write_bytes, destination, payload)
+            payload = await anyio.to_thread.run_sync(render_packing_list_pdf, data)
+            checksum = hashlib.sha256(payload).hexdigest()
 
-        try:
-            document = Document(
-                file_name=_safe_file_name(str(data.get("code", ""))),
-                storage_key=storage_key,
-                mime_type=PDF_MIME_TYPE,
-                size_bytes=len(payload),
-                checksum_sha256=checksum,
+            rule = KNOWN_TYPES[PDF_MIME_TYPE]
+            storage_key = build_storage_key(
                 category=DocumentCategory.REPORT,
-                entity_type=PACKING_LIST_ENTITY,
-                entity_id=order_id,
-                uploaded_by_id=tenant.user_id,
-                is_public=False,
-                expires_at=default_expiry(DocumentCategory.REPORT, moment),
-            )
-            DocumentRepository(session, tenant).add(document)
-            await session.flush()
-
-            await record_audit(
-                session,
                 company_id=tenant.company_id,
-                action=AuditAction.DATA_EXPORT,
-                entity_type=PACKING_LIST_ENTITY,
-                entity_id=order_id,
-                entity_code=str(data.get("code", "")),
-                summary=(
-                    f"Generated the packing list for {data.get('code', '')} "
-                    f"({len(payload)} bytes)"
-                ),
-                user_id=tenant.user_id,
-                new_values={
-                    "document_id": document.id,
-                    "file_name": document.file_name,
-                    "size_bytes": document.size_bytes,
-                    "checksum_sha256": checksum,
-                    "carton_count": len(data.get("cartons", [])),
-                },
+                rule=rule,
+                moment=moment,
+                file_id=new_id(),
             )
-        except Exception:
-            # The row never committed, so nothing will ever reference these
-            # bytes. Removing them here is the only cheap chance to do so.
-            await anyio.to_thread.run_sync(_unlink, destination)
-            raise
+            destination = resolve_storage_path(storage_key)
+            await anyio.to_thread.run_sync(_write_bytes, destination, payload)
 
-        document_id = str(document.id)
-        size_bytes = document.size_bytes
+            try:
+                document = Document(
+                    file_name=_safe_file_name(str(data.get("code", ""))),
+                    storage_key=storage_key,
+                    mime_type=PDF_MIME_TYPE,
+                    size_bytes=len(payload),
+                    checksum_sha256=checksum,
+                    category=DocumentCategory.REPORT,
+                    entity_type=PACKING_LIST_ENTITY,
+                    entity_id=order_id,
+                    uploaded_by_id=tenant.user_id,
+                    is_public=False,
+                    expires_at=default_expiry(DocumentCategory.REPORT, moment),
+                )
+                DocumentRepository(session, tenant).add(document)
+                await session.flush()
+
+                await record_audit(
+                    session,
+                    company_id=tenant.company_id,
+                    action=AuditAction.DATA_EXPORT,
+                    entity_type=PACKING_LIST_ENTITY,
+                    entity_id=order_id,
+                    entity_code=str(data.get("code", "")),
+                    summary=(
+                        f"Generated the packing list for {data.get('code', '')} "
+                        f"({len(payload)} bytes)"
+                    ),
+                    user_id=tenant.user_id,
+                    new_values={
+                        "document_id": document.id,
+                        "file_name": document.file_name,
+                        "size_bytes": document.size_bytes,
+                        "checksum_sha256": checksum,
+                        "carton_count": len(data.get("cartons", [])),
+                    },
+                )
+
+                await reports_service.complete_snapshot(
+                    session,
+                    tenant,
+                    snapshot_id=snapshot.id,
+                    row_count=len(data.get("cartons", [])),
+                    document_id=document.id,
+                )
+            except Exception:
+                # The row never committed, so nothing will ever reference these
+                # bytes. Removing them here is the only cheap chance to do so.
+                await anyio.to_thread.run_sync(_unlink, destination)
+                raise
+
+            document_id = str(document.id)
+            size_bytes = document.size_bytes
+
+    except Exception as exc:
+        # A separate session: the one the failure happened on cannot be used to
+        # write anything, so the job would otherwise stay RUNNING for ever.
+        async with session_scope() as session:
+            await reports_service.fail_snapshot(
+                session, tenant, snapshot_id=identifier, error=_failure_message(exc)
+            )
+        log.error(
+            "reports.packing_list_failed", snapshot_id=snapshot_id, error=str(exc), exc_info=exc
+        )
+        raise
 
     log.info(
         "reports.packing_list_generated",
+        snapshot_id=snapshot_id,
         packing_order_id=packing_order_id,
         document_id=document_id,
         size_bytes=size_bytes,
     )
     return {
+        "snapshot_id": snapshot_id,
+        "status": "COMPLETED",
         "packing_order_id": packing_order_id,
         "packing_order_code": str(data.get("code", "")),
         "document_id": document_id,
@@ -445,9 +483,7 @@ VALUATION_COLUMNS: tuple[tuple[str, int], ...] = (
 )
 
 
-def render_inventory_valuation_xlsx(
-    rows: list[dict[str, Any]], meta: dict[str, Any]
-) -> bytes:
+def render_inventory_valuation_xlsx(rows: list[dict[str, Any]], meta: dict[str, Any]) -> bytes:
     """Render a valuation to XLSX bytes.
 
     Pure and synchronous: it takes plain mappings and returns bytes, with no
@@ -529,6 +565,7 @@ def _valuation_file_name(moment: Any) -> str:
 async def inventory_valuation(
     company_id: str,
     user_id: str,
+    snapshot_id: str,
     warehouse_id: str | None = None,
     category_id: str | None = None,
     request_id: str | None = None,
@@ -545,110 +582,152 @@ async def inventory_valuation(
     warehouse_id)`` ordering. Ordering by value instead - which is right for the
     screen - would tie between equal-valued positions and let a row appear in
     two chunks or in none.
+
+    The job row (``snapshot_id``) is claimed on entry, completed with the
+    document id once the row is written, and failed on a fresh session if
+    anything raises - see :func:`generate_report` for why each of those matters.
     """
     tenant = TenantContext(company_id=uuid.UUID(company_id), user_id=uuid.UUID(user_id))
     filters = ValuationFilters(
         warehouse_id=uuid.UUID(warehouse_id) if warehouse_id else None,
         category_id=uuid.UUID(category_id) if category_id else None,
     )
+    identifier = uuid.UUID(snapshot_id)
     moment = utcnow()
 
-    async with session_scope() as session:
-        repo = InventoryValuationRepository(session, tenant)
-        row_count, total_quantity, total_value = await repo.valuation_totals(filters)
+    try:
+        async with session_scope() as session:
+            try:
+                snapshot = await reports_service.start_snapshot(session, tenant, identifier)
+            except InvalidStateTransitionError:
+                log.warning("reports.inventory_valuation_not_queued", snapshot_id=snapshot_id)
+                return {
+                    "snapshot_id": snapshot_id,
+                    "status": "SKIPPED",
+                    "reason": "the job is no longer queued",
+                }
 
-        stmt = repo.valuation_export_stmt(filters)
-        rows: list[dict[str, Any]] = []
-        offset = 0
-        while len(rows) < MAX_VALUATION_EXPORT_ROWS:
-            chunk = (
-                await session.execute(stmt.limit(VALUATION_CHUNK_ROWS).offset(offset))
-            ).all()
-            if not chunk:
-                break
-            rows.extend(valuation_row(row).model_dump() for row in chunk)
-            offset += VALUATION_CHUNK_ROWS
+            repo = InventoryValuationRepository(session, tenant)
+            row_count, total_quantity, total_value = await repo.valuation_totals(filters)
 
-        truncated = len(rows) < row_count
-        payload = await anyio.to_thread.run_sync(
-            render_inventory_valuation_xlsx,
-            rows,
-            {
-                "generated_at": moment.isoformat(timespec="seconds"),
-                "row_count": row_count,
-                "total_quantity": total_quantity,
-                "total_value": total_value,
-                "warehouse_id": warehouse_id,
-                "category_id": category_id,
-                "truncated": truncated,
-            },
-        )
-        checksum = hashlib.sha256(payload).hexdigest()
+            stmt = repo.valuation_export_stmt(filters)
+            rows: list[dict[str, Any]] = []
+            offset = 0
+            while len(rows) < MAX_VALUATION_EXPORT_ROWS:
+                chunk = (
+                    await session.execute(stmt.limit(VALUATION_CHUNK_ROWS).offset(offset))
+                ).all()
+                if not chunk:
+                    break
+                rows.extend(valuation_row(row).model_dump() for row in chunk)
+                offset += VALUATION_CHUNK_ROWS
 
-        rule = KNOWN_TYPES[XLSX_MIME_TYPE]
-        storage_key = build_storage_key(
-            category=DocumentCategory.REPORT,
-            company_id=tenant.company_id,
-            rule=rule,
-            moment=moment,
-            file_id=new_id(),
-        )
-        destination = resolve_storage_path(storage_key)
-        await anyio.to_thread.run_sync(_write_bytes, destination, payload)
-
-        try:
-            document = Document(
-                file_name=_valuation_file_name(moment),
-                storage_key=storage_key,
-                mime_type=XLSX_MIME_TYPE,
-                size_bytes=len(payload),
-                checksum_sha256=checksum,
-                category=DocumentCategory.REPORT,
-                uploaded_by_id=tenant.user_id,
-                is_public=False,
-                expires_at=default_expiry(DocumentCategory.REPORT, moment),
-            )
-            DocumentRepository(session, tenant).add(document)
-            await session.flush()
-
-            await record_audit(
-                session,
-                company_id=tenant.company_id,
-                action=AuditAction.DATA_EXPORT,
-                entity_type=VALUATION_ENTITY,
-                summary=(
-                    f"Valued {len(rows)} stock positions at {total_value} "
-                    f"({len(payload)} bytes)"
-                ),
-                user_id=tenant.user_id,
-                new_values={
-                    "document_id": document.id,
-                    "file_name": document.file_name,
-                    "size_bytes": document.size_bytes,
-                    "checksum_sha256": checksum,
+            truncated = len(rows) < row_count
+            payload = await anyio.to_thread.run_sync(
+                render_inventory_valuation_xlsx,
+                rows,
+                {
+                    "generated_at": moment.isoformat(timespec="seconds"),
                     "row_count": row_count,
-                    "rows_exported": len(rows),
+                    "total_quantity": total_quantity,
                     "total_value": total_value,
+                    "warehouse_id": warehouse_id,
+                    "category_id": category_id,
                     "truncated": truncated,
                 },
             )
-        except Exception:
-            # The row never committed, so nothing will ever reference these
-            # bytes. Removing them here is the only cheap chance to do so.
-            await anyio.to_thread.run_sync(_unlink, destination)
-            raise
+            checksum = hashlib.sha256(payload).hexdigest()
 
-        document_id = str(document.id)
-        size_bytes = document.size_bytes
+            rule = KNOWN_TYPES[XLSX_MIME_TYPE]
+            storage_key = build_storage_key(
+                category=DocumentCategory.REPORT,
+                company_id=tenant.company_id,
+                rule=rule,
+                moment=moment,
+                file_id=new_id(),
+            )
+            destination = resolve_storage_path(storage_key)
+            await anyio.to_thread.run_sync(_write_bytes, destination, payload)
+
+            try:
+                document = Document(
+                    file_name=_valuation_file_name(moment),
+                    storage_key=storage_key,
+                    mime_type=XLSX_MIME_TYPE,
+                    size_bytes=len(payload),
+                    checksum_sha256=checksum,
+                    category=DocumentCategory.REPORT,
+                    uploaded_by_id=tenant.user_id,
+                    is_public=False,
+                    expires_at=default_expiry(DocumentCategory.REPORT, moment),
+                )
+                DocumentRepository(session, tenant).add(document)
+                await session.flush()
+
+                await record_audit(
+                    session,
+                    company_id=tenant.company_id,
+                    action=AuditAction.DATA_EXPORT,
+                    entity_type=VALUATION_ENTITY,
+                    summary=(
+                        f"Valued {len(rows)} stock positions at {total_value} "
+                        f"({len(payload)} bytes)"
+                    ),
+                    user_id=tenant.user_id,
+                    new_values={
+                        "document_id": document.id,
+                        "file_name": document.file_name,
+                        "size_bytes": document.size_bytes,
+                        "checksum_sha256": checksum,
+                        "row_count": row_count,
+                        "rows_exported": len(rows),
+                        "total_value": total_value,
+                        "truncated": truncated,
+                    },
+                )
+
+                await reports_service.complete_snapshot(
+                    session,
+                    tenant,
+                    snapshot_id=snapshot.id,
+                    row_count=len(rows),
+                    document_id=document.id,
+                )
+            except Exception:
+                # The row never committed, so nothing will ever reference these
+                # bytes. Removing them here is the only cheap chance to do so.
+                await anyio.to_thread.run_sync(_unlink, destination)
+                raise
+
+            document_id = str(document.id)
+            size_bytes = document.size_bytes
+
+    except Exception as exc:
+        # A separate session: the one the failure happened on cannot be used to
+        # write anything, so the job would otherwise stay RUNNING for ever.
+        async with session_scope() as session:
+            await reports_service.fail_snapshot(
+                session, tenant, snapshot_id=identifier, error=_failure_message(exc)
+            )
+        log.error(
+            "reports.inventory_valuation_failed",
+            snapshot_id=snapshot_id,
+            error=str(exc),
+            exc_info=exc,
+        )
+        raise
 
     log.info(
         "reports.inventory_valuation_generated",
+        snapshot_id=snapshot_id,
         company_id=company_id,
         document_id=document_id,
         rows=len(rows),
         truncated=truncated,
     )
     return {
+        "snapshot_id": snapshot_id,
+        "status": "COMPLETED",
         "document_id": document_id,
         "size_bytes": size_bytes,
         "checksum_sha256": checksum,
@@ -931,9 +1010,7 @@ async def generate_report(
                         ),
                         entity_type=GENERATED_REPORT_ENTITY,
                         entity_id=snapshot.id,
-                        action_url=reports_service.JOB_STATUS_URL_TEMPLATE.format(
-                            job_id=snapshot.id
-                        ),
+                        action_url=reports_service.job_status_url(snapshot.id),
                     )
             except Exception:
                 # The row never committed, so nothing will ever reference these

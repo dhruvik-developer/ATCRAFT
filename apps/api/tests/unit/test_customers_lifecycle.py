@@ -173,23 +173,23 @@ class TestChannelAuthority:
 
 class TestGstinHelpers:
     def test_state_code_is_the_gstin_prefix(self) -> None:
-        assert gstin_state_code("27ABCDE1234F1Z5") == "27"
+        assert gstin_state_code("27ABCDE1234F1Z0") == "27"
 
     @pytest.mark.parametrize("value", [None, "", "2"])
     def test_unusable_gstin_yields_no_state_code(self, value: str | None) -> None:
         assert gstin_state_code(value) is None
 
     def test_matching_state_code_passes(self) -> None:
-        assert_gstin_matches_state("27ABCDE1234F1Z5", "27")
+        assert_gstin_matches_state("27ABCDE1234F1Z0", "27")
 
     def test_mismatched_state_code_is_refused(self) -> None:
         with pytest.raises(BusinessRuleError) as exc:
-            assert_gstin_matches_state("27ABCDE1234F1Z5", "29")
+            assert_gstin_matches_state("27ABCDE1234F1Z0", "29")
         assert exc.value.details == {"gstin_state_code": "27", "address_state_code": "29"}
 
     @pytest.mark.parametrize(
         ("gstin", "state_code"),
-        [(None, "27"), ("27ABCDE1234F1Z5", None), (None, None)],
+        [(None, "27"), ("27ABCDE1234F1Z0", None), (None, None)],
     )
     def test_check_is_skipped_when_either_side_is_absent(
         self, gstin: str | None, state_code: str | None

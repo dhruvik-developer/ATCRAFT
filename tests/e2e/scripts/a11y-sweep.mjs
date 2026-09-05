@@ -22,9 +22,8 @@ import AxeBuilder from '@axe-core/playwright'
 import { chromium } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 
-const BASE = process.env.SWEEP_BASE ?? 'http://localhost:4173'
-const EMAIL = process.env.E2E_ADMIN_EMAIL ?? 'admin@atcraft.example'
-const PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? 'ChangeMe!Atcraft2026'
+import { BASE_URL as BASE } from '../lib/env.mjs'
+import { readyAdminToken, signInThroughForm } from '../lib/session.mjs'
 
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']
 
@@ -52,10 +51,11 @@ const page = await context.newPage()
 await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' })
 const loginScan = await new AxeBuilder({ page }).withTags(TAGS).analyze()
 
-await page.getByRole('textbox', { name: /email/i }).fill(EMAIL)
-await page.getByRole('textbox', { name: /password/i }).fill(PASSWORD)
-await page.getByRole('button', { name: /sign in|log ?in/i }).click()
-await page.waitForURL((u) => !u.pathname.includes('/login'), { timeout: 20000 })
+// The seeded administrator is forced through a password change before it can
+// reach any screen; `readyAdminToken` completes that through the API on a
+// fresh database, and is one successful login otherwise.
+await readyAdminToken()
+await signInThroughForm(page)
 
 const results = [{ route: '/login', violations: loginScan.violations }]
 

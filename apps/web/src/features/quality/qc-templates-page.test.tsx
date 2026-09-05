@@ -267,9 +267,7 @@ describe('amending a version', () => {
         ...routes,
       },
     })
-    await rendered.user.click(
-      await screen.findByRole('button', { name: 'Amend QC-BRASS-ROD v1' }),
-    )
+    await rendered.user.click(await screen.findByRole('button', { name: 'Amend QC-BRASS-ROD v1' }))
     await screen.findByDisplayValue('Brass rod incoming check')
     return rendered
   }
@@ -333,19 +331,14 @@ describe('amending a version', () => {
     await user.click(screen.getByRole('button', { name: /save details/i }))
 
     expect(await screen.findByText('This version is frozen')).toBeVisible()
-    expect(
-      await screen.findByText('This version has already been inspected against'),
-    ).toBeVisible()
+    expect(await screen.findByText('This version has already been inspected against')).toBeVisible()
   })
 
   it('puts a field-level refusal on the field it belongs to', async () => {
     const { user } = await openAmend({
-      [`PATCH /quality/templates/${TEMPLATE_ID}`]: fail(
-        422,
-        'VALIDATION_ERROR',
-        'Invalid',
-        { fields: { name: ['Another specification already has this name'] } },
-      ),
+      [`PATCH /quality/templates/${TEMPLATE_ID}`]: fail(422, 'VALIDATION_ERROR', 'Invalid', {
+        fields: { name: ['Another specification already has this name'] },
+      }),
     })
 
     const name = screen.getByRole('textbox', { name: 'Name' })
@@ -356,9 +349,7 @@ describe('amending a version', () => {
     // The query client stays silent for a 422 carrying field errors precisely
     // because the form is supposed to show them; if it does not, the save looks
     // to the user like it simply did nothing.
-    expect(
-      await screen.findByText('Another specification already has this name'),
-    ).toBeVisible()
+    expect(await screen.findByText('Another specification already has this name')).toBeVisible()
   })
 })
 
@@ -389,66 +380,61 @@ describe('creating a specification', () => {
     )
     await user.click(screen.getByRole('button', { name: /create specification/i }))
 
-    expect(
-      await screen.findByText('Choose the item this specification governs'),
-    ).toBeVisible()
+    expect(await screen.findByText('Choose the item this specification governs')).toBeVisible()
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
   })
 
-  it(
-    'posts a stage-wide specification with the figures its plan does not use cleared',
-    async () => {
-      const { user, fetch } = await openCreate({
-        'POST /quality/templates': ok(templateDetail({ code: 'QC-NEW' })),
-      })
+  it('posts a stage-wide specification with the figures its plan does not use cleared', async () => {
+    const { user, fetch } = await openCreate({
+      'POST /quality/templates': ok(templateDetail({ code: 'QC-NEW' })),
+    })
 
-      await user.type(screen.getByRole('textbox', { name: 'Code' }), 'QC-NEW')
-      await user.type(screen.getByRole('textbox', { name: 'Name' }), 'New check')
+    await user.type(screen.getByRole('textbox', { name: 'Code' }), 'QC-NEW')
+    await user.type(screen.getByRole('textbox', { name: 'Name' }), 'New check')
 
-      // Radix's Select is a listbox, not a <select>, so the scope is chosen the
-      // way a user does it.
-      await user.click(screen.getByRole('combobox', { name: /applies to/i }))
-      await user.click(await screen.findByRole('option', { name: 'Stage default' }))
+    // Radix's Select is a listbox, not a <select>, so the scope is chosen the
+    // way a user does it.
+    await user.click(screen.getByRole('combobox', { name: /applies to/i }))
+    await user.click(await screen.findByRole('option', { name: 'Stage default' }))
 
-      await user.type(
-        screen.getByRole('textbox', { name: 'Name of characteristic 1' }),
-        'Overall length',
-      )
-      await user.type(screen.getByRole('textbox', { name: 'Minimum' }), '12.5')
-      await user.type(screen.getByRole('textbox', { name: 'Maximum' }), '13.5')
-      await user.click(screen.getByRole('button', { name: /create specification/i }))
+    await user.type(
+      screen.getByRole('textbox', { name: 'Name of characteristic 1' }),
+      'Overall length',
+    )
+    await user.type(screen.getByRole('textbox', { name: 'Minimum' }), '12.5')
+    await user.type(screen.getByRole('textbox', { name: 'Maximum' }), '13.5')
+    await user.click(screen.getByRole('button', { name: /create specification/i }))
 
-      const body = (await waitFor(() =>
-        fetch.requestFor('POST', '/quality/templates'),
-      )) as Record<string, unknown>
+    const body = (await waitFor(() => fetch.requestFor('POST', '/quality/templates'))) as Record<
+      string,
+      unknown
+    >
 
-      expect(body.code).toBe('QC-NEW')
-      // Both scope columns null is the stage default, and they are mutually
-      // exclusive on the wire - sending the empty item id as '' would claim an
-      // item scope that names no item.
-      expect(body.item_id).toBeNull()
-      expect(body.item_category_id).toBeNull()
-      // `TemplateCreate` refuses a figure that does not belong to the plan, so
-      // the ones the ALL plan does not use are cleared rather than sent blank.
-      expect(body.sample_percentage).toBeNull()
-      expect(body.sample_size).toBeNull()
-      expect(body.parameters).toEqual([
-        {
-          sequence: 1,
-          parameter_name: 'Overall length',
-          parameter_type: 'NUMERIC',
-          unit: null,
-          // Limits stay decimal strings: a 12.5 band read back through a JS
-          // number rejects a reading that is exactly on the limit.
-          min_value: '12.5',
-          max_value: '13.5',
-          target_value: null,
-          allowed_values: null,
-          is_critical: false,
-          is_mandatory: true,
-        },
-      ])
-    },
-    60_000,
-  )
+    expect(body.code).toBe('QC-NEW')
+    // Both scope columns null is the stage default, and they are mutually
+    // exclusive on the wire - sending the empty item id as '' would claim an
+    // item scope that names no item.
+    expect(body.item_id).toBeNull()
+    expect(body.item_category_id).toBeNull()
+    // `TemplateCreate` refuses a figure that does not belong to the plan, so
+    // the ones the ALL plan does not use are cleared rather than sent blank.
+    expect(body.sample_percentage).toBeNull()
+    expect(body.sample_size).toBeNull()
+    expect(body.parameters).toEqual([
+      {
+        sequence: 1,
+        parameter_name: 'Overall length',
+        parameter_type: 'NUMERIC',
+        unit: null,
+        // Limits stay decimal strings: a 12.5 band read back through a JS
+        // number rejects a reading that is exactly on the limit.
+        min_value: '12.5',
+        max_value: '13.5',
+        target_value: null,
+        allowed_values: null,
+        is_critical: false,
+        is_mandatory: true,
+      },
+    ])
+  }, 60_000)
 })

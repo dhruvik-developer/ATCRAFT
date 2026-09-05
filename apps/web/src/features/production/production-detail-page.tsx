@@ -60,7 +60,8 @@ import {
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
-import { api } from '@/lib/api-client'
+import { ApiError, api } from '@/lib/api-client'
+import { LOOKUP_LIST_LIMIT, REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import {
   formatDate,
   formatDateTime,
@@ -70,6 +71,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -342,8 +344,7 @@ function WorkOrdersPanel({ orderId }: { orderId: string }) {
   // list would otherwise be silently cut off at the API's default page size.
   const list = useListQuery<WorkOrderRow>({
     path: `/production/${orderId}/work-orders`,
-    queryKey: (params) =>
-      [...queryKeys.production.detail(orderId), 'work-orders', params] as const,
+    queryKey: (params) => [...queryKeys.production.detail(orderId), 'work-orders', params] as const,
     defaultSortBy: 'sequence',
     defaultSortDir: 'asc',
     staleTime: staleTimes.transactional,
@@ -684,7 +685,9 @@ function CostingPanel({ order }: { order: ProductionOrderDetail }) {
           label="Cost per unit"
           // Null until something has been produced to divide by - which is not
           // the same as costing nothing.
-          value={data.cost_per_unit === null ? 'Nothing produced yet' : formatMoney(data.cost_per_unit)}
+          value={
+            data.cost_per_unit === null ? 'Nothing produced yet' : formatMoney(data.cost_per_unit)
+          }
           hint={`Over ${formatQuantity(data.produced_quantity)} of ${formatQuantity(data.planned_quantity)} planned`}
         />
       </div>
@@ -759,7 +762,12 @@ export default function ProductionDetailPage() {
     // this one asks for a single large page rather than paging the table.
     queryFn: () =>
       api.get<ProductionComponent[]>(`/production/${orderId}/components`, {
-        params: { limit: 200, with_total: false, sort_by: 'line_number', sort_dir: 'asc' },
+        params: {
+          limit: LOOKUP_LIST_LIMIT,
+          with_total: false,
+          sort_by: 'line_number',
+          sort_dir: 'asc',
+        },
       }),
     // Availability is never served stale (master rules 34).
     staleTime: staleTimes.live,
@@ -819,8 +827,16 @@ export default function ProductionDetailPage() {
         return
       }
 
+      // Past tense per transition; "started" has no catalogue verb of its own.
+      const done: Record<ActionKey, string> = {
+        approve: success.approved('Production order'),
+        release: success.released('Production order'),
+        start: 'Production started',
+        complete: success.completed('Production order'),
+        close: success.closed('Production order'),
+      }
       toast.success(
-        'Order updated',
+        done[action],
         `${updated.code} is now ${humanise(updated.status).toLowerCase()}.`,
       )
     },
@@ -831,18 +847,28 @@ export default function ProductionDetailPage() {
       api.post<ProductionOrderRow>(`/production/${orderId}/cancel`, { reason }),
     onSuccess: (updated) => {
       invalidateOrderAndStock()
-      toast.success('Order cancelled', `${updated.code} is cancelled.`)
+      toast.success(success.cancelled('Production order'), `${updated.code} is cancelled.`)
       setCancelOpen(false)
       setCancelReason('')
       setCancelReasonTouched(false)
     },
   })
 
+  /**
+   * `CancelRequest.reason` is bounded 3..255 characters. A 422 keyed on it is
+   * one the mutation cache stays quiet about, so the floor is enforced here,
+   * the ceiling by the input itself - and any rule the server adds later is
+   * still rendered under the box rather than lost.
+   */
+  const cancelReasonTooShort = cancelReason.trim().length < REASON_MIN_LENGTH
+  const cancelReasonServerError =
+    cancelOrder.error instanceof ApiError ? cancelOrder.error.fieldErrors.reason?.[0] : undefined
+
   if (orderQuery.isLoading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-7 w-64" />
-        <Skeleton className="h-4 w-96" />
+        <Skeleton className="h-4 w-full max-w-sm" />
         <Skeleton className="h-9 w-full" />
         <div className="grid gap-4 lg:grid-cols-3">
           <Skeleton className="h-56 lg:col-span-2" />
@@ -949,7 +975,7 @@ export default function ProductionDetailPage() {
         description={`Raised ${humanise(order.source_type).toLowerCase()}, for ${formatQuantity(order.planned_quantity)}.`}
         breadcrumbs={[{ label: 'Production', to: '/production' }, { label: order.code }]}
         status={
-          <span className="flex items-center gap-2">
+          <span className="flex flex-wrap items-center gap-2">
             <StatusBadge status={order.status} />
             <Badge variant={priorityBand(order.priority).variant}>
               {priorityBand(order.priority).label} ({formatNumber(order.priority)})
@@ -1242,7 +1268,10 @@ export default function ProductionDetailPage() {
         open={cancelOpen}
         onOpenChange={(open) => {
           setCancelOpen(open)
-          if (!open) setCancelReasonTouched(false)
+          if (!open) {
+            setCancelReasonTouched(false)
+            cancelOrder.reset()
+          }
         }}
         title={`Cancel ${order.code}?`}
         description="The order stops here and cannot be reopened. Anything still out on the floor has to be returned to the store first: a job holding material cannot be cancelled at all."
@@ -1251,7 +1280,7 @@ export default function ProductionDetailPage() {
         destructive
         loading={cancelOrder.isPending}
         onConfirm={() => {
-          if (cancelReason.trim() === '') {
+          if (cancelReasonTooShort) {
             setCancelReasonTouched(true)
             return
           }
@@ -1267,12 +1296,18 @@ export default function ProductionDetailPage() {
             value={cancelReason}
             onChange={(event) => setCancelReason(event.target.value)}
             autoComplete="off"
+            maxLength={REASON_MAX_LENGTH}
             className="mt-1.5"
-            aria-invalid={cancelReasonTouched && cancelReason.trim() === ''}
+            aria-invalid={
+              (cancelReasonTouched && cancelReasonTooShort) || Boolean(cancelReasonServerError)
+            }
           />
-          {cancelReasonTouched && cancelReason.trim() === '' && (
-            <FieldError message="A cancellation needs a recorded reason" />
+          {cancelReasonTouched && cancelReasonTooShort && (
+            <FieldError
+              message={`A cancellation needs a recorded reason of at least ${REASON_MIN_LENGTH} characters`}
+            />
           )}
+          <FieldError message={cancelReasonServerError} />
         </div>
       </ConfirmDialog>
     </>

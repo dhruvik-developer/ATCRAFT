@@ -171,11 +171,16 @@ from src.modules.procurement.service_rules import (
     PURCHASE_RETURN_LIFECYCLE,
     QUOTATION_LIFECYCLE,
     REQUISITION_LIFECYCLE,
+    REQUOTABLE_QUOTATION_STATUSES,
+    RETURN_POOL_AVAILABLE,
+    RETURN_POOL_DAMAGED,
     RFQ_LIFECYCLE,
     CandidateInput,
     DuplicateCandidate,
+    InspectionOutcome,
     LineAmounts,
     OfferInput,
+    ReturnPoolFacts,
     ScoreWeights,
     assert_within_over_receipt_tolerance,
     classify_candidates,
@@ -188,6 +193,7 @@ from src.modules.procurement.service_rules import (
     receipt_unit_cost,
     recommendation_reason,
     requisition_line_status_for,
+    resolve_return_pool,
     sum_document_totals,
 )
 from src.modules.vendors.models import Vendor
@@ -332,6 +338,92 @@ def resolve_quality_port() -> QualityPort | None:
     return factory if callable(factory) else None
 
 
+class InspectionReaderPort(Protocol):
+    """The quality module's read of every inspection one document raised."""
+
+    async def __call__(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        reference_type: str,
+        reference_id: uuid.UUID,
+    ) -> Sequence[Any]: ...
+
+
+def resolve_inspection_reader_port() -> InspectionReaderPort | None:
+    """The quality module's ``inspections_for_reference``, if it is deployed.
+
+    Read when a purchase return is drawn against a line that was received into
+    QC hold: only an inspection can have moved that stock on, and the pool it
+    moved it to is what the return must leave.
+    """
+    try:
+        from src.modules.quality import service as quality_service
+    except ImportError:
+        return None
+
+    reader = getattr(quality_service, "inspections_for_reference", None)
+    return reader if callable(reader) else None
+
+
+def _inspection_outcome(inspection: Any) -> InspectionOutcome | None:
+    """Read an inspection row's disposition without importing quality's types.
+
+    ``rework`` and ``hold`` are both quantity that never left QC hold. A row
+    with no disposition at all is one that has not been decided.
+    """
+    if inspection is None:
+        return None
+
+    def quantity(name: str) -> Decimal:
+        return Decimal(getattr(inspection, name, 0) or 0)
+
+    return InspectionOutcome(
+        accepted=quantity("accepted_quantity"),
+        rejected=quantity("rejected_quantity"),
+        still_held=quantity("rework_quantity") + quantity("hold_quantity"),
+        scrap=quantity("scrap_quantity"),
+    )
+
+
+async def _return_pool_facts(
+    session: AsyncSession,
+    tenant: TenantContext,
+    receipt: GoodsReceipt,
+    receipt_lines: Sequence[GoodsReceiptLine],
+) -> dict[uuid.UUID, ReturnPoolFacts]:
+    """What each receipt line still holds, per pool, for the return rules.
+
+    Two reads for the whole document: the quantity earlier returns already took
+    from each pool, and - only when a line was held for inspection - the
+    inspections the receipt raised. A held line whose inspection cannot be
+    found (none raised, quality absent, or undecided) is reported with no
+    outcome, which the rule refuses as "still on QC hold".
+    """
+    returned = await PurchaseReturnLineRepository(session, tenant).posted_quantities_by_pool(
+        [line.id for line in receipt_lines]
+    )
+    inspections: dict[uuid.UUID, Any] = {}
+    if any(line.requires_qc for line in receipt_lines):
+        reader = resolve_inspection_reader_port()
+        if reader is not None:
+            for inspection in await reader(session, tenant, MOVEMENT_REFERENCE_GRN, receipt.id):
+                inspections[inspection.id] = inspection
+
+    return {
+        line.id: ReturnPoolFacts(
+            accepted_quantity=Decimal(line.accepted_quantity),
+            held_for_qc=bool(line.requires_qc),
+            inspection=_inspection_outcome(
+                inspections.get(line.qc_inspection_id) if line.qc_inspection_id else None
+            ),
+            returned_available=returned.get((line.id, RETURN_POOL_AVAILABLE), ZERO),
+            returned_damaged=returned.get((line.id, RETURN_POOL_DAMAGED), ZERO),
+        )
+        for line in receipt_lines
+    }
+
+
 # =============================================================================
 # Shared helpers
 # =============================================================================
@@ -468,6 +560,80 @@ async def create_requisition(
     payload: RequisitionCreate,
 ) -> tuple[PurchaseRequisition, list[PurchaseRequisitionLine]]:
     """Raise a DRAFT requisition. Nothing is committed to a vendor yet."""
+    return await _create_requisition(
+        session,
+        tenant,
+        payload,
+        department_id=principal.department_id,
+        branch_id=principal.branch_id,
+    )
+
+
+async def create_requisition_from_mrp(
+    session: AsyncSession, tenant: TenantContext, request: Any
+) -> tuple[uuid.UUID, str]:
+    """Planning's conversion hook (``mrp.service.CONVERSION_HOOKS``).
+
+    Resolved by name at call time by the MRP module, which is why the request is
+    typed loosely here: importing ``mrp.schemas`` would make procurement depend
+    on a module that is built independently of it and may not be deployed.
+
+    Runs inside the caller's transaction, so the suggestion and the requisition
+    it became commit together or not at all. The requisition is raised as a
+    DRAFT under the planner's own name - the buyer still reviews and submits it,
+    exactly as a hand-raised one.
+    """
+    items = await _load_items(session, tenant, [request.item_id])
+    item = items[request.item_id]
+
+    warehouse_id = (
+        request.warehouse_ids[0] if request.warehouse_ids else None
+    ) or item.default_warehouse_id
+    if warehouse_id is None:
+        raise BusinessRuleError(
+            f"Item {item.code} has no default warehouse and the planning run named none, "
+            "so there is nowhere to receive the purchase.",
+            details={"item_code": item.code, "suggestion_id": str(request.suggestion_id)},
+        )
+
+    requisition, _ = await _create_requisition(
+        session,
+        tenant,
+        RequisitionCreate(
+            required_date=request.required_date,
+            warehouse_id=warehouse_id,
+            source_type=PurchaseSourceType.MRP_SUGGESTION,
+            source_id=request.suggestion_id,
+            notes=request.notes,
+            lines=[
+                RequisitionLineIn(
+                    line_number=1,
+                    item_id=request.item_id,
+                    quantity=to_quantity(request.quantity),
+                    required_date=request.required_date,
+                )
+            ],
+        ),
+        department_id=None,
+        branch_id=None,
+    )
+    return requisition.id, requisition.code
+
+
+async def _create_requisition(
+    session: AsyncSession,
+    tenant: TenantContext,
+    payload: RequisitionCreate,
+    *,
+    department_id: uuid.UUID | None,
+    branch_id: uuid.UUID | None,
+) -> tuple[PurchaseRequisition, list[PurchaseRequisitionLine]]:
+    """The shared body of :func:`create_requisition` and the MRP hook.
+
+    ``department_id`` and ``branch_id`` are the fallbacks for a payload that
+    names neither - the requester's own for a hand-raised document, nothing for
+    one raised by planning, which carries no principal.
+    """
     repo = RequisitionRepository(session, tenant)
     line_repo = RequisitionLineRepository(session, tenant)
 
@@ -488,8 +654,8 @@ async def create_requisition(
             requisition_date=requisition_date,
             required_date=payload.required_date,
             warehouse_id=payload.warehouse_id,
-            department_id=payload.department_id or principal.department_id,
-            branch_id=payload.branch_id or principal.branch_id,
+            department_id=payload.department_id or department_id,
+            branch_id=payload.branch_id or branch_id,
             requested_by_id=payload.requested_by_id or tenant.user_id,
             status=RequisitionStatus.DRAFT,
             priority=payload.priority,
@@ -555,8 +721,15 @@ async def update_requisition(
         if payload.warehouse_id is not None:
             await _assert_warehouse(session, tenant, payload.warehouse_id)
             requisition.warehouse_id = payload.warehouse_id
-        for field in ("required_date", "department_id", "branch_id", "requested_by_id",
-                      "priority", "purpose", "notes"):
+        for field in (
+            "required_date",
+            "department_id",
+            "branch_id",
+            "requested_by_id",
+            "priority",
+            "purpose",
+            "notes",
+        ):
             value = getattr(payload, field)
             if value is not None:
                 setattr(requisition, field, value)
@@ -803,9 +976,7 @@ async def create_rfq(
         _assert_purchasable(items)
 
         rfq_date = payload.rfq_date or today()
-        code = await next_document_number(
-            session, tenant.company_id, DocTypes.RFQ, on=rfq_date
-        )
+        code = await next_document_number(session, tenant.company_id, DocTypes.RFQ, on=rfq_date)
         rfq = Rfq(
             code=code,
             rfq_date=rfq_date,
@@ -953,9 +1124,7 @@ async def transition_rfq(
             reason=reason,
             status_enum=RfqStatus,
             action=(
-                AuditAction.CANCEL
-                if target is RfqStatus.CANCELLED
-                else AuditAction.STATUS_CHANGE
+                AuditAction.CANCEL if target is RfqStatus.CANCELLED else AuditAction.STATUS_CHANGE
             ),
         )
 
@@ -1054,6 +1223,26 @@ async def _load_rfq_for_quoting(
     return rfq
 
 
+def quotation_terms(
+    *,
+    payment_terms_days: int | None,
+    lead_time_days: int | None,
+    vendor: Vendor,
+) -> tuple[int, int]:
+    """The commercial terms a quotation is stored with.
+
+    An *omitted* value falls back to the vendor master's agreed terms. A value
+    of ``0`` is kept: an ex-stock quote has a zero-day lead time and a cash
+    quote has zero-day terms, and both change the comparison score. ``or`` would
+    silently swap either for the vendor's default, which is why this is written
+    with ``is None`` - the same rule ``create_purchase_order`` applies.
+    """
+    return (
+        payment_terms_days if payment_terms_days is not None else int(vendor.payment_terms_days),
+        lead_time_days if lead_time_days is not None else int(vendor.lead_time_days),
+    )
+
+
 async def create_quotation(
     session: AsyncSession, tenant: TenantContext, payload: QuotationCreate
 ) -> tuple[VendorQuotation, list[VendorQuotationLine]]:
@@ -1067,8 +1256,9 @@ async def create_quotation(
 
         if await repo.by_rfq_vendor(rfq.id, vendor.id) is not None:
             raise BusinessRuleError(
-                f"Vendor {vendor.code} has already quoted on {rfq.code}; update that quotation "
-                "with the revised offer instead of recording a second one.",
+                f"Vendor {vendor.code} has already quoted on {rfq.code}; record the revised "
+                "offer on that quotation instead of a second one. A rejected or lapsed "
+                "quotation is reopened by the revision.",
                 code=ErrorCode.DUPLICATE_DOCUMENT,
                 status_code=409,
                 details={"rfq_code": rfq.code, "vendor_code": vendor.code},
@@ -1077,6 +1267,11 @@ async def create_quotation(
         items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
         amounts = _price_quotation_lines(payload.lines, items)
         totals = sum_document_totals(amounts, freight_amount=payload.freight_amount)
+        payment_terms_days, lead_time_days = quotation_terms(
+            payment_terms_days=payload.payment_terms_days,
+            lead_time_days=payload.lead_time_days,
+            vendor=vendor,
+        )
 
         quotation = VendorQuotation(
             rfq_id=rfq.id,
@@ -1085,8 +1280,8 @@ async def create_quotation(
             quotation_date=payload.quotation_date or today(),
             valid_until=payload.valid_until,
             currency=payload.currency,
-            payment_terms_days=payload.payment_terms_days or vendor.payment_terms_days,
-            lead_time_days=payload.lead_time_days or vendor.lead_time_days,
+            payment_terms_days=payment_terms_days,
+            lead_time_days=lead_time_days,
             subtotal=totals.subtotal,
             discount=totals.discount,
             tax_amount=totals.tax_amount,
@@ -1145,16 +1340,47 @@ async def update_quotation(
         quotation = await repo.lock_for_update(quotation_id)
         if quotation is None:
             raise NotFoundError("Vendor quotation", quotation_id)
-        if QUOTATION_LIFECYCLE.is_terminal(QuotationStatus(quotation.status)):
+        current = QuotationStatus(quotation.status)
+        if QUOTATION_LIFECYCLE.is_terminal(current):
             raise BusinessRuleError(
-                f"This quotation is {quotation.status} and can no longer be revised.",
+                f"Quotation {quotation.vendor_reference} is {quotation.status} and can no "
+                "longer be revised; a purchase order is raised against it.",
                 details={"status": str(quotation.status)},
             )
+        if current in REQUOTABLE_QUOTATION_STATUSES:
+            # ASSUMPTION: a rejected or lapsed offer is reopened by the revised
+            # one rather than refused - the buyer asked the vendor to requote,
+            # and the RFQ still holds one row per vendor. The reopening is a
+            # status change on the state machine with its own audit row, in the
+            # same transaction as the revision (docs/assumptions.md).
+            rfq = await _load_rfq_for_quoting(session, tenant, quotation.rfq_id)
+            await _transition(
+                session,
+                tenant,
+                machine=QUOTATION_LIFECYCLE,
+                entity=quotation,
+                entity_type=AUDIT_QUOTATION,
+                entity_code=quotation.vendor_reference,
+                target=QuotationStatus.RECEIVED,
+                reason=payload.reason or f"Vendor requoted on {rfq.code}",
+                status_enum=QuotationStatus,
+                action=AuditAction.STATUS_CHANGE,
+            )
+            quotation.decision_reason = None
+            quotation.selected_by_id = None
+            quotation.selected_at = None
 
         before = snapshot(quotation, ["total_amount", "lead_time_days", "valid_until"])
 
-        for field in ("quotation_date", "valid_until", "currency", "payment_terms_days",
-                      "lead_time_days", "terms", "notes"):
+        for field in (
+            "quotation_date",
+            "valid_until",
+            "currency",
+            "payment_terms_days",
+            "lead_time_days",
+            "terms",
+            "notes",
+        ):
             value = getattr(payload, field)
             if value is not None:
                 setattr(quotation, field, value)
@@ -1351,13 +1577,13 @@ async def compare_quotations(
     )
 
     as_of = today()
-    vendor_names = {
-        vendor_id: facts.name for vendor_id, facts in vendors.items()
-    }
+    vendor_names = {vendor_id: facts.name for vendor_id, facts in vendors.items()}
 
     columns = [
         _comparison_column(
-            quotation, vendors.get(quotation.vendor_id), lines_by_quotation.get(quotation.id, []),
+            quotation,
+            vendors.get(quotation.vendor_id),
+            lines_by_quotation.get(quotation.id, []),
             as_of=as_of,
         )
         for quotation in quotations
@@ -1474,9 +1700,7 @@ def _comparison_rows(
                 ),
                 lead_time_days=_offer_lead_time(line, quotation),
                 vendor_rating=(
-                    vendors[quotation.vendor_id].rating
-                    if quotation.vendor_id in vendors
-                    else None
+                    vendors[quotation.vendor_id].rating if quotation.vendor_id in vendors else None
                 ),
                 is_expired=quotation.valid_until is not None and quotation.valid_until < as_of,
             )
@@ -2135,9 +2359,7 @@ async def update_purchase_order(
             # the order was raised. Deleting them without handing it back leaves
             # that demand marked as bought by an order line that no longer
             # exists, so it is never re-raised.
-            await _release_source_lines(
-                session, tenant, await line_repo.lock_for_order(order.id)
-            )
+            await _release_source_lines(session, tenant, await line_repo.lock_for_order(order.id))
             await line_repo.delete_for_order(order.id)
             lines = [
                 _apply_order_line(
@@ -2321,6 +2543,14 @@ async def record_shipment(
         order = await repo.lock_for_update(order_id)
         if order is None:
             raise NotFoundError("Purchase order", order_id)
+        # The repository's ``_scoped`` already confines a vendor principal to
+        # its own orders, so this cannot be another vendor's row. Kept as a
+        # second line of defence, and placed *before* any status or field is
+        # inspected: a message built from a foreign row - its code, its status
+        # - would itself be the disclosure the "not found" answer exists to
+        # prevent (master rules section 16).
+        if tenant.vendor_id is not None and order.vendor_id != tenant.vendor_id:
+            raise NotFoundError("Purchase order", order_id)
         if PurchaseOrderStatus(order.status) not in (
             *RECEIVABLE_PO_STATUSES,
             PurchaseOrderStatus.APPROVED,
@@ -2330,10 +2560,6 @@ async def record_shipment(
                 "recorded on an order that is with the vendor.",
                 details={"status": str(order.status)},
             )
-        # A vendor principal may only touch its own orders. Belt and braces
-        # beside the repository filter (master rules section 16).
-        if tenant.vendor_id is not None and order.vendor_id != tenant.vendor_id:
-            raise NotFoundError("Purchase order", order_id)
 
         before = snapshot(
             order, ["courier_name", "tracking_reference", "shipped_at", "expected_delivery_date"]
@@ -2346,9 +2572,7 @@ async def record_shipment(
             order.shipped_at = shipped_at
         if expected_delivery_date is not None:
             if expected_delivery_date < order.po_date:
-                raise ValidationError(
-                    "The expected delivery date cannot be before the order date."
-                )
+                raise ValidationError("The expected delivery date cannot be before the order date.")
             order.expected_delivery_date = expected_delivery_date
 
         repo.touch(order)
@@ -2399,7 +2623,8 @@ async def _get_order_for_tenant(
 ) -> PurchaseOrder:
     order = await PurchaseOrderRepository(session, tenant).get(order_id)
     # A vendor principal is told "not found" rather than "forbidden": confirming
-    # that another vendor's order exists is itself a disclosure.
+    # that another vendor's order exists is itself a disclosure. The repository's
+    # ``_scoped`` already filters the read; the second clause is belt and braces.
     if order is None or (tenant.vendor_id is not None and order.vendor_id != tenant.vendor_id):
         raise NotFoundError("Purchase order", order_id)
     return order
@@ -2542,17 +2767,11 @@ async def create_goods_receipt(
                 details={"status": str(order.status), "code": order.code},
             )
 
-        order_lines = {
-            line.id: line for line in await order_line_repo.list_for_order(order.id)
-        }
-        items = await _load_items(
-            session, tenant, [line.item_id for line in order_lines.values()]
-        )
+        order_lines = {line.id: line for line in await order_line_repo.list_for_order(order.id)}
+        items = await _load_items(session, tenant, [line.item_id for line in order_lines.values()])
 
         receipt_date = payload.receipt_date or today()
-        code = await next_document_number(
-            session, tenant.company_id, DocTypes.GRN, on=receipt_date
-        )
+        code = await next_document_number(session, tenant.company_id, DocTypes.GRN, on=receipt_date)
         receipt = GoodsReceipt(
             code=code,
             purchase_order_id=order.id,
@@ -2816,9 +3035,7 @@ async def post_goods_receipt(
         await session.flush()
 
         qc_lines = [
-            line
-            for line in lines
-            if line.requires_qc and Decimal(line.accepted_quantity) > 0
+            line for line in lines if line.requires_qc and Decimal(line.accepted_quantity) > 0
         ]
         inspections_created = False
         if quality_port is not None and qc_lines:
@@ -3076,9 +3293,7 @@ async def _advance_order_after_receipt(
         return
 
     awaiting_qc = await GoodsReceiptLineRepository(session, tenant).qc_pending_count(order.id)
-    follow_on = (
-        PurchaseOrderStatus.QC_PENDING if awaiting_qc else PurchaseOrderStatus.GRN_COMPLETED
-    )
+    follow_on = PurchaseOrderStatus.QC_PENDING if awaiting_qc else PurchaseOrderStatus.GRN_COMPLETED
     await _transition(
         session,
         tenant,
@@ -3199,6 +3414,9 @@ async def create_purchase_return(
         items = await _load_items(
             session, tenant, [line.item_id for line in receipt_lines.values()]
         )
+        pool_facts = await _return_pool_facts(
+            session, tenant, receipt, list(receipt_lines.values())
+        )
 
         return_date = payload.return_date or today()
         code = await next_document_number(
@@ -3244,6 +3462,16 @@ async def create_purchase_return(
                 )
 
             item = items[receipt_line.item_id]
+            # Which pool the goods leave: what the inspection did with them, or
+            # the pool the caller named, bounded by what that pool still holds.
+            stock_state = resolve_return_pool(
+                line_number=payload_line.line_number,
+                item_code=item.code,
+                receipt_code=receipt.code,
+                quantity=Decimal(payload_line.quantity),
+                requested_pool=payload_line.stock_state,
+                facts=pool_facts[receipt_line.id],
+            )
             line_amounts = compute_line_amounts(
                 quantity=payload_line.quantity,
                 unit_price=Decimal(receipt_line.unit_cost),
@@ -3266,6 +3494,7 @@ async def create_purchase_return(
                         line_total=line_amounts.line_total,
                         batch_id=receipt_line.batch_id,
                         location_id=receipt_line.location_id,
+                        stock_state=stock_state,
                         reason=payload_line.reason or payload.reason,
                         notes=payload_line.notes,
                     )
@@ -3328,9 +3557,7 @@ async def post_purchase_return(
 
         lines = await line_repo.list_for_return(purchase_return.id)
         if not lines:
-            raise BusinessRuleError(
-                f"Purchase return {purchase_return.code} has no lines to post."
-            )
+            raise BusinessRuleError(f"Purchase return {purchase_return.code} has no lines to post.")
 
         receipt_lines = {
             line.id: line
@@ -3339,6 +3566,17 @@ async def post_purchase_return(
             )
         }
         items = await _load_items(session, tenant, [line.item_id for line in lines])
+        receipt = await GoodsReceiptRepository(session, tenant).get(
+            purchase_return.goods_receipt_id
+        )
+        if receipt is None:
+            raise NotFoundError("Goods receipt", purchase_return.goods_receipt_id)
+        # The authoritative pass: the receipt lines are locked now, so the
+        # per-pool balances are re-derived here rather than trusted from the
+        # draft - another return may have posted since it was raised.
+        pool_facts = await _return_pool_facts(
+            session, tenant, receipt, list(receipt_lines.values())
+        )
 
         # Locked here, before any movement is posted, for two reasons. The
         # returned quantity below is a read-modify-write on a column with no
@@ -3370,6 +3608,17 @@ async def post_purchase_return(
                         "returnable_quantity": str(to_quantity(returnable)),
                     },
                 )
+            # Bounded per pool as well as in aggregate: the draft named the pool
+            # when it was raised, and what that pool still holds is checked
+            # again under the lock.
+            stock_state = resolve_return_pool(
+                line_number=line.line_number,
+                item_code=items[line.item_id].code,
+                receipt_code=receipt.code,
+                quantity=Decimal(line.quantity),
+                requested_pool=str(line.stock_state),
+                facts=pool_facts[receipt_line.id],
+            )
             movements.append(
                 MovementRequest(
                     item_id=line.item_id,
@@ -3383,9 +3632,11 @@ async def post_purchase_return(
                     location_id=line.location_id,
                     batch_id=line.batch_id,
                     unit_cost=Decimal(line.unit_price),
-                    # Returned stock leaves the pool it was received into; a
-                    # line still on QC hold is released by quality first.
-                    stock_state=StockState.AVAILABLE,
+                    # Returned stock leaves the pool the inspection put it in:
+                    # AVAILABLE for released goods, DAMAGED for a rejected lot.
+                    # Same batch, no location - the grain quality's decision
+                    # movement wrote to.
+                    stock_state=StockState(stock_state),
                 )
             )
 
@@ -3426,8 +3677,7 @@ async def post_purchase_return(
             entity_id=purchase_return.id,
             entity_code=purchase_return.code,
             summary=(
-                f"Posted {purchase_return.code}: {len(movements)} line(s) returned to "
-                f"the vendor"
+                f"Posted {purchase_return.code}: {len(movements)} line(s) returned to the vendor"
             ),
             user_id=tenant.user_id,
             new_values={
@@ -3596,6 +3846,7 @@ __all__ = [
     "create_purchase_return",
     "create_quotation",
     "create_requisition",
+    "create_requisition_from_mrp",
     "create_rfq",
     "decide_quotation",
     "delete_draft_requisition",
@@ -3620,6 +3871,7 @@ __all__ = [
     "post_goods_receipt",
     "post_purchase_return",
     "quotation_detail",
+    "quotation_terms",
     "receipt_detail",
     "record_shipment",
     "requisition_detail",

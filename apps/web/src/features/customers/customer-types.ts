@@ -180,9 +180,8 @@ export const acceptsRetirement = (customer: Pick<CustomerRow, 'is_active'>): boo
  * than with `> 0`, because the service compares the same way - a credit balance
  * left by an over-payment is also non-zero and is also refused.
  */
-export const hasOutstandingBalance = (
-  customer: Pick<CustomerRow, 'outstanding_amount'>,
-): boolean => !toDecimal(customer.outstanding_amount).isZero()
+export const hasOutstandingBalance = (customer: Pick<CustomerRow, 'outstanding_amount'>): boolean =>
+  !toDecimal(customer.outstanding_amount).isZero()
 
 /**
  * Is this account part of the dealer channel?

@@ -1,5 +1,8 @@
 import { expect, test as setup } from '@playwright/test'
 
+import { ADMIN_EMAIL, ADMIN_PASSWORD } from '../lib/env.mjs'
+import { readyAdminToken, signInThroughForm } from '../lib/session.mjs'
+
 const AUTH_FILE = './.auth/admin.json'
 
 /**
@@ -8,20 +11,20 @@ const AUTH_FILE = './.auth/admin.json'
  * Logging in at the top of each test would add a real Argon2 verification per
  * spec — deliberately expensive work that says nothing about the feature under
  * test.
+ *
+ * The account is bootstrapped through the API first. As seeded, the
+ * administrator is flagged `must_change_password`, the API refuses every
+ * business route, and the SPA parks the session on `/change-password` outside
+ * the shell - so the navigation this waits for never appeared, the setup timed
+ * out, and every spec that depends on it was blocked. `readyAdminToken`
+ * replaces the temporary password with `E2E_ADMIN_PASSWORD` on the first run
+ * against a fresh database and is a single successful login on every run
+ * after that. See `.env.example` for the seed command it expects.
  */
 setup('authenticate as administrator', async ({ page }) => {
-  const email = process.env.E2E_ADMIN_EMAIL ?? 'admin@atcraft.example'
-  const password = process.env.E2E_ADMIN_PASSWORD ?? 'ChangeMe!Atcraft2026'
+  await readyAdminToken()
 
-  await page.goto('/login')
-
-  // Addressed by role, not by label. `getByLabel('Password')` substring-matches
-  // the field's own "Show password" toggle as well as the input, and resolves to
-  // two elements - which is a strict-mode violation, not a flake, so this spec
-  // could never have got past its own first step.
-  await page.getByRole('textbox', { name: 'Email' }).fill(email)
-  await page.getByRole('textbox', { name: 'Password' }).fill(password)
-  await page.getByRole('button', { name: 'Sign in' }).click()
+  await signInThroughForm(page, { email: ADMIN_EMAIL, password: ADMIN_PASSWORD })
 
   // Wait for the shell, not just a URL change: the router redirects before the
   // session restore finishes, and asserting on the URL alone is flaky.

@@ -29,8 +29,8 @@ from decimal import Decimal
 
 from openpyxl import load_workbook
 
-from src.modules.reports.models import ReportKey
-from src.modules.reports.service import columns_for, definition_for
+from src.modules.reports.models import DOCUMENT_ONLY_REPORT_KEYS, ReportKey
+from src.modules.reports.service import REPORT_CATALOGUE, columns_for
 from src.workers.tasks.reports import render_report_xlsx
 
 COLUMNS = [
@@ -101,9 +101,7 @@ def test_a_timezone_aware_datetime_is_written_as_naive_utc() -> None:
 def test_a_uuid_is_written_as_its_text_form() -> None:
     row = _row()
     workbook = _load(render_report_xlsx("Sales order status", COLUMNS, [row], META))
-    assert workbook["Sales order status"].cell(row=2, column=5).value == str(
-        row["sales_order_id"]
-    )
+    assert workbook["Sales order status"].cell(row=2, column=5).value == str(row["sales_order_id"])
 
 
 def test_a_missing_value_leaves_an_empty_cell_rather_than_the_word_none() -> None:
@@ -124,8 +122,10 @@ def test_an_empty_report_still_produces_a_readable_workbook() -> None:
 def test_the_summary_sheet_states_the_period_the_filters_and_the_truncation() -> None:
     workbook = _load(render_report_xlsx("Sales order status", COLUMNS, [_row()], META))
     summary = workbook["Summary"]
-    stated = {summary.cell(row=r, column=1).value: summary.cell(row=r, column=2).value
-              for r in range(1, summary.max_row + 1)}
+    stated = {
+        summary.cell(row=r, column=1).value: summary.cell(row=r, column=2).value
+        for r in range(1, summary.max_row + 1)
+    }
     assert stated["Report"] == "Sales order status"
     assert stated["Period"] == "2026-08-01 to 2026-08-31"
     assert stated["Filters"] == "search=SO"
@@ -140,8 +140,10 @@ def test_a_truncated_export_says_so_on_its_face() -> None:
         render_report_xlsx("Sales order status", COLUMNS, [_row()], {**META, "truncated": True})
     )
     summary = workbook["Summary"]
-    stated = {summary.cell(row=r, column=1).value: summary.cell(row=r, column=2).value
-              for r in range(1, summary.max_row + 1)}
+    stated = {
+        summary.cell(row=r, column=1).value: summary.cell(row=r, column=2).value
+        for r in range(1, summary.max_row + 1)
+    }
     assert stated["Truncated"] == "yes"
 
 
@@ -156,9 +158,11 @@ def test_a_title_excel_would_reject_is_sanitised_rather_than_raising() -> None:
 
 def test_every_report_can_be_rendered_from_its_own_column_definition() -> None:
     # The writer is driven by the row schema, so a report whose columns openpyxl
-    # cannot write would only be discovered when somebody exported it.
-    for key in ReportKey:
-        definition = definition_for(key)
+    # cannot write would only be discovered when somebody exported it. Only the
+    # catalogue: a document-only key (the packing list) is rendered by its own
+    # task and has no columns to drive this writer with.
+    assert set(REPORT_CATALOGUE) == set(ReportKey) - DOCUMENT_ONLY_REPORT_KEYS
+    for key, definition in REPORT_CATALOGUE.items():
         columns = [column.model_dump() for column in columns_for(definition.row_model)]
         payload = render_report_xlsx(definition.title, columns, [], META)
         assert payload[:2] == b"PK", f"{key} produced no workbook"

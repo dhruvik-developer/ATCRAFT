@@ -135,9 +135,7 @@ async def tracking_board(
     params: PageDep,
     filters: FilterDep,
 ) -> PaginatedResponse[TrackingBoardRow]:
-    rows, pagination = await service.tracking_board(
-        session, tenant, filters=filters, params=params
-    )
+    rows, pagination = await service.tracking_board(session, tenant, filters=filters, params=params)
     return PaginatedResponse[TrackingBoardRow](data=rows, pagination=pagination)
 
 

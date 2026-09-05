@@ -30,6 +30,7 @@ from sqlalchemy import Select, delete, exists, func, literal, or_, select
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
+from src.core.database import affected_rows
 from src.core.pagination import SortParams
 
 # Read-only references to other modules' master tables. Routing validates that a
@@ -180,8 +181,18 @@ class ItemLookupRepository(BaseRepository[Item]):
 # -----------------------------------------------------------------------------
 
 
+#: The record's user-facing name. Shared by the not-found path here, the
+#: service's own not-found messages and ``WORK_CENTER_LIFECYCLE``, so one
+#: missing work centre is never "WorkCenter" in one message and "Work centre"
+#: in the next.
+WORK_CENTER_ENTITY = "Work centre"
+
+
 class WorkCenterRepository(BaseRepository[WorkCenter]):
     model = WorkCenter
+    # One user-facing name for the record, shared with the service's own
+    # not-found and state-transition messages.
+    entity_label = WORK_CENTER_ENTITY
     searchable_fields = ("code", "name")
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "code": WorkCenter.code,
@@ -613,7 +624,7 @@ class RoutingOperationRepository(BaseRepository[RoutingOperation]):
             )
             .execution_options(synchronize_session=False)
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 def _costed(row: Any) -> CostedOperation:

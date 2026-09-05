@@ -422,9 +422,7 @@ def test_the_vendor_dispatch_history_uses_the_same_delay_definition() -> None:
 
 
 def test_days_in_transit_counts_from_the_day_the_consignment_left() -> None:
-    row = _derive(
-        ReportKey.COURIER_TRACKING, {"dispatch_date": date(2026, 9, 3)}, _context()
-    )
+    row = _derive(ReportKey.COURIER_TRACKING, {"dispatch_date": date(2026, 9, 3)}, _context())
     assert row["days_in_transit"] == 7
 
 
@@ -461,12 +459,8 @@ def test_pending_reports_share_one_overdue_definition() -> None:
     purchase = _derive(
         ReportKey.PURCHASE_PENDING, {"expected_delivery_date": date(2026, 8, 1)}, ctx
     )
-    production = _derive(
-        ReportKey.PRODUCTION_PENDING, {"planned_end_date": date(2026, 8, 1)}, ctx
-    )
-    job_work = _derive(
-        ReportKey.JOB_WORK_PENDING, {"expected_return_date": date(2026, 8, 1)}, ctx
-    )
+    production = _derive(ReportKey.PRODUCTION_PENDING, {"planned_end_date": date(2026, 8, 1)}, ctx)
+    job_work = _derive(ReportKey.JOB_WORK_PENDING, {"expected_return_date": date(2026, 8, 1)}, ctx)
     assert purchase["days_overdue"] == production["days_overdue"] == job_work["days_overdue"] == 40
     assert purchase["ageing_bucket"] == production["ageing_bucket"] == job_work["ageing_bucket"]
 

@@ -309,9 +309,7 @@ describe('issuing components', () => {
     await screen.findByLabelText('Line 1 - item-bbb')
     await user.click(screen.getByRole('button', { name: 'Issue components' }))
 
-    expect(
-      await screen.findByText('Above the reserved quantity for this line'),
-    ).toBeVisible()
+    expect(await screen.findByText('Above the reserved quantity for this line')).toBeVisible()
   })
 })
 
@@ -378,16 +376,12 @@ describe('completing an assembly', () => {
     const order = inProgress()
     const { user } = renderScreen(<AssemblyPage />, {
       permissions: [P.ASSEMBLY_ORDER_VIEW, P.ASSEMBLY_COMPLETE],
-      routes: panelRoutes(order, [
-        assemblyComponent({ is_serial_tracked_component: true }),
-      ]),
+      routes: panelRoutes(order, [assemblyComponent({ is_serial_tracked_component: true })]),
     })
     await openPanel(user)
     await user.click(screen.getByRole('button', { name: 'Complete' }))
 
-    expect(
-      await screen.findByText(/Serial numbers are not readable by your account/),
-    ).toBeVisible()
+    expect(await screen.findByText(/Serial numbers are not readable by your account/)).toBeVisible()
   })
 
   it('shows a refusal that names no field, which the toast layer stays silent on', async () => {

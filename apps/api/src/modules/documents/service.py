@@ -93,6 +93,11 @@ AUDIT_ENTITY = "document"
 #: distinguishable from a person deleting a file.
 PURGE_REASON = "Retention period elapsed"
 
+#: What a caller is told when a stored row's key cannot be resolved to a file.
+#: Deliberately says nothing about keys, roots or layout: the key is generated
+#: server-side and the caller only ever sent a document id.
+STORAGE_KEY_UNUSABLE = "File not found."
+
 #: Metadata captured into the audit entry before a row is destroyed. Explicit
 #: rather than "every column": the actor and timestamp columns are already on the
 #: audit row itself, and the storage key is internal.
@@ -379,8 +384,16 @@ def resolve_storage_path(storage_key: str) -> Path:
     root = settings.storage_path
     key = (storage_key or "").strip()
 
+    # Every refusal below answers 404 FILE_NOT_FOUND, not 400. The key is
+    # server-generated - a caller only ever sent a document id - so a row whose
+    # key fails containment is a missing file from the caller's side, not a
+    # malformed request; and the message names no internal concept, because the
+    # storage layout is not something a response should describe. The row that
+    # carries the bad key is logged so an operator can find it.
     if not key:
-        raise FileValidationError("Storage key is empty.", code=ErrorCode.FILE_NOT_FOUND)
+        raise FileValidationError(
+            STORAGE_KEY_UNUSABLE, code=ErrorCode.FILE_NOT_FOUND, status_code=404
+        )
 
     # Rejected before joining, because ``Path("/root") / "/etc/passwd"`` is
     # ``/etc/passwd``: an absolute component silently discards the base.
@@ -391,7 +404,10 @@ def resolve_storage_path(storage_key: str) -> Path:
         or "\\" in key
         or "\x00" in key
     ):
-        raise FileValidationError("Invalid storage key.", code=ErrorCode.FILE_NOT_FOUND)
+        log.error("documents.invalid_storage_key", storage_key=storage_key)
+        raise FileValidationError(
+            STORAGE_KEY_UNUSABLE, code=ErrorCode.FILE_NOT_FOUND, status_code=404
+        )
 
     # Split by hand rather than through PurePosixPath: that class silently
     # normalises away "." and empty segments, so "./x" and "a//x" would come
@@ -399,12 +415,17 @@ def resolve_storage_path(storage_key: str) -> Path:
     # that does has been through something that should be looked at, not tidied.
     parts = key.split("/")
     if any(part in ("", ".", "..") for part in parts):
-        raise FileValidationError("Invalid storage key.", code=ErrorCode.FILE_NOT_FOUND)
+        log.error("documents.invalid_storage_key", storage_key=storage_key)
+        raise FileValidationError(
+            STORAGE_KEY_UNUSABLE, code=ErrorCode.FILE_NOT_FOUND, status_code=404
+        )
 
     candidate = Path(os.path.normpath(os.path.join(root, *parts)))
     if candidate == root or not candidate.is_relative_to(root):
         log.error("documents.path_traversal_blocked", storage_key=storage_key)
-        raise FileValidationError("Invalid storage key.", code=ErrorCode.FILE_NOT_FOUND)
+        raise FileValidationError(
+            STORAGE_KEY_UNUSABLE, code=ErrorCode.FILE_NOT_FOUND, status_code=404
+        )
     return candidate
 
 
@@ -441,7 +462,7 @@ class DocumentState(StrEnum):
 
 
 DOCUMENT_LIFECYCLE: StateMachine[DocumentState] = StateMachine(
-    entity="document",
+    entity="Document",
     initial=DocumentState.AVAILABLE,
     transitions=(
         # Not an action anyone takes - time takes it - but declaring the edge is
@@ -560,9 +581,7 @@ class DocumentService:
 
     # --- upload -------------------------------------------------------------
 
-    async def upload(
-        self, upload_file: UploadFile, payload: DocumentUploadRequest
-    ) -> DocumentRead:
+    async def upload(self, upload_file: UploadFile, payload: DocumentUploadRequest) -> DocumentRead:
         """Validate, store and register one uploaded file."""
         moment = utcnow()
         mime_type = normalise_mime_type(upload_file.content_type)

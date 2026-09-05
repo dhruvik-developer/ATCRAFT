@@ -47,7 +47,7 @@ from src.modules.inventory import service as inv
 from src.modules.inventory.models import TransactionType
 from src.modules.inventory.repository import LedgerRepository
 from tests import seed_support
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 
 pytestmark = [pytest.mark.integration, pytest.mark.concurrency]
 
@@ -125,7 +125,7 @@ def concurrency_schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID]]:
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for concurrency tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, user_id
     asyncio.run(teardown())
@@ -550,9 +550,7 @@ class TestCostLayerContention:
         reading "60 remaining at 10" would come to 500 + 500 = 1 000 and leave
         400 of value stranded in a layer nothing owns.
         """
-        item_id, warehouse_id = await _seed_layers(
-            engine, tenant, [("60", "10"), ("40", "20")]
-        )
+        item_id, warehouse_id = await _seed_layers(engine, tenant, [("60", "10"), ("40", "20")])
         outcomes = await asyncio.gather(
             _issue(engine, tenant, item_id, warehouse_id, "50", "MI/L1"),
             _issue(engine, tenant, item_id, warehouse_id, "50", "MI/L2"),

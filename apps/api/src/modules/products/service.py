@@ -47,7 +47,7 @@ from src.core.pagination import CursorParams, PageParams
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
 from src.core.state_machine import StateMachine, Transition
-from src.core.types import to_quantity, to_unit_price
+from src.core.types import to_factor, to_quantity, to_unit_price
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.products.models import (
@@ -1001,7 +1001,11 @@ async def convert_quantity(
         from_uom_id=from_uom_id,
         to_uom_id=to_uom_id,
         input_quantity=to_quantity(quantity),
-        factor=to_unit_price(factor),
+        # The ratio is reported at the scale its column stores (18,8), not the
+        # unit-price scale: 1 BOX = 12 NOS reported as 0.083333 would make
+        # input * factor disagree with converted_quantity by a whole unit at
+        # ~10^5 quantities. A ratio is neither money nor a price.
+        factor=to_factor(factor),
         converted_quantity=graph.convert(quantity, from_uom_id, to_uom_id),
     )
 
@@ -1041,6 +1045,20 @@ async def _validate_item_units(
         graph.factor(uom_id, base_uom_id)
 
 
+async def _assert_default_warehouse_exists(
+    repo: ItemRepository, warehouse_id: uuid.UUID | None
+) -> None:
+    """The default warehouse must be a live warehouse of *this* company.
+
+    The foreign key only proves the id exists somewhere: ``warehouses.id`` is
+    globally unique, so another tenant's warehouse would satisfy it while
+    breaking tenant isolation (section 40). Reported as not found, exactly as
+    a missing one is - confirming that it exists elsewhere is itself a leak.
+    """
+    if warehouse_id is not None and not await repo.warehouse_exists(warehouse_id):
+        raise NotFoundError("Warehouse", warehouse_id)
+
+
 async def create_item(session: AsyncSession, tenant: TenantContext, payload: ItemCreate) -> Item:
     repo = ItemRepository(session, tenant)
     code = normalise_code(payload.code)
@@ -1063,6 +1081,7 @@ async def create_item(session: AsyncSession, tenant: TenantContext, payload: Ite
             purchase_uom_id=payload.purchase_uom_id,
             sale_uom_id=payload.sale_uom_id,
         )
+        await _assert_default_warehouse_exists(repo, payload.default_warehouse_id)
 
         flags = resolve_capabilities(
             payload.item_group,
@@ -1233,6 +1252,7 @@ async def update_item(
                 purchase_uom_id=purchase_uom_id,
                 sale_uom_id=sale_uom_id,
             )
+        await _assert_default_warehouse_exists(repo, scalar_updates.get("default_warehouse_id"))
 
         for field, value in scalar_updates.items():
             setattr(item, field, value)
@@ -1799,6 +1819,12 @@ async def link_vendor(
                 "supplying vendor. Enable can_purchase first.",
                 details={"item_id": str(item.id)},
             )
+
+        # Tenant-scoped, not just the foreign key: a valid id from another
+        # company's vendor would satisfy the constraint, and MRP reads the lead
+        # time off this link (section 40).
+        if not await item_repo.vendor_exists(payload.vendor_id):
+            raise NotFoundError("Vendor", payload.vendor_id)
 
         if await repo.get_pair(item.id, payload.vendor_id) is not None:
             raise DuplicateError("This vendor is already linked to the item.")

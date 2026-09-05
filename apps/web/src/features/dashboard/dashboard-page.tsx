@@ -39,6 +39,7 @@ import {
   CardTitle,
   Skeleton,
 } from '@/components/ui/primitives'
+import { entityLink } from '@/features/audit/audit-types'
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
 import { formatDateTime, formatMoney, formatNumber, formatRelative, humanise } from '@/lib/format'
@@ -106,56 +107,33 @@ interface AuditLogRow {
  * user, so the "Needs your attention" panel is worth showing. The API still
  * decides what is actually in the queue - this only hides a panel that would be
  * permanently empty for, say, a store keeper.
+ *
+ * Derived by the same rule `GET /audit/approvals` guards itself with
+ * (`DECIDABLE_PERMISSIONS` in `audit/query_service.py`: every right ending in
+ * `.approve` or `_approve`) rather than listed by hand. The hand-written list
+ * disagreed with it in both directions: it named `qc.decide`, which the
+ * endpoint refuses, so a QC inspector was shown the panel and then a 403; and
+ * it omitted `payment.approve`, so a payment approver never saw their queue.
  */
-const APPROVAL_PERMISSIONS = [
-  P.SALES_ORDER_APPROVE,
-  P.PURCHASE_REQUISITION_APPROVE,
-  P.PURCHASE_ORDER_APPROVE,
-  P.PRODUCTION_ORDER_APPROVE,
-  P.BOM_APPROVE,
-  P.QC_DECIDE,
-  P.INVENTORY_ADJUST_APPROVE,
-  P.ALLOCATION_APPROVE,
-  P.VENDOR_INVOICE_APPROVE,
-]
-
-/** Audit and approval rows carry `entity_type`; this maps one to its screen. */
-const ENTITY_ROUTES: Record<string, (id: string) => string> = {
-  sales_order: (id) => `/sales-orders/${id}`,
-  purchase_order: (id) => `/procurement/purchase-orders/${id}`,
-  production_order: (id) => `/production/${id}`,
-  bom: (id) => `/bom/${id}`,
-  item: (id) => `/items/${id}`,
-  mrp_run: (id) => `/mrp/runs/${id}`,
-  purchase_requisition: () => '/procurement/requisitions',
-  goods_receipt: () => '/procurement/goods-receipts',
-  vendor_invoice: () => '/finance/vendor-invoices',
-  qc_inspection: () => '/quality',
-  dispatch: () => '/dispatch',
-  packing_order: () => '/packing',
-  assembly_order: () => '/assembly',
-  job_work_order: () => '/job-work',
-  stock_adjustment: () => '/inventory/movements',
-  stock_transfer: () => '/inventory/movements',
-  stock_reservation: () => '/inventory/reservations',
-  reallocation_request: () => '/inventory/reservations',
-  warehouse: () => '/warehouses',
-  vendor: () => '/vendors',
-  customer: () => '/customers',
-  user: () => '/admin/users',
-}
+const APPROVAL_PERMISSIONS: string[] = Object.values(P).filter(
+  (value) => value.endsWith('.approve') || value.endsWith('_approve'),
+)
 
 /**
- * A document with no dedicated screen is still reachable through the audit
- * trail's entity history - better than a dead link.
+ * Where an audit or approval row's record lives.
+ *
+ * `entityLink` is the one entity-type-to-route map, shared with the audit
+ * screen so the two cannot drift - a dashboard copy of it had already fallen
+ * ten record types behind. A document with no dedicated screen is still
+ * reachable through the audit trail's entity history - better than a dead link.
  *
  * This used to hand the audit screen a `?q=<code>` free-text search. That
  * parameter is not one `GET /audit/logs` accepts, so the link landed on an
  * unfiltered trail; the entity-history mode addresses the record exactly.
  */
 function documentLink(entityType: string, entityId: string | null): string {
-  const build = ENTITY_ROUTES[entityType]
-  if (build && entityId) return build(entityId)
+  const link = entityLink(entityType, entityId)
+  if (link) return link
   if (!entityId) return '/audit'
   const params = new URLSearchParams({
     mode: 'entity',
@@ -169,6 +147,12 @@ function documentLink(entityType: string, entityId: string | null): string {
 
 export default function DashboardPage() {
   const { user, can, canAny } = useAuth()
+  // `GET /reports/dashboard` declares `dashboard.view`, and sign-in lands here
+  // by default, so the summary must not be requested without it: every visit
+  // to `/` by an account lacking the right answered with a 403 and a "Not
+  // permitted" toast. The index route is deliberately not wrapped in a guard -
+  // the denied page's only affordance is "Back to dashboard", which would loop.
+  const canSeeSummary = can(P.DASHBOARD_VIEW)
   const showApprovals = canAny(...APPROVAL_PERMISSIONS)
   const canSeeActivity = can(P.AUDIT_LOG_VIEW)
 
@@ -176,6 +160,7 @@ export default function DashboardPage() {
     queryKey: queryKeys.reports.dashboard,
     queryFn: () => api.get<DashboardPayload>('/reports/dashboard'),
     staleTime: staleTimes.dashboard,
+    enabled: canSeeSummary,
   })
 
   // Panels below are deliberately not DataTables: they are fixed-size previews
@@ -185,9 +170,7 @@ export default function DashboardPage() {
   // definition; it takes no `status` parameter.
   const approvalsParams = { limit: 6 }
   const approvals = useQuery({
-    // The shared registry has no approvals key yet; keeping it under the audit
-    // namespace means an `['audit']` invalidation still sweeps this query.
-    queryKey: ['audit', 'approvals', approvalsParams],
+    queryKey: queryKeys.audit.approvals(approvalsParams),
     // The API scopes the queue to what this user is entitled to decide.
     queryFn: () => api.getPage<ApprovalRequestRow>('/audit/approvals', { params: approvalsParams }),
     staleTime: staleTimes.dashboard,
@@ -205,8 +188,9 @@ export default function DashboardPage() {
   const metrics = dashboard.data
   const isLoading = dashboard.isLoading
 
+  // `refetch()` ignores `enabled`, so every gate is restated here.
   const refreshAll = () => {
-    void dashboard.refetch()
+    if (canSeeSummary) void dashboard.refetch()
     if (showApprovals) void approvals.refetch()
     if (canSeeActivity) void activity.refetch()
   }
@@ -303,8 +287,10 @@ export default function DashboardPage() {
       permissions: [P.SALES_ORDER_VIEW],
     },
     // A tile linking to a screen the user cannot open is a dead end, so tiles
-    // follow the same view permissions as the sidebar. UX, not security.
-  ].filter((tile) => canAny(...tile.permissions))
+    // follow the same view permissions as the sidebar. UX, not security. Every
+    // figure comes from the gated summary, so without `dashboard.view` a tile
+    // could only ever show a dash.
+  ].filter((tile) => canSeeSummary && canAny(...tile.permissions))
 
   const firstName = user?.full_name?.split(' ')[0]
 
@@ -367,8 +353,8 @@ export default function DashboardPage() {
       {/* -------------------------------------------------------- approvals -- */}
       {showApprovals && (
         <Card>
-          <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
-            <div>
+          <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0 pb-2">
+            <div className="min-w-0">
               <CardTitle className="flex items-center gap-2 text-sm">
                 <ShieldCheck className="h-4 w-4 text-warning" aria-hidden />
                 Needs your attention
@@ -377,12 +363,9 @@ export default function DashboardPage() {
                 Documents waiting on a decision from you.
               </p>
             </div>
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/audit">
-                All approvals
-                <ArrowRight />
-              </Link>
-            </Button>
+            {/* No "All approvals" link: nothing in the SPA lists the queue
+                beyond this preview, and the audit trail it used to point at is
+                gated on `audit_log.view`, which an approver need not hold. */}
           </CardHeader>
           <CardContent>
             {approvals.isLoading ? (
@@ -446,12 +429,11 @@ export default function DashboardPage() {
         </Card>
       )}
 
-
       {/* --------------------------------------------------------- activity -- */}
       {canSeeActivity && (
         <Card>
-          <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
-            <div>
+          <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0 pb-2">
+            <div className="min-w-0">
               <CardTitle className="flex items-center gap-2 text-sm">
                 <Activity className="h-4 w-4 text-muted-foreground" aria-hidden />
                 Recent activity

@@ -26,7 +26,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronsUpDown, Loader2, Plus, Search, Trash2, X } from 'lucide-react'
+import { Check, ChevronsUpDown, Loader2, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -58,7 +58,9 @@ import {
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
+import { DEFAULT_CURRENCY, PICKER_PAGE_SIZE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import {
   formatDate,
@@ -70,6 +72,7 @@ import {
   toDateInput,
   toDecimal,
 } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -98,17 +101,6 @@ import { RFQ_TERMINAL_STATUSES, rfqKeys, type RfqRow } from './rfq-model'
 // --------------------------------------------------------------- helpers ----
 
 const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
-
-/**
- * Blank means "whatever the vendor master says", which the API spells zero.
- *
- * `create_quotation` reads `payload.payment_terms_days or vendor.payment_terms_days`,
- * so sending 0 is not "due immediately" - it is the fallback. The contract
- * declares both fields with a default, so they are required keys in the
- * generated type and cannot simply be omitted.
- */
-const wholeDaysOrVendorDefault = (value: string): number =>
-  value.trim() === '' ? 0 : Number(value.trim())
 
 /**
  * The reason both decisions require.
@@ -188,18 +180,14 @@ function RfqPicker({
 }) {
   const [open, setOpen] = useState(false)
   const [term, setTerm] = useState('')
-  const [debouncedTerm, setDebouncedTerm] = useState('')
   const [picked, setPicked] = useState<RfqRow | null>(null)
 
   // One request per keystroke would put a scan of the RFQ register behind every
   // character typed.
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedTerm(term.trim()), 300)
-    return () => clearTimeout(timer)
-  }, [term])
+  const debouncedTerm = useDebouncedValue(term)
 
   const searchParams = {
-    limit: 20,
+    limit: PICKER_PAGE_SIZE,
     with_total: false,
     sort_by: 'rfq_date',
     sort_dir: 'desc',
@@ -252,7 +240,11 @@ function RfqPicker({
             </Button>
           </PopoverTrigger>
 
-          <PopoverContent align="start" className="w-[24rem] p-0">
+          <PopoverContent
+            align="start"
+            collisionPadding={8}
+            className="w-[24rem] max-w-[var(--radix-popover-content-available-width)] p-0"
+          >
             <div className="relative border-b p-2">
               <Search
                 className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -471,9 +463,9 @@ export function QuotationDetailDialog({
               )}
 
               <div className="overflow-x-auto rounded-lg border">
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[44rem] text-sm">
                   <caption className="sr-only">Quotation lines</caption>
-                  <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+                  <thead className="whitespace-nowrap bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
                     <tr>
                       <th scope="col" className="px-3 py-2 text-left font-medium">
                         #
@@ -693,7 +685,7 @@ export function QuotationDecisionDialog({
       // a stale winner on screen.
       void queryClient.invalidateQueries({ queryKey: quotationKeys.all })
       toast.success(
-        decision === 'select' ? 'Quotation selected' : 'Quotation rejected',
+        decision === 'select' ? success.selected('Quotation') : success.rejected('Quotation'),
         `${result.vendor_reference} is now ${result.status === 'SELECTED' ? 'the chosen offer' : 'closed out'}.`,
       )
       onOpenChange(false)
@@ -981,7 +973,7 @@ function emptyValues(rfqId: string | null): QuotationFormValues {
     vendor_reference: '',
     quotation_date: toDateInput(new Date()),
     valid_until: '',
-    currency: 'INR',
+    currency: DEFAULT_CURRENCY,
     payment_terms_days: '',
     lead_time_days: '',
     freight_amount: '',
@@ -1147,8 +1139,15 @@ export function QuotationFormDialog({
         quotation_date: values.quotation_date,
         valid_until: orNull(values.valid_until),
         currency: values.currency.trim().toUpperCase(),
-        payment_terms_days: wholeDaysOrVendorDefault(values.payment_terms_days),
-        lead_time_days: wholeDaysOrVendorDefault(values.lead_time_days),
+        // Blank means "whatever the vendor master says": `create_quotation`
+        // falls back to the vendor's own terms for an absent key, so the key is
+        // omitted rather than sent as a zero the API would take literally.
+        ...(values.payment_terms_days.trim()
+          ? { payment_terms_days: Number(values.payment_terms_days.trim()) }
+          : {}),
+        ...(values.lead_time_days.trim()
+          ? { lead_time_days: Number(values.lead_time_days.trim()) }
+          : {}),
         freight_amount: values.freight_amount.trim() || '0',
         terms: orNull(values.terms),
         notes: orNull(values.notes),
@@ -1159,7 +1158,7 @@ export function QuotationFormDialog({
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: quotationKeys.all })
       toast.success(
-        isRevision ? 'Revised offer recorded' : 'Quotation recorded',
+        isRevision ? success.updated('Quotation') : success.created('Quotation'),
         `${result.vendor_reference} totals ${formatMoney(result.total_amount, { currency: result.currency })}.`,
       )
       onOpenChange(false)
@@ -1219,368 +1218,392 @@ export function QuotationFormDialog({
               <Alert variant="destructive">
                 <AlertTitle>Could not load this quotation</AlertTitle>
                 <AlertDescription>{existing.error.message}</AlertDescription>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-3"
+                  loading={existing.isFetching}
+                  onClick={() => void existing.refetch()}
+                >
+                  <RefreshCw />
+                  Try again
+                </Button>
               </Alert>
             )}
 
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {/* Neither the RFQ nor the vendor can be changed by a revision -
+            {/* Nothing editable until the revision has actually loaded. The
+                dialog stays mounted between opens, so the fields would
+                otherwise hold whatever the last quotation left in them - and a
+                PATCH replaces the whole line set with whatever is shown. */}
+            {(!isRevision || loaded) && (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {/* Neither the RFQ nor the vendor can be changed by a revision -
                   `QuotationUpdate` declares no field for either - so on a
                   revision both are stated rather than offered. */}
-              {isRevision ? (
-                <div className="sm:col-span-2 lg:col-span-3">
-                  <Alert variant="info">
-                    <AlertTitle>Revising an existing offer</AlertTitle>
-                    <AlertDescription>
-                      The RFQ and the vendor are fixed - a different vendor&rsquo;s price is a
-                      separate quotation. Every line below is saved as the offer in full, and a
-                      field left blank keeps the value already recorded rather than clearing it.
-                    </AlertDescription>
-                  </Alert>
-                </div>
-              ) : (
-                <>
-                  <div>
-                    {/* `/procurement/rfqs` enforces `rfq.view`, which is not the
+                  {isRevision ? (
+                    <div className="sm:col-span-2 lg:col-span-3">
+                      <Alert variant="info">
+                        <AlertTitle>Revising an existing offer</AlertTitle>
+                        <AlertDescription>
+                          The RFQ and the vendor are fixed - a different vendor&rsquo;s price is a
+                          separate quotation. Every line below is saved as the offer in full, and a
+                          field left blank keeps the value already recorded rather than clearing it.
+                        </AlertDescription>
+                      </Alert>
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        {/* `/procurement/rfqs` enforces `rfq.view`, which is not the
                         `quotation.manage` that lets this form post. Firing the
                         lookup regardless earns a 403 the buyer cannot act on. */}
-                    {can(P.RFQ_VIEW) ? (
-                      <>
-                        <Controller
-                          control={control}
-                          name="rfq_id"
-                          render={({ field }) => (
-                            <RfqPicker
-                              id="quotation-rfq"
-                              value={field.value || null}
-                              onChange={(rfqId) => field.onChange(rfqId ?? '')}
-                              invalid={Boolean(errors.rfq_id)}
+                        {can(P.RFQ_VIEW) ? (
+                          <>
+                            <Controller
+                              control={control}
+                              name="rfq_id"
+                              render={({ field }) => (
+                                <RfqPicker
+                                  id="quotation-rfq"
+                                  value={field.value || null}
+                                  onChange={(rfqId) => field.onChange(rfqId ?? '')}
+                                  invalid={Boolean(errors.rfq_id)}
+                                />
+                              )}
                             />
-                          )}
-                        />
-                        <FieldError message={errors.rfq_id?.message} />
-                      </>
-                    ) : (
-                      <Alert variant="warning">
-                        <AlertTitle>You cannot choose an RFQ from here</AlertTitle>
-                        <AlertDescription>
-                          A quotation has to name the RFQ it answers, and your account cannot read
-                          the RFQ list. Ask somebody who can to record it.
-                        </AlertDescription>
-                      </Alert>
-                    )}
+                            <FieldError message={errors.rfq_id?.message} />
+                          </>
+                        ) : (
+                          <Alert variant="warning">
+                            <AlertTitle>You cannot choose an RFQ from here</AlertTitle>
+                            <AlertDescription>
+                              A quotation has to name the RFQ it answers, and your account cannot
+                              read the RFQ list. Ask somebody who can to record it.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                      </div>
+
+                      <div>
+                        {can(P.VENDOR_VIEW) ? (
+                          <>
+                            <Controller
+                              control={control}
+                              name="vendor_id"
+                              render={({ field }) => (
+                                <VendorPicker
+                                  id="quotation-vendor"
+                                  label="Vendor"
+                                  value={field.value || null}
+                                  onChange={(vendorId) => field.onChange(vendorId ?? '')}
+                                  placeholder="Search the vendor master"
+                                  invalid={Boolean(errors.vendor_id)}
+                                />
+                              )}
+                            />
+                            <FieldError message={errors.vendor_id?.message} />
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Approval is not required to quote - only to raise the order that
+                              follows.
+                            </p>
+                          </>
+                        ) : (
+                          <Alert variant="warning">
+                            <AlertTitle>You cannot choose a vendor from here</AlertTitle>
+                            <AlertDescription>
+                              Your account cannot read the vendor master, and a quotation has to
+                              name the vendor who sent it.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  <div>
+                    <Label htmlFor="quotation-reference" required>
+                      Vendor quotation number
+                    </Label>
+                    <Input
+                      id="quotation-reference"
+                      {...register('vendor_reference')}
+                      autoComplete="off"
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.vendor_reference)}
+                    />
+                    <FieldError message={errors.vendor_reference?.message} />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      The reference on the vendor&rsquo;s own sheet. It identifies the quotation
+                      everywhere in this system.
+                    </p>
                   </div>
 
                   <div>
-                    {can(P.VENDOR_VIEW) ? (
-                      <>
-                        <Controller
-                          control={control}
-                          name="vendor_id"
-                          render={({ field }) => (
-                            <VendorPicker
-                              id="quotation-vendor"
-                              label="Vendor"
-                              value={field.value || null}
-                              onChange={(vendorId) => field.onChange(vendorId ?? '')}
-                              placeholder="Search the vendor master"
-                              invalid={Boolean(errors.vendor_id)}
-                            />
-                          )}
-                        />
-                        <FieldError message={errors.vendor_id?.message} />
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          Approval is not required to quote - only to raise the order that follows.
-                        </p>
-                      </>
-                    ) : (
-                      <Alert variant="warning">
-                        <AlertTitle>You cannot choose a vendor from here</AlertTitle>
-                        <AlertDescription>
-                          Your account cannot read the vendor master, and a quotation has to name
-                          the vendor who sent it.
-                        </AlertDescription>
-                      </Alert>
-                    )}
+                    <Label htmlFor="quotation-date" required>
+                      Quoted on
+                    </Label>
+                    <Input
+                      id="quotation-date"
+                      type="date"
+                      {...register('quotation_date')}
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.quotation_date)}
+                    />
+                    <FieldError message={errors.quotation_date?.message} />
                   </div>
-                </>
-              )}
 
-              <div>
-                <Label htmlFor="quotation-reference" required>
-                  Vendor quotation number
-                </Label>
-                <Input
-                  id="quotation-reference"
-                  {...register('vendor_reference')}
-                  autoComplete="off"
-                  className="mt-1.5"
-                  aria-invalid={Boolean(errors.vendor_reference)}
-                />
-                <FieldError message={errors.vendor_reference?.message} />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  The reference on the vendor&rsquo;s own sheet. It identifies the quotation
-                  everywhere in this system.
-                </p>
-              </div>
+                  <div>
+                    <Label htmlFor="quotation-valid-until">Valid until</Label>
+                    <Input
+                      id="quotation-valid-until"
+                      type="date"
+                      {...register('valid_until')}
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.valid_until)}
+                    />
+                    <FieldError message={errors.valid_until?.message} />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {isRevision
+                        ? 'Cleared here it stays as recorded - a revision cannot remove a date the API already holds.'
+                        : 'Left blank the offer is open-ended. Past this date the API refuses to select it.'}
+                    </p>
+                  </div>
 
-              <div>
-                <Label htmlFor="quotation-date" required>
-                  Quoted on
-                </Label>
-                <Input
-                  id="quotation-date"
-                  type="date"
-                  {...register('quotation_date')}
-                  className="mt-1.5"
-                  aria-invalid={Boolean(errors.quotation_date)}
-                />
-                <FieldError message={errors.quotation_date?.message} />
-              </div>
+                  <div>
+                    <Label htmlFor="quotation-currency" required>
+                      Currency
+                    </Label>
+                    <Input
+                      id="quotation-currency"
+                      {...register('currency')}
+                      autoComplete="off"
+                      maxLength={3}
+                      className="mt-1.5 uppercase"
+                      aria-invalid={Boolean(errors.currency)}
+                    />
+                    <FieldError message={errors.currency?.message} />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Quotes in different currencies cannot be compared, and the board says so
+                      rather than naming a winner.
+                    </p>
+                  </div>
 
-              <div>
-                <Label htmlFor="quotation-valid-until">Valid until</Label>
-                <Input
-                  id="quotation-valid-until"
-                  type="date"
-                  {...register('valid_until')}
-                  className="mt-1.5"
-                  aria-invalid={Boolean(errors.valid_until)}
-                />
-                <FieldError message={errors.valid_until?.message} />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {isRevision
-                    ? 'Cleared here it stays as recorded - a revision cannot remove a date the API already holds.'
-                    : 'Left blank the offer is open-ended. Past this date the API refuses to select it.'}
-                </p>
-              </div>
+                  <div>
+                    <Label htmlFor="quotation-payment-terms">Payment terms (days)</Label>
+                    <Input
+                      id="quotation-payment-terms"
+                      inputMode="numeric"
+                      {...register('payment_terms_days')}
+                      autoComplete="off"
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.payment_terms_days)}
+                    />
+                    <FieldError message={errors.payment_terms_days?.message} />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {isRevision
+                        ? 'Left blank, the recorded terms are kept.'
+                        : 'Left blank, the vendor’s agreed terms apply.'}
+                    </p>
+                  </div>
 
-              <div>
-                <Label htmlFor="quotation-currency" required>
-                  Currency
-                </Label>
-                <Input
-                  id="quotation-currency"
-                  {...register('currency')}
-                  autoComplete="off"
-                  maxLength={3}
-                  className="mt-1.5 uppercase"
-                  aria-invalid={Boolean(errors.currency)}
-                />
-                <FieldError message={errors.currency?.message} />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Quotes in different currencies cannot be compared, and the board says so rather
-                  than naming a winner.
-                </p>
-              </div>
+                  <div>
+                    <Label htmlFor="quotation-lead-time">Lead time (days)</Label>
+                    <Input
+                      id="quotation-lead-time"
+                      inputMode="numeric"
+                      {...register('lead_time_days')}
+                      autoComplete="off"
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.lead_time_days)}
+                    />
+                    <FieldError message={errors.lead_time_days?.message} />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Applies to every line that does not promise its own.
+                      {isRevision ? ' Left blank, the recorded lead time is kept.' : ''}
+                    </p>
+                  </div>
 
-              <div>
-                <Label htmlFor="quotation-payment-terms">Payment terms (days)</Label>
-                <Input
-                  id="quotation-payment-terms"
-                  inputMode="numeric"
-                  {...register('payment_terms_days')}
-                  autoComplete="off"
-                  className="mt-1.5"
-                  aria-invalid={Boolean(errors.payment_terms_days)}
-                />
-                <FieldError message={errors.payment_terms_days?.message} />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {isRevision
-                    ? 'Left blank, the recorded terms are kept.'
-                    : 'Left blank, the vendor’s agreed terms apply.'}
-                </p>
-              </div>
+                  <div>
+                    <Label htmlFor="quotation-freight">Freight</Label>
+                    <Input
+                      id="quotation-freight"
+                      inputMode="decimal"
+                      {...register('freight_amount')}
+                      autoComplete="off"
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.freight_amount)}
+                    />
+                    <FieldError message={errors.freight_amount?.message} />
+                  </div>
+                </div>
 
-              <div>
-                <Label htmlFor="quotation-lead-time">Lead time (days)</Label>
-                <Input
-                  id="quotation-lead-time"
-                  inputMode="numeric"
-                  {...register('lead_time_days')}
-                  autoComplete="off"
-                  className="mt-1.5"
-                  aria-invalid={Boolean(errors.lead_time_days)}
-                />
-                <FieldError message={errors.lead_time_days?.message} />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Applies to every line that does not promise its own.
-                  {isRevision ? ' Left blank, the recorded lead time is kept.' : ''}
-                </p>
-              </div>
-
-              <div>
-                <Label htmlFor="quotation-freight">Freight</Label>
-                <Input
-                  id="quotation-freight"
-                  inputMode="decimal"
-                  {...register('freight_amount')}
-                  autoComplete="off"
-                  className="mt-1.5"
-                  aria-invalid={Boolean(errors.freight_amount)}
-                />
-                <FieldError message={errors.freight_amount?.message} />
-              </div>
-            </div>
-
-            {/* A quotation must carry at least one priced line, so without the
+                {/* A quotation must carry at least one priced line, so without the
                 right to read the item master there is nothing to key. Saying so
                 beats a form that fails on a field it could never fill. */}
-            {!canPickItems && (
-              <Alert variant="warning">
-                <AlertTitle>You cannot key the lines from here</AlertTitle>
-                <AlertDescription>
-                  A quotation has to carry at least one priced line, and your account cannot read
-                  the item master. Ask somebody who can to record it.
-                </AlertDescription>
-              </Alert>
-            )}
+                {!canPickItems && (
+                  <Alert variant="warning">
+                    <AlertTitle>You cannot key the lines from here</AlertTitle>
+                    <AlertDescription>
+                      A quotation has to carry at least one priced line, and your account cannot
+                      read the item master. Ask somebody who can to record it.
+                    </AlertDescription>
+                  </Alert>
+                )}
 
-            {canPickItems && (
-              <div>
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-medium">Lines</h3>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => append(emptyLine())}
-                  >
-                    <Plus />
-                    Add line
-                  </Button>
-                </div>
-                <FieldError message={errors.lines?.root?.message ?? errors.lines?.message} />
-
-                <div className="mt-3 space-y-3">
-                  {fields.map((field, index) => (
-                    <div
-                      key={field.id}
-                      className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_auto]"
-                    >
-                      <div>
-                        <Controller
-                          control={control}
-                          name={`lines.${index}.item_id`}
-                          render={({ field: itemField }) => (
-                            <ItemPicker
-                              id={`quotation-line-item-${index}`}
-                              label={`Line ${index + 1} item`}
-                              value={itemField.value || null}
-                              onChange={(itemId) => itemField.onChange(itemId ?? '')}
-                              placeholder="Search the item master"
-                              invalid={Boolean(errors.lines?.[index]?.item_id)}
-                            />
-                          )}
-                        />
-                        <FieldError message={errors.lines?.[index]?.item_id?.message} />
-                      </div>
-
-                      <div>
-                        <Label htmlFor={`quotation-line-qty-${index}`} required>
-                          Quantity
-                        </Label>
-                        <Input
-                          id={`quotation-line-qty-${index}`}
-                          inputMode="decimal"
-                          {...register(`lines.${index}.quantity`)}
-                          autoComplete="off"
-                          className="mt-1.5"
-                          aria-invalid={Boolean(errors.lines?.[index]?.quantity)}
-                        />
-                        <FieldError message={errors.lines?.[index]?.quantity?.message} />
-                      </div>
-
-                      <div>
-                        <Label htmlFor={`quotation-line-price-${index}`} required>
-                          Unit price
-                        </Label>
-                        <Input
-                          id={`quotation-line-price-${index}`}
-                          inputMode="decimal"
-                          {...register(`lines.${index}.unit_price`)}
-                          autoComplete="off"
-                          className="mt-1.5"
-                          aria-invalid={Boolean(errors.lines?.[index]?.unit_price)}
-                        />
-                        <FieldError message={errors.lines?.[index]?.unit_price?.message} />
-                      </div>
-
-                      <div>
-                        <Label htmlFor={`quotation-line-discount-${index}`}>Discount %</Label>
-                        <Input
-                          id={`quotation-line-discount-${index}`}
-                          inputMode="decimal"
-                          {...register(`lines.${index}.discount_percentage`)}
-                          autoComplete="off"
-                          className="mt-1.5"
-                          aria-invalid={Boolean(errors.lines?.[index]?.discount_percentage)}
-                        />
-                        <FieldError message={errors.lines?.[index]?.discount_percentage?.message} />
-                      </div>
-
-                      <div>
-                        <Label htmlFor={`quotation-line-lead-${index}`}>Lead days</Label>
-                        <Input
-                          id={`quotation-line-lead-${index}`}
-                          inputMode="numeric"
-                          {...register(`lines.${index}.lead_time_days`)}
-                          autoComplete="off"
-                          className="mt-1.5"
-                          aria-invalid={Boolean(errors.lines?.[index]?.lead_time_days)}
-                        />
-                        <FieldError message={errors.lines?.[index]?.lead_time_days?.message} />
-                      </div>
-
-                      <div className="flex items-end">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Remove line ${index + 1}`}
-                          disabled={fields.length === 1}
-                          onClick={() => remove(index)}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </div>
+                {canPickItems && (
+                  <div>
+                    <div className="flex items-center justify-between gap-3">
+                      <h3 className="text-sm font-medium">Lines</h3>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => append(emptyLine())}
+                      >
+                        <Plus />
+                        Add line
+                      </Button>
                     </div>
-                  ))}
+                    <FieldError message={errors.lines?.root?.message ?? errors.lines?.message} />
+
+                    <div className="mt-3 space-y-3">
+                      {fields.map((field, index) => (
+                        <div
+                          key={field.id}
+                          className="grid gap-3 rounded-lg border p-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_auto]"
+                        >
+                          <div className="sm:col-span-2 lg:col-span-1">
+                            <Controller
+                              control={control}
+                              name={`lines.${index}.item_id`}
+                              render={({ field: itemField }) => (
+                                <ItemPicker
+                                  id={`quotation-line-item-${index}`}
+                                  label={`Line ${index + 1} item`}
+                                  value={itemField.value || null}
+                                  onChange={(itemId) => itemField.onChange(itemId ?? '')}
+                                  placeholder="Search the item master"
+                                  invalid={Boolean(errors.lines?.[index]?.item_id)}
+                                />
+                              )}
+                            />
+                            <FieldError message={errors.lines?.[index]?.item_id?.message} />
+                          </div>
+
+                          <div>
+                            <Label htmlFor={`quotation-line-qty-${index}`} required>
+                              Quantity
+                            </Label>
+                            <Input
+                              id={`quotation-line-qty-${index}`}
+                              inputMode="decimal"
+                              {...register(`lines.${index}.quantity`)}
+                              autoComplete="off"
+                              className="mt-1.5"
+                              aria-invalid={Boolean(errors.lines?.[index]?.quantity)}
+                            />
+                            <FieldError message={errors.lines?.[index]?.quantity?.message} />
+                          </div>
+
+                          <div>
+                            <Label htmlFor={`quotation-line-price-${index}`} required>
+                              Unit price
+                            </Label>
+                            <Input
+                              id={`quotation-line-price-${index}`}
+                              inputMode="decimal"
+                              {...register(`lines.${index}.unit_price`)}
+                              autoComplete="off"
+                              className="mt-1.5"
+                              aria-invalid={Boolean(errors.lines?.[index]?.unit_price)}
+                            />
+                            <FieldError message={errors.lines?.[index]?.unit_price?.message} />
+                          </div>
+
+                          <div>
+                            <Label htmlFor={`quotation-line-discount-${index}`}>Discount %</Label>
+                            <Input
+                              id={`quotation-line-discount-${index}`}
+                              inputMode="decimal"
+                              {...register(`lines.${index}.discount_percentage`)}
+                              autoComplete="off"
+                              className="mt-1.5"
+                              aria-invalid={Boolean(errors.lines?.[index]?.discount_percentage)}
+                            />
+                            <FieldError
+                              message={errors.lines?.[index]?.discount_percentage?.message}
+                            />
+                          </div>
+
+                          <div>
+                            <Label htmlFor={`quotation-line-lead-${index}`}>Lead days</Label>
+                            <Input
+                              id={`quotation-line-lead-${index}`}
+                              inputMode="numeric"
+                              {...register(`lines.${index}.lead_time_days`)}
+                              autoComplete="off"
+                              className="mt-1.5"
+                              aria-invalid={Boolean(errors.lines?.[index]?.lead_time_days)}
+                            />
+                            <FieldError message={errors.lines?.[index]?.lead_time_days?.message} />
+                          </div>
+
+                          <div className="flex items-end sm:col-span-2 sm:justify-end lg:col-span-1 lg:justify-start">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`Remove line ${index + 1}`}
+                              disabled={fields.length === 1}
+                              onClick={() => remove(index)}
+                            >
+                              <Trash2 />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <p className="mt-3 text-right text-sm text-muted-foreground">
+                      Indicative net of discount, plus freight:{' '}
+                      <span className="tabular font-medium text-foreground">
+                        {formatMoney(indicativeNet.toFixed(), {
+                          currency: watch('currency') || DEFAULT_CURRENCY,
+                        })}
+                      </span>
+                      . Tax is the API&rsquo;s calculation from the item master.
+                    </p>
+                  </div>
+                )}
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="quotation-terms">Terms</Label>
+                    <Textarea
+                      id="quotation-terms"
+                      rows={3}
+                      {...register('terms')}
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.terms)}
+                    />
+                    <FieldError message={errors.terms?.message} />
+                  </div>
+                  <div>
+                    <Label htmlFor="quotation-notes">Notes</Label>
+                    <Textarea
+                      id="quotation-notes"
+                      rows={3}
+                      {...register('notes')}
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.notes)}
+                    />
+                    <FieldError message={errors.notes?.message} />
+                  </div>
                 </div>
-
-                <p className="mt-3 text-right text-sm text-muted-foreground">
-                  Indicative net of discount, plus freight:{' '}
-                  <span className="tabular font-medium text-foreground">
-                    {formatMoney(indicativeNet.toFixed(), { currency: watch('currency') || 'INR' })}
-                  </span>
-                  . Tax is the API&rsquo;s calculation from the item master.
-                </p>
-              </div>
+              </>
             )}
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="quotation-terms">Terms</Label>
-                <Textarea
-                  id="quotation-terms"
-                  rows={3}
-                  {...register('terms')}
-                  className="mt-1.5"
-                  aria-invalid={Boolean(errors.terms)}
-                />
-                <FieldError message={errors.terms?.message} />
-              </div>
-              <div>
-                <Label htmlFor="quotation-notes">Notes</Label>
-                <Textarea
-                  id="quotation-notes"
-                  rows={3}
-                  {...register('notes')}
-                  className="mt-1.5"
-                  aria-invalid={Boolean(errors.notes)}
-                />
-                <FieldError message={errors.notes?.message} />
-              </div>
-            </div>
           </DialogBody>
 
           <DialogFooter>
@@ -1592,7 +1615,11 @@ export function QuotationFormDialog({
             >
               Cancel
             </Button>
-            <Button type="submit" loading={save.isPending} disabled={!canPickItems}>
+            <Button
+              type="submit"
+              loading={save.isPending}
+              disabled={!canPickItems || (isRevision && !loaded)}
+            >
               {isRevision ? 'Save revised offer' : 'Record quotation'}
             </Button>
           </DialogFooter>

@@ -229,7 +229,9 @@ describe('recording a bill and clearing it for payment', () => {
     expect(await within(dialog).findByRole('button', { name: /amend/i })).toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: /submit for approval/i })).toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: /delete draft/i })).toBeInTheDocument()
-    expect(within(dialog).queryByRole('button', { name: /approve invoice/i })).not.toBeInTheDocument()
+    expect(
+      within(dialog).queryByRole('button', { name: /approve invoice/i }),
+    ).not.toBeInTheDocument()
   })
 
   it('gives the approver the approval and none of the document commands', async () => {
@@ -285,11 +287,7 @@ describe('a command is offered only in the status its state machine permits', ()
     // these four endpoints would accept, so a user holding both rights is
     // offered none of them rather than walked through a form for a refusal.
     const { user } = renderScreen(<VendorInvoicesPage />, {
-      permissions: [
-        P.VENDOR_INVOICE_VIEW,
-        P.VENDOR_INVOICE_CREATE,
-        P.VENDOR_INVOICE_APPROVE,
-      ],
+      permissions: [P.VENDOR_INVOICE_VIEW, P.VENDOR_INVOICE_CREATE, P.VENDOR_INVOICE_APPROVE],
       routes: {
         'GET /finance/vendor-invoices': page([summary({ status: 'APPROVED' })]),
         [`GET ${INVOICE_PATH}`]: ok(invoice({ status: 'APPROVED' })),
@@ -360,6 +358,35 @@ describe('approving a bill', () => {
     expect(fetch.requestFor('POST', `${INVOICE_PATH}/approve`)).toEqual({ override_reason: null })
   })
 
+  it('refuses a one-word note on a clean approval rather than losing it to a silent 422', async () => {
+    // On a clean match the box is an optional note, but it still travels as
+    // `override_reason`, which is 3..500 whenever present. Sent, a two-letter
+    // note comes back a 422 with a field error that the mutation cache stays
+    // quiet about - and this dialog has no form to show it - so the spinner
+    // would stop and nothing at all would be said.
+    const { user, fetch } = renderScreen(<VendorInvoicesPage />, {
+      permissions: [P.VENDOR_INVOICE_VIEW, P.VENDOR_INVOICE_APPROVE],
+      routes: {
+        'GET /finance/vendor-invoices': page([summary({ status: 'PENDING_APPROVAL' })]),
+        [`GET ${INVOICE_PATH}`]: ok(invoice({ status: 'PENDING_APPROVAL' })),
+        [`GET ${INVOICE_PATH}/match`]: ok(matchResult()),
+        [`POST ${INVOICE_PATH}/approve`]: ok(invoice({ status: 'APPROVED' })),
+      },
+    })
+
+    const dialog = await openMatchDialog(user)
+    await user.click(await within(dialog).findByRole('button', { name: /approve invoice/i }))
+
+    const confirm = await screen.findByRole('dialog', { name: /approve this invoice/i })
+    await user.type(within(confirm).getByRole('textbox', { name: 'Note' }), 'ok')
+    await user.click(within(confirm).getByRole('button', { name: /approve/i }))
+
+    expect(await within(confirm).findByRole('alert')).toHaveTextContent(
+      'A note is optional, but one that is written must run to at least 3 characters',
+    )
+    expect(fetch.calls.filter((call) => call.method === 'POST')).toHaveLength(0)
+  })
+
   it('will not send an override until a real sentence explains it', async () => {
     // Approving over a variance concedes the price or quantity difference to
     // the vendor. The reason is what an auditor reads afterwards, so a two-word
@@ -370,7 +397,9 @@ describe('approving a bill', () => {
         'GET /finance/vendor-invoices': page([
           summary({ status: 'PENDING_APPROVAL', match_status: 'VARIANCE' }),
         ]),
-        [`GET ${INVOICE_PATH}`]: ok(invoice({ status: 'PENDING_APPROVAL', match_status: 'VARIANCE' })),
+        [`GET ${INVOICE_PATH}`]: ok(
+          invoice({ status: 'PENDING_APPROVAL', match_status: 'VARIANCE' }),
+        ),
         [`GET ${INVOICE_PATH}/match`]: ok(
           matchResult({
             matched: false,
@@ -756,16 +785,17 @@ describe('amending a bill', () => {
 // ------------------------------------------------------ empty and broken -----
 
 describe('the states with no rows in them', () => {
-  it('says what would put an invoice in an empty queue', async () => {
+  it('says what an empty queue holds without demanding a purchase order', async () => {
+    // The entry form on this same page records a bill without an order when the
+    // account cannot read orders, so the empty state must not tell a clerk that
+    // a freight or service bill has no place here.
     renderScreen(<VendorInvoicesPage />, {
       permissions: [P.VENDOR_INVOICE_VIEW],
       routes: { 'GET /finance/vendor-invoices': page([]) },
     })
 
     expect(await screen.findByText('No vendor invoices')).toBeInTheDocument()
-    expect(
-      screen.getByText(/Invoices appear here once they are booked against a purchase order/i),
-    ).toBeInTheDocument()
+    expect(screen.getByText(/with or without a purchase order/i)).toBeInTheDocument()
   })
 
   it('shows the server message when the queue cannot be read', async () => {

@@ -22,14 +22,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
-import {
-  fail,
-  ok,
-  page,
-  renderScreen,
-  type FetchRecorder,
-  type RouteTable,
-} from '@/test/harness'
+import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } from '@/test/harness'
 
 import type { PurchaseReturnRow } from './purchase-return-model'
 import PurchaseReturnsPage from './purchase-returns-page'
@@ -532,6 +525,41 @@ describe('what the return form sends', () => {
     expect(screen.getByRole('dialog')).toBeVisible()
   })
 
+  it('lands a line error on the line that was actually sent, not on payload index 0', async () => {
+    // The payload holds only the lines with a quantity, renumbered from one,
+    // so `lines.0.quantity` from the API names the first line *sent* - which
+    // here is the second line on the form.
+    const { user, fetch } = renderScreen(<PurchaseReturnsPage />, {
+      permissions: STOREKEEPER,
+      routes: formRoutes({
+        [`GET /procurement/goods-receipts/${RECEIPT_ID}`]: receiptDetail([
+          receiptLine(),
+          receiptLine({
+            id: RECEIPT_LINE_B,
+            line_number: 2,
+            description: 'Stainless sheet 2mm',
+            batch_number: null,
+          }),
+        ]),
+        [`POST ${RETURNS_PATH}`]: fail(422, 'VALIDATION_ERROR', 'The return was refused', {
+          fields: { 'lines.0.quantity': ['Only 30 is still returnable on this line'] },
+        }),
+      }),
+    })
+
+    await openForm(user, fetch)
+    await stable(() => screen.getByText('Stainless sheet 2mm'))
+    await user.type(screen.getAllByRole('textbox', { name: 'Returning' })[1]!, '10')
+    await user.type(screen.getByRole('textbox', { name: 'Reason' }), 'Damaged in transit')
+    await user.click(screen.getByRole('button', { name: 'Raise draft return' }))
+
+    await stable(() => screen.getByText('Only 30 is still returnable on this line'))
+    const returning = screen.getAllByRole('textbox', { name: 'Returning' })
+    expect(returning[1]).toHaveAttribute('aria-invalid', 'true')
+    // The untouched first line is not blamed for a line it never sent.
+    expect(returning[0]).toHaveAttribute('aria-invalid', 'false')
+  })
+
   it('says the receipt cannot be chosen without the right to read receipts', async () => {
     // Searching goods receipts is `grn.view`, a different right from the
     // `purchase_return.create` that opened this dialog. Without it the picker
@@ -547,7 +575,9 @@ describe('what the return form sends', () => {
     await settled(fetch)
     await user.click(screen.getByRole('button', { name: /new return/i }))
     const dialog = await stable(() => screen.getByRole('dialog'))
-    expect(within(dialog).getByText(/goods receipts are not visible to your account/i)).toBeVisible()
+    expect(
+      within(dialog).getByText(/goods receipts are not visible to your account/i),
+    ).toBeVisible()
     expect(within(dialog).getByRole('combobox', { name: 'Goods receipt' })).toBeDisabled()
   })
 

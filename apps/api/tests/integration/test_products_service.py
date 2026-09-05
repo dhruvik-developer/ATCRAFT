@@ -37,6 +37,7 @@ from src.core.permissions import Permission
 from src.modules.audit.models import AuditLog
 from src.modules.products import service
 from src.modules.products.models import (
+    Item,
     ItemGroup,
     PriceType,
     ProductionType,
@@ -59,7 +60,7 @@ from src.modules.products.schemas import (
 )
 from src.modules.vendors.models import Vendor, VendorType
 from tests import seed_support
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 
 pytestmark = pytest.mark.integration
 
@@ -133,7 +134,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID]]:
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, user_id
     asyncio.run(teardown())
@@ -722,6 +723,50 @@ async def test_reverse_conversion_row_is_rejected_as_a_duplicate(
         )
 
 
+async def test_the_reported_factor_is_the_stored_ratio_at_the_column_s_own_scale(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    """``1 BOX = 12 NOS`` is stored once. Converting the other way reports 1/12
+    at the eight places ``uom_conversions.factor`` holds - not the two or four
+    of a price or a quantity - so ``input * factor`` still agrees with the
+    converted quantity at large inputs. And a stored eight-place ratio comes
+    back through ``convert_quantity`` byte-for-byte as it was written."""
+    session, tenant, _ = ctx
+    nos = await service.create_uom(
+        session,
+        tenant,
+        UomCreate(code="NOS", name="Numbers", uom_category=UomCategory.COUNT, is_base=True),
+    )
+    box = await service.create_uom(
+        session, tenant, UomCreate(code="BOX", name="Box", uom_category=UomCategory.COUNT)
+    )
+    await service.create_conversion(
+        session,
+        tenant,
+        UomConversionCreate(from_uom_id=box.id, to_uom_id=nos.id, factor=Decimal("12")),
+    )
+
+    inverse = await service.convert_quantity(
+        session, tenant, quantity=Decimal("24"), from_uom_id=nos.id, to_uom_id=box.id
+    )
+    assert inverse.factor == Decimal("0.08333333")
+    assert inverse.converted_quantity == Decimal("2.0000")
+
+    tin = await service.create_uom(
+        session, tenant, UomCreate(code="TIN", name="Tin", uom_category=UomCategory.COUNT)
+    )
+    stored = await service.create_conversion(
+        session,
+        tenant,
+        UomConversionCreate(from_uom_id=tin.id, to_uom_id=nos.id, factor=Decimal("2.33333333")),
+    )
+    direct = await service.convert_quantity(
+        session, tenant, quantity=Decimal("1"), from_uom_id=tin.id, to_uom_id=nos.id
+    )
+    assert stored.factor == Decimal("2.33333333")
+    assert direct.factor == stored.factor
+
+
 # -----------------------------------------------------------------------------
 # Variants, prices and vendors
 # -----------------------------------------------------------------------------
@@ -912,3 +957,70 @@ async def test_vendor_cannot_be_linked_to_a_non_purchasable_item(
         await service.link_vendor(
             session, tenant, item.id, VendorLinkCreate(vendor_id=uuid.uuid4())
         )
+
+
+# -----------------------------------------------------------------------------
+# Tenant isolation on plain foreign keys
+# -----------------------------------------------------------------------------
+#
+# ``item_vendor_links.vendor_id`` and ``items.default_warehouse_id`` are foreign
+# keys to globally unique ids, so another company's row satisfies the constraint.
+# Both are answered "not found", exactly as a missing id is: confirming that the
+# row exists elsewhere is itself a leak (section 40).
+
+
+async def test_another_company_s_vendor_cannot_be_linked(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    item = await service.create_item(
+        session, tenant, item_payload("VEND-X", units["NOS"], can_purchase=True)
+    )
+    outsider = await seed_support.seed_company(session, prefix="OTH")
+    theirs = Vendor(
+        company_id=outsider.id,
+        code=f"VX-{uuid.uuid4().hex[:6].upper()}",
+        name="Somebody else's vendor",
+        vendor_types=[VendorType.COMPONENT_SUPPLIER],
+    )
+    session.add(theirs)
+    await session.flush()
+
+    with pytest.raises(NotFoundError):
+        await service.link_vendor(session, tenant, item.id, VendorLinkCreate(vendor_id=theirs.id))
+
+    links, _ = await service.list_vendor_links(
+        session, tenant, item.id, PageParams(page=1, limit=10)
+    )
+    assert links == []
+
+
+async def test_another_company_s_warehouse_cannot_be_an_item_s_default(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    outsider = await seed_support.seed_company(session, prefix="OTH")
+    theirs = await seed_support.seed_warehouse(
+        session, company_id=outsider.id, code=f"WH-{uuid.uuid4().hex[:6].upper()}"
+    )
+
+    with pytest.raises(NotFoundError):
+        await service.create_item(
+            session, tenant, item_payload("DEF-1", units["NOS"], default_warehouse_id=theirs.id)
+        )
+
+    item = await service.create_item(session, tenant, item_payload("DEF-2", units["NOS"]))
+    # Held in a plain variable: the refused update below rolls back a savepoint,
+    # which expires everything in the identity map.
+    item_id = item.id
+    with pytest.raises(NotFoundError):
+        await service.update_item(
+            session, tenant, item_id, ItemUpdate(default_warehouse_id=theirs.id)
+        )
+
+    stored_default = (
+        await session.execute(select(Item.default_warehouse_id).where(Item.id == item_id))
+    ).scalar_one()
+    assert stored_default is None

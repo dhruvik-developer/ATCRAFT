@@ -63,16 +63,6 @@ export const PRIORITY_MAX = 9
 export const PRIORITY_DEFAULT = 5
 
 /**
- * The audit reason on `/confirm`, `/approve` and `/cancel`.
- *
- * `ConfirmRequest`, `ApproveRequest` and `CancelRequest` all bound `reason` to
- * 3..255 characters. A one-character reason is refused by the API as a 422 on a
- * field this screen has no control for, so it is checked before it is sent.
- */
-export const REASON_MIN_LENGTH = 3
-export const REASON_MAX_LENGTH = 255
-
-/**
  * `DRAFT -> CONFIRMED -> ALLOCATED -> PARTIALLY_DISPATCHED -> DISPATCHED ->
  * INVOICED -> CLOSED`, with `CANCELLED` reachable from DRAFT, CONFIRMED and
  * ALLOCATED only. The API enforces this; the UI uses it to decide what to show.

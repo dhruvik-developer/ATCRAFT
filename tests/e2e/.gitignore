@@ -2,3 +2,14 @@
 test-results/
 playwright-report/
 node_modules/
+
+# Local configuration and credentials. `.env.example` is the template.
+.env
+
+# Sweep outputs. scripts/*.mjs write these; they are results, not source.
+*-sweep*.json
+tenant-isolation.json
+a11y*.json
+final*.json
+verify-*.json
+sweep*.json

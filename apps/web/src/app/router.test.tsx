@@ -32,6 +32,7 @@ beforeAll(async () => {
   // does in a warm browser anyway.
   await Promise.all([
     import('@/features/audit/audit-page'),
+    import('@/features/auth/change-password-page'),
     import('@/features/auth/profile-page'),
     import('@/features/admin/users-page'),
   ])
@@ -166,6 +167,18 @@ describe('signing in first', () => {
 
     expect(await screen.findByRole('heading', { name: 'Audit trail' })).toBeVisible()
     expect(screen.queryByRole('heading', { name: 'Sign in' })).toBeNull()
+  })
+
+  it('confines a temporary-password session to the password change screen', async () => {
+    const { fetch } = renderAt('/audit', {
+      permissions: [P.AUDIT_LOG_VIEW],
+      user: { must_change_password: true },
+    })
+
+    expect(await screen.findByRole('heading', { name: 'Choose a new password' })).toBeVisible()
+    expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull()
+    expect(fetch.calls.some((call) => call.path === '/audit/logs')).toBe(false)
+    expect(fetch.calls.some((call) => call.path === '/auth/sessions')).toBe(false)
   })
 })
 

@@ -25,12 +25,13 @@ import { useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { EmptyState, StatTile } from '@/components/shared'
+import { DateRangeFilter, EmptyState, StatTile } from '@/components/shared'
 import { Button } from '@/components/ui/button'
-import { Badge, Input, Label } from '@/components/ui/primitives'
+import { Badge } from '@/components/ui/primitives'
 import { CustomerPicker } from '@/features/customers/customer-picker'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
+import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 import { formatDate, formatMoney, humanise, toDecimal } from '@/lib/format'
 import { staleTimes } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
@@ -43,8 +44,6 @@ import {
   type LedgerStatementRow,
 } from './finance-types'
 
-const DEFAULT_LIMIT = 50
-
 export function PartyLedgerTab() {
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -53,7 +52,7 @@ export function PartyLedgerTab() {
   const dateFrom = searchParams.get('date_from') ?? ''
   const dateTo = searchParams.get('date_to') ?? ''
   const page = Number(searchParams.get('page') ?? 1)
-  const limit = Number(searchParams.get('limit') ?? DEFAULT_LIMIT)
+  const limit = Number(searchParams.get('limit') ?? DEFAULT_PAGE_SIZE)
 
   /**
    * Write every key a handler changes in ONE update.
@@ -87,6 +86,10 @@ export function PartyLedgerTab() {
     () => ({
       page,
       limit,
+      // The router discards the pagination block this would pay a COUNT for,
+      // so asking for it buys a second scan of an append-heavy table and
+      // nothing else; "there is more" is inferred from a full page below.
+      with_total: false,
       ...(dateFrom ? { date_from: dateFrom } : {}),
       ...(dateTo ? { date_to: dateTo } : {}),
     }),
@@ -274,36 +277,15 @@ export function PartyLedgerTab() {
           />
         )}
 
-        <div className="space-y-1.5">
-          <Label htmlFor="ledger-from" className="text-xs">
-            From
-          </Label>
-          <Input
-            id="ledger-from"
-            type="date"
-            className="w-[11rem]"
-            value={dateFrom}
-            max={dateTo || undefined}
-            onChange={(event) =>
-              updateParams({ date_from: event.target.value || undefined, page: undefined })
-            }
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="ledger-to" className="text-xs">
-            To
-          </Label>
-          <Input
-            id="ledger-to"
-            type="date"
-            className="w-[11rem]"
-            value={dateTo}
-            min={dateFrom || undefined}
-            onChange={(event) =>
-              updateParams({ date_to: event.target.value || undefined, page: undefined })
-            }
-          />
-        </div>
+        <DateRangeFilter
+          id="ledger"
+          from={dateFrom}
+          to={dateTo}
+          fromInputProps={{ max: dateTo || undefined }}
+          toInputProps={{ min: dateFrom || undefined }}
+          onFromChange={(value) => updateParams({ date_from: value || undefined, page: undefined })}
+          onToChange={(value) => updateParams({ date_to: value || undefined, page: undefined })}
+        />
       </div>
 
       {partyId ? (
@@ -311,10 +293,12 @@ export function PartyLedgerTab() {
           {/* The statement's own figures. They cover the whole filtered period,
               not the page on screen, which is why they are read from the
               statement rather than summed from the rows. */}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {/* A dash when nothing loaded, never a formatted zero: a failed read
+              must not look like a party that owes nothing. */}
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <StatTile
               label="Opening balance"
-              value={formatMoney(data?.opening_balance)}
+              value={data ? formatMoney(data.opening_balance) : '-'}
               hint={
                 data
                   ? `${data.party_name}${data.party_code ? ` (${data.party_code})` : ''}`
@@ -324,7 +308,7 @@ export function PartyLedgerTab() {
             />
             <StatTile
               label="Debits"
-              value={formatMoney(data?.total_debit)}
+              value={data ? formatMoney(data.total_debit) : '-'}
               hint={
                 data
                   ? `${data.date_from ? formatDate(data.date_from) : 'From the first posting'} to ${formatDate(data.date_to)}`
@@ -334,14 +318,16 @@ export function PartyLedgerTab() {
             />
             <StatTile
               label="Credits"
-              value={formatMoney(data?.total_credit)}
+              value={data ? formatMoney(data.total_credit) : '-'}
               isLoading={statement.isLoading}
             />
             <StatTile
               label="Closing balance"
-              value={formatMoney(data?.closing_balance)}
+              value={data ? formatMoney(data.closing_balance) : '-'}
               hint="A positive balance is money owed"
-              tone={toDecimal(data?.closing_balance).isNegative() ? 'destructive' : 'default'}
+              tone={
+                data && toDecimal(data.closing_balance).isNegative() ? 'destructive' : 'default'
+              }
               isLoading={statement.isLoading}
             />
           </div>

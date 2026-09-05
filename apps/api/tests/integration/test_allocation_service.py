@@ -60,7 +60,7 @@ from src.modules.inventory.models import InventoryTransaction, StockState, Trans
 from src.modules.notifications.models import Notification, NotificationType
 from src.modules.products.models import ItemGroup
 from tests import seed_support
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 
 pytestmark = pytest.mark.integration
 
@@ -124,7 +124,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, other_company_id, user_id, approver_id
     asyncio.run(teardown())
@@ -137,9 +137,7 @@ async def _insert_company(session: AsyncSession, company_id: uuid.UUID, prefix: 
 async def _insert_user(
     session: AsyncSession, user_id: uuid.UUID, company_id: uuid.UUID, email: str
 ) -> None:
-    await seed_support.seed_user(
-        session, company_id=company_id, user_id=user_id, email=email
-    )
+    await seed_support.seed_user(session, company_id=company_id, user_id=user_id, email=email)
 
 
 # The seeds below return ids because that is all a reservation needs; the rows
@@ -258,9 +256,7 @@ async def balance_of(session: AsyncSession, tenant: TenantContext, item_id, ware
 
 
 class TestReserve:
-    async def test_reserving_moves_reserved_not_on_hand_and_writes_no_ledger_row(
-        self, ctx
-    ) -> None:
+    async def test_reserving_moves_reserved_not_on_hand_and_writes_no_ledger_row(self, ctx) -> None:
         """The whole premise of the module: nothing has moved, so the ledger -
         which answers *why* the balance changed - must stay untouched."""
         session, tenant, _, _ = ctx
@@ -366,9 +362,7 @@ class TestReserve:
 
 
 class TestRelease:
-    async def test_a_partial_release_returns_exactly_that_much_to_availability(
-        self, ctx
-    ) -> None:
+    async def test_a_partial_release_returns_exactly_that_much_to_availability(self, ctx) -> None:
         session, tenant, _, _ = ctx
         item_id, warehouse_id = await stock_at(session, tenant, "100")
         reservation = await reserve_for(session, tenant, item_id, warehouse_id, "60")
@@ -604,9 +598,7 @@ class TestConsume:
         actions = {
             row.action
             for row in (
-                await session.execute(
-                    select(AuditLog).where(AuditLog.entity_id == reservation.id)
-                )
+                await session.execute(select(AuditLog).where(AuditLog.entity_id == reservation.id))
             )
             .scalars()
             .all()
@@ -810,9 +802,7 @@ class TestReallocationLifecycle:
         assert donor.status is ReservationStatus.ACTIVE
         assert donor.released_quantity == Decimal("0.0000")
 
-    async def test_approving_releases_the_donor_and_reserves_for_the_recipient(
-        self, ctx
-    ) -> None:
+    async def test_approving_releases_the_donor_and_reserves_for_the_recipient(self, ctx) -> None:
         """One transaction, and the net effect on the balance is exactly zero -
         which is what makes a reallocation incapable of losing or inventing stock."""
         session, tenant, approver, _ = ctx
@@ -858,15 +848,19 @@ class TestReallocationLifecycle:
         )
 
         audit = (
-            await session.execute(
-                select(AuditLog).where(
-                    AuditLog.entity_type == alloc.AUDIT_ENTITY_REALLOCATION,
-                    AuditLog.entity_id == request.id,
-                    AuditLog.action == AuditAction.REALLOCATION,
-                    AuditLog.new_values.is_not(None),
+            (
+                await session.execute(
+                    select(AuditLog).where(
+                        AuditLog.entity_type == alloc.AUDIT_ENTITY_REALLOCATION,
+                        AuditLog.entity_id == request.id,
+                        AuditLog.action == AuditAction.REALLOCATION,
+                        AuditLog.new_values.is_not(None),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         executed = [row for row in audit if row.new_values.get("status") == "EXECUTED"]
         assert len(executed) == 1
         assert executed[0].context["from_reservation_id"] == str(donor.id)
@@ -922,9 +916,9 @@ class TestReallocationLifecycle:
         session, tenant, approver, _ = ctx
         request, donor, item_id, warehouse_id = await self._pending_request(session, tenant)
 
-        rejected = await alloc.AllocationService(
-            session, approver
-        ).reject_reallocation_request(request.id, decision_note="the donor is already kitted")
+        rejected = await alloc.AllocationService(session, approver).reject_reallocation_request(
+            request.id, decision_note="the donor is already kitted"
+        )
 
         assert rejected.status is ReallocationStatus.REJECTED
         await session.refresh(donor)
@@ -1019,6 +1013,30 @@ class TestHousekeeping:
         assert balance.reserved_quantity == Decimal("20.0000")
         assert balance.available_quantity == Decimal("80.0000")
 
+        # The sweep is a lifecycle transition like any other, and a consumer
+        # filtering the audit trail on ``changed_fields == ["status"]`` must
+        # see it: this row once silently dropped out.
+        lifecycle_rows = list(
+            (
+                await session.execute(
+                    select(AuditLog)
+                    .where(
+                        AuditLog.entity_type == alloc.AUDIT_ENTITY_RESERVATION,
+                        AuditLog.entity_id == reservation.id,
+                    )
+                    .order_by(AuditLog.created_at, AuditLog.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert any(
+            row.old_values == {"status": "ACTIVE"}
+            and row.new_values == {"status": "EXPIRED"}
+            and row.changed_fields == ["status"]
+            for row in lifecycle_rows
+        ), [(row.action, row.old_values, row.new_values) for row in lifecycle_rows]
+
     async def test_a_reservation_with_no_expiry_is_never_swept(self, ctx) -> None:
         session, tenant, _, _ = ctx
         item_id, warehouse_id = await stock_at(session, tenant, "100")
@@ -1085,9 +1103,7 @@ class TestListingAndIsolation:
         # Phrased as "not found", never "forbidden": confirming that a record
         # exists in another tenant is itself a disclosure.
         with pytest.raises(NotFoundError):
-            await alloc.release(
-                session, stranger, reservation_id=reservation.id, reason="not mine"
-            )
+            await alloc.release(session, stranger, reservation_id=reservation.id, reason="not mine")
 
     async def test_the_pending_queue_lists_oldest_first(self, ctx) -> None:
         session, tenant, _, _ = ctx

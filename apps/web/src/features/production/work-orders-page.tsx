@@ -54,11 +54,12 @@ import {
 import { Badge, Checkbox, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
+import { useUserOptions } from '@/hooks/use-user-options'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDateTime, formatQuantity, humanise, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
-import { useOperatorOptions } from './production-model'
 import { WipBoardPanel } from './wip-board-panel'
 import {
   WorkOrderAssignDialog,
@@ -74,14 +75,12 @@ import {
   optionLabel,
   plannedMinutes,
   transitionsFrom,
-  useMachineOptions,
+  useWorkCentreMachineOptions,
   useWorkCentreOptions,
   workOrderKeys,
   type WorkOrder,
 } from './work-order-model'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
+import type { OperatorOption } from './production-model'
 
 /**
  * Every filter key this screen owns, named once.
@@ -127,12 +126,12 @@ export default function WorkOrdersPage() {
   const workCentres = useWorkCentreOptions()
   const workCentreById = useMemo(() => indexById(workCentres.data ?? []), [workCentres.data])
 
-  const operators = useOperatorOptions(true)
+  const operators = useUserOptions<OperatorOption>()
   const operatorById = useMemo(() => indexById(operators.data ?? []), [operators.data])
 
   // Machines only make sense inside one cell - the API refuses a machine from
   // another - so the filter appears only once a work centre has been chosen.
-  const machines = useMachineOptions(workCentreId || null)
+  const machines = useWorkCentreMachineOptions(workCentreId || null)
   const machineRows = machines.data ?? []
 
   /**
@@ -485,14 +484,16 @@ export default function WorkOrdersPage() {
             toolbar={
               <>
                 <Select
-                  value={status || ALL}
-                  onValueChange={(next) => setParam('status', next === ALL ? undefined : next)}
+                  value={status || SELECT_ALL}
+                  onValueChange={(next) =>
+                    setParam('status', next === SELECT_ALL ? undefined : next)
+                  }
                 >
-                  <SelectTrigger className="w-[11rem]" aria-label="Operation status">
+                  <SelectTrigger className="w-full sm:w-[11rem]" aria-label="Operation status">
                     <SelectValue placeholder="Any status" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ALL}>Any status</SelectItem>
+                    <SelectItem value={SELECT_ALL}>Any status</SelectItem>
                     {WORK_ORDER_STATUSES.map((entry) => (
                       <SelectItem key={entry} value={entry}>
                         {humanise(entry)}
@@ -502,14 +503,14 @@ export default function WorkOrdersPage() {
                 </Select>
 
                 <Select
-                  value={workCentreId || ALL}
-                  onValueChange={(next) => chooseWorkCentre(next === ALL ? null : next)}
+                  value={workCentreId || SELECT_ALL}
+                  onValueChange={(next) => chooseWorkCentre(next === SELECT_ALL ? null : next)}
                 >
-                  <SelectTrigger className="w-[14rem]" aria-label="Work centre">
+                  <SelectTrigger className="w-full sm:w-[14rem]" aria-label="Work centre">
                     <SelectValue placeholder="Any work centre" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ALL}>Any work centre</SelectItem>
+                    <SelectItem value={SELECT_ALL}>Any work centre</SelectItem>
                     {workCentreId && !workCentreById.has(workCentreId) && (
                       <SelectItem value={workCentreId}>Selected work centre</SelectItem>
                     )}
@@ -523,16 +524,16 @@ export default function WorkOrdersPage() {
 
                 {workCentreId && (
                   <Select
-                    value={machineId || ALL}
+                    value={machineId || SELECT_ALL}
                     onValueChange={(next) =>
-                      setParam('machine_id', next === ALL ? undefined : next)
+                      setParam('machine_id', next === SELECT_ALL ? undefined : next)
                     }
                   >
-                    <SelectTrigger className="w-[13rem]" aria-label="Machine">
+                    <SelectTrigger className="w-full sm:w-[13rem]" aria-label="Machine">
                       <SelectValue placeholder="Any machine" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={ALL}>Any machine</SelectItem>
+                      <SelectItem value={SELECT_ALL}>Any machine</SelectItem>
                       {/* A narrowing that is in force has to stay visible and
                           clearable even when the register cannot be read. */}
                       {machineId && !machineRows.some((machine) => machine.id === machineId) && (
@@ -548,16 +549,16 @@ export default function WorkOrdersPage() {
                 )}
 
                 <Select
-                  value={operatorId || ALL}
+                  value={operatorId || SELECT_ALL}
                   onValueChange={(next) =>
-                    setParam('operator_user_id', next === ALL ? undefined : next)
+                    setParam('operator_user_id', next === SELECT_ALL ? undefined : next)
                   }
                 >
-                  <SelectTrigger className="w-[13rem]" aria-label="Operator">
+                  <SelectTrigger className="w-full sm:w-[13rem]" aria-label="Operator">
                     <SelectValue placeholder="Any operator" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ALL}>Any operator</SelectItem>
+                    <SelectItem value={SELECT_ALL}>Any operator</SelectItem>
                     {operatorId && !operatorById.has(operatorId) && (
                       <SelectItem value={operatorId}>Selected operator</SelectItem>
                     )}

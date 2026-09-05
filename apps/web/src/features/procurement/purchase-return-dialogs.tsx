@@ -66,8 +66,10 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useUomOptions } from '@/features/items/item-model'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
-import { applyFieldErrors } from '@/lib/form-errors'
+import { PICKER_PAGE_SIZE, REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { applyFieldErrors, remapArrayIndices } from '@/lib/form-errors'
 import {
   formatDate,
   formatDateTime,
@@ -77,6 +79,7 @@ import {
   toDateInput,
   toDecimal,
 } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -87,8 +90,6 @@ import {
   MAX_DEBIT_NOTE_LENGTH,
   MAX_LINE_NOTES_LENGTH,
   MAX_NOTES_LENGTH,
-  MAX_REASON_LENGTH,
-  MIN_REASON_LENGTH,
   goodsReceiptDetailKey,
   isReturnPostable,
   purchaseReturnKeys,
@@ -99,6 +100,7 @@ import {
   type PurchaseReturnRow,
   type ReturnReasonPayload,
 } from './purchase-return-model'
+import { sentLineIndices } from './server-field-errors'
 
 /** NUMERIC(18,4): fourteen integer digits and four decimals, or nothing typed. */
 const QUANTITY = /^$|^\d{1,14}(\.\d{1,4})?$/
@@ -131,17 +133,13 @@ function PostedReceiptPicker({
 }) {
   const [open, setOpen] = useState(false)
   const [term, setTerm] = useState('')
-  const [debouncedTerm, setDebouncedTerm] = useState('')
 
   // One request per keystroke would put a filtered scan of the receipt register
   // behind every character typed.
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedTerm(term.trim()), 300)
-    return () => clearTimeout(timer)
-  }, [term])
+  const debouncedTerm = useDebouncedValue(term)
 
   const params = {
-    limit: 20,
+    limit: PICKER_PAGE_SIZE,
     with_total: false,
     status: 'POSTED',
     sort_by: 'receipt_date',
@@ -183,7 +181,11 @@ function PostedReceiptPicker({
         </Button>
       </PopoverTrigger>
 
-      <PopoverContent align="start" className="w-[26rem] p-0">
+      <PopoverContent
+        align="start"
+        collisionPadding={8}
+        className="w-[26rem] max-w-[var(--radix-popover-content-available-width)] p-0"
+      >
         <div className="relative border-b p-2">
           <Search
             className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -263,7 +265,7 @@ const lineSchema = z.object({
   returnable_quantity: z.string(),
   unit_cost: z.string(),
   quantity: z.string().trim().regex(QUANTITY, 'Up to 4 decimal places'),
-  reason: z.string().trim().max(MAX_REASON_LENGTH, `At most ${MAX_REASON_LENGTH} characters`),
+  reason: z.string().trim().max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
   notes: z
     .string()
     .trim()
@@ -276,8 +278,8 @@ const schema = z
     reason: z
       .string()
       .trim()
-      .min(MIN_REASON_LENGTH, `At least ${MIN_REASON_LENGTH} characters`)
-      .max(MAX_REASON_LENGTH, `At most ${MAX_REASON_LENGTH} characters`),
+      .min(REASON_MIN_LENGTH, `At least ${REASON_MIN_LENGTH} characters`)
+      .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
     debit_note_number: z
       .string()
       .trim()
@@ -314,6 +316,16 @@ const schema = z
   })
 
 type ReturnFormValues = z.infer<typeof schema>
+
+/**
+ * Whether a form line goes into the payload.
+ *
+ * One predicate for both the filter that builds the payload and the index map
+ * that lands a server error back on the right form line - the two must agree,
+ * or a 422 for payload line 0 is shown on a line nobody typed a quantity on.
+ */
+const isSentLine = (line: ReturnFormValues['lines'][number]): boolean =>
+  toDecimal(line.quantity).greaterThan(0)
 
 function emptyHeader(): Omit<ReturnFormValues, 'lines'> {
   return {
@@ -417,7 +429,7 @@ export function PurchaseReturnFormDialog({
     mutationFn: (values: ReturnFormValues) => {
       if (!receipt) throw new Error('No goods receipt chosen')
 
-      const returned = values.lines.filter((line) => toDecimal(line.quantity).greaterThan(0))
+      const returned = values.lines.filter(isSentLine)
 
       // `PurchaseReturnCreate` forbids unknown keys, so every field here is one
       // it declares. Line numbers are re-issued 1..n over the lines actually
@@ -446,12 +458,19 @@ export function PurchaseReturnFormDialog({
       // Deliberately no inventory invalidation: raising a return is a document,
       // not a movement. Nothing has left the warehouse until it is posted.
       toast.success(
-        'Purchase return raised',
+        success.created('Purchase return'),
         `${created.code} is a draft. The stock is still in the warehouse until the return is posted.`,
       )
       onOpenChange(false)
     },
-    onError: (error) => applyFieldErrors(error, setError),
+    // Line errors are indexed by the payload, which holds only the lines with
+    // a quantity - so they are re-addressed to the form line that sent them.
+    onError: (error, values) =>
+      applyFieldErrors(
+        error,
+        setError,
+        remapArrayIndices('lines', sentLineIndices(values.lines, isSentLine)),
+      ),
   })
 
   const lines = watch('lines')
@@ -875,9 +894,9 @@ export function PurchaseReturnDetailDialog({
               )}
 
               <div className="overflow-x-auto rounded-lg border">
-                <table className="w-full text-sm">
+                <table className="w-full min-w-[40rem] text-sm">
                   <caption className="sr-only">Purchase return lines</caption>
-                  <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+                  <thead className="whitespace-nowrap bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
                     <tr>
                       <th scope="col" className="px-3 py-2 text-left font-medium">
                         #
@@ -1050,7 +1069,7 @@ export function PurchaseReturnPostDialog({
       // rather than left to expire (master rules 34).
       void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
       toast.success(
-        'Purchase return posted',
+        success.posted('Purchase return'),
         `${result.purchase_return.code} wrote ${result.movements.length} stock movement(s). The receipt and the order now show the returned quantity.`,
       )
       onOpenChange(false)
@@ -1218,12 +1237,15 @@ export function PurchaseReturnCancelDialog({
     onSuccess: (row) => {
       void queryClient.invalidateQueries({ queryKey: purchaseReturnKeys.all })
       // No inventory invalidation: a cancelled draft never moved anything.
-      toast.success('Purchase return cancelled', `${row.code} is closed and no stock moved.`)
+      toast.success(
+        success.cancelled('Purchase return'),
+        `${row.code} is closed and no stock moved.`,
+      )
       onOpenChange(false)
     },
   })
 
-  const tooShort = reason.trim().length < MIN_REASON_LENGTH
+  const tooShort = reason.trim().length < REASON_MIN_LENGTH
 
   return (
     <ConfirmDialog
@@ -1252,13 +1274,13 @@ export function PurchaseReturnCancelDialog({
           id="return-cancel-reason"
           value={reason}
           onChange={(event) => setReason(event.target.value)}
-          maxLength={MAX_REASON_LENGTH}
+          maxLength={REASON_MAX_LENGTH}
           autoComplete="off"
           className="mt-1.5"
           aria-invalid={touched && tooShort}
         />
         {touched && tooShort && (
-          <FieldError message={`Record at least ${MIN_REASON_LENGTH} characters of reason`} />
+          <FieldError message={`Record at least ${REASON_MIN_LENGTH} characters of reason`} />
         )}
       </div>
     </ConfirmDialog>

@@ -46,8 +46,10 @@ import {
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import type { CustomerDetail } from '@/features/customers/customer-types'
-import type { WarehouseOption } from '@/features/inventory/types'
-import { ApiError, api } from '@/lib/api-client'
+import { WAREHOUSE_LOOKUP_PARAMS, type WarehouseOption } from '@/features/inventory/types'
+import { api } from '@/lib/api-client'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { reportFieldErrors } from '@/lib/form-errors'
 import {
   formatDate,
   formatDateTime,
@@ -56,6 +58,7 @@ import {
   formatQuantity,
   toDecimal,
 } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -63,8 +66,6 @@ import { toast } from '@/lib/toast'
 import { SalesOrderFormDialog } from './sales-order-form-dialog'
 import { SalesOrderLineDialog } from './sales-order-line-dialog'
 import {
-  REASON_MAX_LENGTH,
-  REASON_MIN_LENGTH,
   isCancellable,
   isConfirmable,
   isDraft,
@@ -78,29 +79,6 @@ import {
   type SalesOrderLineIn,
   type SalesOrderRow,
 } from './sales-types'
-
-/** Warehouses are a bounded reference table; one page is the whole list. */
-const WAREHOUSE_PARAMS = { limit: 200, sort_by: 'code', sort_dir: 'asc', with_total: false }
-
-/**
- * Surface a 422 that the global handler deliberately stays quiet about.
- *
- * `lib/query-client` suppresses the toast for a 422 carrying field errors, on
- * the understanding that the form renders them inline. These mutations are
- * fired from confirm dialogs rather than from a form, so there is nothing to
- * render them: a rejected line set, or a `reason` the API considers too short,
- * produced no message anywhere on screen. Every other status still toasts
- * globally, so this only fills the hole it was asked to fill.
- */
-function reportFieldErrors(error: unknown, title: string): void {
-  if (!(error instanceof ApiError) || error.status !== 422) return
-  const fields = Object.entries(error.fieldErrors)
-  if (fields.length === 0) return
-  toast.error(
-    title,
-    fields.map(([field, messages]) => `${field}: ${messages.join('. ')}`).join(' - '),
-  )
-}
 
 // ---------------------------------------------------------- allocation ------
 
@@ -351,8 +329,10 @@ export default function SalesOrderDetailPage() {
 
   // Warehouses are a bounded reference list, shared with every warehouse select.
   const warehouses = useQuery({
-    queryKey: queryKeys.warehouses.list(WAREHOUSE_PARAMS),
-    queryFn: () => api.getPage<WarehouseOption>('/warehouses', { params: WAREHOUSE_PARAMS }),
+    // The one spelling of the lookup, shared with `WarehouseSelect`, so the
+    // two read one cache entry rather than fetching the same list twice.
+    queryKey: queryKeys.warehouses.list(WAREHOUSE_LOOKUP_PARAMS),
+    queryFn: () => api.getPage<WarehouseOption>('/warehouses', { params: WAREHOUSE_LOOKUP_PARAMS }),
     enabled: can(P.WAREHOUSE_VIEW),
     staleTime: staleTimes.master,
   })
@@ -378,7 +358,7 @@ export default function SalesOrderDetailPage() {
       toast.success(
         result.allocation.fully_allocated
           ? 'Order confirmed and fully allocated'
-          : 'Order confirmed',
+          : success.confirmed('Sales order'),
         result.allocation.fully_allocated
           ? `${result.order.code} has stock reserved against every line.`
           : `${result.order.code} is confirmed. ${result.allocation.total_shortfall_lines} line(s) are short and need planning.`,
@@ -395,7 +375,7 @@ export default function SalesOrderDetailPage() {
       }),
     onSuccess: (updated) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.sales.all })
-      toast.success('Order approved', `${updated.code} may now be confirmed.`)
+      toast.success(success.approved('Sales order'), `${updated.code} may now be confirmed.`)
       setApproveOpen(false)
     },
     onError: (error) => reportFieldErrors(error, 'Could not approve this order'),
@@ -406,7 +386,7 @@ export default function SalesOrderDetailPage() {
     onSuccess: (updated) => {
       invalidateOrderAndStock()
       toast.success(
-        'Order cancelled',
+        success.cancelled('Sales order'),
         `${updated.code} is cancelled and its reservations released.`,
       )
       setCancelOpen(false)
@@ -427,7 +407,7 @@ export default function SalesOrderDetailPage() {
       api.patch<SalesOrderDetail>(`/sales/${orderId}`, { lines: renumber(lines) }),
     onSuccess: () => {
       invalidateOrderAndStock()
-      toast.success('Lines saved', 'The order totals have been recalculated by the API.')
+      toast.success(success.saved('Lines'), 'The order totals have been recalculated by the API.')
       setLineEditor(null)
       setPendingLineDelete(null)
     },
@@ -591,7 +571,7 @@ export default function SalesOrderDetailPage() {
     return (
       <div className="space-y-4">
         <Skeleton className="h-7 w-64" />
-        <Skeleton className="h-4 w-96" />
+        <Skeleton className="h-4 w-full max-w-sm" />
         <div className="grid gap-4 lg:grid-cols-3">
           <Skeleton className="h-64 lg:col-span-2" />
           <Skeleton className="h-64" />
@@ -825,13 +805,14 @@ export default function SalesOrderDetailPage() {
               reported here as a shortfall for MRP to plan.
             </AlertDescription>
           </Alert>
-        ) : can(P.ALLOCATION_VIEW) ? (
-          <AllocationPanel order={order} />
         ) : (
-          <EmptyState
-            title="Allocation is not visible to your account"
-            description="Your role does not include the permission this panel needs. Ask an administrator if you believe this is wrong."
-          />
+          // `GET /sales/{id}/allocation-status` is declared on
+          // `sales_order.view` (sales/router.py), the same right that opens
+          // this page - not on `allocation.view`, which guards the reservation
+          // screens. Gating the panel on the latter refused a reader the API
+          // would have answered, and told them their role lacked a right the
+          // endpoint never asks for.
+          <AllocationPanel order={order} />
         )}
       </div>
 

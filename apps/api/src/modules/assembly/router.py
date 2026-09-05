@@ -18,7 +18,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
 
-from src.core.deps import DbSession, Tenant, require_permission
+from src.core.deps import DbSession, Tenant, require_any_permission, require_permission
 from src.core.pagination import PageParams, SortParams, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
@@ -40,9 +40,7 @@ from src.modules.assembly.schemas import (
     ReasonRequest,
 )
 
-router = APIRouter(
-    prefix="/assembly", tags=["Assembly"], responses=COMMON_ERROR_RESPONSES
-)
+router = APIRouter(prefix="/assembly", tags=["Assembly"], responses=COMMON_ERROR_RESPONSES)
 
 PageDep = Annotated[PageParams, Depends(page_params)]
 SortDep = Annotated[SortParams, Depends(sort_params)]
@@ -103,7 +101,11 @@ OrderFilterDep = Annotated[AssemblyOrderFilters, Depends(order_filters)]
         "appear, and neither does one whose output has since been reserved elsewhere - "
         "availability is read from the balance table on every request, never cached."
     ),
-    dependencies=[require_permission(Permission.PACKING_VIEW, Permission.ASSEMBLY_ORDER_VIEW)],
+    # Either side of the hand-over reads this feed: the packer who will claim the
+    # output and the assembly planner who wants to see it leave. No preset role
+    # holds both rights, so the gate is "any", as /job-work/charges is for
+    # finance and job work.
+    dependencies=[require_any_permission(Permission.PACKING_VIEW, Permission.ASSEMBLY_ORDER_VIEW)],
 )
 async def ready_for_packing(
     session: DbSession,

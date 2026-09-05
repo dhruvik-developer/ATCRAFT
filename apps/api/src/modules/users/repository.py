@@ -40,6 +40,7 @@ from sqlalchemy.orm import InstrumentedAttribute, load_only, raiseload, selectin
 
 from src.common.repository import BaseRepository
 from src.core.clock import utcnow
+from src.core.database import affected_rows
 from src.core.models import Base
 from src.core.pagination import SortParams
 
@@ -501,7 +502,7 @@ class UserSessionRepository(BaseRepository[UserSession]):
             .values(revoked_at=utcnow(), revoked_reason=reason[:64])
             .execution_options(synchronize_session=False)
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
     async def count_live_for_user(self, user_id: uuid.UUID) -> int:
         stmt = (

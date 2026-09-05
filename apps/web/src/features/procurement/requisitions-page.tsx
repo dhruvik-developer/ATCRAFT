@@ -30,7 +30,13 @@ import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { ConfirmDialog, FieldError, PageHeader, StatusBadge } from '@/components/shared'
+import {
+  ConfirmDialog,
+  DateRangeFilter,
+  FieldError,
+  PageHeader,
+  StatusBadge,
+} from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -47,13 +53,15 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/overlays'
-import { Badge, Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
+import { Badge, Checkbox, Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { useDepartmentOptions } from '@/hooks/use-organisation-options'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
 import { daysUntil, formatDate, formatDateTime, humanise } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -73,15 +81,10 @@ import {
   requisitionKeys,
   type RequisitionRow,
 } from './procurement-types'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
+import { serverFieldMessage } from './server-field-errors'
 
 /** Every filter this screen owns, cleared as one write rather than four. */
 const FILTER_KEYS = ['status', 'required_from', 'required_to', 'open_only'] as const
-
-/** The shortest reason the API accepts - `ReasonRequest` and the delete query. */
-const MIN_REASON = 3
 
 type Decision = { requisition: RequisitionRow; action: 'approve' | 'reject' }
 
@@ -122,7 +125,7 @@ const COMMANDS: Record<
     reasonRequired: false,
     reasonLabel: 'Note',
     reasonHint: 'Optional. Recorded on the status change for whoever picks it up.',
-    toastTitle: 'Requisition submitted',
+    toastTitle: success.submitted('Requisition'),
     toastBody: (code) => `${code} is waiting for a decision.`,
   },
   cancel: {
@@ -134,7 +137,7 @@ const COMMANDS: Record<
     reasonRequired: true,
     reasonLabel: 'Reason',
     reasonHint: 'Recorded on the document as its cancellation reason.',
-    toastTitle: 'Requisition cancelled',
+    toastTitle: success.cancelled('Requisition'),
     toastBody: (code) => `${code} is closed and nothing will be sourced against it.`,
   },
   delete: {
@@ -146,7 +149,7 @@ const COMMANDS: Record<
     reasonRequired: true,
     reasonLabel: 'Reason',
     reasonHint: 'The audit row is all that survives the draft, so it needs to say why.',
-    toastTitle: 'Draft deleted',
+    toastTitle: success.deleted('Draft requisition'),
     toastBody: (code) => `${code} is gone.`,
   },
 }
@@ -159,10 +162,15 @@ export default function RequisitionsPage() {
   const [decision, setDecision] = useState<Decision | null>(null)
   const [reason, setReason] = useState('')
   const [reasonTouched, setReasonTouched] = useState(false)
+  // What the API said about the reason, if it refused it. The global handler
+  // stays quiet on a 422 that names a field, on the understanding that the
+  // form shows it - and these dialogs are the form.
+  const [serverReason, setServerReason] = useState<string | null>(null)
 
   const [command, setCommand] = useState<Command | null>(null)
   const [commandReason, setCommandReason] = useState('')
   const [commandTouched, setCommandTouched] = useState(false)
+  const [commandServerReason, setCommandServerReason] = useState<string | null>(null)
 
   // `null` inside means "raise a new one"; an id amends that draft.
   const [form, setForm] = useState<{ requisitionId: string | null } | null>(null)
@@ -222,13 +230,14 @@ export default function RequisitionsPage() {
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.procurement.all })
       toast.success(
-        variables.action === 'approve' ? 'Requisition approved' : 'Requisition rejected',
+        variables.action === 'approve'
+          ? success.approved('Requisition')
+          : success.rejected('Requisition'),
         `${variables.requisition.code} is now ${variables.action === 'approve' ? 'ready to source' : 'closed'}.`,
       )
-      setDecision(null)
-      setReason('')
-      setReasonTouched(false)
+      closeDecision()
     },
+    onError: (error) => setServerReason(serverFieldMessage(error, 'reason')),
   })
 
   const run = useMutation({
@@ -272,10 +281,9 @@ export default function RequisitionsPage() {
       }
       const copy = COMMANDS[variables.kind]
       toast.success(copy.toastTitle, copy.toastBody(variables.requisition.code))
-      setCommand(null)
-      setCommandReason('')
-      setCommandTouched(false)
+      closeCommand()
     },
+    onError: (error) => setCommandServerReason(serverFieldMessage(error, 'reason')),
   })
 
   const columns = useMemo<ColumnDef<RequisitionRow, unknown>[]>(() => {
@@ -493,15 +501,27 @@ export default function RequisitionsPage() {
 
   const rejecting = decision?.action === 'reject'
   const reasonRequired = rejecting
-  const reasonTooShort = reason.trim().length < MIN_REASON
+  const reasonTooShort = reason.trim().length < REASON_MIN_LENGTH
+  const reasonTooLong = reason.trim().length > REASON_MAX_LENGTH
+  const reasonInvalid = (reasonRequired && reasonTooShort) || reasonTooLong
 
   const commandCopy = command ? COMMANDS[command.kind] : null
-  const commandTooShort = commandReason.trim().length < MIN_REASON
+  const commandTooShort = commandReason.trim().length < REASON_MIN_LENGTH
+  const commandTooLong = commandReason.trim().length > REASON_MAX_LENGTH
+  const commandInvalid = (Boolean(commandCopy?.reasonRequired) && commandTooShort) || commandTooLong
 
-  const closeCommand = () => {
+  function closeDecision() {
+    setDecision(null)
+    setReason('')
+    setReasonTouched(false)
+    setServerReason(null)
+  }
+
+  function closeCommand() {
     setCommand(null)
     setCommandReason('')
     setCommandTouched(false)
+    setCommandServerReason(null)
   }
 
   return (
@@ -539,14 +559,16 @@ export default function RequisitionsPage() {
         toolbar={
           <>
             <Select
-              value={status || ALL}
-              onValueChange={(value) => setParam('status', value === ALL ? undefined : value)}
+              value={status || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('status', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[190px]" aria-label="Filter by status">
+              <SelectTrigger className="w-full sm:w-[190px]" aria-label="Filter by status">
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All statuses</SelectItem>
+                <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
                 {REQUISITION_STATUSES.map((value) => (
                   <SelectItem key={value} value={value}>
                     {humanise(value)}
@@ -555,28 +577,14 @@ export default function RequisitionsPage() {
               </SelectContent>
             </Select>
 
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="req-required-from" className="text-xs text-muted-foreground">
-                Required from
-              </Label>
-              <Input
-                id="req-required-from"
-                type="date"
-                value={requiredFrom}
-                onChange={(event) => setParam('required_from', event.target.value || undefined)}
-                className="w-[9.5rem]"
-              />
-              <Label htmlFor="req-required-to" className="text-xs text-muted-foreground">
-                To
-              </Label>
-              <Input
-                id="req-required-to"
-                type="date"
-                value={requiredTo}
-                onChange={(event) => setParam('required_to', event.target.value || undefined)}
-                className="w-[9.5rem]"
-              />
-            </div>
+            <DateRangeFilter
+              id="req-required"
+              fromLabel="Required from"
+              from={requiredFrom}
+              to={requiredTo}
+              onFromChange={(value) => setParam('required_from', value || undefined)}
+              onToChange={(value) => setParam('required_to', value || undefined)}
+            />
 
             <div className="flex items-center gap-2">
               <Checkbox
@@ -616,11 +624,7 @@ export default function RequisitionsPage() {
       <ConfirmDialog
         open={Boolean(decision)}
         onOpenChange={(open) => {
-          if (!open) {
-            setDecision(null)
-            setReason('')
-            setReasonTouched(false)
-          }
+          if (!open) closeDecision()
         }}
         title={
           decision
@@ -639,7 +643,7 @@ export default function RequisitionsPage() {
         loading={decide.isPending}
         onConfirm={() => {
           if (!decision) return
-          if (reasonRequired && reasonTooShort) {
+          if (reasonInvalid) {
             setReasonTouched(true)
             return
           }
@@ -653,13 +657,21 @@ export default function RequisitionsPage() {
           <Textarea
             id="requisition-reason"
             value={reason}
-            onChange={(event) => setReason(event.target.value)}
+            maxLength={REASON_MAX_LENGTH}
+            onChange={(event) => {
+              setReason(event.target.value)
+              setServerReason(null)
+            }}
             className="mt-1.5"
-            aria-invalid={reasonRequired && reasonTouched && reasonTooShort}
+            aria-invalid={(reasonTouched && reasonInvalid) || serverReason !== null}
           />
           {reasonRequired && reasonTouched && reasonTooShort && (
             <FieldError message="A rejection needs a recorded reason of at least three characters" />
           )}
+          {reasonTouched && reasonTooLong && (
+            <FieldError message={`At most ${REASON_MAX_LENGTH} characters`} />
+          )}
+          {serverReason !== null && <FieldError message={serverReason} />}
         </div>
       </ConfirmDialog>
 
@@ -675,7 +687,7 @@ export default function RequisitionsPage() {
         loading={run.isPending}
         onConfirm={() => {
           if (!command || !commandCopy) return
-          if (commandCopy.reasonRequired && commandTooShort) {
+          if (commandInvalid) {
             setCommandTouched(true)
             return
           }
@@ -689,17 +701,24 @@ export default function RequisitionsPage() {
           <Textarea
             id="requisition-command-reason"
             value={commandReason}
-            onChange={(event) => setCommandReason(event.target.value)}
+            onChange={(event) => {
+              setCommandReason(event.target.value)
+              setCommandServerReason(null)
+            }}
             // The API caps every one of these at 255 characters, so the field
             // stops there rather than letting the paste be refused.
-            maxLength={255}
+            maxLength={REASON_MAX_LENGTH}
             className="mt-1.5"
-            aria-invalid={Boolean(commandCopy?.reasonRequired) && commandTouched && commandTooShort}
+            aria-invalid={(commandTouched && commandInvalid) || commandServerReason !== null}
           />
           {commandCopy?.reasonRequired && commandTouched && commandTooShort ? (
             <FieldError
-              message={`The API records this - it needs a reason of at least ${MIN_REASON} characters`}
+              message={`The API records this - it needs a reason of at least ${REASON_MIN_LENGTH} characters`}
             />
+          ) : commandTouched && commandTooLong ? (
+            <FieldError message={`At most ${REASON_MAX_LENGTH} characters`} />
+          ) : commandServerReason !== null ? (
+            <FieldError message={commandServerReason} />
           ) : (
             <p className="mt-1 text-xs text-muted-foreground">{commandCopy?.reasonHint}</p>
           )}

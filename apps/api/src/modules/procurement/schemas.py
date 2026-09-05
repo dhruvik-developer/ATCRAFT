@@ -28,10 +28,11 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.core.constants import DEFAULT_CURRENCY
 from src.modules.procurement.models import (
     DEFAULT_PRIORITY,
     MAX_PRIORITY,
@@ -61,6 +62,9 @@ Priority = Annotated[int, Field(ge=MIN_PRIORITY, le=MAX_PRIORITY)]
 Reason = Annotated[str, Field(min_length=3, max_length=255)]
 LeadTimeDays = Annotated[int, Field(ge=0, le=3650)]
 PaymentTermsDays = Annotated[int, Field(ge=0, le=365)]
+#: The pools a purchase return may draw from - ``models.RETURNABLE_STOCK_STATES``
+#: spelled as a literal so the contract enumerates it.
+ReturnStockState = Literal["AVAILABLE", "DAMAGED"]
 
 #: A document with more lines than this is a data-entry accident or a bulk
 #: import that belongs in a job, not an HTTP request. The bound matters because
@@ -258,7 +262,7 @@ class RfqCreate(BaseModel):
     #: every open requisition line becomes an RFQ line.
     requisition_id: uuid.UUID | None = None
     vendor_ids: list[uuid.UUID] = Field(default_factory=list, max_length=50)
-    currency: CurrencyCode = "INR"
+    currency: CurrencyCode = DEFAULT_CURRENCY
     terms: str | None = Field(default=None, max_length=4000)
     notes: str | None = Field(default=None, max_length=4000)
     lines: list[RfqLineIn] | None = None
@@ -388,9 +392,12 @@ class QuotationCreate(BaseModel):
     vendor_reference: Annotated[str, Field(min_length=1, max_length=64)]
     quotation_date: date | None = None
     valid_until: date | None = None
-    currency: CurrencyCode = "INR"
-    payment_terms_days: PaymentTermsDays = 0
-    lead_time_days: LeadTimeDays = 0
+    currency: CurrencyCode = DEFAULT_CURRENCY
+    #: Defaults to the vendor's agreed terms when omitted. ``0`` is a legal,
+    #: meaningful value - an ex-stock quote, or cash on delivery - and is stored
+    #: as sent, never replaced by the vendor master's figure.
+    payment_terms_days: PaymentTermsDays | None = None
+    lead_time_days: LeadTimeDays | None = None
     freight_amount: NonNegativeMoney = Decimal("0")
     terms: str | None = Field(default=None, max_length=4000)
     notes: str | None = Field(default=None, max_length=4000)
@@ -417,6 +424,9 @@ class QuotationUpdate(BaseModel):
     terms: str | None = Field(default=None, max_length=4000)
     notes: str | None = Field(default=None, max_length=4000)
     lines: list[QuotationLineIn] | None = None
+    #: Why the offer is being revised. Recorded on the status change when a
+    #: rejected or lapsed quotation is reopened by the revised offer.
+    reason: str | None = Field(default=None, max_length=255)
 
     @model_validator(mode="after")
     def _check_lines(self) -> QuotationUpdate:
@@ -630,7 +640,7 @@ class PurchaseOrderCreate(BaseModel):
     expected_delivery_date: date | None = None
     branch_id: uuid.UUID | None = None
     priority: Priority = DEFAULT_PRIORITY
-    currency: CurrencyCode = "INR"
+    currency: CurrencyCode = DEFAULT_CURRENCY
     freight_amount: NonNegativeMoney = Decimal("0")
     #: Defaults to the vendor's agreed terms when omitted.
     payment_terms_days: PaymentTermsDays | None = None
@@ -1075,6 +1085,11 @@ class PurchaseReturnLineIn(BaseModel):
     #: was actually accepted and carries the batch the stock came in on.
     goods_receipt_line_id: uuid.UUID
     quantity: PositiveQuantity
+    #: Which pool the quantity leaves: ``AVAILABLE`` (released stock) or
+    #: ``DAMAGED`` (stock an incoming inspection rejected). Omit to let the
+    #: service resolve it from the inspection; give it when a receipt line has
+    #: quantity in both pools and the return must say which one.
+    stock_state: ReturnStockState | None = None
     reason: str | None = Field(default=None, max_length=255)
     notes: str | None = Field(default=None, max_length=2000)
 
@@ -1096,6 +1111,7 @@ class PurchaseReturnLineRead(BaseModel):
     line_total: Decimal
     batch_id: uuid.UUID | None
     location_id: uuid.UUID | None
+    stock_state: ReturnStockState
     reason: str | None
     notes: str | None
 

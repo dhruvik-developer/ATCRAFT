@@ -31,17 +31,13 @@ import { useEffect, useState } from 'react'
 import { ConfirmDialog, FieldError } from '@/components/shared'
 import { Alert, AlertDescription, AlertTitle, Input, Label } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { messages, success } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
 import type { CustomerRow } from './customer-types'
 import { dealerKeys } from './dealer-model'
-
-/** The API's own `min_length` on the reason. Anything shorter is a 422. */
-const MIN_REASON = 3
-
-/** The API's own `max_length`. Held here so the box stops before the wire does. */
-const MAX_REASON = 255
 
 export function RetireCustomerDialog({
   customer,
@@ -56,7 +52,7 @@ export function RetireCustomerDialog({
   const queryClient = useQueryClient()
   const [reason, setReason] = useState('')
   const [touched, setTouched] = useState(false)
-  const tooShort = reason.trim().length < MIN_REASON
+  const tooShort = reason.trim().length < REASON_MIN_LENGTH
 
   const retire = useMutation({
     // `reason` is a query parameter, not a body. See the note above - a DELETE
@@ -71,7 +67,7 @@ export function RetireCustomerDialog({
       // its own key, so the customers prefix does not reach it. A retired dealer
       // left in that cache is a row whose every action now answers 404.
       void queryClient.invalidateQueries({ queryKey: dealerKeys.all })
-      toast.success('Customer retired', `${target.code} - ${target.name}`)
+      toast.success(success.retired('Customer'), `${target.code} - ${target.name}`)
       onOpenChange(false)
     },
   })
@@ -131,13 +127,13 @@ export function RetireCustomerDialog({
             id="customer-retire-reason"
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            maxLength={MAX_REASON}
+            maxLength={REASON_MAX_LENGTH}
             autoComplete="off"
             className="mt-1.5"
             aria-invalid={touched && tooShort}
           />
           {touched && tooShort ? (
-            <FieldError message="Record at least three characters of reason" />
+            <FieldError message={messages.errors.reasonTooShort} />
           ) : (
             <p className="mt-1 text-xs text-muted-foreground">
               Recorded on the audit trail against this account. Bringing it back is a separate,

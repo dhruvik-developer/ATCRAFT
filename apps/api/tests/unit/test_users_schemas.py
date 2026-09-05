@@ -152,10 +152,9 @@ class TestRoleContracts:
     def test_role_filter_rejects_an_unknown_permission(self) -> None:
         with pytest.raises(ValidationError):
             RoleFilters(grants_permission="payment.aprove")
-        assert (
-            RoleFilters(grants_permission=str(Permission.PAYMENT_APPROVE)).grants_permission
-            == str(Permission.PAYMENT_APPROVE)
-        )
+        assert RoleFilters(
+            grants_permission=str(Permission.PAYMENT_APPROVE)
+        ).grants_permission == str(Permission.PAYMENT_APPROVE)
 
 
 class TestReasonCapture:

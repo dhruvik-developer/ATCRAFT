@@ -22,6 +22,7 @@ import pytest
 
 from src.core.errors import ValidationError
 from src.modules.reports.models import (
+    DOCUMENT_ONLY_REPORT_KEYS,
     REPORT_JOB_LIFECYCLE,
     ReportJobStatus,
     ReportKey,
@@ -51,7 +52,20 @@ PERIOD = ReportPeriod(date_from=date(2026, 8, 1), date_to=date(2026, 8, 31))
 
 
 def test_every_report_in_the_vocabulary_has_a_definition() -> None:
-    assert set(REPORT_CATALOGUE) == set(ReportKey)
+    # Every key but the document-only ones: those are rendered by a dedicated
+    # task and have a job row, never a query.
+    assert set(REPORT_CATALOGUE) == set(ReportKey) - DOCUMENT_ONLY_REPORT_KEYS
+
+
+def test_a_document_only_key_has_a_job_row_but_no_definition_and_no_descriptor() -> None:
+    # The packing list is a PDF of one order, not a grid: giving it a definition
+    # would let the catalogue runner count, page and cache rows it does not have,
+    # and listing it in the picker would offer a report nobody can run.
+    assert ReportKey.PACKING_LIST in DOCUMENT_ONLY_REPORT_KEYS
+    offered = {descriptor.key for descriptor in descriptors()}
+    for key in DOCUMENT_ONLY_REPORT_KEYS:
+        assert key not in REPORT_CATALOGUE, f"{key} must not be a catalogue report"
+        assert key not in offered, f"{key} must not appear in the report picker"
 
 
 def test_every_definition_is_filed_under_its_own_key() -> None:

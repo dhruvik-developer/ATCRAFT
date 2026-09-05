@@ -51,7 +51,9 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { useBranchOptions } from '@/hooks/use-organisation-options'
 import { api } from '@/lib/api-client'
+import { DEFAULT_PAGE_SIZE, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
 import { formatNumber, formatQuantity, humanise } from '@/lib/format'
+import { prompts, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -59,9 +61,6 @@ import { indexById } from '@/lib/utils'
 
 import { LocationFormDialog, WarehouseFormDialog } from './warehouse-dialogs'
 import { WAREHOUSE_TYPES, type StorageLocation, type Warehouse } from './warehouse-model'
-
-const ALL = '__all'
-const LOCATION_PAGE_SIZE = 50
 
 // ------------------------------------------------------ locations panel -----
 
@@ -79,7 +78,7 @@ function LocationsPanel({
     queryKey: [...queryKeys.warehouses.detail(warehouse.id), 'locations', page] as const,
     queryFn: () =>
       api.getPage<StorageLocation>(`/warehouses/${warehouse.id}/locations`, {
-        params: { page, limit: LOCATION_PAGE_SIZE },
+        params: { page, limit: DEFAULT_PAGE_SIZE },
       }),
     placeholderData: keepPreviousData,
     staleTime: staleTimes.master,
@@ -138,13 +137,13 @@ function LocationsPanel({
 
   return (
     <Card className="mt-4">
-      <CardHeader className="flex-row items-center justify-between gap-3 space-y-0">
-        <div>
+      <CardHeader className="flex-row flex-wrap items-start justify-between gap-3 space-y-0">
+        <div className="min-w-0 flex-1">
           <CardTitle className="flex items-center gap-2">
             <MapPin className="h-4 w-4 text-muted-foreground" aria-hidden />
             Storage locations
           </CardTitle>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 break-words text-sm text-muted-foreground">
             {warehouse.code} - {warehouse.name}
           </p>
         </div>
@@ -219,7 +218,7 @@ export default function WarehousesPage() {
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.warehouses.all })
       toast.success(
-        saved.is_active ? 'Warehouse activated' : 'Warehouse deactivated',
+        success.statusChanged('Warehouse', saved.is_active ? 'active' : 'inactive'),
         `${saved.code} - ${saved.name}`,
       )
       setStatusTarget(null)
@@ -230,7 +229,7 @@ export default function WarehousesPage() {
     mutationFn: (id: string) => api.post<Warehouse>(`/warehouses/${id}/set-default`),
     onSuccess: (saved) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.warehouses.all })
-      toast.success('Default warehouse updated', `${saved.code} - ${saved.name}`)
+      toast.success(success.updated('Default warehouse'), `${saved.code} - ${saved.name}`)
     },
   })
 
@@ -252,8 +251,8 @@ export default function WarehousesPage() {
 
   const confirmStatusChange = () => {
     if (!statusTarget) return
-    if (reason.trim().length < 3) {
-      setReasonError('Give a reason of at least 3 characters - it is kept in the audit trail.')
+    if (reason.trim().length < REASON_MIN_LENGTH) {
+      setReasonError(prompts.reasonRequired)
       return
     }
     statusMutation.mutate({
@@ -441,16 +440,16 @@ export default function WarehousesPage() {
         toolbar={
           <>
             <Select
-              value={warehouseType || ALL}
+              value={warehouseType || SELECT_ALL}
               onValueChange={(value) =>
-                setParam('warehouse_type', value === ALL ? undefined : value)
+                setParam('warehouse_type', value === SELECT_ALL ? undefined : value)
               }
             >
-              <SelectTrigger className="w-[190px]" aria-label="Filter by warehouse type">
+              <SelectTrigger className="w-full sm:w-[190px]" aria-label="Filter by warehouse type">
                 <SelectValue placeholder="All types" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All types</SelectItem>
+                <SelectItem value={SELECT_ALL}>All types</SelectItem>
                 {WAREHOUSE_TYPES.map((type) => (
                   <SelectItem key={type} value={type}>
                     {humanise(type)}
@@ -460,14 +459,16 @@ export default function WarehousesPage() {
             </Select>
 
             <Select
-              value={activeState || ALL}
-              onValueChange={(value) => setParam('is_active', value === ALL ? undefined : value)}
+              value={activeState || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('is_active', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[150px]" aria-label="Filter by status">
+              <SelectTrigger className="w-full sm:w-[150px]" aria-label="Filter by status">
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All statuses</SelectItem>
+                <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
                 <SelectItem value="true">Active only</SelectItem>
                 <SelectItem value="false">Inactive only</SelectItem>
               </SelectContent>

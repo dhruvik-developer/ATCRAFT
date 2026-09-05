@@ -115,12 +115,17 @@ async def record_audit(
     old_values: dict[str, Any] | None = None,
     new_values: dict[str, Any] | None = None,
     context: dict[str, Any] | None = None,
+    flush: bool = True,
 ) -> AuditLog:
     """Append one audit entry to the current transaction.
 
     Does not commit - the caller's :func:`~src.core.database.transaction` block
-    owns that. ``flush`` is deliberate so a constraint violation surfaces here
-    rather than at an unrelated point later in the request.
+    owns that. Flushes by default so a constraint violation surfaces here
+    rather than at an unrelated point later in the request. A caller may pass
+    ``flush=False`` only when it flushes itself before its ``transaction()``
+    block exits, so the violation still surfaces inside the same operation -
+    the inventory posting loop does this to write one flush for a whole
+    document's audit rows.
     """
     if old_values is not None or new_values is not None:
         old_clean, new_clean, changed = diff_values(old_values, new_values)
@@ -145,7 +150,8 @@ async def record_audit(
         user_agent=user_agent_ctx.get(),
     )
     session.add(entry)
-    await session.flush()
+    if flush:
+        await session.flush()
     return entry
 
 
@@ -161,6 +167,7 @@ async def record_status_change(
     user_id: uuid.UUID | None,
     action: AuditAction = AuditAction.STATUS_CHANGE,
     reason: str | None = None,
+    flush: bool = True,
 ) -> AuditLog:
     """Record a state-machine transition (sections 17/73).
 
@@ -179,6 +186,7 @@ async def record_status_change(
         old_values={"status": from_status},
         new_values={"status": to_status},
         context={"reason": reason} if reason else None,
+        flush=flush,
     )
 
 

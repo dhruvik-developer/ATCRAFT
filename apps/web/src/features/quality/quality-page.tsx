@@ -14,11 +14,11 @@
 
 import { type ColumnDef } from '@tanstack/react-table'
 import { BarChart3, ClipboardCheck, ClipboardList, ExternalLink, Microscope, X } from 'lucide-react'
-import { useCallback, useMemo, useState } from 'react'
+import { Suspense, lazy, useCallback, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { PageHeader, StatusBadge } from '@/components/shared'
+import { PageHeader, PanelLoader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -34,12 +34,16 @@ import {
 import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatQuantity, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
 import { InspectionDialog } from './inspection-dialog'
-import { QualityReports } from './quality-reports'
+
+const QualityReports = lazy(() =>
+  import('./quality-reports').then((m) => ({ default: m.QualityReports })),
+)
 import {
   QC_DECIDED_RESULTS,
   QC_STAGES,
@@ -48,9 +52,6 @@ import {
   referenceLink,
   type QcInspectionRow,
 } from './quality-types'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /**
  * The pending queue has no key in the shared registry. Nesting it under
@@ -249,14 +250,14 @@ function PendingTab({ onInspect }: { onInspect: (inspection: QcInspectionRow) =>
       toolbar={
         <>
           <Select
-            value={stage || ALL}
-            onValueChange={(value) => setParam('stage', value === ALL ? undefined : value)}
+            value={stage || SELECT_ALL}
+            onValueChange={(value) => setParam('stage', value === SELECT_ALL ? undefined : value)}
           >
-            <SelectTrigger className="w-[180px]" aria-label="Filter by stage">
+            <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by stage">
               <SelectValue placeholder="All stages" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>All stages</SelectItem>
+              <SelectItem value={SELECT_ALL}>All stages</SelectItem>
               {QC_STAGES.map((value) => (
                 <SelectItem key={value} value={value}>
                   {humanise(value)}
@@ -471,14 +472,14 @@ function InspectionsTab({ onInspect }: { onInspect: (inspection: QcInspectionRow
       toolbar={
         <>
           <Select
-            value={stage || ALL}
-            onValueChange={(value) => setParam('stage', value === ALL ? undefined : value)}
+            value={stage || SELECT_ALL}
+            onValueChange={(value) => setParam('stage', value === SELECT_ALL ? undefined : value)}
           >
-            <SelectTrigger className="w-[180px]" aria-label="Filter by stage">
+            <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by stage">
               <SelectValue placeholder="All stages" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>All stages</SelectItem>
+              <SelectItem value={SELECT_ALL}>All stages</SelectItem>
               {QC_STAGES.map((value) => (
                 <SelectItem key={value} value={value}>
                   {humanise(value)}
@@ -488,14 +489,14 @@ function InspectionsTab({ onInspect }: { onInspect: (inspection: QcInspectionRow
           </Select>
 
           <Select
-            value={result || ALL}
-            onValueChange={(value) => setParam('result', value === ALL ? undefined : value)}
+            value={result || SELECT_ALL}
+            onValueChange={(value) => setParam('result', value === SELECT_ALL ? undefined : value)}
           >
-            <SelectTrigger className="w-[170px]" aria-label="Filter by result">
+            <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by result">
               <SelectValue placeholder="All results" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>All results</SelectItem>
+              <SelectItem value={SELECT_ALL}>All results</SelectItem>
               {QC_DECIDED_RESULTS.map((value) => (
                 <SelectItem key={value} value={value}>
                   {humanise(value)}
@@ -505,11 +506,7 @@ function InspectionsTab({ onInspect }: { onInspect: (inspection: QcInspectionRow
           </Select>
 
           {filterCount > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={clearFilters}
-            >
+            <Button variant="ghost" size="sm" onClick={clearFilters}>
               <X />
               Clear
             </Button>
@@ -572,7 +569,11 @@ export default function QualityPage() {
           <InspectionsTab onInspect={setInspecting} />
         </TabsContent>
         <TabsContent value="reports">
-          <QualityReports />
+          {/* The only charting tab here, and not the default one - lazy so
+              recharts stays out of the quality page's chunk. */}
+          <Suspense fallback={<PanelLoader />}>
+            <QualityReports />
+          </Suspense>
         </TabsContent>
       </Tabs>
 

@@ -7,8 +7,9 @@ the application (master rules section 74).
 
 from __future__ import annotations
 
+import asyncio
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -40,6 +41,34 @@ from src.core.registry import import_all_models
 
 log = get_logger("app")
 
+# Docker gives the readiness probe five seconds.  Leave enough headroom for the
+# HTTP round trip and for a worker under load instead of allowing a dependency's
+# own (longer) connection timeout to consume the whole probe window.
+DEPENDENCY_CHECK_TIMEOUT_SECONDS = 2.0
+
+# Every header the browser client sends on a request and reads off a response.
+# CORS only matters when the SPA is served from a different origin than the
+# API - the same-origin nginx topology never preflights - which is exactly the
+# deployment where an omission here is first noticed: the CSRF header the
+# client attaches to every mutating request was missing, so every cross-origin
+# POST/PUT/PATCH/DELETE would have been refused at the preflight and the SPA
+# could read but never write.
+CORS_ALLOWED_REQUEST_HEADERS = [
+    "Authorization",
+    "Content-Type",
+    "X-Request-ID",
+    "Idempotency-Key",
+    "X-CSRF-Token",
+]
+# The 429 handling the client implements reads Retry-After and the limit.
+CORS_EXPOSED_RESPONSE_HEADERS = [
+    "X-Request-ID",
+    "X-Response-Time-ms",
+    "X-RateLimit-Limit",
+    "X-RateLimit-Remaining",
+    "Retry-After",
+]
+
 DESCRIPTION = """
 Manufacturing ERP for architectural hardware: inventory, multi-level BOM,
 allocation, MRP, procurement, production, assembly, job work, quality, packing
@@ -53,6 +82,22 @@ and dispatch.
 * Authorisation is permission-based and enforced server-side on every route.
 * Long-running work (MRP, exports, large reports) returns a job id to poll.
 """
+
+
+async def _dependency_readiness() -> tuple[bool, bool]:
+    """Check Postgres and Redis concurrently, with a bound on each check."""
+
+    async def bounded(check: Callable[[], Awaitable[bool]]) -> bool:
+        try:
+            return await asyncio.wait_for(check(), timeout=DEPENDENCY_CHECK_TIMEOUT_SECONDS)
+        except TimeoutError:
+            return False
+
+    database_ok, redis_ok = await asyncio.gather(
+        bounded(check_database_ready),
+        bounded(check_redis_ready),
+    )
+    return database_ok, redis_ok
 
 
 @asynccontextmanager
@@ -81,8 +126,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         debug=settings.app_debug,
     )
 
-    db_ok = await check_database_ready()
-    redis_ok = await check_redis_ready()
+    db_ok, redis_ok = await _dependency_readiness()
     if not db_ok:
         log.warning(
             "app.startup_database_unreachable", hint="readiness stays false until it responds"
@@ -105,16 +149,16 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
         # Interactive docs are disabled in production: the schema is an accurate
         # map of every endpoint and its permissions.
-        docs_url=None if settings.is_production else "/docs",
-        redoc_url=None if settings.is_production else "/redoc",
-        openapi_url=None if settings.is_production else "/openapi.json",
+        docs_url=None if settings.is_deployed else "/docs",
+        redoc_url=None if settings.is_deployed else "/redoc",
+        openapi_url=None if settings.is_deployed else "/openapi.json",
         swagger_ui_parameters={"persistAuthorization": True, "docExpansion": "none"},
     )
 
     # Middleware runs bottom-up: the last one added is the outermost. Request
-    # context must be outermost so every log line and error carries the id.
-    if settings.is_production:
-        app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
+    # context wraps the application middleware so accepted requests and errors
+    # carry an id. Trusted-host validation is registered last below so rejected
+    # Host headers do not reach any of this request-processing stack.
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_upload_size_bytes)
@@ -124,8 +168,8 @@ def create_app() -> FastAPI:
         allow_origins=settings.cors_origin_list,
         allow_credentials=settings.cors_allow_credentials,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Idempotency-Key"],
-        expose_headers=["X-Request-ID", "X-Response-Time-ms", "X-RateLimit-Remaining"],
+        allow_headers=CORS_ALLOWED_REQUEST_HEADERS,
+        expose_headers=CORS_EXPOSED_RESPONSE_HEADERS,
         max_age=600,
     )
     app.add_middleware(RequestContextMiddleware)
@@ -145,8 +189,7 @@ def create_app() -> FastAPI:
     @app.get("/health/ready", tags=["Health"], include_in_schema=False)
     async def readiness(response: Response) -> dict[str, Any]:
         """Can this instance serve traffic? Checks the actual dependencies."""
-        database_ok = await check_database_ready()
-        redis_ok = await check_redis_ready()
+        database_ok, redis_ok = await _dependency_readiness()
         ready = database_ok and redis_ok
         if not ready:
             response.status_code = 503
@@ -176,6 +219,12 @@ def create_app() -> FastAPI:
             ).inc()
             http_request_duration.labels(method=request.method, route=template).observe(elapsed)
         return response
+
+    # This must remain the final user-middleware registration. Starlette wraps
+    # later additions around earlier ones, so this places host validation ahead
+    # of metrics, request context, CORS, rate limiting, and body processing.
+    if settings.is_deployed:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_host_list)
 
     return app
 

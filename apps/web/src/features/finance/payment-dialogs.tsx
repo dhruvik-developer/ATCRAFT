@@ -63,6 +63,7 @@ import type { VendorRow } from '@/features/vendors/vendor-types'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatDateTime, formatMoney, toDateInput, toDecimal } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -72,6 +73,7 @@ import {
   canSettleInvoices,
   isPayableInvoice,
   MAX_ALLOCATIONS,
+  MAX_REASON_LENGTH,
   MIN_REASON_LENGTH,
   paymentKeys,
   PAYMENT_COMMANDS,
@@ -80,6 +82,7 @@ import {
   PAYMENT_PARTY_LABELS,
   PAYMENT_PARTY_SIDES,
   PAYMENT_TYPE_LABELS,
+  PAYMENT_TYPE_SHORT,
   PAYMENT_TYPES,
   sumAmounts,
   unallocatedAfter,
@@ -87,8 +90,10 @@ import {
   type PaymentCommand,
   type PaymentCreateBody,
   type PaymentDetail,
+  type PaymentPartySide,
   type PaymentPartyType,
   type PaymentRow,
+  type PaymentType,
   type PaymentUpdateBody,
 } from './payment-model'
 
@@ -154,26 +159,52 @@ function PartyName({ partyType, partyId }: { partyType: PaymentPartyType; partyI
 
 // ----------------------------------------------------------- record/amend ----
 
-const paymentFormSchema = z.object({
-  payment_type: enumOf(PAYMENT_TYPES),
-  party_type: enumOf(PAYMENT_PARTY_SIDES),
-  party_id: z.string().min(1, 'Choose who this money is with'),
-  payment_date: z.string().min(1, 'A payment needs a date'),
-  amount: z
-    .string()
-    .trim()
-    .regex(MONEY, 'An amount with up to two decimal places')
-    .refine((value) => toDecimal(value).greaterThan(0), 'The amount must be more than zero'),
-  currency: z
-    .string()
-    .trim()
-    .regex(/^([A-Za-z]{3})?$/, 'A three-letter code, or blank for the company currency'),
-  payment_method: enumOf(PAYMENT_METHODS),
-  reference_number: z.string().trim().max(64, 'At most 64 characters'),
-  bank_name: z.string().trim().max(120, 'At most 120 characters'),
-  instrument_date: z.string(),
-  notes: z.string().trim().max(2000, 'At most 2000 characters'),
-})
+/**
+ * The side a direction is recorded against.
+ *
+ * `PaymentCreate._party_matches_direction` on the server: a payment goes to a
+ * vendor and a receipt comes from a customer. The inverse pairings describe a
+ * refund, which is a different document with different accounting, and the
+ * API refuses them.
+ */
+const partySideFor = (paymentType: PaymentType): PaymentPartySide =>
+  paymentType === 'RECEIPT' ? 'CUSTOMER' : 'VENDOR'
+
+const paymentFormSchema = z
+  .object({
+    payment_type: enumOf(PAYMENT_TYPES),
+    party_type: enumOf(PAYMENT_PARTY_SIDES),
+    party_id: z.string().min(1, 'Choose who this money is with'),
+    payment_date: z.string().min(1, 'A payment needs a date'),
+    amount: z
+      .string()
+      .trim()
+      .regex(MONEY, 'An amount with up to two decimal places')
+      .refine((value) => toDecimal(value).greaterThan(0), 'The amount must be more than zero'),
+    currency: z
+      .string()
+      .trim()
+      .regex(/^([A-Za-z]{3})?$/, 'A three-letter code, or blank for the company currency'),
+    payment_method: enumOf(PAYMENT_METHODS),
+    reference_number: z.string().trim().max(64, 'At most 64 characters'),
+    bank_name: z.string().trim().max(120, 'At most 120 characters'),
+    instrument_date: z.string(),
+    notes: z.string().trim().max(2000, 'At most 2000 characters'),
+  })
+  .superRefine((values, ctx) => {
+    // The server refuses the inverse pairing as a model-level 422, which
+    // arrives under `_root` - a key no field on this form reads - while the
+    // global toast stays quiet for a 422 that carries field errors. Said here
+    // instead, on the side that is wrong, before the round trip.
+    const expected = partySideFor(values.payment_type)
+    if (values.party_type !== expected) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['party_type'],
+        message: `A ${PAYMENT_TYPE_SHORT[values.payment_type].toLowerCase()} is recorded against a ${PAYMENT_PARTY_LABELS[expected].toLowerCase()}, not a ${PAYMENT_PARTY_LABELS[values.party_type].toLowerCase()}.`,
+      })
+    }
+  })
 
 type PaymentFormValues = z.infer<typeof paymentFormSchema>
 
@@ -309,7 +340,7 @@ export function PaymentFormDialog({
       // the ageing report and the payables register are untouched.
       void queryClient.invalidateQueries({ queryKey: paymentKeys.all })
       toast.success(
-        isEdit ? 'Payment amended' : 'Payment recorded',
+        isEdit ? success.updated('Payment') : success.created('Payment'),
         `${saved.code} is in draft until it is approved.`,
       )
       onOpenChange(false)
@@ -377,7 +408,21 @@ export function PaymentFormDialog({
                           control={control}
                           name="payment_type"
                           render={({ field }) => (
-                            <Select value={field.value} onValueChange={field.onChange}>
+                            <Select
+                              value={field.value}
+                              onValueChange={(next) => {
+                                field.onChange(next)
+                                // The side follows the direction - a payment
+                                // goes to a vendor, a receipt comes from a
+                                // customer - and the party chosen under the
+                                // previous side goes with it.
+                                const side = partySideFor(next as PaymentType)
+                                if (side !== partyType) {
+                                  setValue('party_type', side)
+                                  setValue('party_id', '')
+                                }
+                              }}
+                            >
                               <SelectTrigger id="payment-direction" className="mt-1.5">
                                 <SelectValue />
                               </SelectTrigger>
@@ -411,7 +456,11 @@ export function PaymentFormDialog({
                                 setValue('party_id', '')
                               }}
                             >
-                              <SelectTrigger id="payment-party-type" className="mt-1.5">
+                              <SelectTrigger
+                                id="payment-party-type"
+                                className="mt-1.5"
+                                aria-invalid={Boolean(errors.party_type)}
+                              >
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -424,6 +473,7 @@ export function PaymentFormDialog({
                             </Select>
                           )}
                         />
+                        <FieldError message={errors.party_type?.message} />
                       </div>
 
                       <div className="sm:col-span-2">
@@ -606,6 +656,10 @@ export function PaymentFormDialog({
                 )}
               </>
             )}
+
+            {/* A refusal of the whole body - the party on the wrong side of the
+                direction, say - names no field and lands on `root`. */}
+            <FieldError message={errors.root?.message} />
           </DialogBody>
 
           <DialogFooter>
@@ -740,51 +794,54 @@ export function PaymentDetailDialog({
                       : 'Nothing is settled from this payment yet. Approve it, then settle it against the vendor invoices it pays.'}
                   </p>
                 ) : (
-                  <table className="w-full text-sm">
-                    <caption className="sr-only">Invoices settled by {payment.code}</caption>
-                    <thead>
-                      <tr className="border-b">
-                        <th
-                          scope="col"
-                          className="py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                        >
-                          Invoice
-                        </th>
-                        <th
-                          scope="col"
-                          className="py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                        >
-                          Note
-                        </th>
-                        <th
-                          scope="col"
-                          className="py-1.5 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                        >
-                          Settled
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {allocations.map((allocation) => (
-                        <tr key={allocation.id} className="border-b last:border-0">
-                          <td className="py-1.5">
-                            <span className="block">
-                              {allocation.vendor_invoice_number ?? allocation.invoice_code ?? '-'}
-                            </span>
-                            <span className="block font-mono text-2xs text-muted-foreground">
-                              {allocation.invoice_code ?? allocation.vendor_invoice_id.slice(0, 8)}
-                            </span>
-                          </td>
-                          <td className="py-1.5 text-xs text-muted-foreground">
-                            {allocation.notes ?? '-'}
-                          </td>
-                          <td className="py-1.5 text-right tabular">
-                            {formatMoney(allocation.amount, { currency })}
-                          </td>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <caption className="sr-only">Invoices settled by {payment.code}</caption>
+                      <thead>
+                        <tr className="border-b">
+                          <th
+                            scope="col"
+                            className="py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                          >
+                            Invoice
+                          </th>
+                          <th
+                            scope="col"
+                            className="py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                          >
+                            Note
+                          </th>
+                          <th
+                            scope="col"
+                            className="py-1.5 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                          >
+                            Settled
+                          </th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {allocations.map((allocation) => (
+                          <tr key={allocation.id} className="border-b last:border-0">
+                            <td className="py-1.5">
+                              <span className="block break-all">
+                                {allocation.vendor_invoice_number ?? allocation.invoice_code ?? '-'}
+                              </span>
+                              <span className="block font-mono text-2xs text-muted-foreground">
+                                {allocation.invoice_code ??
+                                  allocation.vendor_invoice_id.slice(0, 8)}
+                              </span>
+                            </td>
+                            <td className="py-1.5 text-xs text-muted-foreground">
+                              {allocation.notes ?? '-'}
+                            </td>
+                            <td className="whitespace-nowrap py-1.5 text-right tabular">
+                              {formatMoney(allocation.amount, { currency })}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </section>
             </>
@@ -825,6 +882,13 @@ interface DraftLine {
 }
 
 type Draft = Record<string, DraftLine>
+
+/**
+ * Open invoices offered per page inside the settlement dialog. Smaller than a
+ * list screen's default: the candidate table shares a modal with the draft
+ * above it, and a vendor rarely has more open bills than this at once.
+ */
+const INVOICE_PICK_PAGE_SIZE = 25
 
 function seedDraft(payment: PaymentDetail): Draft {
   const seeded: Draft = {}
@@ -879,7 +943,7 @@ export function PaymentAllocationDialog({
   const [draft, setDraft] = useState<Draft>({})
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
-  const [limit, setLimit] = useState(25)
+  const [limit, setLimit] = useState(INVOICE_PICK_PAGE_SIZE)
   const seededFor = useRef<string | null>(null)
 
   const detail = useQuery({
@@ -1034,7 +1098,7 @@ export function PaymentAllocationDialog({
       // the outstanding report and the ageing all read those figures.
       void queryClient.invalidateQueries({ queryKey: financeKeys.all })
       toast.success(
-        'Settlement saved',
+        success.saved('Settlement'),
         `${updated.code} now settles ${formatMoney(updated.allocated_amount, { currency: updated.currency })}.`,
       )
       onClose()
@@ -1200,111 +1264,113 @@ export function PaymentAllocationDialog({
                     fills itself in to whatever this payment has left.
                   </p>
                 ) : (
-                  <table className="w-full text-sm">
-                    <caption className="sr-only">
-                      Invoices this payment will settle when saved
-                    </caption>
-                    <thead>
-                      <tr className="border-b">
-                        <th
-                          scope="col"
-                          className="py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                        >
-                          Invoice
-                        </th>
-                        <th
-                          scope="col"
-                          className="py-1.5 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                        >
-                          Outstanding
-                        </th>
-                        <th
-                          scope="col"
-                          className="py-1.5 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                        >
-                          Settle
-                        </th>
-                        <th
-                          scope="col"
-                          className="py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                        >
-                          Note
-                        </th>
-                        <th scope="col" className="w-10">
-                          <span className="sr-only">Remove</span>
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {draftEntries.map(([invoiceId, line]) => {
-                        const label = line.number ?? line.code ?? invoiceId.slice(0, 8)
-                        return (
-                          <tr key={invoiceId} className="border-b last:border-0">
-                            <td className="py-1.5 pr-2">
-                              <span className="block">{label}</span>
-                              <span className="block font-mono text-2xs text-muted-foreground">
-                                {line.code ?? invoiceId.slice(0, 8)}
-                              </span>
-                            </td>
-                            <td className="py-1.5 pr-2 text-right tabular">
-                              {line.outstanding === null ? (
-                                <span
-                                  className="text-2xs text-muted-foreground"
-                                  title="An allocation row does not carry the invoice's outstanding; the server checks it when you save."
-                                >
-                                  Not reported
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[32rem] text-sm">
+                      <caption className="sr-only">
+                        Invoices this payment will settle when saved
+                      </caption>
+                      <thead>
+                        <tr className="border-b">
+                          <th
+                            scope="col"
+                            className="py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                          >
+                            Invoice
+                          </th>
+                          <th
+                            scope="col"
+                            className="py-1.5 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                          >
+                            Outstanding
+                          </th>
+                          <th
+                            scope="col"
+                            className="py-1.5 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                          >
+                            Settle
+                          </th>
+                          <th
+                            scope="col"
+                            className="py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                          >
+                            Note
+                          </th>
+                          <th scope="col" className="w-10">
+                            <span className="sr-only">Remove</span>
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {draftEntries.map(([invoiceId, line]) => {
+                          const label = line.number ?? line.code ?? invoiceId.slice(0, 8)
+                          return (
+                            <tr key={invoiceId} className="border-b last:border-0">
+                              <td className="py-1.5 pr-2">
+                                <span className="block">{label}</span>
+                                <span className="block font-mono text-2xs text-muted-foreground">
+                                  {line.code ?? invoiceId.slice(0, 8)}
                                 </span>
-                              ) : (
-                                formatMoney(line.outstanding, {
-                                  currency: line.currency ?? currency,
-                                })
-                              )}
-                            </td>
-                            <td className="py-1.5 pr-2 text-right">
-                              <Input
-                                inputMode="decimal"
-                                autoComplete="off"
-                                value={line.amount}
-                                aria-label={`Amount settled against ${label}`}
-                                aria-invalid={!MONEY.test(line.amount.trim())}
-                                className="h-8 w-32 text-right tabular"
-                                onChange={(event) =>
-                                  setDraft((current) => ({
-                                    ...current,
-                                    [invoiceId]: { ...line, amount: event.target.value },
-                                  }))
-                                }
-                              />
-                            </td>
-                            <td className="py-1.5 pr-2">
-                              <Input
-                                value={line.notes}
-                                maxLength={2000}
-                                aria-label={`Note against ${label}`}
-                                className="h-8"
-                                onChange={(event) =>
-                                  setDraft((current) => ({
-                                    ...current,
-                                    [invoiceId]: { ...line, notes: event.target.value },
-                                  }))
-                                }
-                              />
-                            </td>
-                            <td className="py-1.5 text-right">
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                aria-label={`Release ${label} from this payment`}
-                                onClick={() => removeLine(invoiceId)}
-                              >
-                                <Trash2 />
-                              </Button>
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
+                              </td>
+                              <td className="py-1.5 pr-2 text-right tabular">
+                                {line.outstanding === null ? (
+                                  <span
+                                    className="text-2xs text-muted-foreground"
+                                    title="An allocation row does not carry the invoice's outstanding; the server checks it when you save."
+                                  >
+                                    Not reported
+                                  </span>
+                                ) : (
+                                  formatMoney(line.outstanding, {
+                                    currency: line.currency ?? currency,
+                                  })
+                                )}
+                              </td>
+                              <td className="py-1.5 pr-2 text-right">
+                                <Input
+                                  inputMode="decimal"
+                                  autoComplete="off"
+                                  value={line.amount}
+                                  aria-label={`Amount settled against ${label}`}
+                                  aria-invalid={!MONEY.test(line.amount.trim())}
+                                  className="h-8 w-32 text-right tabular"
+                                  onChange={(event) =>
+                                    setDraft((current) => ({
+                                      ...current,
+                                      [invoiceId]: { ...line, amount: event.target.value },
+                                    }))
+                                  }
+                                />
+                              </td>
+                              <td className="py-1.5 pr-2">
+                                <Input
+                                  value={line.notes}
+                                  maxLength={2000}
+                                  aria-label={`Note against ${label}`}
+                                  className="h-8"
+                                  onChange={(event) =>
+                                    setDraft((current) => ({
+                                      ...current,
+                                      [invoiceId]: { ...line, notes: event.target.value },
+                                    }))
+                                  }
+                                />
+                              </td>
+                              <td className="py-1.5 text-right">
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  aria-label={`Release ${label} from this payment`}
+                                  onClick={() => removeLine(invoiceId)}
+                                >
+                                  <Trash2 />
+                                </Button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </section>
 
@@ -1440,11 +1506,13 @@ export function PaymentCommandDialog({
       }
       toast.success(
         {
-          approve: 'Payment approved',
-          cancel: 'Payment cancelled and reversed',
-          delete: 'Draft payment deleted',
+          approve: success.approved('Payment'),
+          cancel: success.cancelled('Payment'),
+          delete: success.deleted('Draft payment'),
         }[command ?? 'approve'],
-        payment?.code,
+        command === 'cancel' && payment
+          ? `${payment.code} - the posting was reversed in the journal.`
+          : payment?.code,
       )
       onClose()
     },
@@ -1452,6 +1520,17 @@ export function PaymentCommandDialog({
 
   const tooShort = reason.trim().length < MIN_REASON_LENGTH
   const reasonRequired = copy?.reason === 'required'
+  /**
+   * Whether the box holds something the endpoint would refuse.
+   *
+   * A required reason must clear three characters. An optional one may be left
+   * blank - that sends no body at all - but once written it travels inside a
+   * `ReasonRequest`, and the same bound applies. A two-character note would
+   * otherwise go out, come back a 422 with a field error, and vanish: the
+   * mutation cache stays quiet for field errors on the understanding that a
+   * form shows them, and this dialog has no form to do so.
+   */
+  const reasonUnusable = tooShort && (reasonRequired || reason.trim() !== '')
 
   return (
     <ConfirmDialog
@@ -1471,7 +1550,7 @@ export function PaymentCommandDialog({
       destructive={copy?.destructive}
       loading={run.isPending}
       onConfirm={() => {
-        if (reasonRequired && tooShort) {
+        if (reasonUnusable) {
           setTouched(true)
           return
         }
@@ -1487,17 +1566,17 @@ export function PaymentCommandDialog({
           value={reason}
           onChange={(event) => setReason(event.target.value)}
           autoComplete="off"
-          maxLength={500}
+          maxLength={MAX_REASON_LENGTH}
           className="mt-1.5"
-          aria-invalid={reasonRequired && touched && tooShort}
+          aria-invalid={touched && reasonUnusable}
         />
-        {reasonRequired && touched && tooShort ? (
+        {touched && reasonUnusable ? (
           <FieldError message={`Record at least ${MIN_REASON_LENGTH} characters of reason`} />
         ) : (
           <p className="mt-1 text-xs text-muted-foreground">
             {reasonRequired
               ? 'Kept in the audit log against this document.'
-              : 'Left blank, the approval is recorded without one.'}
+              : `Left blank, the approval is recorded without one; a reason that is written must run to at least ${MIN_REASON_LENGTH} characters.`}
           </p>
         )}
       </div>

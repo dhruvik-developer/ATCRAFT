@@ -151,9 +151,7 @@ class TestInvoiceStatusFromMoney:
 class TestPaymentStatusFromAllocation:
     def test_unallocated_money_stays_approved(self) -> None:
         assert (
-            payment_status_after_allocation(
-                amount=Decimal("5000"), allocated_amount=Decimal("0")
-            )
+            payment_status_after_allocation(amount=Decimal("5000"), allocated_amount=Decimal("0"))
             is PaymentStatus.APPROVED
         )
 

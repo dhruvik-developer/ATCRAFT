@@ -37,27 +37,26 @@ import {
   SelectValue,
 } from '@/components/ui/overlays'
 import { Alert, AlertDescription, Input, Label, Textarea } from '@/components/ui/primitives'
+import { useUserOptions } from '@/hooks/use-user-options'
 import { api } from '@/lib/api-client'
+import { REASON_MAX_LENGTH, SELECT_NONE } from '@/lib/constants'
 import { formatDateTime, humanise } from '@/lib/format'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { success } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
-import { useOperatorOptions } from './production-model'
 import {
   MAX_NOTES_LENGTH,
-  MAX_REASON_LENGTH,
   MAX_SHIFT_LENGTH,
   optionLabel,
-  useMachineOptions,
+  useWorkCentreMachineOptions,
   type WorkOrder,
   type WorkOrderTransition,
   type WorkOrderTransitionPayload,
   type WorkOrderUpdatePayload,
 } from './work-order-model'
-
-/** Radix Select forbids an empty option value, so "nobody" needs a sentinel. */
-const NONE = '__none'
+import type { OperatorOption } from './production-model'
 
 /** `datetime-local` wants `yyyy-MM-ddTHH:mm` in the browser's own zone. */
 function toDateTimeInput(value: string | null | undefined): string {
@@ -102,8 +101,8 @@ type AssignFormValues = z.infer<typeof assignSchema>
 
 function formValues(workOrder: WorkOrder): AssignFormValues {
   return {
-    operator_user_id: workOrder.operator_user_id ?? NONE,
-    machine_id: workOrder.machine_id ?? NONE,
+    operator_user_id: workOrder.operator_user_id ?? SELECT_NONE,
+    machine_id: workOrder.machine_id ?? SELECT_NONE,
     shift: workOrder.shift ?? '',
     planned_start_at: toDateTimeInput(workOrder.planned_start_at),
     planned_end_at: toDateTimeInput(workOrder.planned_end_at),
@@ -127,10 +126,10 @@ function formValues(workOrder: WorkOrder): AssignFormValues {
 function buildChanges(workOrder: WorkOrder, values: AssignFormValues): WorkOrderUpdatePayload {
   const changes: WorkOrderUpdatePayload = {}
 
-  const operator = values.operator_user_id === NONE ? null : values.operator_user_id
+  const operator = values.operator_user_id === SELECT_NONE ? null : values.operator_user_id
   if (operator !== workOrder.operator_user_id) changes.operator_user_id = operator
 
-  const machine = values.machine_id === NONE ? null : values.machine_id
+  const machine = values.machine_id === SELECT_NONE ? null : values.machine_id
   if (machine !== workOrder.machine_id) changes.machine_id = machine
 
   const shift = orNull(values.shift)
@@ -185,8 +184,8 @@ export function WorkOrderAssignDialog({
     if (workOrder) reset(formValues(workOrder))
   }, [workOrder, reset])
 
-  const operators = useOperatorOptions(Boolean(workOrder))
-  const machines = useMachineOptions(workOrder?.work_center_id)
+  const operators = useUserOptions<OperatorOption>({ enabled: Boolean(workOrder) })
+  const machines = useWorkCentreMachineOptions(workOrder?.work_center_id)
 
   const operatorRows = operators.data ?? []
   const machineRows = machines.data ?? []
@@ -215,7 +214,7 @@ export function WorkOrderAssignDialog({
     },
     onSuccess: (updated) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.production.all })
-      toast.success('Operation updated', `${updated.code} - ${updated.operation_name}`)
+      toast.success(success.updated('Operation'), `${updated.code} - ${updated.operation_name}`)
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),
@@ -264,7 +263,7 @@ export function WorkOrderAssignDialog({
                       <SelectValue placeholder="Unassigned" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={NONE}>Unassigned</SelectItem>
+                      <SelectItem value={SELECT_NONE}>Unassigned</SelectItem>
                       {unresolvedOperator && (
                         <SelectItem value={unresolvedOperator}>
                           Currently assigned (name unavailable)
@@ -293,7 +292,7 @@ export function WorkOrderAssignDialog({
                       <SelectValue placeholder="Any machine in the cell" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={NONE}>Any machine in the cell</SelectItem>
+                      <SelectItem value={SELECT_NONE}>Any machine in the cell</SelectItem>
                       {unresolvedMachine && (
                         <SelectItem value={unresolvedMachine}>
                           Currently assigned (name unavailable)
@@ -444,7 +443,10 @@ export function WorkOrderTransitionDialog({
       // Starting or completing an operation changes the job's open-operation
       // count and the load on its cell, so the whole production branch goes.
       void queryClient.invalidateQueries({ queryKey: queryKeys.production.all })
-      toast.success('Operation updated', `${updated.code} is now ${humanise(updated.status)}.`)
+      toast.success(
+        success.statusChanged('Operation', humanise(updated.status)),
+        `${updated.code} - ${updated.operation_name}`,
+      )
       onOpenChange(false)
     },
   })
@@ -526,7 +528,7 @@ export function WorkOrderTransitionDialog({
             value={reason}
             onChange={(event) => setReason(event.target.value)}
             autoComplete="off"
-            maxLength={MAX_REASON_LENGTH}
+            maxLength={REASON_MAX_LENGTH}
             className="mt-1.5"
             aria-invalid={touched && reasonMissing}
           />

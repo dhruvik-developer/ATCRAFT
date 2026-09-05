@@ -410,14 +410,58 @@ def sales_order_status_path(
     partial consignment against an order that is already ``PARTIALLY_DISPATCHED``
     changes the quantities, not the status.
     """
-    target = SalesOrderStatus.DISPATCHED if fully_dispatched else (
-        SalesOrderStatus.PARTIALLY_DISPATCHED
+    target = (
+        SalesOrderStatus.DISPATCHED if fully_dispatched else (SalesOrderStatus.PARTIALLY_DISPATCHED)
     )
     if current is target:
         return ()
     if current is SalesOrderStatus.ALLOCATED and target is SalesOrderStatus.DISPATCHED:
         return (SalesOrderStatus.PARTIALLY_DISPATCHED, SalesOrderStatus.DISPATCHED)
     return (target,)
+
+
+def _dispatchable_order_statuses() -> frozenset[SalesOrderStatus]:
+    """Sales-order statuses a consignment may leave from.
+
+    Derived from the sales module's own lifecycle rather than listed by hand, so
+    the two cannot drift: an order can be dispatched when its next hop is
+    ``PARTIALLY_DISPATCHED``, or when it is already there and a further
+    consignment only changes the quantities.
+    """
+    return frozenset(
+        status
+        for status in SalesOrderStatus
+        if status is SalesOrderStatus.PARTIALLY_DISPATCHED
+        or SALES_ORDER_LIFECYCLE.can_transition(status, SalesOrderStatus.PARTIALLY_DISPATCHED)
+    )
+
+
+#: ``ALLOCATED`` and ``PARTIALLY_DISPATCHED`` under database.md section 7.
+DISPATCHABLE_ORDER_STATUSES: frozenset[SalesOrderStatus] = _dispatchable_order_statuses()
+
+
+def assert_order_dispatchable(order_code: str, order_status: SalesOrderStatus) -> None:
+    """Refuse, before any stock moves, an order that is not ready to leave.
+
+    Without this the refusal came from :func:`_advance_sales_order`, after the
+    reservations had been consumed and the movements posted - all rolled back
+    by the transaction, so nothing was harmed, but the operator was told
+    "Sales order cannot move from 'CONFIRMED' to 'PARTIALLY_DISPATCHED'"
+    after filling in the whole consignment, with no hint that allocation was
+    the missing step. The message names the actual remedy.
+    """
+    if order_status in DISPATCHABLE_ORDER_STATUSES:
+        return
+    raise BusinessRuleError(
+        f"Sales order {order_code} is {str(order_status).replace('_', ' ').lower()} and cannot "
+        "be dispatched yet: it must be fully allocated before a consignment can leave.",
+        code=ErrorCode.INVALID_STATE_TRANSITION,
+        details={
+            "sales_order_code": order_code,
+            "sales_order_status": str(order_status),
+            "dispatchable_statuses": sorted(str(s) for s in DISPATCHABLE_ORDER_STATUSES),
+        },
+    )
 
 
 def is_delayed(
@@ -446,9 +490,7 @@ def delay_days(expected_delivery_date: date | None, as_of: date | None = None) -
     return (moment - expected_delivery_date).days
 
 
-def arrived_late(
-    *, expected_delivery_date: date | None, actual_delivery_date: date | None
-) -> bool:
+def arrived_late(*, expected_delivery_date: date | None, actual_delivery_date: date | None) -> bool:
     """Did the consignment arrive after the date we promised?
 
     Distinct from :func:`is_delayed`, which is about a consignment still on the
@@ -459,6 +501,37 @@ def arrived_late(
     if expected_delivery_date is None or actual_delivery_date is None:
         return False
     return actual_delivery_date > expected_delivery_date
+
+
+def assert_delay_explained(
+    *,
+    code: str,
+    expected_delivery_date: date | None,
+    actual_delivery_date: date,
+    reason: str | None,
+) -> bool:
+    """Refuse a late arrival that carries no delay reason; answer whether it was late.
+
+    One rule for every path that can mark a consignment DELIVERED - the
+    confirmation form and a tracking event alike. The second path used to skip
+    it, so a courier feed or the timeline dialog could land a late consignment
+    with nothing recorded against the delay, and the on-time-delivery report
+    grew rows nobody could explain.
+    """
+    late = arrived_late(
+        expected_delivery_date=expected_delivery_date, actual_delivery_date=actual_delivery_date
+    )
+    if late and not reason:
+        raise BusinessRuleError(
+            f"{code} was promised for {expected_delivery_date} and arrived on "
+            f"{actual_delivery_date}; a delay reason is required.",
+            details={
+                "expected_delivery_date": str(expected_delivery_date),
+                "actual_delivery_date": str(actual_delivery_date),
+                "delay_days": delay_days(expected_delivery_date, actual_delivery_date),
+            },
+        )
+    return late
 
 
 def qc_is_pending(status: DispatchStatus) -> bool:
@@ -690,8 +763,7 @@ async def _validate_lines(
 
         if item.is_batch_tracked and line.batch_id is None:
             raise BusinessRuleError(
-                f"{label}: {item.code} is batch tracked, so the batch being shipped must be "
-                "named.",
+                f"{label}: {item.code} is batch tracked, so the batch being shipped must be named.",
                 code=ErrorCode.BATCH_REQUIRED,
                 details={"item_code": item.code},
             )
@@ -1363,6 +1435,10 @@ async def dispatch_consignment(
             sales_order = await order_repo.lock_header(dispatch.sales_order_id)
             if sales_order is None:
                 raise NotFoundError("Sales order", dispatch.sales_order_id)
+            # Checked here, under the lock and before any reservation is consumed
+            # or movement posted, so an unallocated order is refused with the
+            # remedy named rather than by the status walk at the very end.
+            assert_order_dispatchable(sales_order.code, SalesOrderStatus(sales_order.status))
 
         # Re-check the arithmetic against what the lock just revealed. The value
         # read at planning time is worthless: another consignment may have taken
@@ -1647,20 +1723,13 @@ async def confirm_delivery(
                 },
             )
 
-        late = arrived_late(
-            expected_delivery_date=dispatch.expected_delivery_date, actual_delivery_date=arrival
-        )
         reason = payload.delay_reason or dispatch.delay_reason
-        if late and not reason:
-            raise BusinessRuleError(
-                f"{dispatch.code} was promised for {dispatch.expected_delivery_date} and "
-                f"arrived on {arrival}; a delay reason is required.",
-                details={
-                    "expected_delivery_date": str(dispatch.expected_delivery_date),
-                    "actual_delivery_date": str(arrival),
-                    "delay_days": delay_days(dispatch.expected_delivery_date, arrival),
-                },
-            )
+        late = assert_delay_explained(
+            code=dispatch.code,
+            expected_delivery_date=dispatch.expected_delivery_date,
+            actual_delivery_date=arrival,
+            reason=reason,
+        )
 
         dispatch.actual_delivery_date = arrival
         dispatch.delivery_confirmed_by = tenant.user_id
@@ -1698,9 +1767,10 @@ async def confirm_delivery(
             user_id=tenant.user_id,
             old_values=before,
             new_values=snapshot(dispatch, DISPATCH_AUDITED_FIELDS),
-            context={"arrived_late": late, "delay_days": delay_days(
-                dispatch.expected_delivery_date, arrival
-            )},
+            context={
+                "arrived_late": late,
+                "delay_days": delay_days(dispatch.expected_delivery_date, arrival),
+            },
         )
         lines = await DispatchLineRepository(session, tenant).for_dispatch(dispatch.id)
 
@@ -1730,10 +1800,21 @@ async def add_tracking_event(
         event_time = payload.event_time or utcnow()
 
         if target is not current:
-            if target in DELIVERED_STATUSES and dispatch.actual_delivery_date is None:
-                dispatch.actual_delivery_date = max(
-                    event_time.date(), dispatch.dispatch_date
+            arrival = dispatch.actual_delivery_date or max(
+                event_time.date(), dispatch.dispatch_date
+            )
+            if target is DispatchStatus.DELIVERED:
+                # The same rule confirm_delivery applies. An event carries no
+                # delay reason of its own, so a late arrival must already have
+                # one on the row - or be confirmed through the delivery form.
+                assert_delay_explained(
+                    code=dispatch.code,
+                    expected_delivery_date=dispatch.expected_delivery_date,
+                    actual_delivery_date=arrival,
+                    reason=dispatch.delay_reason,
                 )
+            if target in DELIVERED_STATUSES and dispatch.actual_delivery_date is None:
+                dispatch.actual_delivery_date = arrival
             await _transition(
                 session,
                 tenant,
@@ -1892,12 +1973,15 @@ __all__ = [
     "AUDIT_DISPATCH",
     "AUDIT_SALES_ORDER",
     "DELAY_ALERT_ROLES",
+    "DISPATCHABLE_ORDER_STATUSES",
     "DISPATCH_LIFECYCLE",
     "MOVEMENT_REFERENCE_DISPATCH",
     "SERIAL_RESERVATION_MESSAGE",
     "LineBalance",
     "add_tracking_event",
     "arrived_late",
+    "assert_delay_explained",
+    "assert_order_dispatchable",
     "build_line_movements",
     "cancel_dispatch",
     "confirm_delivery",

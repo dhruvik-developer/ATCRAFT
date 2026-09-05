@@ -90,9 +90,7 @@ def report_period(
     date_from: Annotated[
         date | None, Query(description="First day of the period, inclusive")
     ] = None,
-    date_to: Annotated[
-        date | None, Query(description="Last day of the period, inclusive")
-    ] = None,
+    date_to: Annotated[date | None, Query(description="Last day of the period, inclusive")] = None,
 ) -> ReportPeriod | None:
     """Bind and validate the reporting period.
 
@@ -182,14 +180,14 @@ async def _run(
         response.status_code = status.HTTP_202_ACCEPTED
         return AcceptedJobResponse.create(
             job_id=str(result.snapshot.id),
-            status_url=service.JOB_STATUS_URL_TEMPLATE.format(job_id=result.snapshot.id),
+            status_url=service.job_status_url(result.snapshot.id),
             message=(
                 f"'{result.definition.title}' exceeds "
                 f"{service.REPORT_INLINE_ROW_LIMIT:,} rows and is being generated as a file."
             ),
         )
 
-    return PaginatedResponse[result.definition.row_model](  # type: ignore[misc]
+    return PaginatedResponse[Any](
         data=result.rows,
         pagination=result.pagination,
         message=f"{result.definition.title} as at {result.generated_at.isoformat()}",

@@ -236,10 +236,19 @@ The UI must feel immediate even when the backend is doing real work.
 
 - server-side pagination, filtering, sorting and search — the browser never
   receives a whole table;
-- search debounced at 350 ms, so a request does not follow every keystroke;
+- search debounced (`SEARCH_DEBOUNCE_MS` in `lib/constants.ts`, 300 ms), so a
+  request does not follow every keystroke;
 - `keepPreviousData`, so the table does not collapse to a skeleton on page change;
 - route-level code splitting — a store keeper never downloads the finance bundle;
 - vendor chunks split from app code so a deploy does not invalidate everything;
+- route chunks warmed on intent: hovering, focusing or touching a sidebar link
+  starts that page's download (`app/route-loaders.ts`), and the login page warms
+  the dashboard while the password is being typed, so the first authenticated
+  paint comes from cache;
+- bundle budgets enforced at build time (`scripts/check-bundle-budget.mjs`):
+  the gzipped entry, each vendor chunk, every route chunk and the total first
+  load are ratchets that fail `npm run build` when a heavy import lands on the
+  first-paint path;
 - row virtualisation on wide report tables (opt-in: on a 50-row page it costs
   more than it saves);
 - skeletons shaped like the content they replace, so nothing jumps on load;

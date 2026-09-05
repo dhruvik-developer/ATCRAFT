@@ -76,6 +76,13 @@ taken, named, and is changeable in one place.
   ``JOB_WORK_APPROVE``. ``JOB_WORK_CLOSE`` is the module's senior permission -
   the plant manager holds it and the planner who raises and issues orders does
   not - so gating approval on it keeps raising and approving separate duties.
+* **Accepting loss beyond the agreed allowance is gated on ``JOB_WORK_CLOSE``
+  too.** ``approve_excess_loss`` is a flag on the receipt payload, and the route
+  that carries it needs only ``JOB_WORK_RECEIVE`` - the storekeeper's right. The
+  excess debits the vendor ledger, so the flag is honoured only from a caller
+  who holds the same senior right that approves the order, and the receipt
+  records that caller as the approver. A storekeeper keying the lot still gets
+  ``ApprovalRequiredError`` and hands it up (:func:`assert_excess_loss_authorised`).
 * **A job work order is 1:1 in the line's unit of measure unless told
   otherwise.** ``expected_output_quantity`` defaults to ``quantity_to_issue``,
   which is true of polishing, coating, PVD, laser marking and machining. A yield
@@ -121,7 +128,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.common.codes import DocTypes, next_document_number
 from src.core.clock import today, utcnow
 from src.core.database import transaction
-from src.core.deps import TenantContext
+from src.core.deps import Principal, TenantContext
 from src.core.errors import (
     ApprovalRequiredError,
     BusinessRuleError,
@@ -130,6 +137,7 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
+from src.core.messages import date_before, inactive_record
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -211,9 +219,11 @@ EXCESS_RECEIPT_TOLERANCE_PERCENT = Decimal("2")
 #: The largest ``pending-at-vendor`` page a service caller may ask for.
 PENDING_AT_VENDOR_LIMIT = PENDING_AT_VENDOR_MAX
 
-#: The largest number of vendors one charge-period query returns. Finance reads
-#: this per period, and a company with more job workers than this has a report
-#: to generate rather than an endpoint to call (section 31).
+#: The largest number of vendors one ``job_work_charges_for_period`` call returns
+#: - the bounded, plain-list contract other modules consume. The HTTP surface
+#: pages the same query through :func:`list_charges_page` instead, so a company
+#: with more job workers than this reads every one of them a page at a time
+#: rather than a silently cut extract (section 31).
 CHARGES_VENDOR_LIMIT = 500
 
 #: Header fields snapshotted around an edit so the audit diff names what moved
@@ -535,9 +545,7 @@ def plan_line_receipt(
             },
         )
 
-    raw_for_output = (
-        input_equivalent(delivered_output, ratio) if delivered_output > ZERO else ZERO
-    )
+    raw_for_output = input_equivalent(delivered_output, ratio) if delivered_output > ZERO else ZERO
     input_ceiling = to_quantity(
         outstanding * (Decimal("100") + EXCESS_RECEIPT_TOLERANCE_PERCENT) / Decimal("100")
     )
@@ -733,25 +741,19 @@ def resolve_quality_port() -> QualityPort | None:
 # -----------------------------------------------------------------------------
 
 
-def order_detail(
-    order: JobWorkOrder, lines: Sequence[JobWorkOrderLine]
-) -> JobWorkOrderDetail:
+def order_detail(order: JobWorkOrder, lines: Sequence[JobWorkOrderLine]) -> JobWorkOrderDetail:
     detail = JobWorkOrderDetail.model_validate(order)
     detail.lines = [JobWorkOrderLineRead.model_validate(row) for row in lines]
     return detail
 
 
-def challan_detail(
-    challan: JobWorkChallan, lines: Sequence[JobWorkChallanLine]
-) -> ChallanRead:
+def challan_detail(challan: JobWorkChallan, lines: Sequence[JobWorkChallanLine]) -> ChallanRead:
     detail = ChallanRead.model_validate(challan)
     detail.lines = [ChallanLineRead.model_validate(row) for row in lines]
     return detail
 
 
-def receipt_detail(
-    receipt: JobWorkReceipt, lines: Sequence[JobWorkReceiptLine]
-) -> ReceiptRead:
+def receipt_detail(receipt: JobWorkReceipt, lines: Sequence[JobWorkReceiptLine]) -> ReceiptRead:
     detail = ReceiptRead.model_validate(receipt)
     detail.lines = [ReceiptLineRead.model_validate(row) for row in lines]
     return detail
@@ -816,9 +818,7 @@ def _assert_trackable(item: JobWorkItem, *, role: str) -> None:
         )
 
 
-async def _assert_warehouses(
-    session: AsyncSession, tenant: TenantContext, *ids: uuid.UUID
-) -> None:
+async def _assert_warehouses(session: AsyncSession, tenant: TenantContext, *ids: uuid.UUID) -> None:
     """Both warehouses in one statement, and both must be able to hold stock."""
     found = await WarehouseLookupRepository(session, tenant).load(list(ids))
     for warehouse_id in ids:
@@ -828,14 +828,12 @@ async def _assert_warehouses(
         code, is_active = row
         if not is_active:
             raise BusinessRuleError(
-                f"Warehouse {code} is inactive and cannot be used by a job work order.",
+                inactive_record("Warehouse", code, "cannot be used by a job work order"),
                 details={"warehouse_id": str(warehouse_id), "warehouse_code": code},
             )
 
 
-async def _assert_vendor(
-    session: AsyncSession, tenant: TenantContext, vendor_id: uuid.UUID
-) -> str:
+async def _assert_vendor(session: AsyncSession, tenant: TenantContext, vendor_id: uuid.UUID) -> str:
     """The processor must exist, be active and be approved.
 
     Approval is checked here rather than only at issue time: an order raised
@@ -847,7 +845,7 @@ async def _assert_vendor(
         raise NotFoundError("Vendor", vendor_id)
     if not vendor.is_active:
         raise BusinessRuleError(
-            f"Vendor {vendor.code} is inactive and cannot be sent job work.",
+            inactive_record("Vendor", vendor.code, "cannot be sent job work"),
             details={"vendor_id": str(vendor_id), "vendor_code": vendor.code},
         )
     if not vendor.is_approved:
@@ -890,7 +888,7 @@ async def _resolve_lines(
             raise NotFoundError("Item", line.item_id)
         if not source.is_active:
             raise BusinessRuleError(
-                f"Item {source.code} is inactive and cannot be sent for job work.",
+                inactive_record("Item", source.code, "cannot be sent for job work"),
                 details={"item_code": source.code, "line_number": line.line_number},
             )
         # The capability flag, not the item group - database.md section 3 is
@@ -908,7 +906,7 @@ async def _resolve_lines(
             raise NotFoundError("Item", output_id)
         if not output.is_active:
             raise BusinessRuleError(
-                f"Item {output.code} is inactive and cannot receive processed stock.",
+                inactive_record("Item", output.code, "cannot receive processed stock"),
                 details={"item_code": output.code, "line_number": line.line_number},
             )
         if output.id != source.id:
@@ -975,9 +973,7 @@ async def list_orders(
     params: PageParams,
     sort: SortParams,
 ) -> tuple[list[JobWorkOrder], OffsetPagination]:
-    return await JobWorkOrderRepository(session, tenant).list_page_filtered(
-        filters, params, sort
-    )
+    return await JobWorkOrderRepository(session, tenant).list_page_filtered(filters, params, sort)
 
 
 async def get_order_detail(
@@ -1094,9 +1090,7 @@ async def reconciliation(
         issued = to_quantity(Decimal(line.issued_quantity))
         received = to_quantity(Decimal(line.received_quantity))
         outstanding = to_quantity(issued - received)
-        ratio = yield_ratio(
-            Decimal(line.quantity_to_issue), Decimal(line.expected_output_quantity)
-        )
+        ratio = yield_ratio(Decimal(line.quantity_to_issue), Decimal(line.expected_output_quantity))
         scrap = to_quantity(Decimal(line.scrap_quantity))
         allowance = to_quantity(
             received * to_quantity(Decimal(line.expected_loss_percentage)) / Decimal("100")
@@ -1175,15 +1169,40 @@ async def job_work_charges_for_period(
 
     ``limit`` is capped rather than trusted - the result is a plain list.
     """
-    if date_to < date_from:
-        raise ValidationError(
-            "The period end cannot be before the period start.",
-            details={"date_from": date_from.isoformat(), "date_to": date_to.isoformat()},
-        )
+    _assert_period(date_from, date_to)
     bounded = max(1, min(int(limit), CHARGES_VENDOR_LIMIT))
     return await JobWorkReceiptRepository(session, tenant).charges_for_period(
         date_from=date_from, date_to=date_to, vendor_ids=vendor_ids, limit=bounded
     )
+
+
+async def list_charges_page(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    date_from: date,
+    date_to: date,
+    vendor_ids: Sequence[uuid.UUID] | None,
+    params: PageParams,
+) -> tuple[list[VendorChargeRow], OffsetPagination]:
+    """Paginated form of the same figures, for the HTTP surface.
+
+    These are the numbers finance posts to the vendor ledger, so an extract cut
+    short with no sign of it is worse than one refused: the endpoint pages
+    rather than caps, and ``has_next`` says when there is more to post.
+    """
+    _assert_period(date_from, date_to)
+    return await JobWorkReceiptRepository(session, tenant).charges_page(
+        date_from=date_from, date_to=date_to, vendor_ids=vendor_ids, params=params
+    )
+
+
+def _assert_period(date_from: date, date_to: date) -> None:
+    if date_to < date_from:
+        raise ValidationError(
+            date_before("period end", "period start"),
+            details={"date_from": date_from.isoformat(), "date_to": date_to.isoformat()},
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -1251,8 +1270,7 @@ async def create_order(
             entity_id=order.id,
             entity_code=order.code,
             summary=(
-                f"Created {order.code}: {order.process_type} at {vendor_code}, "
-                f"{len(lines)} line(s)"
+                f"Created {order.code}: {order.process_type} at {vendor_code}, {len(lines)} line(s)"
             ),
             user_id=tenant.user_id,
             new_values={
@@ -1641,9 +1659,7 @@ async def issue_order(
         issuing: list[tuple[JobWorkOrderLine, Decimal]] = []
         movements: list[MovementRequest] = []
         for line in lines:
-            quantity = overrides.get(
-                line.line_number, to_quantity(Decimal(line.quantity_to_issue))
-            )
+            quantity = overrides.get(line.line_number, to_quantity(Decimal(line.quantity_to_issue)))
             if quantity <= ZERO:
                 continue
             issuing.append((line, quantity))
@@ -1752,9 +1768,7 @@ async def issue_order(
                 "transporter_id": payload.transporter_id,
                 "total_quantity": challan.total_quantity,
                 "total_value": challan.total_value,
-                "issued": {
-                    str(line.line_number): quantity for line, quantity in issuing
-                },
+                "issued": {str(line.line_number): quantity for line, quantity in issuing},
             },
             context={
                 "reason": payload.reason,
@@ -1906,9 +1920,52 @@ def _build_receipt_movements(
     return movements, scrap_index
 
 
+def assert_excess_loss_authorised(
+    principal: Principal,
+    *,
+    order_code: str,
+    planned: Sequence[PlannedLine],
+    approve_excess_loss: bool,
+) -> Decimal:
+    """Total the loss beyond the allowance and check who is accepting it.
+
+    Returns the excess as a quantity so the caller can price the vendor debit.
+    Zero excess needs nobody's say-so. Any excess refuses the receipt with
+    :class:`~src.core.errors.ApprovalRequiredError` until ``approve_excess_loss``
+    is set - and the flag is honoured only from a caller holding
+    ``JOB_WORK_CLOSE``, because what it accepts is debited to the vendor ledger.
+    """
+    excess_total = to_quantity(sum((row.plan.excess_loss_quantity for row in planned), start=ZERO))
+    if excess_total <= ZERO:
+        return excess_total
+    if not approve_excess_loss:
+        raise ApprovalRequiredError(
+            f"{order_code} would write off {excess_total} unit(s) more than the agreed "
+            "process loss allows. Approve the excess to post the receipt; the value will "
+            "be debited to the vendor.",
+            details={
+                "order_code": order_code,
+                "excess_loss_quantity": str(excess_total),
+                "lines": {
+                    str(row.order_line.line_number): str(row.plan.excess_loss_quantity)
+                    for row in planned
+                    if row.plan.excess_loss_quantity > ZERO
+                },
+            },
+        )
+    # ASSUMPTION: accepting loss beyond the agreed allowance debits the vendor
+    # ledger, so it is the senior JOB_WORK_CLOSE right - the same right that
+    # approves the order - not the storekeeper's JOB_WORK_RECEIVE. The receive
+    # route is gated on the latter alone, so the flag is checked here rather
+    # than trusted. See the module's Assumptions and docs/assumptions.md §4.
+    principal.require(Permission.JOB_WORK_CLOSE)
+    return excess_total
+
+
 async def receive(
     session: AsyncSession,
     tenant: TenantContext,
+    principal: Principal,
     order_id: uuid.UUID,
     payload: ReceiveRequest,
     *,
@@ -1925,8 +1982,9 @@ async def receive(
     Loss inside the line's ``expected_loss_percentage`` is posted as ``SCRAP``
     with the receipt's reason. Loss beyond it refuses the receipt with
     :class:`~src.core.errors.ApprovalRequiredError` until ``approve_excess_loss``
-    is set by somebody with the authority to accept it, and the value of the
-    material lost is debited to the vendor.
+    is set by a ``principal`` holding ``JOB_WORK_CLOSE`` - the caller is the
+    approver the receipt records - and the value of the material lost is
+    debited to the vendor (:func:`assert_excess_loss_authorised`).
     """
     quality_port = quality if quality is not None else resolve_quality_port()
 
@@ -1954,24 +2012,12 @@ async def receive(
         by_number = {line.line_number: line for line in lines}
 
         planned = _plan_receipt(payload.lines, by_number)
-        excess_total = to_quantity(
-            sum((row.plan.excess_loss_quantity for row in planned), start=ZERO)
+        excess_total = assert_excess_loss_authorised(
+            principal,
+            order_code=order.code,
+            planned=planned,
+            approve_excess_loss=payload.approve_excess_loss,
         )
-        if excess_total > ZERO and not payload.approve_excess_loss:
-            raise ApprovalRequiredError(
-                f"{order.code} would write off {excess_total} unit(s) more than the agreed "
-                "process loss allows. Approve the excess to post the receipt; the value will "
-                "be debited to the vendor.",
-                details={
-                    "order_code": order.code,
-                    "excess_loss_quantity": str(excess_total),
-                    "lines": {
-                        str(row.order_line.line_number): str(row.plan.excess_loss_quantity)
-                        for row in planned
-                        if row.plan.excess_loss_quantity > ZERO
-                    },
-                },
-            )
 
         receipt_date = payload.receipt_date or today()
         movement_reason = f"Job work {order.code} received: {payload.reason}"[:255]
@@ -1987,9 +2033,7 @@ async def receive(
             for line_number, index in scrap_index.items()
         }
 
-        good_output = to_quantity(
-            sum((row.plan.output_quantity for row in planned), start=ZERO)
-        )
+        good_output = to_quantity(sum((row.plan.output_quantity for row in planned), start=ZERO))
         charge = receipt_charge(
             rate_per_unit=Decimal(order.rate_per_unit),
             rate_basis=RateBasis(order.rate_basis),
@@ -2022,15 +2066,12 @@ async def receive(
                 charge_remaining
                 if is_last
                 else to_money(
-                    charge * row.plan.output_quantity / good_output
-                    if good_output > ZERO
-                    else ZERO
+                    charge * row.plan.output_quantity / good_output if good_output > ZERO else ZERO
                 )
             )
             charge_remaining = to_money(charge_remaining - line_charge)
             debit = to_money(
-                row.plan.excess_loss_quantity
-                * scrap_costs.get(row.order_line.line_number, ZERO)
+                row.plan.excess_loss_quantity * scrap_costs.get(row.order_line.line_number, ZERO)
             )
             debit_total += debit
             apportioned.append((row, line_charge, debit))
@@ -2053,7 +2094,7 @@ async def receive(
                 total_charges=to_money(charge),
                 vendor_debit_amount=to_money(debit_total),
                 has_excess_loss=excess_total > ZERO,
-                excess_loss_approved_by_id=tenant.user_id if excess_total > ZERO else None,
+                excess_loss_approved_by_id=principal.user_id if excess_total > ZERO else None,
                 excess_loss_approved_at=utcnow() if excess_total > ZERO else None,
                 reason=payload.reason[:255],
                 notes=payload.notes,
@@ -2097,15 +2138,11 @@ async def receive(
             line.rejected_quantity = to_quantity(
                 Decimal(line.rejected_quantity) + plan.rejected_quantity
             )
-            line.scrap_quantity = to_quantity(
-                Decimal(line.scrap_quantity) + plan.scrap_quantity
-            )
+            line.scrap_quantity = to_quantity(Decimal(line.scrap_quantity) + plan.scrap_quantity)
             line_repo.touch(line)
 
         order.total_charges = to_money(Decimal(order.total_charges) + charge)
-        order.vendor_debit_amount = to_money(
-            Decimal(order.vendor_debit_amount) + debit_total
-        )
+        order.vendor_debit_amount = to_money(Decimal(order.vendor_debit_amount) + debit_total)
 
         held_for_qc = order.requires_qc and receipt.total_output_quantity > ZERO
         if held_for_qc:
@@ -2144,14 +2181,10 @@ async def receive(
             for row in lines
         )
         target = (
-            JobWorkOrderStatus.RECEIVED
-            if fully_received
-            else JobWorkOrderStatus.PARTIALLY_RECEIVED
+            JobWorkOrderStatus.RECEIVED if fully_received else JobWorkOrderStatus.PARTIALLY_RECEIVED
         )
         if JobWorkOrderStatus(order.status) is not target:
-            await _transition(
-                session, tenant, order, target, reason=payload.reason, repo=repo
-            )
+            await _transition(session, tenant, order, target, reason=payload.reason, repo=repo)
         if fully_received and order.requires_qc:
             await _transition(
                 session,
@@ -2248,6 +2281,38 @@ def _plan_receipt(
     return planned
 
 
+def assert_verdict_covers_hold(
+    *,
+    item_id: uuid.UUID,
+    item_code: str | None,
+    held_quantity: Decimal,
+    accepted: Decimal,
+    rejected: Decimal,
+) -> None:
+    """Refuse a verdict that leaves part of one item's hold undecided.
+
+    The sentence names the item by code: the frontend shows API messages
+    verbatim, and a QC decider cannot map a uuid to a part without a second
+    lookup. ``item_code`` is ``None`` only for an item retired since the receipt,
+    which then falls back to its id - and the id is carried in ``details``
+    either way, for the client that wants to link the row.
+    """
+    if accepted + rejected == held_quantity:
+        return
+    label = item_code if item_code is not None else str(item_id)
+    raise BusinessRuleError(
+        f"{held_quantity} unit(s) of {label} are on hold; the verdict accounts "
+        f"for {accepted + rejected}.",
+        details={
+            "item_id": str(item_id),
+            "item_code": label,
+            "held_quantity": str(held_quantity),
+            "accepted_quantity": str(accepted),
+            "rejected_quantity": str(rejected),
+        },
+    )
+
+
 async def record_qc_result(
     session: AsyncSession,
     tenant: TenantContext,
@@ -2289,9 +2354,10 @@ async def record_qc_result(
         # One grouped statement for every held lot, not a query per receipt: an
         # order returned in six deliveries would otherwise be six round trips on
         # the write path (section 32).
-        held = await receipt_line_repo.held_output_for_order(
-            [receipt.id for receipt in receipts]
-        )
+        held = await receipt_line_repo.held_output_for_order([receipt.id for receipt in receipts])
+        # One batched lookup so a refusal can name the item by code rather than
+        # id; an item retired since the receipt is absent and falls back to its id.
+        items = await ItemLookupRepository(session, tenant).load(list(held.keys()))
 
         verdicts = {item.output_item_id: item for item in payload.items}
         missing = sorted(str(item_id) for item_id in held.keys() - verdicts.keys())
@@ -2312,17 +2378,14 @@ async def record_qc_result(
             verdict = verdicts[item_id]
             accepted = to_quantity(verdict.accepted_quantity)
             rejected = to_quantity(verdict.rejected_quantity)
-            if accepted + rejected != quantity:
-                raise BusinessRuleError(
-                    f"{quantity} unit(s) of item {item_id} are on hold; the verdict accounts "
-                    f"for {accepted + rejected}.",
-                    details={
-                        "item_id": str(item_id),
-                        "held_quantity": str(quantity),
-                        "accepted_quantity": str(accepted),
-                        "rejected_quantity": str(rejected),
-                    },
-                )
+            item = items.get(item_id)
+            assert_verdict_covers_hold(
+                item_id=item_id,
+                item_code=item.code if item is not None else None,
+                held_quantity=quantity,
+                accepted=accepted,
+                rejected=rejected,
+            )
             for target, moving in (
                 (StockState.AVAILABLE, accepted),
                 (StockState.DAMAGED, rejected),
@@ -2422,6 +2485,41 @@ async def close_order(
     return order
 
 
+# -----------------------------------------------------------------------------
+# Planning's conversion hook
+# -----------------------------------------------------------------------------
+
+
+#: Why planning cannot raise a job work order on its own. Must read the same as
+#: ``mrp.service.MANUAL_CONVERSION_REASONS[JOB_WORK_ORDER]`` - the planner is
+#: told one sentence whether the hook is present or absent.
+MRP_CONVERSION_REFUSED = (
+    "A job work order needs a vendor and a process, which planning does not choose; "
+    "raise it by hand from this suggestion and then ignore the suggestion."
+)
+
+
+async def create_order_from_mrp(
+    session: AsyncSession, tenant: TenantContext, request: Any
+) -> tuple[uuid.UUID, str]:
+    """Planning's conversion hook (``mrp.service.CONVERSION_HOOKS``) - refused.
+
+    Resolved by name at call time by the MRP module, which is why the request is
+    typed loosely here. A job work order needs a vendor, a process and a return
+    date, none of which a planning run chooses; picking a vendor here would be
+    an invented business rule (CLAUDE.md). The hook exists so the refusal is
+    this module's own statement rather than planning's guess about it, and so
+    the suggestion stays OPEN for the planner to action by hand.
+    """
+    raise BusinessRuleError(
+        MRP_CONVERSION_REFUSED,
+        details={
+            "suggestion_id": str(request.suggestion_id),
+            "item_code": str(request.item_code),
+        },
+    )
+
+
 __all__ = [
     "AUDIT_JOB_WORK_CHALLAN",
     "AUDIT_JOB_WORK_ORDER",
@@ -2430,6 +2528,7 @@ __all__ = [
     "EXCESS_RECEIPT_TOLERANCE_PERCENT",
     "JOB_WORK_ORDER_LIFECYCLE",
     "MOVEMENT_REFERENCE_JOB_WORK",
+    "MRP_CONVERSION_REFUSED",
     "PENDING_AT_VENDOR_LIMIT",
     "AllocationPort",
     "AllocationService",
@@ -2440,6 +2539,7 @@ __all__ = [
     "challan_detail",
     "close_order",
     "create_order",
+    "create_order_from_mrp",
     "delete_draft_order",
     "estimate_charges",
     "get_order_detail",

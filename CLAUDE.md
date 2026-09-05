@@ -1,8 +1,7 @@
 # CLAUDE.md — working rules for this repository
 
-Read this before changing anything. The authoritative specification is
-`ATCRAFT_MANUFACTURING_ERP_CLAUDE_MASTER.md`; this file is the operational
-summary plus the conventions this codebase has actually settled on.
+Read this before changing anything. This file is the repository's authoritative
+engineering baseline, together with the focused decisions under `docs/`.
 
 ## What this is
 
@@ -74,8 +73,11 @@ possible and must never be simulated by fetching everything and filtering.
 | Errors | raise from `src.core.errors`; never leak SQL or stack traces |
 | Responses | `ApiResponse` / `PaginatedResponse` from `src.core.responses` |
 | Permissions | `require_permission(Permission.X)` on every route |
+| Shared constants | backend `src/core/constants.py` for schema-level decisions (`DEFAULT_CURRENCY`, code widths); frontend `lib/constants.ts` for page sizes, debounce, storage keys, formats and env — the only file that reads `import.meta.env` |
+| Shared messages | backend `src/core/messages.py` for any sentence raised from two or more modules; frontend `lib/messages.ts` for the shared error headlines, empty states, prompts and the success builders for the standard verbs (created/updated/approved/...) — a bespoke confirmation that names its own action stays with its screen, and API messages are shown verbatim |
 | Frontend data | TanStack Query only; keys from `queryKeys` in `lib/query-client.ts` |
 | Frontend lists | `useListQuery` + `DataTable`, server-side everything |
+| Lazy pages | `app/route-loaders.ts` is the one list of lazy pages; `lazy()` and the sidebar hover prefetch both read it |
 
 ## Assumptions
 
@@ -285,12 +287,70 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
   field's own "Show password" toggle. Past those, its item payload predated
   `base_uom_id`, and it skipped the submit step on both the BOM and the purchase
   order. None of that is visible until it runs. Run it.
+- **`model_validate(orm_row)` reads every field the schema declares, including
+  the `lazy="raise"` one.** `StockTransferRead` and `StockAdjustmentRead` both
+  declare `lines`, and both list services cleared it with `read.lines = []`
+  *after* validating - too late, because the read happened inside
+  `model_validate` and raised `InvalidRequestError`. Both list endpoints
+  answered 500 for every row they found, and were clean only while the table was
+  empty, which is every automated run: the demo data raises no adjustments and
+  no transfers. It surfaced the first time a person raised one through the UI -
+  the document was created and the screen meant to list it broke. Declare the
+  relationship loaded *before* validating (`set_committed_value(row, "lines",
+  [])`), which costs no query, and pin it with a test that lists a row it
+  actually created.
+- **`localhost` is not `127.0.0.1`, and a cancelled Redis command never heals.**
+  Two faults, one symptom: `/health/ready` answering `{"redis": false}` while
+  `redis-cli ping` answers instantly. First, the dev overlay publishes every
+  port on `127.0.0.1`, but `.env` said `localhost` - which resolves to `::1`
+  first on Windows. redis-py tries that address alone, waits out
+  `socket_connect_timeout`, retries, and fails after four seconds; asyncpg does
+  fall back to IPv4, but the dead attempt still costs about two seconds, which
+  is the entire readiness budget, so the database read false at startup too.
+  Host-side settings must say `127.0.0.1`; inside Docker the names `postgres`
+  and `redis` resolve to IPv4 only and are fine. Second, and worse: the probe
+  bounds each check with `asyncio.wait_for`, and a timeout cancels the `ping`
+  *mid-command*. redis-py returns that connection to the pool with its reply
+  unread and hands it to the next command, so after one slow moment the probe
+  answers "down" for the life of the process - the container reports unhealthy
+  for ever, `up --wait` never returns, and the application is serving traffic
+  perfectly the whole time. `check_redis_ready` now discards the cached client
+  on any failure, cancellation included, so the next probe reconnects.
+- **The dependency locks are resolved on Linux, and pin `uvloop`.** pip-compile
+  evaluates environment markers for the platform it runs on, so
+  `requirements-dev.lock` names `uvloop` unconditionally and a plain
+  `pip install --require-hashes -r` on Windows fails before installing anything
+  ("uvloop does not support Windows"). The Windows quick start could not
+  succeed. Regenerating the lock on Windows is not the fix: CI regenerates it
+  on Linux and diffs, and the image would lose its event loop. Install through
+  `python -m scripts.install_requirements <lock>`, which drops the pins the
+  platform cannot build and keeps every remaining hash.
+- **Idempotence keyed on "today" is not idempotent tomorrow.** The demo price
+  list looked up an existing slab by `valid_from == anchor - 180 days`, and
+  `anchor` is the day the loader runs. A second run a day later found nothing,
+  inserted, and was refused by `create_price` for overlapping the open-ended
+  row the first run wrote - the whole stage failed. Key an existence check on
+  what identifies the row (item, channel, slab, still-open), never on a value
+  derived from the clock.
+- **A subprocess in a test needs a timeout, and stdin closed.** The migration
+  round-trip test ran `alembic` with `subprocess.run(...)` and no timeout; on a
+  four-core laptop under load the initial-schema upgrade took 2m17s (about 10 s
+  on CI), the run sat at 27% for an hour, and nothing said why. `timeout=` turns
+  a hang into a failure with output; `stdin=DEVNULL` stops a child that reads
+  stdin from waiting on the test runner's.
+- **`shrink-0` on a group that is itself `flex-wrap` defeats the wrap.** The
+  `PageHeader` actions box was `flex shrink-0 flex-wrap`; `shrink-0` pins the
+  box at its single-line max-content width, so the inner wrap never fires and
+  five buttons ran off a phone. A wrapping group must be allowed to shrink.
+  Likewise a `max-h-[90vh]` dialog with no `overflow-y-auto` of its own clips
+  its footer the moment its body outgrows a phone - put the scroll on the
+  primitive (`DialogContent`), not on each consumer.
 
 ## Things not to do
 
 - Do not introduce Kafka, Kubernetes, Elasticsearch, ClickHouse, a second
-  database, or microservices. Not without measured evidence and an update to the
-  master document first.
+  database, or microservices. Not without measured evidence and an update to
+  this repository's architecture decision records first.
 - Do not add a dependency without justifying it in the PR.
 - Do not disable authorisation, validation or a constraint to make development
   easier.
@@ -300,9 +360,28 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
 
 ## Useful commands
 
+Every development target exists in both `Makefile` and `make.ps1`
+(`.\make.ps1 <target>` on Windows); the `deploy-*` targets are Makefile and
+Git Bash only.
+
 ```bash
-make dev            # hybrid development (Windows: .\make.ps1 dev)
+make install        # venv + deps + git hooks; uses scripts.install_requirements because
+                    # the locks are Linux-resolved and pin uvloop, which has no Windows build
+make dev            # hybrid development (Windows: .\make.ps1 dev, then dev-api / dev-web)
 make migrate        # apply migrations
 make test           # unit + integration
-make check          # lint + typecheck + tests — what CI runs
+make contract       # regenerate openapi.json and the frontend types after an API change
+make check          # contract check + lint + typecheck + tests — what CI runs
+make hooks          # install the git pre-commit + pre-push hooks (done by `make install`)
+make hooks-run      # run every hook on the whole tree, exactly as a push would
 ```
+
+Branches: `main` is deployment 1 (the client's environment), `dev` is
+deployment 2 (integration testing); feature, bugfix and hotfix branches come off
+`dev`.
+
+The hooks are defined in `.pre-commit-config.yaml`. `pre-commit` runs the
+formatters, linters and file-hygiene checks on the staged files; `pre-push`
+runs mypy, the unit tests, vitest, the type check, the OpenAPI contract check
+and a Compose config parse on the whole tree. Never bypass them with
+`--no-verify`; fix what they report.

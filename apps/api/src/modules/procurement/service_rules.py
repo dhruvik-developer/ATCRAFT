@@ -112,9 +112,7 @@ RFQ_LIFECYCLE: StateMachine[RfqStatus] = StateMachine(
     entity="RFQ",
     initial=RfqStatus.DRAFT,
     transitions=(
-        Transition(
-            RfqStatus.DRAFT, RfqStatus.SENT, permission=Permission.RFQ_MANAGE, label="Send"
-        ),
+        Transition(RfqStatus.DRAFT, RfqStatus.SENT, permission=Permission.RFQ_MANAGE, label="Send"),
         Transition(
             RfqStatus.DRAFT, RfqStatus.CANCELLED, permission=Permission.RFQ_MANAGE, label="Cancel"
         ),
@@ -174,10 +172,32 @@ QUOTATION_LIFECYCLE: StateMachine[QuotationStatus] = StateMachine(
             permission=Permission.QUOTATION_MANAGE,
             label="Lapse",
         ),
+        # ASSUMPTION: rejecting or lapsing an offer is not final while the RFQ
+        # is still open. The comparison tells the buyer to "ask the vendors to
+        # requote", and the one row per (RFQ, vendor) the unique constraint
+        # allows is reopened for the revised offer rather than a second row
+        # being inserted. Only a SELECTED offer - the one a purchase order is
+        # raised against - stays final. Recorded in docs/assumptions.md.
+        Transition(
+            QuotationStatus.REJECTED,
+            QuotationStatus.RECEIVED,
+            permission=Permission.QUOTATION_MANAGE,
+            label="Requote",
+        ),
+        Transition(
+            QuotationStatus.EXPIRED,
+            QuotationStatus.RECEIVED,
+            permission=Permission.QUOTATION_MANAGE,
+            label="Requote",
+        ),
     ),
-    terminal=frozenset(
-        {QuotationStatus.SELECTED, QuotationStatus.REJECTED, QuotationStatus.EXPIRED}
-    ),
+    terminal=frozenset({QuotationStatus.SELECTED}),
+)
+
+#: Statuses a vendor may revise its way out of by requoting. Read by
+#: ``service.update_quotation`` so the reopen path and the state machine agree.
+REQUOTABLE_QUOTATION_STATUSES: frozenset[QuotationStatus] = frozenset(
+    {QuotationStatus.REJECTED, QuotationStatus.EXPIRED}
 )
 
 # The purchase order graph is database.md section 7, plus three edges it does
@@ -571,9 +591,7 @@ def assert_within_over_receipt_tolerance(
             "already_received": str(to_quantity(Decimal(already_received))),
             "incoming_quantity": str(to_quantity(Decimal(incoming_quantity))),
             "maximum_receivable": str(ceiling),
-            "remaining_receivable": str(
-                remaining_receivable(ordered_quantity, already_received)
-            ),
+            "remaining_receivable": str(remaining_receivable(ordered_quantity, already_received)),
             "tolerance_percentage": str(OVER_RECEIPT_TOLERANCE * 100),
         },
     )
@@ -895,8 +913,7 @@ def classify_candidate(
     reasons = ["Same vendor", "Same item", "Same delivery warehouse"]
     if in_window:
         reasons.append(
-            "Required dates within "
-            f"{window_days} day(s)"
+            f"Required dates within {window_days} day(s)"
             if candidate.required_date and required_date
             else "One of the two orders has no required date"
         )
@@ -1118,9 +1135,7 @@ def score_offer(
     )
 
     weighted = (
-        weights.price * price_score
-        + weights.lead_time * lead_score
-        + weights.rating * rating_score
+        weights.price * price_score + weights.lead_time * lead_score + weights.rating * rating_score
     )
     divisor = weights.total()
     if divisor <= 0:
@@ -1145,9 +1160,7 @@ def rank_offers(
         best_price = min(Decimal(o.effective_unit_price) for o in live)
         best_lead_time = min(o.lead_time_days for o in live)
         lowest_price_ids = {
-            o.quotation_line_id
-            for o in live
-            if Decimal(o.effective_unit_price) == best_price
+            o.quotation_line_id for o in live if Decimal(o.effective_unit_price) == best_price
         }
         fastest_ids = {o.quotation_line_id for o in live if o.lead_time_days == best_lead_time}
     else:
@@ -1229,9 +1242,148 @@ def recommendation_reason(ranked: list[RankedOffer], *, vendor_names: dict[uuid.
 
     if len(live) == 1:
         return f"{name} is the only live quotation: {', '.join(parts)}."
-    return (
-        f"{name} scores {best.score} against {len(live)} live quotations: "
-        f"{', '.join(parts)}."
+    return f"{name} scores {best.score} against {len(live)} live quotations: {', '.join(parts)}."
+
+
+# =============================================================================
+# Purchase returns: which pool the goods leave
+# =============================================================================
+
+#: The two pools a return may draw from, as inventory names them. Mirrors
+#: ``models.RETURNABLE_STOCK_STATES``; spelled here so the rule below reads.
+RETURN_POOL_AVAILABLE = "AVAILABLE"
+RETURN_POOL_DAMAGED = "DAMAGED"
+
+
+@dataclass(frozen=True, slots=True)
+class InspectionOutcome:
+    """What an incoming inspection decided about one received line's lot.
+
+    ``accepted`` was released to available stock, ``rejected`` was moved to
+    damaged, ``still_held`` (rework and hold) never left QC hold and ``scrap``
+    left the position altogether. Only the first two can be returned.
+    """
+
+    accepted: Decimal = ZERO
+    rejected: Decimal = ZERO
+    still_held: Decimal = ZERO
+    scrap: Decimal = ZERO
+
+    @property
+    def decided(self) -> bool:
+        """An undecided inspection carries no disposition at all."""
+        return (self.accepted + self.rejected + self.still_held + self.scrap) > ZERO
+
+
+@dataclass(frozen=True, slots=True)
+class ReturnPoolFacts:
+    """Everything the pool rule needs to know about one receipt line."""
+
+    #: Taken into stock at receipt - into AVAILABLE, or into QC_HOLD when the
+    #: line required inspection.
+    accepted_quantity: Decimal
+    #: The line was received into QC hold and only an inspection can have moved
+    #: it on from there.
+    held_for_qc: bool
+    #: The inspection's decision, or ``None`` when none is known - no inspection
+    #: was raised, the quality module is absent, or it has not decided yet.
+    inspection: InspectionOutcome | None = None
+    #: Already returned, per pool, by posted returns against this receipt line.
+    returned_available: Decimal = ZERO
+    returned_damaged: Decimal = ZERO
+
+
+def returnable_by_pool(facts: ReturnPoolFacts) -> dict[str, Decimal]:
+    """How much of a receipt line is still returnable from each pool.
+
+    A line received straight into available stock has nothing in damaged: only
+    an inspection puts goods there. A line received into QC hold has whatever
+    the inspection released still returnable from available, and whatever it
+    rejected still returnable from damaged - each net of what earlier returns
+    already took from that pool. Quantity the inspection left on hold, or
+    scrapped, is in neither.
+    """
+    if not facts.held_for_qc:
+        return {
+            RETURN_POOL_AVAILABLE: facts.accepted_quantity - facts.returned_available,
+            RETURN_POOL_DAMAGED: ZERO,
+        }
+    outcome = facts.inspection
+    if outcome is None or not outcome.decided:
+        return {RETURN_POOL_AVAILABLE: ZERO, RETURN_POOL_DAMAGED: ZERO}
+    return {
+        RETURN_POOL_AVAILABLE: outcome.accepted - facts.returned_available,
+        RETURN_POOL_DAMAGED: outcome.rejected - facts.returned_damaged,
+    }
+
+
+def resolve_return_pool(
+    *,
+    line_number: int,
+    item_code: str,
+    receipt_code: str,
+    quantity: Decimal,
+    requested_pool: str | None,
+    facts: ReturnPoolFacts,
+) -> str:
+    """Decide - and bound - which pool one return line leaves.
+
+    A named pool is honoured and bounded by what that pool still holds for the
+    line. When none is named the pool is resolved from the inspection:
+
+    ASSUMPTION: rejected stock is returned first. The canonical reason for a
+    purchase return is goods that failed incoming inspection, so a line whose
+    damaged balance covers the whole quantity leaves DAMAGED; otherwise it
+    leaves AVAILABLE if that covers it; a quantity that would need both pools is
+    refused and the caller asked to split the line and name the pool on each,
+    rather than the service guessing a split it would then have to defend.
+    """
+    if facts.held_for_qc and (facts.inspection is None or not facts.inspection.decided):
+        raise BusinessRuleError(
+            f"Line {line_number}: {item_code} from {receipt_code} is still on QC hold; "
+            "decide the inspection before returning it.",
+            details={"line_number": line_number, "item_code": item_code},
+        )
+
+    pools = returnable_by_pool(facts)
+    if requested_pool is not None:
+        if requested_pool not in pools:
+            raise ValidationError(
+                f"Line {line_number}: a purchase return can only leave "
+                f"{RETURN_POOL_AVAILABLE} or {RETURN_POOL_DAMAGED} stock.",
+                details={"line_number": line_number, "stock_state": requested_pool},
+            )
+        remaining = pools[requested_pool]
+        if quantity > remaining:
+            raise BusinessRuleError(
+                f"Line {line_number}: only {to_quantity(max(remaining, ZERO))} of {item_code} "
+                f"from {receipt_code} is still returnable from {requested_pool.lower()} stock.",
+                details={
+                    "line_number": line_number,
+                    "stock_state": requested_pool,
+                    "returnable_quantity": str(to_quantity(max(remaining, ZERO))),
+                    "requested_quantity": str(to_quantity(quantity)),
+                },
+            )
+        return requested_pool
+
+    damaged = pools[RETURN_POOL_DAMAGED]
+    available = pools[RETURN_POOL_AVAILABLE]
+    if damaged > ZERO and quantity <= damaged:
+        return RETURN_POOL_DAMAGED
+    if quantity <= available:
+        return RETURN_POOL_AVAILABLE
+    raise BusinessRuleError(
+        f"Line {line_number}: {to_quantity(quantity)} of {item_code} from {receipt_code} "
+        f"cannot leave one pool - {to_quantity(max(available, ZERO))} is still returnable "
+        f"from available stock and {to_quantity(max(damaged, ZERO))} from damaged. Split "
+        "the line and name the stock state on each.",
+        details={
+            "line_number": line_number,
+            "returnable_available": str(to_quantity(max(available, ZERO))),
+            "returnable_damaged": str(to_quantity(max(damaged, ZERO))),
+            "requested_quantity": str(to_quantity(quantity)),
+        },
     )
 
 
@@ -1242,6 +1394,9 @@ __all__ = [
     "PURCHASE_RETURN_LIFECYCLE",
     "QUOTATION_LIFECYCLE",
     "REQUISITION_LIFECYCLE",
+    "REQUOTABLE_QUOTATION_STATUSES",
+    "RETURN_POOL_AVAILABLE",
+    "RETURN_POOL_DAMAGED",
     "RFQ_LIFECYCLE",
     "UNRATED_VENDOR_SCORE",
     "CandidateInput",
@@ -1249,11 +1404,13 @@ __all__ = [
     "DuplicateAction",
     "DuplicateCandidate",
     "DuplicateConfidence",
+    "InspectionOutcome",
     "LineAmounts",
     "LineReceiptState",
     "OfferInput",
     "ProposedLine",
     "RankedOffer",
+    "ReturnPoolFacts",
     "ScoreWeights",
     "assert_within_over_receipt_tolerance",
     "available_actions_for",
@@ -1272,6 +1429,8 @@ __all__ = [
     "recommendation_reason",
     "remaining_receivable",
     "requisition_line_status_for",
+    "resolve_return_pool",
+    "returnable_by_pool",
     "same_source_demand",
     "score_offer",
     "sum_document_totals",

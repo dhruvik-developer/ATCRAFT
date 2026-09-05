@@ -81,6 +81,12 @@ import { BatchSelect, SerialPicker } from '@/features/dispatch/stock-pickers'
 import { useItemFacts, type DispatchRow } from '@/features/dispatch/dispatch-types'
 import { api } from '@/lib/api-client'
 import {
+  LOOKUP_LIST_LIMIT,
+  REASON_MAX_LENGTH,
+  REASON_MIN_LENGTH,
+  SEARCH_DEBOUNCE_MS,
+} from '@/lib/constants'
+import {
   formatDate,
   formatDateTime,
   formatNumber,
@@ -88,6 +94,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -176,6 +183,15 @@ function ReasonDialog({
   const [reason, setReason] = useState('')
   const [touched, setTouched] = useState(false)
 
+  // `Reason` is bounded 3..255. A 422 keyed on it is one the mutation cache
+  // stays quiet about, on the assumption the form shows it - so both the
+  // missing case and the out-of-band case are caught before the request.
+  const trimmed = reason.trim()
+  const missing = trimmed === ''
+  const outOfBounds =
+    !missing && (trimmed.length < REASON_MIN_LENGTH || trimmed.length > REASON_MAX_LENGTH)
+  const invalid = missing || outOfBounds
+
   return (
     <ConfirmDialog
       open={open}
@@ -192,11 +208,11 @@ function ReasonDialog({
       destructive={destructive}
       loading={loading}
       onConfirm={() => {
-        if (reason.trim() === '') {
+        if (invalid) {
           setTouched(true)
           return
         }
-        onConfirm(reason.trim())
+        onConfirm(trimmed)
       }}
     >
       <div className="space-y-3">
@@ -210,11 +226,17 @@ function ReasonDialog({
             value={reason}
             onChange={(event) => setReason(event.target.value)}
             autoComplete="off"
+            maxLength={REASON_MAX_LENGTH}
             className="mt-1.5"
-            aria-invalid={touched && reason.trim() === ''}
+            aria-invalid={touched && invalid}
           />
-          {touched && reason.trim() === '' && (
+          {touched && missing && (
             <FieldError message="The API records this against the order - it needs a reason" />
+          )}
+          {touched && outOfBounds && (
+            <FieldError
+              message={`The audit reason must be between ${REASON_MIN_LENGTH} and ${REASON_MAX_LENGTH} characters`}
+            />
           )}
         </div>
       </div>
@@ -236,15 +258,33 @@ function AddCartonForm({ order }: { order: PackingOrderDetail }) {
   const [problem, setProblem] = useState<string | null>(null)
 
   // Which boxes this warehouse actually holds. The endpoint insists on the
-  // warehouse, because a carton is issued from the stock standing there.
+  // warehouse, because a carton is issued from the stock standing there. It
+  // also searches, so a store with more packing materials than one page holds
+  // is narrowed on the server rather than silently cut at the page boundary.
+  const [materialSearch, setMaterialSearch] = useState('')
+  const [debouncedMaterialSearch, setDebouncedMaterialSearch] = useState('')
+  useEffect(() => {
+    const timer = setTimeout(
+      () => setDebouncedMaterialSearch(materialSearch.trim()),
+      SEARCH_DEBOUNCE_MS,
+    )
+    return () => clearTimeout(timer)
+  }, [materialSearch])
+
   const materials = useQuery({
-    queryKey: packingKeys.materials(order.warehouse_id),
+    queryKey: packingKeys.materials(order.warehouse_id, debouncedMaterialSearch),
     queryFn: () =>
       api.getPage<PackingMaterialRow>('/packing/packing-materials', {
-        params: { warehouse_id: order.warehouse_id, limit: 100, with_total: false },
+        params: {
+          warehouse_id: order.warehouse_id,
+          limit: LOOKUP_LIST_LIMIT,
+          with_total: false,
+          ...(debouncedMaterialSearch ? { search: debouncedMaterialSearch } : {}),
+        },
       }),
     staleTime: staleTimes.transactional,
   })
+  const moreMaterials = materials.data?.pagination?.has_next ?? false
 
   const addCarton = useMutation({
     mutationFn: () =>
@@ -283,6 +323,15 @@ function AddCartonForm({ order }: { order: PackingOrderDetail }) {
           <Label htmlFor="carton-material" required>
             Packing material
           </Label>
+          <Input
+            id="carton-material-search"
+            value={materialSearch}
+            onChange={(event) => setMaterialSearch(event.target.value)}
+            placeholder="Search by code or name"
+            autoComplete="off"
+            aria-label="Search packing materials"
+            className="mt-1.5"
+          />
           <Select value={materialId} onValueChange={setMaterialId}>
             <SelectTrigger id="carton-material" className="mt-1.5">
               <SelectValue placeholder="Choose the box being used" />
@@ -298,8 +347,14 @@ function AddCartonForm({ order }: { order: PackingOrderDetail }) {
           </Select>
           {!materials.isLoading && rows.length === 0 && (
             <p className="mt-1 text-xs text-warning">
-              No packing material is in stock at this warehouse. A carton cannot be sealed without
-              one, because sealing issues the box.
+              {debouncedMaterialSearch
+                ? `No packing material in stock here matches "${debouncedMaterialSearch}".`
+                : 'No packing material is in stock at this warehouse. A carton cannot be sealed without one, because sealing issues the box.'}
+            </p>
+          )}
+          {moreMaterials && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Showing the first {LOOKUP_LIST_LIMIT} - search for a box that is not listed.
             </p>
           )}
         </div>
@@ -455,7 +510,10 @@ function AddContentsForm({
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: packingKeys.all })
-      toast.success('Contents updated', `Carton ${carton.carton_number} has been repacked.`)
+      toast.success(
+        success.updated('Contents'),
+        `Carton ${carton.carton_number} has been repacked.`,
+      )
       setLineId('')
       setQuantity('')
       setNetWeight('0')
@@ -674,7 +732,7 @@ function CartonCard({
       }),
     onSuccess: () => {
       invalidate()
-      toast.success('Contents updated')
+      toast.success(success.updated('Contents'), `Carton ${carton.carton_number} has been emptied.`)
     },
   })
 
@@ -772,7 +830,10 @@ function CartonCard({
                       <span className="block font-medium">
                         Line {lineNumberOf.get(content.packing_order_line_id) ?? '?'}
                       </span>
-                      <span className="block font-mono text-xs text-muted-foreground">
+                      <span
+                        className="block max-w-[min(18rem,45vw)] truncate font-mono text-xs text-muted-foreground"
+                        title={content.item_id}
+                      >
                         {content.item_id}
                       </span>
                     </td>
@@ -878,7 +939,8 @@ function PackingListAction({ order }: { order: PackingOrderDetail }) {
       setJobId(job.job_id)
       toast.show('Packing list queued', 'It is building in the background - you can carry on.')
     },
-    onError: (error: Error) => setFailure(error.message),
+    // A failed queue is surfaced by the global mutation cache; only a failed
+    // build - a polled query, which that cache does not see - is reported inline.
   })
 
   const job = useQuery({
@@ -975,7 +1037,7 @@ function OrderActions({ order }: { order: PackingOrderDetail }) {
   const dispatchParams = {
     customer_id: order.customer_id,
     status: 'NOT_DISPATCHED',
-    limit: 50,
+    limit: LOOKUP_LIST_LIMIT,
     with_total: false,
   }
   const dispatches = useQuery({
@@ -989,6 +1051,16 @@ function OrderActions({ order }: { order: PackingOrderDetail }) {
     void queryClient.invalidateQueries({ queryKey: packingKeys.all })
     void queryClient.invalidateQueries({ queryKey: queryKeys.dispatch.all })
     void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
+  }
+
+  // The confirmation each transition earns, in the past tense; the order's
+  // code is the body. Built from a map rather than the action slug, which read
+  // as an instruction ("Packing order hand over") rather than a result.
+  const done: Record<Exclude<OrderAction, 'complete'>, string> = {
+    start: 'Packing started',
+    'hand-over': 'Handed to dispatch',
+    close: success.closed('Packing order'),
+    cancel: success.cancelled('Packing order'),
   }
 
   const run = useMutation({
@@ -1010,13 +1082,13 @@ function OrderActions({ order }: { order: PackingOrderDetail }) {
         const completion = result as PackingCompletionResult
         const short = completion.short_packed_line_numbers ?? []
         toast.success(
-          'Packing complete',
+          success.completed('Packing'),
           short.length > 0
             ? `${completion.total_cartons} carton(s), ${formatQuantity(completion.total_gross_weight)} kg gross. Line(s) ${short.join(', ')} went out short.`
             : `${completion.total_cartons} carton(s), ${formatQuantity(completion.total_gross_weight)} kg gross.`,
         )
       } else {
-        toast.success(`Packing order ${next.replace('-', ' ')}`, order.code)
+        toast.success(done[next], order.code)
       }
       setAction(null)
       setAllowShortPack(false)
@@ -1056,6 +1128,7 @@ function OrderActions({ order }: { order: PackingOrderDetail }) {
   }
 
   const rows = dispatches.data?.data ?? []
+  const moreDispatches = dispatches.data?.pagination?.has_next ?? false
 
   return (
     <>
@@ -1146,6 +1219,12 @@ function OrderActions({ order }: { order: PackingOrderDetail }) {
             </Select>
             {!dispatches.isLoading && rows.length === 0 && (
               <FieldError message="This customer has no consignment waiting to be loaded. Create one on the dispatch screen first." />
+            )}
+            {moreDispatches && (
+              <p className="mt-1 text-xs text-warning">
+                Showing the first {LOOKUP_LIST_LIMIT} consignments waiting for this customer - an
+                older one is not offered here.
+              </p>
             )}
           </div>
         )}
@@ -1341,7 +1420,10 @@ export function PackingOrderDialog({
                           <tr key={line.id} className="border-t">
                             <td className="px-3 py-2">
                               <span className="block font-medium">Line {line.line_number}</span>
-                              <span className="block font-mono text-xs text-muted-foreground">
+                              <span
+                                className="block max-w-[min(18rem,45vw)] truncate font-mono text-xs text-muted-foreground"
+                                title={line.item_id}
+                              >
                                 {line.item_id}
                               </span>
                             </td>

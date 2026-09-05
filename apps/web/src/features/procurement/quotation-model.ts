@@ -83,7 +83,9 @@ export const QUOTATION_STATUSES = [
 
 /**
  * The three states that end a quotation, from `QUOTATION_LIFECYCLE`
- * (apps/api/src/modules/procurement/service_rules.py). None can be reopened.
+ * (apps/api/src/modules/procurement/service_rules.py). None has an edge out
+ * on its own; a REJECTED or EXPIRED one is reopened only by a revised offer -
+ * see `isQuotationRevisable`.
  */
 export const QUOTATION_TERMINAL_STATUSES: readonly QuotationStatus[] = [
   'SELECTED',
@@ -105,14 +107,15 @@ export const isDecidable = (status: QuotationStatus): boolean =>
 /**
  * Whether a revised offer may still be recorded against this quotation.
  *
- * The same two states, but for a different reason, so the two predicates stay
- * separate: `update_quotation` refuses a terminal quotation with "this
- * quotation is X and can no longer be revised". They agree today; folding them
- * into one gate would hide the day the API stops letting an offer under review
- * be revised.
+ * Wider than `isDecidable` on purpose. `update_quotation` refuses only a
+ * SELECTED quotation - a purchase order is raised against it - and reopens a
+ * REJECTED or EXPIRED one: the buyer asked the vendor to requote, and the
+ * revised offer moves it back to RECEIVED with its own audit row (the
+ * ASSUMPTION in procurement/service.py). So a settled offer that was not the
+ * winner still takes a revision while it takes no decision, and the two
+ * predicates stay separate.
  */
-export const isQuotationRevisable = (status: QuotationStatus): boolean =>
-  !QUOTATION_TERMINAL_STATUSES.includes(status)
+export const isQuotationRevisable = (status: QuotationStatus): boolean => status !== 'SELECTED'
 
 /**
  * True when the browser's clock says the offer's validity has passed.
@@ -156,8 +159,17 @@ export type QuotationLinePayload = SchemaOf<'QuotationLineIn'>
 /**
  * Body of `POST /procurement/quotations` (`QuotationCreate`). Unknown keys are
  * refused, so nothing may be added to it that the contract does not declare.
+ *
+ * `payment_terms_days` and `lead_time_days` are optional here although the
+ * generated contract still lists them as required: `create_quotation` falls
+ * back to the vendor master for an absent key, so blank on the form means
+ * "omit", and a typed 0 reaches it as a literal zero days.
  */
-export type QuotationCreatePayload = SchemaOf<'QuotationCreate'>
+export type QuotationCreatePayload = Omit<
+  SchemaOf<'QuotationCreate'>,
+  'payment_terms_days' | 'lead_time_days'
+> &
+  Partial<Pick<SchemaOf<'QuotationCreate'>, 'payment_terms_days' | 'lead_time_days'>>
 
 /**
  * Body of `PATCH /procurement/quotations/{id}` (`QuotationUpdate`).

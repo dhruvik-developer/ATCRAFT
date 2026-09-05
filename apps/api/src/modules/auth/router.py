@@ -25,29 +25,41 @@ import ipaddress
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Request, Response, status
 
 from src.core.deps import CurrentUser, DbSession
+from src.core.errors import AuthenticationError, ErrorCode
 from src.core.pagination import PageParams, page_params
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
     ApiResponse,
     PaginatedResponse,
 )
+from src.modules.auth.cookies import (
+    clear_refresh_cookies,
+    refresh_token_from,
+    require_refresh_csrf,
+    set_refresh_cookies,
+)
 from src.modules.auth.schemas import (
+    AccessTokenResponse,
     AcknowledgedResult,
+    BrowserLoginResponse,
     ChangePasswordRequest,
     ChangePasswordResult,
     LoginRequest,
-    LoginResponse,
-    LogoutRequest,
     LogoutResult,
     MeResponse,
+    MfaChallengeResponse,
+    MfaChangeResult,
+    MfaCodeRequest,
+    MfaDisableRequest,
+    MfaSetupRequest,
+    MfaSetupResponse,
+    MfaVerifyRequest,
     PasswordResetConfirmPayload,
     PasswordResetRequestPayload,
-    RefreshRequest,
     SessionRead,
-    TokenPair,
 )
 from src.modules.auth.service import AuthService
 
@@ -94,12 +106,12 @@ def user_agent(request: Request) -> str | None:
 
 @router.post(
     "/login",
-    response_model=ApiResponse[LoginResponse],
+    response_model=ApiResponse[BrowserLoginResponse | MfaChallengeResponse],
     summary="Sign in with an email address and password",
 )
 async def login(
-    request: Request, session: DbSession, payload: LoginRequest
-) -> ApiResponse[LoginResponse]:
+    request: Request, response: Response, session: DbSession, payload: LoginRequest
+) -> ApiResponse[BrowserLoginResponse | MfaChallengeResponse]:
     """Exchange credentials for an access token and a refresh token.
 
     The access token carries no permissions: they are resolved per request and
@@ -109,26 +121,55 @@ async def login(
     result = await AuthService(session).login(
         payload, ip_address=client_ip(request), user_agent=user_agent(request)
     )
-    return ApiResponse.ok(result, "Signed in")
+    if isinstance(result, MfaChallengeResponse):
+        return ApiResponse.ok(result, "Authentication code required")
+    set_refresh_cookies(response, result.refresh_token)
+    public = BrowserLoginResponse.model_validate(result.model_dump(exclude={"refresh_token"}))
+    return ApiResponse.ok(public, "Signed in")
 
 
 @router.post(
     "/refresh",
-    response_model=ApiResponse[TokenPair],
+    response_model=ApiResponse[AccessTokenResponse],
     summary="Rotate a refresh token",
 )
 async def refresh(
-    request: Request, session: DbSession, payload: RefreshRequest
-) -> ApiResponse[TokenPair]:
+    request: Request, response: Response, session: DbSession
+) -> ApiResponse[AccessTokenResponse]:
     """Issue a new token pair and retire the presented one.
 
     Unauthenticated by design: the refresh token *is* the credential, and an
     expired access token must not stand between a user and a new session.
     """
+    refresh_token = refresh_token_from(request)
+    if not refresh_token:
+        raise AuthenticationError("A refresh cookie is required.", code=ErrorCode.TOKEN_INVALID)
+    require_refresh_csrf(request, refresh_token)
     tokens = await AuthService(session).refresh(
-        payload.refresh_token, ip_address=client_ip(request), user_agent=user_agent(request)
+        refresh_token, ip_address=client_ip(request), user_agent=user_agent(request)
     )
-    return ApiResponse.ok(tokens, "Token refreshed")
+    set_refresh_cookies(response, tokens.refresh_token)
+    public = AccessTokenResponse.model_validate(tokens.model_dump(exclude={"refresh_token"}))
+    return ApiResponse.ok(public, "Token refreshed")
+
+
+@router.post(
+    "/mfa/verify",
+    response_model=ApiResponse[BrowserLoginResponse],
+    summary="Complete sign-in with a TOTP authentication code",
+)
+async def verify_mfa(
+    request: Request,
+    response: Response,
+    session: DbSession,
+    payload: MfaVerifyRequest,
+) -> ApiResponse[BrowserLoginResponse]:
+    result = await AuthService(session).verify_mfa(
+        payload, ip_address=client_ip(request), user_agent=user_agent(request)
+    )
+    set_refresh_cookies(response, result.refresh_token)
+    public = BrowserLoginResponse.model_validate(result.model_dump(exclude={"refresh_token"}))
+    return ApiResponse.ok(public, "Signed in")
 
 
 @router.post(
@@ -137,13 +178,16 @@ async def refresh(
     summary="Revoke the current session",
 )
 async def logout(
+    request: Request,
+    response: Response,
     session: DbSession,
     principal: CurrentUser,
-    payload: LogoutRequest | None = None,
 ) -> ApiResponse[LogoutResult]:
-    result = await AuthService(session).logout(
-        principal, refresh_token=payload.refresh_token if payload else None
-    )
+    refresh_token = refresh_token_from(request)
+    if refresh_token:
+        require_refresh_csrf(request, refresh_token)
+    result = await AuthService(session).logout(principal)
+    clear_refresh_cookies(response)
     return ApiResponse.ok(result, "Signed out")
 
 
@@ -152,8 +196,17 @@ async def logout(
     response_model=ApiResponse[LogoutResult],
     summary="Revoke every session for the current user",
 )
-async def logout_all(session: DbSession, principal: CurrentUser) -> ApiResponse[LogoutResult]:
+async def logout_all(
+    request: Request,
+    response: Response,
+    session: DbSession,
+    principal: CurrentUser,
+) -> ApiResponse[LogoutResult]:
+    refresh_token = refresh_token_from(request)
+    if refresh_token:
+        require_refresh_csrf(request, refresh_token)
     result = await AuthService(session).logout_all(principal)
+    clear_refresh_cookies(response)
     return ApiResponse.ok(result, "Signed out of all devices")
 
 
@@ -172,6 +225,57 @@ async def me(session: DbSession, principal: CurrentUser) -> ApiResponse[MeRespon
 
 
 # -----------------------------------------------------------------------------
+# Multi-factor authentication
+# -----------------------------------------------------------------------------
+
+
+@router.post(
+    "/mfa/setup",
+    response_model=ApiResponse[MfaSetupResponse],
+    summary="Generate a TOTP seed after confirming the current password",
+)
+async def setup_mfa(
+    request: Request, session: DbSession, principal: CurrentUser, payload: MfaSetupRequest
+) -> ApiResponse[MfaSetupResponse]:
+    return ApiResponse.ok(
+        await AuthService(session).setup_mfa(
+            principal, payload, ip_address=client_ip(request), user_agent=user_agent(request)
+        ),
+        "Scan the authenticator secret, then confirm a code",
+    )
+
+
+@router.post(
+    "/mfa/confirm",
+    response_model=ApiResponse[MfaChangeResult],
+    summary="Confirm the staged TOTP seed and enable MFA",
+)
+async def confirm_mfa(
+    session: DbSession, principal: CurrentUser, payload: MfaCodeRequest
+) -> ApiResponse[MfaChangeResult]:
+    return ApiResponse.ok(
+        await AuthService(session).confirm_mfa(principal, payload),
+        "Multi-factor authentication enabled",
+    )
+
+
+@router.post(
+    "/mfa/disable",
+    response_model=ApiResponse[MfaChangeResult],
+    summary="Disable MFA after confirming the password and a current code",
+)
+async def disable_mfa(
+    request: Request, session: DbSession, principal: CurrentUser, payload: MfaDisableRequest
+) -> ApiResponse[MfaChangeResult]:
+    return ApiResponse.ok(
+        await AuthService(session).disable_mfa(
+            principal, payload, ip_address=client_ip(request), user_agent=user_agent(request)
+        ),
+        "Multi-factor authentication disabled",
+    )
+
+
+# -----------------------------------------------------------------------------
 # Passwords
 # -----------------------------------------------------------------------------
 
@@ -182,10 +286,12 @@ async def me(session: DbSession, principal: CurrentUser) -> ApiResponse[MeRespon
     summary="Change the signed-in user's password",
 )
 async def change_password(
-    session: DbSession, principal: CurrentUser, payload: ChangePasswordRequest
+    request: Request, session: DbSession, principal: CurrentUser, payload: ChangePasswordRequest
 ) -> ApiResponse[ChangePasswordResult]:
     """Every other session is revoked, and the response says how many."""
-    result = await AuthService(session).change_password(principal, payload)
+    result = await AuthService(session).change_password(
+        principal, payload, ip_address=client_ip(request), user_agent=user_agent(request)
+    )
     return ApiResponse.ok(result, "Password changed")
 
 

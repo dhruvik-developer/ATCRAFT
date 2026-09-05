@@ -34,7 +34,6 @@ state, rebuilt on their own schedule from rows that are themselves audited.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -54,7 +53,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.core.models import TenantEntity
+from src.core.models import TenantEntity, sql_in_list
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import GUID, Money, Quantity
 from src.modules.inventory.models import StatusEnum
@@ -89,6 +88,21 @@ class ReportKey(StrEnum):
     DISPATCH = "DISPATCH"
     COURIER_TRACKING = "COURIER_TRACKING"
     VENDOR_DISPATCH_HISTORY = "VENDOR_DISPATCH_HISTORY"
+    #: A rendered document rather than a tabular report: the packing-list PDF
+    #: for one packing order. It has a job row here - ``GET /reports/jobs/{id}``
+    #: is what the client polls - but no ``ReportDefinition``, because there are
+    #: no rows to page, count or cache. See :data:`DOCUMENT_ONLY_REPORT_KEYS`.
+    PACKING_LIST = "PACKING_LIST"
+
+
+#: Members of :class:`ReportKey` whose artefact is produced by a dedicated task
+#: rather than by the catalogue runner. They exist so a module that renders a
+#: document in the background (the packing list) can use the same job row, the
+#: same status route and the same download link as every other background
+#: report - without pretending to be a query with columns. None of them has a
+#: definition, a route of its own under ``/reports`` or a catalogue descriptor,
+#: and ``service`` asserts both halves at import.
+DOCUMENT_ONLY_REPORT_KEYS: frozenset[ReportKey] = frozenset({ReportKey.PACKING_LIST})
 
 
 class ReportJobStatus(StrEnum):
@@ -117,11 +131,6 @@ REPORT_JOB_LIFECYCLE: StateMachine[ReportJobStatus] = StateMachine(
     ),
     terminal=frozenset({ReportJobStatus.COMPLETED, ReportJobStatus.FAILED}),
 )
-
-
-def _sql_in_list(values: Iterable[StrEnum]) -> str:
-    """Render enum members as a SQL ``IN`` list for a CHECK constraint."""
-    return ", ".join(f"'{member.value}'" for member in values)
 
 
 class ReportSnapshot(TenantEntity):
@@ -192,8 +201,8 @@ class ReportSnapshot(TenantEntity):
             text("created_at DESC"),
         ),
         CheckConstraint("row_count >= 0", name="row_count_is_not_negative"),
-        CheckConstraint(f"status IN ({_sql_in_list(ReportJobStatus)})", name="status_is_known"),
-        CheckConstraint(f"report_key IN ({_sql_in_list(ReportKey)})", name="report_key_is_known"),
+        CheckConstraint(f"status IN ({sql_in_list(ReportJobStatus)})", name="status_is_known"),
+        CheckConstraint(f"report_key IN ({sql_in_list(ReportKey)})", name="report_key_is_known"),
         # A finished job has a result and a time it was produced; an unfinished
         # one has neither. Without this a client polling the job endpoint could
         # be told COMPLETED and handed nothing.
@@ -282,6 +291,7 @@ class InventorySummary(TenantEntity):
 
 
 __all__ = [
+    "DOCUMENT_ONLY_REPORT_KEYS",
     "REPORT_JOB_LIFECYCLE",
     "InventorySummary",
     "ReportJobStatus",

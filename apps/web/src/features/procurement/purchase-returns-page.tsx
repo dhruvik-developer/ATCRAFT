@@ -29,7 +29,7 @@ import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { PageHeader, StatusBadge } from '@/components/shared'
+import { DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -38,12 +38,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/overlays'
-import { Badge, Input, Label } from '@/components/ui/primitives'
+import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { useListQuery } from '@/hooks/use-list-query'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatMoney, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -63,9 +64,6 @@ import {
   purchaseReturnKeys,
   type PurchaseReturnRow,
 } from './purchase-return-model'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /**
  * Every filter this screen owns, named once.
@@ -361,14 +359,16 @@ export default function PurchaseReturnsPage() {
         toolbar={
           <>
             <Select
-              value={status || ALL}
-              onValueChange={(value) => setParam('status', value === ALL ? undefined : value)}
+              value={status || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('status', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[170px]" aria-label="Filter by status">
+              <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by status">
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All statuses</SelectItem>
+                <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
                 {PURCHASE_RETURN_STATUSES.map((value) => (
                   <SelectItem key={value} value={value}>
                     {humanise(value)}
@@ -377,30 +377,35 @@ export default function PurchaseReturnsPage() {
               </SelectContent>
             </Select>
 
-            <VendorPicker
-              id="return-vendor-filter"
-              label="Vendor"
-              hideLabel
-              value={vendorId || null}
-              onChange={(value) => setParam('vendor_id', value ?? undefined)}
-              placeholder="All vendors"
-            />
+            {/* The vendor search reads `/vendors`, which enforces `vendor.view`.
+                Offering it without that right earns a 403 on every keystroke. */}
+            {can(P.VENDOR_VIEW) && (
+              <VendorPicker
+                id="return-vendor-filter"
+                className="w-full sm:w-auto"
+                label="Vendor"
+                hideLabel
+                value={vendorId || null}
+                onChange={(value) => setParam('vendor_id', value ?? undefined)}
+                placeholder="All vendors"
+              />
+            )}
 
             {/* Only offered to accounts that may read the warehouse master;
                 without that right the option list would be empty and the filter
                 would look broken rather than unavailable. */}
             {can(P.WAREHOUSE_VIEW) && (
               <Select
-                value={warehouseId || ALL}
+                value={warehouseId || SELECT_ALL}
                 onValueChange={(value) =>
-                  setParam('warehouse_id', value === ALL ? undefined : value)
+                  setParam('warehouse_id', value === SELECT_ALL ? undefined : value)
                 }
               >
-                <SelectTrigger className="w-[200px]" aria-label="Filter by warehouse">
+                <SelectTrigger className="w-full sm:w-[200px]" aria-label="Filter by warehouse">
                   <SelectValue placeholder="All warehouses" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={ALL}>All warehouses</SelectItem>
+                  <SelectItem value={SELECT_ALL}>All warehouses</SelectItem>
                   {(warehouses.data ?? []).map((warehouse) => (
                     <SelectItem key={warehouse.id} value={warehouse.id}>
                       {warehouse.code} - {warehouse.name}
@@ -410,30 +415,15 @@ export default function PurchaseReturnsPage() {
               </Select>
             )}
 
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="return-from" className="text-xs text-muted-foreground">
-                From
-              </Label>
-              <Input
-                id="return-from"
-                type="date"
-                value={returnFrom}
-                max={returnTo || undefined}
-                onChange={(event) => setParam('return_from', event.target.value || undefined)}
-                className="w-[9.5rem]"
-              />
-              <Label htmlFor="return-to" className="text-xs text-muted-foreground">
-                To
-              </Label>
-              <Input
-                id="return-to"
-                type="date"
-                value={returnTo}
-                min={returnFrom || undefined}
-                onChange={(event) => setParam('return_to', event.target.value || undefined)}
-                className="w-[9.5rem]"
-              />
-            </div>
+            <DateRangeFilter
+              id="return"
+              from={returnFrom}
+              to={returnTo}
+              onFromChange={(value) => setParam('return_from', value || undefined)}
+              onToChange={(value) => setParam('return_to', value || undefined)}
+              fromInputProps={{ max: returnTo || undefined }}
+              toInputProps={{ min: returnFrom || undefined }}
+            />
 
             {goodsReceiptId && (
               <Badge variant="secondary" className="h-9 gap-1.5 px-3">

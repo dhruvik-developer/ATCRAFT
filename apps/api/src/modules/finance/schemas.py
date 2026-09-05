@@ -27,12 +27,14 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
+from src.core.messages import date_before
 from src.core.responses import OffsetPagination
 from src.modules.finance.models import (
     MAX_INVOICE_LINES,
     MAX_PAYMENT_ALLOCATIONS,
+    CustomerAdjustmentType,
     LedgerAccountType,
     MatchStatus,
     PartyType,
@@ -188,11 +190,16 @@ class StatementFilters(BaseModel):
     date_from: date | None = None
     date_to: date | None = None
 
-    @model_validator(mode="after")
-    def _range_is_ordered(self) -> StatementFilters:
-        if self.date_from and self.date_to and self.date_to < self.date_from:
-            raise ValueError("The period end cannot be before the period start.")
-        return self
+    @field_validator("date_to")
+    @classmethod
+    def _range_is_ordered(cls, value: date | None, info: ValidationInfo) -> date | None:
+        # A field validator rather than a model one so the failure is reported
+        # against ``date_to`` - ``query.date_to`` in the error envelope - and
+        # the frontend can attach it to the control that produced it.
+        lower = info.data.get("date_from")
+        if value is not None and lower is not None and value < lower:
+            raise ValueError(date_before("period end", "period start"))
+        return value
 
 
 # -----------------------------------------------------------------------------
@@ -273,7 +280,7 @@ class VendorInvoiceCreate(BaseModel):
     @model_validator(mode="after")
     def _due_date_not_before_invoice(self) -> VendorInvoiceCreate:
         if self.due_date is not None and self.due_date < self.invoice_date:
-            raise ValueError("The due date cannot be before the invoice date.")
+            raise ValueError(date_before("due date", "invoice date"))
         return self
 
 
@@ -528,8 +535,8 @@ class PaymentCreate(BaseModel):
         """
         if self.party_type is PartyType.NONE:
             raise ValueError("A payment must name a customer or a vendor.")
-        expected = PartyType.VENDOR if self.payment_type is PaymentType.PAYMENT else (
-            PartyType.CUSTOMER
+        expected = (
+            PartyType.VENDOR if self.payment_type is PaymentType.PAYMENT else (PartyType.CUSTOMER)
         )
         if self.party_type is not expected:
             raise ValueError(
@@ -630,6 +637,54 @@ class PaymentFilters(BaseModel):
     date_to: date | None = None
     #: Approved money that has not yet been told which invoices it settled.
     unallocated_only: bool = False
+
+
+# -----------------------------------------------------------------------------
+# Customer adjustments
+# -----------------------------------------------------------------------------
+
+#: Bounded to what the customers module accepts on its own ``OutstandingAdjustment``
+#: payload (3-255 characters): the reason is forwarded verbatim, so a reason
+#: that passes here must not fail validation there and become a 500.
+AdjustmentReason = Annotated[str, Field(min_length=3, max_length=255)]
+
+
+class CustomerAdjustmentCreate(BaseModel):
+    """A debit or credit note against a customer's account, posted by hand.
+
+    Nothing here names the receivable account: the receivable leg is always the
+    system control account, so a caller cannot post a "receivable" adjustment to
+    an account the ageing report does not read. ``account_id`` is the other leg -
+    the revenue, expense or write-off account the adjustment belongs to.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    customer_id: uuid.UUID
+    adjustment_type: CustomerAdjustmentType
+    amount: PositiveMoney
+    account_id: uuid.UUID
+    entry_date: date | None = Field(default=None, description="Defaults to today")
+    reason: AdjustmentReason
+
+
+class CustomerAdjustmentRead(BaseModel):
+    """What one adjustment did: the journal it posted and the balance it left."""
+
+    journal_id: uuid.UUID
+    reference_code: str
+    customer_id: uuid.UUID
+    customer_code: str
+    adjustment_type: CustomerAdjustmentType
+    amount: Decimal
+    #: The signed change applied to the customer's cached outstanding balance.
+    delta: Decimal
+    outstanding_amount: Decimal
+    entry_date: date
+    currency: str
+    account_id: uuid.UUID
+    reason: str
+    entry_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 # -----------------------------------------------------------------------------
@@ -887,11 +942,16 @@ class PeriodFilters(BaseModel):
     date_from: date
     date_to: date
 
-    @model_validator(mode="after")
-    def _range_is_ordered(self) -> PeriodFilters:
-        if self.date_to < self.date_from:
-            raise ValueError("The period end cannot be before the period start.")
-        return self
+    @field_validator("date_to")
+    @classmethod
+    def _range_is_ordered(cls, value: date, info: ValidationInfo) -> date:
+        # Reported against ``date_to`` for the same reason as ``StatementFilters``.
+        # ``date_from`` is absent from ``info.data`` when it failed its own
+        # validation, in which case that error is the one to report.
+        lower = info.data.get("date_from")
+        if lower is not None and value < lower:
+            raise ValueError(date_before("period end", "period start"))
+        return value
 
 
 __all__ = [
@@ -901,6 +961,8 @@ __all__ = [
     "AgeingReport",
     "AgeingRow",
     "AllocationRequest",
+    "CustomerAdjustmentCreate",
+    "CustomerAdjustmentRead",
     "DisputeRequest",
     "GstRateRow",
     "GstSection",

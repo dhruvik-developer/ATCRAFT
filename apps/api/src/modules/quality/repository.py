@@ -45,6 +45,7 @@ from sqlalchemy import ColumnElement, Select, and_, case, delete, func, or_, sel
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
+from src.core.database import affected_rows
 from src.core.pagination import PageParams, SortParams, paginate
 from src.core.responses import OffsetPagination
 from src.modules.products.models import Item
@@ -157,6 +158,7 @@ class WarehouseLookupRepository(BaseRepository[Warehouse]):
 
 class QcTemplateRepository(BaseRepository[QcTemplate]):
     model = QcTemplate
+    entity_label = "QC template"
     searchable_fields = ("code", "name")
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "code": QcTemplate.code,
@@ -212,9 +214,7 @@ class QcTemplateRepository(BaseRepository[QcTemplate]):
         if category_id is not None:
             scopes.append(QcTemplate.item_category_id == category_id)
             ranks.append((QcTemplate.item_category_id == category_id, 2))
-        scopes.append(
-            and_(QcTemplate.item_id.is_(None), QcTemplate.item_category_id.is_(None))
-        )
+        scopes.append(and_(QcTemplate.item_id.is_(None), QcTemplate.item_category_id.is_(None)))
 
         stmt = (
             self._scoped()
@@ -247,17 +247,13 @@ class QcTemplateRepository(BaseRepository[QcTemplate]):
         a partial unique index. The index remains the actual guarantee - this
         read is advisory and the write still has to survive it.
         """
-        stmt = self._scoped().where(
-            QcTemplate.qc_stage == stage, QcTemplate.is_active.is_(True)
-        )
+        stmt = self._scoped().where(QcTemplate.qc_stage == stage, QcTemplate.is_active.is_(True))
         if item_id is not None:
             stmt = stmt.where(QcTemplate.item_id == item_id)
         elif category_id is not None:
             stmt = stmt.where(QcTemplate.item_category_id == category_id)
         else:
-            stmt = stmt.where(
-                QcTemplate.item_id.is_(None), QcTemplate.item_category_id.is_(None)
-            )
+            stmt = stmt.where(QcTemplate.item_id.is_(None), QcTemplate.item_category_id.is_(None))
         if exclude_id is not None:
             stmt = stmt.where(QcTemplate.id != exclude_id)
         return (await self.session.execute(stmt.limit(1))).scalar_one_or_none()
@@ -285,6 +281,7 @@ class QcTemplateRepository(BaseRepository[QcTemplate]):
 
 class QcTemplateParameterRepository(BaseRepository[QcTemplateParameter]):
     model = QcTemplateParameter
+    entity_label = "QC template parameter"
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "sequence": QcTemplateParameter.sequence,
     }
@@ -337,7 +334,7 @@ class QcTemplateParameterRepository(BaseRepository[QcTemplateParameter]):
             )
             .execution_options(synchronize_session=False)
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 #: The five sums and the count every quality aggregate reports. Declared once so
@@ -371,6 +368,7 @@ def _totals_from(row: Any) -> QualityTotals:
 
 class QcInspectionRepository(BaseRepository[QcInspection]):
     model = QcInspection
+    entity_label = "QC inspection"
     searchable_fields = ("code", "reference_code")
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "code": QcInspection.code,
@@ -573,6 +571,7 @@ class QcInspectionRepository(BaseRepository[QcInspection]):
 
 class QcInspectionResultRepository(BaseRepository[QcInspectionResult]):
     model = QcInspectionResult
+    entity_label = "QC inspection result"
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {}  # noqa: RUF012
 
     async def list_for_inspection(self, inspection_id: uuid.UUID) -> list[QcInspectionResult]:

@@ -208,12 +208,15 @@ async def _seed_roles(session: AsyncSession, company: Company) -> dict[str, Role
     for code, spec in ROLE_PRESETS.items():
         if code in existing:
             continue
+        permission_values = spec["permissions"]
+        if not isinstance(permission_values, (list, tuple, set, frozenset)):
+            raise TypeError(f"Role preset {code!r} has an invalid permissions collection")
         role = Role(
             company_id=company.id,
             code=code,
             name=str(spec["name"]),
             description=str(spec["description"]),
-            permissions=sorted(str(p) for p in spec["permissions"]),  # type: ignore[union-attr]
+            permissions=sorted(str(p) for p in permission_values),
             is_system=bool(spec.get("is_system")),
             is_vendor_role=bool(spec.get("is_vendor_role")),
             is_active=True,

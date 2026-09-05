@@ -27,6 +27,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
 from src.core.clock import utcnow
+from src.core.database import affected_rows
 from src.core.pagination import SortParams
 
 # Read-only references to other modules' master tables. Warehouses validate that
@@ -304,7 +305,7 @@ class WarehouseRepository(BaseRepository[Warehouse]):
         )
         if keep_id is not None:
             stmt = stmt.where(Warehouse.id != keep_id)
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 class StorageLocationRepository(BaseRepository[StorageLocation]):
@@ -432,7 +433,7 @@ class StorageLocationRepository(BaseRepository[StorageLocation]):
             .values(deleted_at=utcnow(), is_active=False, updated_by_id=self.tenant.user_id)
             .execution_options(synchronize_session=False)
         )
-        return int((await self.session.execute(stmt)).rowcount or 0)
+        return affected_rows(await self.session.execute(stmt))
 
 
 __all__ = [

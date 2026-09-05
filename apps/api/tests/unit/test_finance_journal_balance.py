@@ -103,9 +103,7 @@ class TestLegShape:
         with pytest.raises(ValidationError) as caught:
             assert_balanced(
                 [
-                    JournalLine(
-                        account_id=_account(), debit=Decimal("100"), credit=Decimal("100")
-                    ),
+                    JournalLine(account_id=_account(), debit=Decimal("100"), credit=Decimal("100")),
                     _credit("100"),
                 ]
             )
@@ -164,9 +162,7 @@ class TestPartyLegs:
         with pytest.raises(ValidationError):
             assert_balanced(
                 [
-                    JournalLine(
-                        account_id=_account(), debit=Decimal("100"), party_id=uuid.uuid4()
-                    ),
+                    JournalLine(account_id=_account(), debit=Decimal("100"), party_id=uuid.uuid4()),
                     _credit("100"),
                 ]
             )

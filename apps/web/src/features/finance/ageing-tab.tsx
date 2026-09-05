@@ -84,10 +84,7 @@ type BucketKey = 'bucket_0_30' | 'bucket_31_60' | 'bucket_61_90' | 'bucket_90_pl
 const BUCKETS: {
   key: BucketKey
   totalKey:
-    | 'total_bucket_0_30'
-    | 'total_bucket_31_60'
-    | 'total_bucket_61_90'
-    | 'total_bucket_90_plus'
+    'total_bucket_0_30' | 'total_bucket_31_60' | 'total_bucket_61_90' | 'total_bucket_90_plus'
   label: string
   fill: string
   fillOpacity: number
@@ -395,7 +392,7 @@ export function AgeingTab() {
       )}
 
       {primary && (
-        <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 min-[1800px]:grid-cols-6">
           <StatTile
             label={`Not due (${primary.currency})`}
             value={formatMoney(primary.total_not_due, { currency: primary.currency })}
@@ -501,9 +498,7 @@ export function AgeingTab() {
               {/* The plot is a picture; this is the same numbers in a form a
                   screen reader can walk through. */}
               <table className="sr-only">
-                <caption>
-                  Outstanding amount by party and age bucket, in {blockCurrency}
-                </caption>
+                <caption>Outstanding amount by party and age bucket, in {blockCurrency}</caption>
                 <thead>
                   <tr>
                     <th scope="col">Party</th>
@@ -606,7 +601,9 @@ function CurrencyBar({
               onClick={() => onSelect(block.currency)}
             >
               <span className="font-mono">{block.currency}</span>
-              <span className={cn('ml-1.5 text-2xs', active ? 'opacity-80' : 'text-muted-foreground')}>
+              <span
+                className={cn('ml-1.5 text-2xs', active ? 'opacity-80' : 'text-muted-foreground')}
+              >
                 {formatMoney(block.total_outstanding, { currency: block.currency, compact: true })}
               </span>
               {(block.rows?.length ?? 0) === 0 && block.party_count > 0 && (

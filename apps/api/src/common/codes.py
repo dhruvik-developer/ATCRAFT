@@ -16,6 +16,7 @@ sequential series, which is not acceptable for GST-relevant documents.
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import date
@@ -84,6 +85,8 @@ class DocTypes:
     DISPATCH = DocType("dispatch", "DSP")
     VENDOR_INVOICE = DocType("vendor_invoice", "VINV")
     PAYMENT = DocType("payment", "PAY")
+    #: A debit or credit note posted against a customer's account by hand.
+    CUSTOMER_ADJUSTMENT = DocType("customer_adjustment", "CADJ")
     MRP_RUN = DocType("mrp_run", "MRP", yearly=False)
     BOM = DocType("bom", "BOM", yearly=False)
 
@@ -153,11 +156,76 @@ def normalise_code(value: str) -> str:
     return " ".join(value.strip().upper().split())
 
 
+# -----------------------------------------------------------------------------
+# Request-side normalisation shared by the master-data schemas
+# -----------------------------------------------------------------------------
+
+#: The alphabet a business code may use once normalised. A customer code is
+#: quoted on sales orders, a vendor code on purchase orders, a warehouse code in
+#: barcodes and document references; punctuation beyond dot, dash, slash and
+#: underscore makes those ambiguous to read, scan and parse. One pattern, so no
+#: master silently accepts codes another refuses.
+CODE_PATTERN = r"^[A-Z0-9][A-Z0-9._\-/ ]*$"
+
+CODE_ALPHABET_MESSAGE = (
+    "Code may contain only letters, digits, dot, dash, slash, underscore and spaces, "
+    "and must start with a letter or digit."
+)
+
+
+def validate_code(value: str) -> str:
+    """Normalise a code and refuse one outside :data:`CODE_PATTERN`.
+
+    Raises :class:`ValueError` with a user-facing sentence, so it binds directly
+    as a pydantic field validator.
+    """
+    normalised = normalise_code(value)
+    if not normalised:
+        raise ValueError("Code cannot be blank.")
+    if not re.match(CODE_PATTERN, normalised):
+        raise ValueError(CODE_ALPHABET_MESSAGE)
+    return normalised
+
+
+def clean_name(value: str) -> str:
+    """Collapse internal whitespace and refuse a blank name."""
+    cleaned = " ".join(value.split())
+    if not cleaned:
+        raise ValueError("Name cannot be blank.")
+    return cleaned
+
+
+def strip_optional(value: str | None) -> str | None:
+    """Collapse a whitespace-only optional field to NULL.
+
+    An empty string and NULL must not both mean "not supplied", or a report
+    filtering on ``column IS NULL`` misses half the rows.
+    """
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def clean_text(value: str | None) -> str | None:
+    """Collapse runs of whitespace in free text; blank becomes NULL."""
+    if value is None:
+        return None
+    collapsed = " ".join(value.split())
+    return collapsed or None
+
+
 __all__ = [
+    "CODE_ALPHABET_MESSAGE",
+    "CODE_PATTERN",
     "DocType",
     "DocTypes",
     "DocumentSequence",
+    "clean_name",
+    "clean_text",
     "financial_year_key",
     "next_document_number",
     "normalise_code",
+    "strip_optional",
+    "validate_code",
 ]

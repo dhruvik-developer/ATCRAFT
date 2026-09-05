@@ -9,7 +9,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import { Controller, useForm, type UseFormSetError } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
 import { FieldError } from '@/components/shared'
@@ -30,11 +30,15 @@ import {
 } from '@/components/ui/overlays'
 import { Checkbox, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
-import { api, ApiError } from '@/lib/api-client'
+import { api } from '@/lib/api-client'
+import { SELECT_NONE } from '@/lib/constants'
+import { applyFieldErrors } from '@/lib/form-errors'
 import { humanise, toDecimal } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
+import { asId, asText } from '@/lib/utils'
 
 import {
   ALL_CAPABILITIES,
@@ -45,9 +49,6 @@ import {
   useUomOptions,
   type ItemDetail,
 } from './item-model'
-
-/** Radix forbids an empty option value, so "not set" needs a sentinel. */
-const NONE = '__none'
 
 const DECIMAL = /^(\d{1,14}(\.\d{1,4})?)?$/
 const WHOLE_DAYS = /^\d{0,4}$/
@@ -93,17 +94,15 @@ const schema = z.object({
 
 type ItemFormValues = z.infer<typeof schema>
 
-const FORM_FIELDS = new Set(Object.keys(schema.shape))
-
 function emptyValues(): ItemFormValues {
   return {
     code: '',
     name: '',
     item_group: 'RAW_MATERIAL',
-    category_id: NONE,
+    category_id: SELECT_NONE,
     base_uom_id: '',
-    purchase_uom_id: NONE,
-    sale_uom_id: NONE,
+    purchase_uom_id: SELECT_NONE,
+    sale_uom_id: SELECT_NONE,
     hsn_code: '',
     gst_rate: '0',
     production_type: 'BUY',
@@ -127,10 +126,10 @@ function valuesFrom(item: ItemDetail): ItemFormValues {
     code: item.code,
     name: item.name,
     item_group: item.item_group,
-    category_id: item.category_id ?? NONE,
+    category_id: item.category_id ?? SELECT_NONE,
     base_uom_id: item.base_uom_id,
-    purchase_uom_id: item.purchase_uom_id ?? NONE,
-    sale_uom_id: item.sale_uom_id ?? NONE,
+    purchase_uom_id: item.purchase_uom_id ?? SELECT_NONE,
+    sale_uom_id: item.sale_uom_id ?? SELECT_NONE,
     hsn_code: item.hsn_code ?? '',
     gst_rate: item.gst_rate,
     production_type: item.production_type,
@@ -149,8 +148,6 @@ function valuesFrom(item: ItemDetail): ItemFormValues {
   }
 }
 
-const asId = (value: string): string | null => (value === NONE || value === '' ? null : value)
-const asText = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 /** Decimals stay strings all the way to the wire - never parsed into a double. */
 const asDecimal = (value: string): string => (value.trim() === '' ? '0' : value.trim())
 
@@ -182,20 +179,6 @@ function buildPayload(
     can_job_work: values.can_job_work,
     can_return: values.can_return,
     can_scrap: values.can_scrap,
-  }
-}
-
-/** Puts a 422 back on the field that caused it instead of in a toast. */
-function applyFieldErrors(error: unknown, setError: UseFormSetError<ItemFormValues>): void {
-  if (!(error instanceof ApiError) || error.status !== 422) return
-  for (const [path, messages] of Object.entries(error.fieldErrors)) {
-    // FastAPI reports the location as `body.code`; the form knows it as `code`.
-    const field = path.split('.').pop() ?? path
-    if (!FORM_FIELDS.has(field)) continue
-    setError(field as keyof ItemFormValues, {
-      type: 'server',
-      message: Array.isArray(messages) ? messages.join('. ') : String(messages),
-    })
   }
 }
 
@@ -254,7 +237,10 @@ export function ItemFormDialog({
     onSuccess: (saved) => {
       // One prefix invalidation covers every item list and every item detail.
       void queryClient.invalidateQueries({ queryKey: queryKeys.items.all })
-      toast.success(isEdit ? 'Item updated' : 'Item created', `${saved.code} - ${saved.name}`)
+      toast.success(
+        isEdit ? success.updated('Item') : success.created('Item'),
+        `${saved.code} - ${saved.name}`,
+      )
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),
@@ -347,7 +333,7 @@ export function ItemFormDialog({
                         <SelectValue placeholder="No category" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NONE}>No category</SelectItem>
+                        <SelectItem value={SELECT_NONE}>No category</SelectItem>
                         {(categories.data ?? []).map((category) => (
                           <SelectItem key={category.id} value={category.id}>
                             {category.code} - {category.name}
@@ -422,7 +408,7 @@ export function ItemFormDialog({
                         <SelectValue placeholder="Same as base" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NONE}>Same as base</SelectItem>
+                        <SelectItem value={SELECT_NONE}>Same as base</SelectItem>
                         {(uoms.data ?? []).map((uom) => (
                           <SelectItem key={uom.id} value={uom.id}>
                             {uom.code} - {uom.name}
@@ -445,7 +431,7 @@ export function ItemFormDialog({
                         <SelectValue placeholder="Same as base" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NONE}>Same as base</SelectItem>
+                        <SelectItem value={SELECT_NONE}>Same as base</SelectItem>
                         {(uoms.data ?? []).map((uom) => (
                           <SelectItem key={uom.id} value={uom.id}>
                             {uom.code} - {uom.name}
@@ -554,6 +540,8 @@ export function ItemFormDialog({
                 })}
               </div>
             </fieldset>
+
+            <FieldError message={errors.root?.message} />
           </DialogBody>
 
           <DialogFooter>

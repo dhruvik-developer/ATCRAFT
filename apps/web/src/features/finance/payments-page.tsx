@@ -33,7 +33,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { PageHeader, StatusBadge } from '@/components/shared'
+import { DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -46,11 +46,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/overlays'
-import { Badge, Checkbox, Input, Label } from '@/components/ui/primitives'
+import { Badge, Checkbox, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { CustomerPicker } from '@/features/customers/customer-picker'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useListQuery } from '@/hooks/use-list-query'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatMoney } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
@@ -79,9 +80,6 @@ import {
   type PaymentCommand,
   type PaymentRow,
 } from './payment-model'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /**
  * Every filter key this screen owns, named once.
@@ -446,14 +444,14 @@ export default function PaymentsPage() {
         toolbar={
           <>
             <Select
-              value={status || ALL}
-              onValueChange={(next) => setParam('status', next === ALL ? undefined : next)}
+              value={status || SELECT_ALL}
+              onValueChange={(next) => setParam('status', next === SELECT_ALL ? undefined : next)}
             >
-              <SelectTrigger className="w-[11rem]" aria-label="Payment status">
+              <SelectTrigger className="w-full sm:w-[11rem]" aria-label="Payment status">
                 <SelectValue placeholder="Any status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any status</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any status</SelectItem>
                 {PAYMENT_STATUSES.map((entry) => (
                   <SelectItem key={entry} value={entry}>
                     {PAYMENT_STATUS_LABELS[entry]}
@@ -463,14 +461,16 @@ export default function PaymentsPage() {
             </Select>
 
             <Select
-              value={paymentType || ALL}
-              onValueChange={(next) => setParam('payment_type', next === ALL ? undefined : next)}
+              value={paymentType || SELECT_ALL}
+              onValueChange={(next) =>
+                setParam('payment_type', next === SELECT_ALL ? undefined : next)
+              }
             >
-              <SelectTrigger className="w-[12rem]" aria-label="Direction">
+              <SelectTrigger className="w-full sm:w-[12rem]" aria-label="Direction">
                 <SelectValue placeholder="Both directions" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Both directions</SelectItem>
+                <SelectItem value={SELECT_ALL}>Both directions</SelectItem>
                 {PAYMENT_TYPES.map((entry) => (
                   <SelectItem key={entry} value={entry}>
                     {PAYMENT_TYPE_LABELS[entry]}
@@ -480,21 +480,21 @@ export default function PaymentsPage() {
             </Select>
 
             <Select
-              value={partyType || ALL}
+              value={partyType || SELECT_ALL}
               onValueChange={(next) =>
                 // The party goes with the side it was chosen from: a vendor id
                 // filtered by `party_type=CUSTOMER` matches nothing at all.
                 setFilters({
-                  party_type: next === ALL ? undefined : next,
+                  party_type: next === SELECT_ALL ? undefined : next,
                   party_id: undefined,
                 })
               }
             >
-              <SelectTrigger className="w-[10rem]" aria-label="Party side">
+              <SelectTrigger className="w-full sm:w-[10rem]" aria-label="Party side">
                 <SelectValue placeholder="Either side" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Either side</SelectItem>
+                <SelectItem value={SELECT_ALL}>Either side</SelectItem>
                 {PAYMENT_PARTY_SIDES.map((entry) => (
                   <SelectItem key={entry} value={entry}>
                     {PAYMENT_PARTY_LABELS[entry]}
@@ -525,14 +525,16 @@ export default function PaymentsPage() {
             )}
 
             <Select
-              value={paymentMethod || ALL}
-              onValueChange={(next) => setParam('payment_method', next === ALL ? undefined : next)}
+              value={paymentMethod || SELECT_ALL}
+              onValueChange={(next) =>
+                setParam('payment_method', next === SELECT_ALL ? undefined : next)
+              }
             >
-              <SelectTrigger className="w-[11rem]" aria-label="Payment method">
+              <SelectTrigger className="w-full sm:w-[11rem]" aria-label="Payment method">
                 <SelectValue placeholder="Any method" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>Any method</SelectItem>
+                <SelectItem value={SELECT_ALL}>Any method</SelectItem>
                 {PAYMENT_METHODS.map((entry) => (
                   <SelectItem key={entry} value={entry}>
                     {PAYMENT_METHOD_LABELS[entry]}
@@ -541,33 +543,17 @@ export default function PaymentsPage() {
               </SelectContent>
             </Select>
 
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="payments-from" className="sr-only">
-                Paid from
-              </Label>
-              <Input
-                id="payments-from"
-                type="date"
-                className="w-[10.5rem]"
-                value={dateFrom}
-                max={dateTo || undefined}
-                onChange={(event) => setParam('date_from', event.target.value || undefined)}
-              />
-              <span className="text-xs text-muted-foreground" aria-hidden>
-                to
-              </span>
-              <Label htmlFor="payments-to" className="sr-only">
-                Paid to
-              </Label>
-              <Input
-                id="payments-to"
-                type="date"
-                className="w-[10.5rem]"
-                value={dateTo}
-                min={dateFrom || undefined}
-                onChange={(event) => setParam('date_to', event.target.value || undefined)}
-              />
-            </div>
+            <DateRangeFilter
+              id="payments"
+              fromLabel="Paid from"
+              toLabel="Paid to"
+              from={dateFrom}
+              to={dateTo}
+              fromInputProps={{ max: dateTo || undefined }}
+              toInputProps={{ min: dateFrom || undefined }}
+              onFromChange={(value) => setParam('date_from', value || undefined)}
+              onToChange={(value) => setParam('date_to', value || undefined)}
+            />
 
             <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-background px-3">
               <Checkbox

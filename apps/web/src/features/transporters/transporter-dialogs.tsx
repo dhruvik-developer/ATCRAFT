@@ -51,15 +51,15 @@ import {
   Textarea,
 } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
-import { applyFieldErrors } from '@/lib/form-errors'
+import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
+import { success } from '@/lib/messages'
 import { staleTimes } from '@/lib/query-client'
 import { GSTIN_PATTERN, PAN_PATTERN, STATE_CODE_PATTERN } from '@/lib/statutory'
 import { toast } from '@/lib/toast'
 
 import {
-  MAX_REASON_LENGTH,
   MAX_TRACKING_ID_LENGTH,
-  MIN_REASON_LENGTH,
   TRACKING_PLACEHOLDER,
   TRACKING_TEMPLATE_MAX_LENGTH,
   TRANSPORTER_COMMANDS,
@@ -114,10 +114,7 @@ const schema = z
     state_code: z
       .string()
       .trim()
-      .refine(
-        (v) => v === '' || STATE_CODE_PATTERN.test(v),
-        'Two digits, as printed on the GSTIN',
-      ),
+      .refine((v) => v === '' || STATE_CODE_PATTERN.test(v), 'Two digits, as printed on the GSTIN'),
     postal_code: z.string().trim().max(16, 'At most 16 characters'),
     country: z.string().trim().min(1, 'Country is required').max(80, 'At most 80 characters'),
 
@@ -301,7 +298,7 @@ export function TransporterFormDialog({
       // options the dispatch screen reads.
       void queryClient.invalidateQueries({ queryKey: transporterKeys.all })
       toast.success(
-        isEdit ? 'Transporter updated' : 'Transporter created',
+        isEdit ? success.updated('Transporter') : success.created('Transporter'),
         `${saved.code} - ${saved.name}`,
       )
       onOpenChange(false)
@@ -646,7 +643,7 @@ export function TransporterCommandDialog({
   // Restore takes no payload at all, so there is nothing to ask for; the other
   // three all insist on a reason, only in different parts of the request.
   const needsReason = copy !== null && copy.reason !== 'none'
-  const reasonTooShort = reason.trim().length < MIN_REASON_LENGTH
+  const reasonTooShort = reason.trim().length < REASON_MIN_LENGTH
 
   const close = () => {
     setReason('')
@@ -662,11 +659,13 @@ export function TransporterCommandDialog({
       const done = TRANSPORTER_COMMANDS[variables.command]
       toast.success(
         done.successTitle,
-        done.successDescription ??
-          `${variables.transporter.code} - ${variables.transporter.name}`,
+        done.successDescription ?? `${variables.transporter.code} - ${variables.transporter.name}`,
       )
       close()
     },
+    // Fired from a confirm box, not a form: a 422 on `reason` has no control
+    // to land on, and the mutation cache stays quiet for it.
+    onError: (error) => reportFieldErrors(error, 'Could not complete this transporter action'),
   })
 
   return (
@@ -700,13 +699,13 @@ export function TransporterCommandDialog({
             id="transporter-command-reason"
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            maxLength={MAX_REASON_LENGTH}
+            maxLength={REASON_MAX_LENGTH}
             autoComplete="off"
             className="mt-1.5"
             aria-invalid={touched && reasonTooShort}
           />
           {touched && reasonTooShort && (
-            <FieldError message={`Record at least ${MIN_REASON_LENGTH} characters of reason`} />
+            <FieldError message={`Record at least ${REASON_MIN_LENGTH} characters of reason`} />
           )}
           <p className="mt-1 text-xs text-muted-foreground">
             Kept in the audit trail. Six months from now this is the only record of why the carrier

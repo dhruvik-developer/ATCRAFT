@@ -22,7 +22,7 @@ import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { ConfirmDialog, PageHeader, StatusBadge } from '@/components/shared'
+import { ConfirmDialog, DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -31,14 +31,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/overlays'
-import { Checkbox, Input, Label } from '@/components/ui/primitives'
+import { Checkbox, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import { useListQuery } from '@/hooks/use-list-query'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatQuantity, humanise, toDecimal } from '@/lib/format'
 import { api } from '@/lib/api-client'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -51,9 +53,6 @@ import {
   type GoodsReceiptPostResult,
   type GoodsReceiptRow,
 } from './procurement-types'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 /** Every filter this screen owns, cleared as one write rather than five. */
 const FILTER_KEYS = [
@@ -72,7 +71,10 @@ export default function GoodsReceiptsPage() {
   const [receiveOpen, setReceiveOpen] = useState(false)
   const [pendingPost, setPendingPost] = useState<GoodsReceiptRow | null>(null)
 
-  const canReceive = can(P.GRN_CREATE) || can(P.GRN_POST)
+  // `create_goods_receipt` enforces grn.create and nothing else. grn.post only
+  // gates the Post button on a DRAFT row; offering "Receive" on it as well put
+  // a poster without the create right through a whole count for a 403.
+  const canReceive = can(P.GRN_CREATE)
   const canPost = can(P.GRN_POST)
 
   const status = searchParams.get('status') ?? ''
@@ -135,7 +137,10 @@ export default function GoodsReceiptsPage() {
                 : 'and quality will pick them up.'
             }`
           : 'The stock is available.'
-      toast.success('Goods receipt posted', `${result.receipt.code} is posted. ${held} ${orderNow}`)
+      toast.success(
+        success.posted('Goods receipt'),
+        `${result.receipt.code} is posted. ${held} ${orderNow}`,
+      )
       setPendingPost(null)
     },
   })
@@ -324,14 +329,16 @@ export default function GoodsReceiptsPage() {
         toolbar={
           <>
             <Select
-              value={status || ALL}
-              onValueChange={(value) => setParam('status', value === ALL ? undefined : value)}
+              value={status || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('status', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[170px]" aria-label="Filter by status">
+              <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by status">
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All statuses</SelectItem>
+                <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
                 {GRN_STATUSES.map((value) => (
                   <SelectItem key={value} value={value}>
                     {humanise(value)}
@@ -340,37 +347,27 @@ export default function GoodsReceiptsPage() {
               </SelectContent>
             </Select>
 
-            <VendorPicker
-              id="grn-vendor-filter"
-              label="Vendor"
-              hideLabel
-              value={vendorId || null}
-              onChange={(value) => setParam('vendor_id', value ?? undefined)}
-              placeholder="All vendors"
-            />
+            {/* The vendor search reads `/vendors`, which enforces `vendor.view`.
+                Offering it without that right earns a 403 on every keystroke. */}
+            {can(P.VENDOR_VIEW) && (
+              <VendorPicker
+                id="grn-vendor-filter"
+                className="w-full sm:w-auto"
+                label="Vendor"
+                hideLabel
+                value={vendorId || null}
+                onChange={(value) => setParam('vendor_id', value ?? undefined)}
+                placeholder="All vendors"
+              />
+            )}
 
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="grn-received-from" className="text-xs text-muted-foreground">
-                From
-              </Label>
-              <Input
-                id="grn-received-from"
-                type="date"
-                value={receivedFrom}
-                onChange={(event) => setParam('received_from', event.target.value || undefined)}
-                className="w-[9.5rem]"
-              />
-              <Label htmlFor="grn-received-to" className="text-xs text-muted-foreground">
-                To
-              </Label>
-              <Input
-                id="grn-received-to"
-                type="date"
-                value={receivedTo}
-                onChange={(event) => setParam('received_to', event.target.value || undefined)}
-                className="w-[9.5rem]"
-              />
-            </div>
+            <DateRangeFilter
+              id="grn-received"
+              from={receivedFrom}
+              to={receivedTo}
+              onFromChange={(value) => setParam('received_from', value || undefined)}
+              onToChange={(value) => setParam('received_to', value || undefined)}
+            />
 
             <div className="flex items-center gap-2">
               <Checkbox

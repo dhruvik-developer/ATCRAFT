@@ -11,7 +11,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 
-import { api } from '@/lib/api-client'
+import { api, emptyOnPermissionError } from '@/lib/api-client'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { DecimalString, SchemaOf } from '@/types/api'
 
@@ -270,8 +270,8 @@ export function useVendorOptions(enabled = true, approvedOnly = false) {
         return await api.get<VendorOption[]>('/vendors/options', {
           params: { approved_only: approvedOnly },
         })
-      } catch {
-        return []
+      } catch (error) {
+        return emptyOnPermissionError<VendorOption>(error)
       }
     },
     staleTime: staleTimes.reference,

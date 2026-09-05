@@ -26,15 +26,13 @@ import {
 import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
+import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatQuantity, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
 import { BomFormDialog } from './bom-dialogs'
 import { BOM_STATUSES, BOM_TYPES, type BomRow } from './bom-model'
-
-/** Radix Select forbids an empty option value, so "no filter" needs a sentinel. */
-const ALL = '__all'
 
 export default function BomListPage() {
   const { can } = useAuth()
@@ -210,14 +208,16 @@ export default function BomListPage() {
         toolbar={
           <>
             <Select
-              value={status || ALL}
-              onValueChange={(value) => setParam('status', value === ALL ? undefined : value)}
+              value={status || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('status', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[180px]" aria-label="Filter by status">
+              <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by status">
                 <SelectValue placeholder="All statuses" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All statuses</SelectItem>
+                <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
                 {BOM_STATUSES.map((value) => (
                   <SelectItem key={value} value={value}>
                     {humanise(value)}
@@ -227,14 +227,16 @@ export default function BomListPage() {
             </Select>
 
             <Select
-              value={bomType || ALL}
-              onValueChange={(value) => setParam('bom_type', value === ALL ? undefined : value)}
+              value={bomType || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('bom_type', value === SELECT_ALL ? undefined : value)
+              }
             >
-              <SelectTrigger className="w-[170px]" aria-label="Filter by BOM type">
+              <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by BOM type">
                 <SelectValue placeholder="All types" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={ALL}>All types</SelectItem>
+                <SelectItem value={SELECT_ALL}>All types</SelectItem>
                 {BOM_TYPES.map((value) => (
                   <SelectItem key={value} value={value}>
                     {humanise(value)}

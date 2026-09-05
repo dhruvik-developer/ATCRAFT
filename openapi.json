@@ -26,6 +26,40 @@
         "title": "AcceptedJobResponse",
         "type": "object"
       },
+      "AccessTokenResponse": {
+        "description": "Browser-visible half of a token pair; never contains a refresh secret.",
+        "properties": {
+          "access_token": {
+            "title": "Access Token",
+            "type": "string"
+          },
+          "expires_in": {
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "refresh_expires_in": {
+            "title": "Refresh Expires In",
+            "type": "integer"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "token_type": {
+            "default": "bearer",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token",
+          "expires_in",
+          "refresh_expires_in",
+          "session_id"
+        ],
+        "title": "AccessTokenResponse",
+        "type": "object"
+      },
       "AcknowledgeRequest": {
         "additionalProperties": false,
         "properties": {
@@ -940,6 +974,32 @@
         "title": "AllocationRequest",
         "type": "object"
       },
+      "ApiResponse_AccessTokenResponse_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccessTokenResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[AccessTokenResponse]",
+        "type": "object"
+      },
       "ApiResponse_AcknowledgedResult_": {
         "properties": {
           "data": {
@@ -1304,6 +1364,32 @@
         "title": "ApiResponse[BranchRead]",
         "type": "object"
       },
+      "ApiResponse_BrowserLoginResponse_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BrowserLoginResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[BrowserLoginResponse]",
+        "type": "object"
+      },
       "ApiResponse_BulkIgnoreResult_": {
         "properties": {
           "data": {
@@ -1640,6 +1726,32 @@
           }
         },
         "title": "ApiResponse[CreditStatus]",
+        "type": "object"
+      },
+      "ApiResponse_CustomerAdjustmentRead_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomerAdjustmentRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[CustomerAdjustmentRead]",
         "type": "object"
       },
       "ApiResponse_CustomerDetail_": {
@@ -2266,32 +2378,6 @@
         "title": "ApiResponse[LedgerStatement]",
         "type": "object"
       },
-      "ApiResponse_LoginResponse_": {
-        "properties": {
-          "data": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LoginResponse"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "message": {
-            "default": "Operation completed successfully",
-            "title": "Message",
-            "type": "string"
-          },
-          "success": {
-            "default": true,
-            "title": "Success",
-            "type": "boolean"
-          }
-        },
-        "title": "ApiResponse[LoginResponse]",
-        "type": "object"
-      },
       "ApiResponse_LogoutResult_": {
         "properties": {
           "data": {
@@ -2498,6 +2584,58 @@
           }
         },
         "title": "ApiResponse[MeResponse]",
+        "type": "object"
+      },
+      "ApiResponse_MfaChangeResult_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MfaChangeResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[MfaChangeResult]",
+        "type": "object"
+      },
+      "ApiResponse_MfaSetupResponse_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MfaSetupResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[MfaSetupResponse]",
         "type": "object"
       },
       "ApiResponse_MrpRunRead_": {
@@ -3872,32 +4010,6 @@
         "title": "ApiResponse[TemplateDetail]",
         "type": "object"
       },
-      "ApiResponse_TokenPair_": {
-        "properties": {
-          "data": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/TokenPair"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "message": {
-            "default": "Operation completed successfully",
-            "title": "Message",
-            "type": "string"
-          },
-          "success": {
-            "default": true,
-            "title": "Success",
-            "type": "boolean"
-          }
-        },
-        "title": "ApiResponse[TokenPair]",
-        "type": "object"
-      },
       "ApiResponse_TrackingEventRead_": {
         "properties": {
           "data": {
@@ -3974,6 +4086,36 @@
           }
         },
         "title": "ApiResponse[TransporterRead]",
+        "type": "object"
+      },
+      "ApiResponse_Union_BrowserLoginResponse__MfaChallengeResponse__": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BrowserLoginResponse"
+              },
+              {
+                "$ref": "#/components/schemas/MfaChallengeResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[Union[BrowserLoginResponse, MfaChallengeResponse]]",
         "type": "object"
       },
       "ApiResponse_UnreadCountRead_": {
@@ -4604,36 +4746,6 @@
           }
         },
         "title": "ApiResponse[list[TransporterOption]]",
-        "type": "object"
-      },
-      "ApiResponse_list_VendorChargeRow__": {
-        "properties": {
-          "data": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/components/schemas/VendorChargeRow"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Data"
-          },
-          "message": {
-            "default": "Operation completed successfully",
-            "title": "Message",
-            "type": "string"
-          },
-          "success": {
-            "default": true,
-            "title": "Success",
-            "type": "boolean"
-          }
-        },
-        "title": "ApiResponse[list[VendorChargeRow]]",
         "type": "object"
       },
       "ApiResponse_list_VendorOption__": {
@@ -7910,6 +8022,49 @@
         "title": "BranchUpdate",
         "type": "object"
       },
+      "BrowserLoginResponse": {
+        "properties": {
+          "access_token": {
+            "title": "Access Token",
+            "type": "string"
+          },
+          "expires_in": {
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "mfa_required": {
+            "const": false,
+            "default": false,
+            "title": "Mfa Required",
+            "type": "boolean"
+          },
+          "refresh_expires_in": {
+            "title": "Refresh Expires In",
+            "type": "integer"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "token_type": {
+            "default": "bearer",
+            "title": "Token Type",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/AuthenticatedUser"
+          }
+        },
+        "required": [
+          "access_token",
+          "expires_in",
+          "refresh_expires_in",
+          "session_id",
+          "user"
+        ],
+        "title": "BrowserLoginResponse",
+        "type": "object"
+      },
       "BulkIgnoreRequest": {
         "description": "Dismiss several suggestions at once, with one shared reason.",
         "properties": {
@@ -10761,6 +10916,158 @@
         },
         "title": "CursorPagination",
         "type": "object"
+      },
+      "CustomerAdjustmentCreate": {
+        "additionalProperties": false,
+        "description": "A debit or credit note against a customer's account, posted by hand.\n\nNothing here names the receivable account: the receivable leg is always the\nsystem control account, so a caller cannot post a \"receivable\" adjustment to\nan account the ageing report does not read. ``account_id`` is the other leg -\nthe revenue, expense or write-off account the adjustment belongs to.",
+        "properties": {
+          "account_id": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "adjustment_type": {
+            "$ref": "#/components/schemas/CustomerAdjustmentType"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Amount"
+          },
+          "customer_id": {
+            "format": "uuid",
+            "title": "Customer Id",
+            "type": "string"
+          },
+          "entry_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Defaults to today",
+            "title": "Entry Date"
+          },
+          "reason": {
+            "maxLength": 255,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "adjustment_type",
+          "amount",
+          "account_id",
+          "reason"
+        ],
+        "title": "CustomerAdjustmentCreate",
+        "type": "object"
+      },
+      "CustomerAdjustmentRead": {
+        "description": "What one adjustment did: the journal it posted and the balance it left.",
+        "properties": {
+          "account_id": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "adjustment_type": {
+            "$ref": "#/components/schemas/CustomerAdjustmentType"
+          },
+          "amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "customer_code": {
+            "title": "Customer Code",
+            "type": "string"
+          },
+          "customer_id": {
+            "format": "uuid",
+            "title": "Customer Id",
+            "type": "string"
+          },
+          "delta": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Delta",
+            "type": "string"
+          },
+          "entry_date": {
+            "format": "date",
+            "title": "Entry Date",
+            "type": "string"
+          },
+          "entry_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Entry Ids",
+            "type": "array"
+          },
+          "journal_id": {
+            "format": "uuid",
+            "title": "Journal Id",
+            "type": "string"
+          },
+          "outstanding_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Outstanding Amount",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "reference_code": {
+            "title": "Reference Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "journal_id",
+          "reference_code",
+          "customer_id",
+          "customer_code",
+          "adjustment_type",
+          "amount",
+          "delta",
+          "outstanding_amount",
+          "entry_date",
+          "currency",
+          "account_id",
+          "reason"
+        ],
+        "title": "CustomerAdjustmentRead",
+        "type": "object"
+      },
+      "CustomerAdjustmentType": {
+        "description": "Which way a manual posting against a customer's account moves the balance.\n\nA Python-side vocabulary for ``POST /finance/customer-adjustments``; the\nledger rows it produces are ordinary entries with ``reference_type``\n``customer_adjustment``, so no column carries this value.",
+        "enum": [
+          "CHARGE",
+          "CREDIT"
+        ],
+        "title": "CustomerAdjustmentType",
+        "type": "string"
       },
       "CustomerCreate": {
         "description": "Payload for creating a customer, dealer, distributor or OEM account.",
@@ -18997,67 +19304,6 @@
         "title": "LoginRequest",
         "type": "object"
       },
-      "LoginResponse": {
-        "properties": {
-          "access_token": {
-            "title": "Access Token",
-            "type": "string"
-          },
-          "expires_in": {
-            "title": "Expires In",
-            "type": "integer"
-          },
-          "refresh_expires_in": {
-            "title": "Refresh Expires In",
-            "type": "integer"
-          },
-          "refresh_token": {
-            "title": "Refresh Token",
-            "type": "string"
-          },
-          "session_id": {
-            "title": "Session Id",
-            "type": "string"
-          },
-          "token_type": {
-            "default": "bearer",
-            "title": "Token Type",
-            "type": "string"
-          },
-          "user": {
-            "$ref": "#/components/schemas/AuthenticatedUser"
-          }
-        },
-        "required": [
-          "access_token",
-          "refresh_token",
-          "expires_in",
-          "refresh_expires_in",
-          "session_id",
-          "user"
-        ],
-        "title": "LoginResponse",
-        "type": "object"
-      },
-      "LogoutRequest": {
-        "description": "Optional body.\n\nThe session normally comes from the ``sid`` claim on the access token; the\nrefresh token is accepted too, so a client that has already discarded its\naccess token can still close the session properly instead of leaving it live\nuntil expiry.",
-        "properties": {
-          "refresh_token": {
-            "anyOf": [
-              {
-                "maxLength": 4096,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Refresh Token"
-          }
-        },
-        "title": "LogoutRequest",
-        "type": "object"
-      },
       "LogoutResult": {
         "properties": {
           "revoked_sessions": {
@@ -20609,6 +20855,138 @@
         "title": "MeasurementIn",
         "type": "object"
       },
+      "MfaChallengeResponse": {
+        "description": "Password stage succeeded; no session exists until TOTP verification.",
+        "properties": {
+          "challenge_token": {
+            "title": "Challenge Token",
+            "type": "string"
+          },
+          "expires_in": {
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "mfa_required": {
+            "const": true,
+            "default": true,
+            "title": "Mfa Required",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "challenge_token",
+          "expires_in"
+        ],
+        "title": "MfaChallengeResponse",
+        "type": "object"
+      },
+      "MfaChangeResult": {
+        "properties": {
+          "mfa_enabled": {
+            "title": "Mfa Enabled",
+            "type": "boolean"
+          },
+          "revoked_sessions": {
+            "title": "Revoked Sessions",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mfa_enabled",
+          "revoked_sessions"
+        ],
+        "title": "MfaChangeResult",
+        "type": "object"
+      },
+      "MfaCodeRequest": {
+        "properties": {
+          "code": {
+            "pattern": "^[0-9]{6}$",
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "MfaCodeRequest",
+        "type": "object"
+      },
+      "MfaDisableRequest": {
+        "properties": {
+          "code": {
+            "pattern": "^[0-9]{6}$",
+            "title": "Code",
+            "type": "string"
+          },
+          "current_password": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Current Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "current_password"
+        ],
+        "title": "MfaDisableRequest",
+        "type": "object"
+      },
+      "MfaSetupRequest": {
+        "properties": {
+          "current_password": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Current Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password"
+        ],
+        "title": "MfaSetupRequest",
+        "type": "object"
+      },
+      "MfaSetupResponse": {
+        "properties": {
+          "provisioning_uri": {
+            "title": "Provisioning Uri",
+            "type": "string"
+          },
+          "secret": {
+            "title": "Secret",
+            "type": "string"
+          }
+        },
+        "required": [
+          "secret",
+          "provisioning_uri"
+        ],
+        "title": "MfaSetupResponse",
+        "type": "object"
+      },
+      "MfaVerifyRequest": {
+        "properties": {
+          "challenge_token": {
+            "maxLength": 4096,
+            "minLength": 20,
+            "title": "Challenge Token",
+            "type": "string"
+          },
+          "code": {
+            "pattern": "^[0-9]{6}$",
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "challenge_token",
+          "code"
+        ],
+        "title": "MfaVerifyRequest",
+        "type": "object"
+      },
       "MrpDemandRead": {
         "description": "One demand line as the run captured it.",
         "properties": {
@@ -21805,71 +22183,6 @@
           "lines"
         ],
         "title": "OrderAllocationRead",
-        "type": "object"
-      },
-      "OutstandingAdjustment": {
-        "description": "A finance-owned change to the cached outstanding balance.\n\nSigned: an invoice increases the balance, a receipt or credit note reduces\nit. The reference fields tie the change back to the document that caused it,\nso the cached figure can always be reconciled against the ledger.",
-        "properties": {
-          "delta": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
-                "type": "string"
-              }
-            ],
-            "title": "Delta"
-          },
-          "reason": {
-            "maxLength": 255,
-            "minLength": 3,
-            "title": "Reason",
-            "type": "string"
-          },
-          "reference_code": {
-            "anyOf": [
-              {
-                "maxLength": 64,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reference Code"
-          },
-          "reference_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reference Id"
-          },
-          "reference_type": {
-            "anyOf": [
-              {
-                "maxLength": 48,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reference Type"
-          }
-        },
-        "required": [
-          "delta",
-          "reason"
-        ],
-        "title": "OutstandingAdjustment",
         "type": "object"
       },
       "OutstandingRow": {
@@ -24254,6 +24567,32 @@
           }
         },
         "title": "PaginatedResponse[VendorCategoryRead]",
+        "type": "object"
+      },
+      "PaginatedResponse_VendorChargeRow_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/VendorChargeRow"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/OffsetPagination"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "PaginatedResponse[VendorChargeRow]",
         "type": "object"
       },
       "PaginatedResponse_VendorContactRead_": {
@@ -29734,6 +30073,21 @@
               }
             ],
             "title": "Reason"
+          },
+          "stock_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "AVAILABLE",
+                  "DAMAGED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stock State"
           }
         },
         "required": [
@@ -29837,6 +30191,14 @@
             ],
             "title": "Reason"
           },
+          "stock_state": {
+            "enum": [
+              "AVAILABLE",
+              "DAMAGED"
+            ],
+            "title": "Stock State",
+            "type": "string"
+          },
           "tax_amount": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Tax Amount",
@@ -29873,6 +30235,7 @@
           "line_total",
           "batch_id",
           "location_id",
+          "stock_state",
           "reason",
           "notes"
         ],
@@ -30249,11 +30612,17 @@
             "title": "Freight Amount"
           },
           "lead_time_days": {
-            "default": 0,
-            "maximum": 3650.0,
-            "minimum": 0.0,
-            "title": "Lead Time Days",
-            "type": "integer"
+            "anyOf": [
+              {
+                "maximum": 3650.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Time Days"
           },
           "lines": {
             "items": {
@@ -30275,11 +30644,17 @@
             "title": "Notes"
           },
           "payment_terms_days": {
-            "default": 0,
-            "maximum": 365.0,
-            "minimum": 0.0,
-            "title": "Payment Terms Days",
-            "type": "integer"
+            "anyOf": [
+              {
+                "maximum": 365.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Terms Days"
           },
           "quotation_date": {
             "anyOf": [
@@ -31081,6 +31456,18 @@
               }
             ],
             "title": "Quotation Date"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
           },
           "terms": {
             "anyOf": [
@@ -32508,21 +32895,6 @@
         "title": "RecordResultsResponse",
         "type": "object"
       },
-      "RefreshRequest": {
-        "properties": {
-          "refresh_token": {
-            "maxLength": 4096,
-            "minLength": 20,
-            "title": "Refresh Token",
-            "type": "string"
-          }
-        },
-        "required": [
-          "refresh_token"
-        ],
-        "title": "RefreshRequest",
-        "type": "object"
-      },
       "RejectionAction": {
         "description": "What happens to output the vendor produced badly.\n\nThree dispositions, each with exactly one posting rule, because \"rejected\"\non its own does not say where the goods physically are:\n\n``RETURN_TO_STOCK``   the bad pieces came back. They are received into the\n                      ``DAMAGED`` pool - present, counted, not promisable -\n                      and their share of the input is drawn out of the\n                      job-work pool.\n``REWORK_AT_VENDOR``  the vendor keeps them and reprocesses them. Nothing\n                      moves: the input stays in the job-work pool, the line\n                      stays open, and the quantity keeps appearing in\n                      ``pending-at-vendor`` with its true ageing. This is\n                      what makes rework traceable instead of a note in a\n                      comment box.\n``SCRAP_AT_VENDOR``   they were destroyed there. The input share moves from\n                      the job-work pool to ``SCRAP`` and never comes home.",
         "enum": [
@@ -32792,7 +33164,8 @@
           "INVENTORY_VALUATION",
           "DISPATCH",
           "COURIER_TRACKING",
-          "VENDOR_DISPATCH_HISTORY"
+          "VENDOR_DISPATCH_HISTORY",
+          "PACKING_LIST"
         ],
         "title": "ReportKey",
         "type": "string"
@@ -40013,45 +40386,6 @@
           "reason"
         ],
         "title": "TemplateVersionRequest",
-        "type": "object"
-      },
-      "TokenPair": {
-        "description": "Issued credentials.\n\n``expires_in`` is seconds rather than an absolute time: the client's clock\nmay be wrong, and a countdown does not care.",
-        "properties": {
-          "access_token": {
-            "title": "Access Token",
-            "type": "string"
-          },
-          "expires_in": {
-            "title": "Expires In",
-            "type": "integer"
-          },
-          "refresh_expires_in": {
-            "title": "Refresh Expires In",
-            "type": "integer"
-          },
-          "refresh_token": {
-            "title": "Refresh Token",
-            "type": "string"
-          },
-          "session_id": {
-            "title": "Session Id",
-            "type": "string"
-          },
-          "token_type": {
-            "default": "bearer",
-            "title": "Token Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "access_token",
-          "refresh_token",
-          "expires_in",
-          "refresh_expires_in",
-          "session_id"
-        ],
-        "title": "TokenPair",
         "type": "object"
       },
       "TrackedReceipt": {
@@ -53163,7 +53497,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse_LoginResponse_"
+                  "$ref": "#/components/schemas/ApiResponse_Union_BrowserLoginResponse__MfaChallengeResponse__"
                 }
               }
             },
@@ -53259,23 +53593,6 @@
     "/api/v1/auth/logout": {
       "post": {
         "operationId": "logout_api_v1_auth_logout_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "$ref": "#/components/schemas/LogoutRequest"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Payload"
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
             "content": {
@@ -53591,6 +53908,465 @@
         ]
       }
     },
+    "/api/v1/auth/mfa/confirm": {
+      "post": {
+        "operationId": "confirm_mfa_api_v1_auth_mfa_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MfaCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_MfaChangeResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Confirm the staged TOTP seed and enable MFA",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/mfa/disable": {
+      "post": {
+        "operationId": "disable_mfa_api_v1_auth_mfa_disable_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MfaDisableRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_MfaChangeResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Disable MFA after confirming the password and a current code",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/mfa/setup": {
+      "post": {
+        "operationId": "setup_mfa_api_v1_auth_mfa_setup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MfaSetupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_MfaSetupResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Generate a TOTP seed after confirming the current password",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auth/mfa/verify": {
+      "post": {
+        "operationId": "verify_mfa_api_v1_auth_mfa_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MfaVerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_BrowserLoginResponse_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "summary": "Complete sign-in with a TOTP authentication code",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
     "/api/v1/auth/password-reset/confirm": {
       "post": {
         "operationId": "confirm_password_reset_api_v1_auth_password_reset_confirm_post",
@@ -53818,22 +54594,12 @@
       "post": {
         "description": "Issue a new token pair and retire the presented one.\n\nUnauthenticated by design: the refresh token *is* the credential, and an\nexpired access token must not stand between a user and a new session.",
         "operationId": "refresh_api_v1_auth_refresh_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RefreshRequest"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse_TokenPair_"
+                  "$ref": "#/components/schemas/ApiResponse_AccessTokenResponse_"
                 }
               }
             },
@@ -59338,135 +60104,6 @@
         ]
       }
     },
-    "/api/v1/customers/{customer_id}/outstanding": {
-      "post": {
-        "description": "Finance-owned: an invoice raises the balance, a receipt reduces it.\n\nGated on ``payment.record`` rather than a customer permission - the field is\na financial figure, and the sales team that maintains the rest of the master\nrecord must not be able to move it.",
-        "operationId": "adjust_outstanding_api_v1_customers__customer_id__outstanding_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "customer_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Customer Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/OutstandingAdjustment"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiResponse_CustomerDetail_"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Malformed request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authentication required or token invalid"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Authenticated but missing the required permission"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Record not found in this tenant"
-          },
-          "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Validation or business-rule failure"
-          },
-          "429": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Rate limit exceeded"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            },
-            "description": "Unexpected server error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Apply a finance adjustment to the cached outstanding balance",
-        "tags": [
-          "Customers"
-        ]
-      }
-    },
     "/api/v1/customers/{customer_id}/restore": {
       "post": {
         "operationId": "restore_customer_api_v1_customers__customer_id__restore_post",
@@ -63787,6 +64424,123 @@
         ]
       }
     },
+    "/api/v1/finance/customer-adjustments": {
+      "post": {
+        "description": "A charge raises what the customer owes; a credit lowers it. The receivable journal, the customer's cached outstanding balance and the audit row are written in one transaction, so the balance a credit check reads can always be explained by the ledger - the journal carries the same `reference_code` the balance change records. Gated on `payment.approve` rather than `payment.record`: a credit note is money the company agrees not to collect.",
+        "operationId": "post_customer_adjustment_api_v1_finance_customer_adjustments_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerAdjustmentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_CustomerAdjustmentRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post a debit or credit note against a customer",
+        "tags": [
+          "Finance"
+        ]
+      }
+    },
     "/api/v1/finance/gst-summary": {
       "get": {
         "description": "Output tax is recognised when goods leave - each dispatch line's share of its sales order line's tax, apportioned by quantity - and input tax comes from vendor invoices accepted into the books. Both are grouped by HSN and rate slab, which is the shape a return is read from.",
@@ -67749,6 +68503,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "format": "date",
                   "type": "string"
                 },
                 {
@@ -67767,6 +68522,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "format": "date",
                   "type": "string"
                 },
                 {
@@ -67972,7 +68728,7 @@
         ]
       },
       "post": {
-        "description": "Lines are valued at what the position's FIFO cost layers say the stock cost. If the total exceeds the configured approval threshold the document must be approved by a second person before it can post.",
+        "description": "Lines are valued at what the position's FIFO cost layers say the stock cost. If the total exceeds the approval threshold - a fixed value, ADJUSTMENT_APPROVAL_VALUE_THRESHOLD in the inventory service, echoed in the error's details when posting is refused - the document must be approved by a second person before it can post.",
         "operationId": "create_adjustment_api_v1_inventory_adjustments_post",
         "requestBody": {
           "content": {
@@ -69854,6 +70610,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "format": "date-time",
                   "type": "string"
                 },
                 {
@@ -69872,6 +70629,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "format": "date-time",
                   "type": "string"
                 },
                 {
@@ -70061,6 +70819,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "format": "date",
                   "type": "string"
                 },
                 {
@@ -70079,6 +70838,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "format": "date",
                   "type": "string"
                 },
                 {
@@ -71671,6 +72431,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "format": "date",
                   "type": "string"
                 },
                 {
@@ -71689,6 +72450,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "format": "date",
                   "type": "string"
                 },
                 {
@@ -73217,7 +73979,7 @@
     },
     "/api/v1/job-work/charges": {
       "get": {
-        "description": "The figures finance posts to the vendor ledger. Charges accrue on receipt, so the period is applied to the receipt date: a vendor earns the fee when the processed goods come back. Net charges are the gross processing fee less the value of company material the vendor lost beyond the agreed allowance.",
+        "description": "The figures finance posts to the vendor ledger. Charges accrue on receipt, so the period is applied to the receipt date: a vendor earns the fee when the processed goods come back. Net charges are the gross processing fee less the value of company material the vendor lost beyond the agreed allowance. One vendor per row, largest spend first, paged - `has_next` says when there is more to post.",
         "operationId": "vendor_charges_api_v1_job_work_charges_get",
         "parameters": [
           {
@@ -73265,6 +74027,46 @@
               "description": "Restrict to these vendors",
               "title": "Vendor Id"
             }
+          },
+          {
+            "description": "1-based page number",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "1-based page number",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Rows per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Rows per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Include an exact total row count",
+            "in": "query",
+            "name": "with_total",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Include an exact total row count",
+              "title": "With Total",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -73272,7 +74074,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse_list_VendorChargeRow__"
+                  "$ref": "#/components/schemas/PaginatedResponse_VendorChargeRow_"
                 }
               }
             },
@@ -74845,7 +75647,7 @@
     },
     "/api/v1/job-work/{order_id}/receive": {
       "post": {
-        "description": "Posts the processed output as its own item, draws the input it consumed out of the job-work pool, returns anything handed back untouched, and writes process loss off as scrap with a reason - all in one transaction. Loss beyond the line's agreed allowance is refused until `approve_excess_loss` is set, and its value is then debited to the vendor at the material's own moving-average cost. Receiving more output than the order expected is refused rather than clamped.",
+        "description": "Posts the processed output as its own item, draws the input it consumed out of the job-work pool, returns anything handed back untouched, and writes process loss off as scrap with a reason - all in one transaction. Loss beyond the line's agreed allowance is refused until `approve_excess_loss` is set, and its value is then debited to the vendor at the material's own moving-average cost. Approving the excess requires `job_work.close`. Receiving more output than the order expected is refused rather than clamped.",
         "operationId": "receive_lot_api_v1_job_work__order_id__receive_post",
         "parameters": [
           {
@@ -93398,6 +94200,19 @@
             "schema": {
               "format": "uuid",
               "title": "Order Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Why the draft is being deleted",
+            "in": "query",
+            "name": "reason",
+            "required": true,
+            "schema": {
+              "description": "Why the draft is being deleted",
+              "maxLength": 255,
+              "minLength": 3,
+              "title": "Reason",
               "type": "string"
             }
           }
@@ -118338,7 +119153,7 @@
     },
     "/api/v1/users/{user_id}/reset-password": {
       "post": {
-        "description": "Set a new password, force a change at next sign-in and revoke sessions.\n\nOmit ``new_password`` to have the server generate one; it is returned in this\nresponse and nowhere else.",
+        "description": "Set a new password, force a change at next sign-in and revoke sessions.\n\nOmit ``new_password`` to have the server generate one; it is returned in this\nresponse and nowhere else. A super administrator's password can only be set\nby another super administrator, whatever permissions the caller holds.",
         "operationId": "reset_password_api_v1_users__user_id__reset_password_post",
         "parameters": [
           {

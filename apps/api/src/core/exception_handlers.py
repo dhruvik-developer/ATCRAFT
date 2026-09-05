@@ -8,6 +8,9 @@ correlation id that lets support find the full detail in the logs.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.exc import (
@@ -23,6 +26,7 @@ from starlette.responses import JSONResponse
 from src.core.config import settings
 from src.core.errors import AppError, ErrorCode
 from src.core.logging import get_logger, get_request_id
+from src.core.messages import FIELDS_NEED_ATTENTION
 
 log = get_logger("errors")
 
@@ -57,11 +61,45 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     headers = {}
     if exc.status_code == 429:
         headers["Retry-After"] = str(getattr(exc, "retry_after_seconds", 60))
-    return JSONResponse(
+    response = JSONResponse(
         status_code=exc.status_code,
         content=_payload(exc.code, exc.message, exc.details),
         headers=headers,
     )
+    # A rejected refresh credential cannot recover on the next attempt. Expire
+    # both browser cookies on the actual error response (mutating FastAPI's
+    # injected route Response before raising would be lost when this handler
+    # constructs its replacement response). CSRF failures are 403 and retain a
+    # legitimate session because they may simply be a forged cross-site call.
+    refresh_path = f"{settings.api_v1_prefix.rstrip('/')}/auth/refresh"
+    if exc.status_code == 401 and request.url.path.rstrip("/") == refresh_path:
+        from src.modules.auth.cookies import clear_refresh_cookies
+
+        clear_refresh_cookies(response)
+    return response
+
+
+#: Pydantic v2 prefixes the message of a validator that raised with the kind of
+#: exception it caught. The sentence after the prefix is the one written for the
+#: user; the prefix is a framework detail the form must never show.
+_PYDANTIC_MESSAGE_PREFIXES = ("Value error, ", "Assertion failed, ")
+
+
+def _field_message(error: Mapping[str, Any]) -> str:
+    """The user-facing sentence for one pydantic error.
+
+    A ``ValueError`` raised inside a schema validator is the original exception
+    under ``ctx.error``; prefer its text, which is exactly what the validator
+    wrote. Fall back to stripping the prefix off ``msg`` for errors that arrive
+    already serialised.
+    """
+    ctx = error.get("ctx") or {}
+    if error.get("type") in {"value_error", "assertion_error"} and ctx.get("error") is not None:
+        return str(ctx["error"])
+    message = str(error.get("msg") or "Invalid value")
+    for prefix in _PYDANTIC_MESSAGE_PREFIXES:
+        message = message.removeprefix(prefix)
+    return message
 
 
 async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -73,17 +111,100 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
     field_errors: dict[str, list[str]] = {}
     for error in exc.errors():
         location = ".".join(str(part) for part in error.get("loc", ()) if part != "body")
-        field_errors.setdefault(location or "_root", []).append(error.get("msg", "Invalid value"))
+        field_errors.setdefault(location or "_root", []).append(_field_message(error))
 
     log.info("error.validation", path=request.url.path, fields=sorted(field_errors))
     return JSONResponse(
         status_code=422,
         content=_payload(
             ErrorCode.VALIDATION_ERROR,
-            "Some fields need attention.",
+            FIELDS_NEED_ATTENTION,
             {"fields": field_errors},
         ),
     )
+
+
+# PostgreSQL SQLSTATE codes for the integrity-constraint class (23xxx). The
+# driver puts them on the wrapped error (``sqlstate`` for asyncpg and psycopg
+# 3, ``pgcode`` for psycopg 2 and SQLAlchemy's adapted asyncpg error), so
+# classifying on them is exact where matching message text is not: the NOT
+# NULL branch below was dead for as long as it matched "not null", because
+# PostgreSQL spells it "not-null".
+SQLSTATE_NOT_NULL_VIOLATION = "23502"
+SQLSTATE_FOREIGN_KEY_VIOLATION = "23503"
+SQLSTATE_UNIQUE_VIOLATION = "23505"
+SQLSTATE_CHECK_VIOLATION = "23514"
+
+_DUPLICATE = (ErrorCode.DUPLICATE_DOCUMENT, "A record with these details already exists.", 409)
+_REFERENCED_IN_USE = (
+    ErrorCode.REFERENCED_RECORD_IN_USE,
+    "This record is referenced by other data and cannot be changed or removed.",
+    409,
+)
+_DANGLING_REFERENCE = (ErrorCode.VALIDATION_ERROR, "A referenced record does not exist.", 422)
+_CHECK_FAILED = (
+    ErrorCode.BUSINESS_RULE_VIOLATION,
+    "The submitted values break a business rule enforced by the database.",
+    422,
+)
+_REQUIRED_MISSING = (ErrorCode.VALIDATION_ERROR, "A required value is missing.", 422)
+_GENERIC_CONFLICT = (ErrorCode.CONFLICT, "The operation conflicts with existing data.", 409)
+
+
+def _sqlstate(exc: BaseException) -> str | None:
+    """The five-character SQLSTATE the driver attached, if any."""
+    original = getattr(exc, "orig", None)
+    for candidate in (original, getattr(original, "__cause__", None)):
+        if candidate is None:
+            continue
+        code = getattr(candidate, "sqlstate", None) or getattr(candidate, "pgcode", None)
+        if code:
+            return str(code)
+    return None
+
+
+def _foreign_key_outcome(lowered: str) -> tuple[ErrorCode, str, int]:
+    """PostgreSQL raises two different FK violations under one SQLSTATE.
+
+    ``update or delete on table ...`` means the row is still referenced - the
+    caller tried to remove something in use. ``insert or update on table ...``
+    means the caller supplied an id that does not exist, which is a validation
+    failure, not a refusal to delete; reporting it as "referenced by other data"
+    is the opposite of what happened.
+    """
+    if "insert or update on table" in lowered:
+        return _DANGLING_REFERENCE
+    return _REFERENCED_IN_USE
+
+
+def classify_integrity_error(exc: BaseException) -> tuple[ErrorCode, str, int]:
+    """Map a constraint violation to ``(code, message, status)``.
+
+    SQLSTATE first; message text only as the fallback for a driver that did not
+    attach one (SQLite in unit tests, an adapted error that lost it).
+    """
+    raw = str(getattr(exc, "orig", exc))
+    lowered = raw.lower()
+    sqlstate = _sqlstate(exc)
+
+    if sqlstate == SQLSTATE_UNIQUE_VIOLATION:
+        return _DUPLICATE
+    if sqlstate == SQLSTATE_FOREIGN_KEY_VIOLATION:
+        return _foreign_key_outcome(lowered)
+    if sqlstate == SQLSTATE_CHECK_VIOLATION:
+        return _CHECK_FAILED
+    if sqlstate == SQLSTATE_NOT_NULL_VIOLATION:
+        return _REQUIRED_MISSING
+
+    if "unique" in lowered or "duplicate key" in lowered:
+        return _DUPLICATE
+    if "foreign key" in lowered:
+        return _foreign_key_outcome(lowered)
+    if "check constraint" in lowered:
+        return _CHECK_FAILED
+    if "not-null" in lowered or "not null" in lowered:
+        return _REQUIRED_MISSING
+    return _GENERIC_CONFLICT
 
 
 async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
@@ -93,40 +214,9 @@ async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSON
     the client gets a generic sentence keyed to the class of violation.
     """
     raw = str(getattr(exc, "orig", exc))
-    log.warning("error.integrity", path=request.url.path, detail=raw[:500])
+    log.warning("error.integrity", path=request.url.path, sqlstate=_sqlstate(exc), detail=raw[:500])
 
-    lowered = raw.lower()
-    if "unique" in lowered or "duplicate key" in lowered:
-        code, message, status = (
-            ErrorCode.DUPLICATE_DOCUMENT,
-            "A record with these details already exists.",
-            409,
-        )
-    elif "foreign key" in lowered:
-        code, message, status = (
-            ErrorCode.REFERENCED_RECORD_IN_USE,
-            "This record is referenced by other data and cannot be changed or removed.",
-            409,
-        )
-    elif "check constraint" in lowered:
-        code, message, status = (
-            ErrorCode.BUSINESS_RULE_VIOLATION,
-            "The submitted values break a business rule enforced by the database.",
-            422,
-        )
-    elif "not null" in lowered:
-        code, message, status = (
-            ErrorCode.VALIDATION_ERROR,
-            "A required value is missing.",
-            422,
-        )
-    else:
-        code, message, status = (
-            ErrorCode.CONFLICT,
-            "The operation conflicts with existing data.",
-            409,
-        )
-
+    code, message, status = classify_integrity_error(exc)
     return JSONResponse(status_code=status, content=_payload(code, message))
 
 
@@ -212,7 +302,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     """
     log.exception("error.unhandled", path=request.url.path, exc_type=type(exc).__name__)
 
-    details = None
+    details: dict[str, object] | None = None
     if settings.app_debug and not settings.is_production:
         details = {"exception": type(exc).__name__, "message": str(exc)[:500]}
 
@@ -239,4 +329,4 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(Exception, unhandled_exception_handler)
 
 
-__all__ = ["register_exception_handlers"]
+__all__ = ["classify_integrity_error", "register_exception_handlers"]

@@ -20,6 +20,7 @@
  */
 
 import { screen, waitFor, within } from '@testing-library/react'
+import { Route, Routes, useLocation } from 'react-router-dom'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import { ok, renderScreen, type RouteTable } from '@/test/harness'
@@ -108,14 +109,15 @@ describe('the sidebar shows only what the user can use', () => {
   })
 
   it('reveals an item on ANY of its permissions, not all of them', async () => {
-    // Reservations declares two rights. `canAny` is correct: an allocator who
-    // holds only `allocation.view` genuinely uses that screen, and switching
-    // this to `canAll` would hide it from them with no error anywhere.
-    renderLayout([P.ALLOCATION_VIEW])
+    // Item Masters declares three rights. `canAny` is correct: a pricing clerk
+    // who holds only `price.view` genuinely uses that screen - its Prices tab
+    // is gated on exactly that - and switching this to `canAll` would hide it
+    // from them with no error anywhere.
+    renderLayout([P.PRICE_VIEW])
     const nav = await sidebar()
 
-    expect(await within(nav).findByRole('link', { name: 'Reservations' })).toBeVisible()
-    expect(within(nav).queryByRole('link', { name: 'Stock Balances' })).toBeNull()
+    expect(await within(nav).findByRole('link', { name: 'Item Masters' })).toBeVisible()
+    expect(within(nav).queryByRole('link', { name: 'Items' })).toBeNull()
   })
 
   it('offers a user with no rights an empty menu rather than the whole one', async () => {
@@ -152,9 +154,7 @@ describe('the notification bell', () => {
 
     expect(screen.queryByRole('link', { name: /notifications/i })).toBeNull()
     await waitFor(() =>
-      expect(fetch.calls.map((call) => call.path)).not.toContain(
-        '/notifications/unread-count',
-      ),
+      expect(fetch.calls.map((call) => call.path)).not.toContain('/notifications/unread-count'),
     )
   })
 
@@ -199,6 +199,52 @@ describe('the notification bell', () => {
     renderLayout([P.NOTIFICATION_VIEW], { routes: unreadCount(0) })
 
     expect(await screen.findByRole('link', { name: 'Notifications' })).toBeVisible()
+  })
+})
+
+describe('the global search', () => {
+  /** Where the shell sent the user, read off the route it landed on. */
+  function LocationProbe() {
+    const location = useLocation()
+    return <p data-testid="location">{location.pathname + location.search}</p>
+  }
+
+  function renderShellOverItems(permissions: string[]) {
+    return renderScreen(
+      <Routes>
+        <Route element={<AppLayout />}>
+          <Route index element={null} />
+          <Route path="/items" element={<LocationProbe />} />
+        </Route>
+      </Routes>,
+      { permissions },
+    )
+  }
+
+  it('is absent without item.view, since the items list is all it can open', async () => {
+    renderLayout([P.FINANCE_VIEW])
+    await sidebar()
+
+    expect(screen.queryByRole('searchbox', { name: 'Search items' })).toBeNull()
+  })
+
+  it('opens the items list filtered by the term', async () => {
+    const { user } = renderShellOverItems([P.ITEM_VIEW])
+    await sidebar()
+
+    await user.type(await screen.findByRole('searchbox', { name: 'Search items' }), 'hinge{Enter}')
+
+    // `useListQuery` reads `q` from the URL, so this is the whole hand-over.
+    expect(await screen.findByTestId('location')).toHaveTextContent('/items?q=hinge')
+  })
+
+  it('goes nowhere on a blank term', async () => {
+    const { user } = renderShellOverItems([P.ITEM_VIEW])
+    await sidebar()
+
+    await user.type(await screen.findByRole('searchbox', { name: 'Search items' }), '   {Enter}')
+
+    expect(screen.queryByTestId('location')).toBeNull()
   })
 })
 

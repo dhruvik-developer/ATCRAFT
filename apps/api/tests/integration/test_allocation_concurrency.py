@@ -56,7 +56,7 @@ from src.modules.inventory.models import TransactionType
 from src.modules.inventory.repository import LedgerRepository
 from src.modules.products.models import ItemGroup
 from tests import seed_support
-from tests.schema_support import prepare_metadata
+from tests.schema_support import prepare_metadata, report_database_setup_failure
 
 pytestmark = [pytest.mark.integration, pytest.mark.concurrency]
 
@@ -133,7 +133,7 @@ def concurrency_schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID]]:
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for concurrency tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, user_id
     asyncio.run(teardown())

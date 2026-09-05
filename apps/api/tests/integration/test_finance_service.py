@@ -76,6 +76,8 @@ from src.modules.procurement.models import (
 from src.modules.products.models import Item, ItemGroup, UnitOfMeasure, UomCategory
 from src.modules.vendors.models import Vendor, VendorType
 from src.modules.warehouses.models import Warehouse, WarehouseType
+from tests import seed_support
+from tests.schema_support import report_database_setup_failure
 
 pytestmark = pytest.mark.integration
 
@@ -128,25 +130,16 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID]]:
                 )
             factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
             async with factory() as session, session.begin():
+                # Through the ORM builders, not a hand-written INSERT: the
+                # column lists went stale twice in the files CLAUDE.md names.
                 for identifier in (company_id, other_company_id):
-                    await session.execute(
-                        text(
-                            "INSERT INTO companies (id, code, name, country, currency, "
-                            "financial_year_start_month, timezone, is_active) "
-                            "VALUES (:id, :code, 'Atcraft', 'India', 'INR', 4, "
-                            "'Asia/Kolkata', true)"
-                        ),
-                        {"id": identifier, "code": f"FIN{uuid.uuid4().hex[:6].upper()}"},
-                    )
-                await session.execute(
-                    text(
-                        "INSERT INTO users (id, company_id, email, full_name, password_hash, "
-                        "is_active, is_superuser, mfa_enabled, must_change_password, "
-                        "failed_login_attempts) "
-                        "VALUES (:id, :c, :email, 'Accountant', 'x', true, false, false, "
-                        "false, 0)"
-                    ),
-                    {"id": user_id, "c": company_id, "email": "accounts@atcraft.test"},
+                    await seed_support.seed_company(session, company_id=identifier, prefix="FIN")
+                await seed_support.seed_user(
+                    session,
+                    company_id=company_id,
+                    user_id=user_id,
+                    email="accounts@atcraft.test",
+                    full_name="Accountant",
                 )
         finally:
             await engine.dispose()
@@ -162,7 +155,7 @@ def _schema() -> Iterator[tuple[str, uuid.UUID, uuid.UUID, uuid.UUID]]:
     try:
         asyncio.run(setup())
     except Exception as exc:  # pragma: no cover - environment, not a test failure
-        pytest.skip(f"PostgreSQL is not available for integration tests: {exc}")
+        report_database_setup_failure(exc)
 
     yield schema, company_id, other_company_id, user_id
     asyncio.run(teardown())
@@ -355,7 +348,9 @@ async def approved_invoice(
 ) -> VendorInvoice:
     """Record, submit and approve one matching invoice."""
     detail = await service.create_invoice(
-        session, tenant, invoice_payload(fixture, **kwargs)  # type: ignore[arg-type]
+        session,
+        tenant,
+        invoice_payload(fixture, **kwargs),  # type: ignore[arg-type]
     )
     await service.submit_invoice(session, tenant, detail.id, reason=None)
     await service.approve_invoice(session, tenant, principal, detail.id, InvoiceApproval())
@@ -430,9 +425,7 @@ class TestVendorInvoice:
         await service.submit_invoice(session, tenant, detail.id, reason=None)
 
         with pytest.raises(service.MatchVarianceError) as caught:
-            await service.approve_invoice(
-                session, tenant, principal, detail.id, InvoiceApproval()
-            )
+            await service.approve_invoice(session, tenant, principal, detail.id, InvoiceApproval())
 
         assert caught.value.details["blocking_reasons"]
         invoice = await session.get(VendorInvoice, detail.id)
@@ -463,9 +456,9 @@ class TestVendorInvoice:
         )
         approvals = list(rows.scalars().all())
         assert approvals, "approving an invoice must leave an audit trail"
-        assert any(
-            (entry.context or {}).get("override_reason") for entry in approvals
-        ), "the override reason must reach the audit log"
+        assert any((entry.context or {}).get("override_reason") for entry in approvals), (
+            "the override reason must reach the audit log"
+        )
 
     async def test_a_price_beyond_tolerance_blocks_approval(self, ctx) -> None:
         session, tenant, principal = ctx
@@ -477,9 +470,7 @@ class TestVendorInvoice:
         await service.submit_invoice(session, tenant, detail.id, reason=None)
 
         with pytest.raises(service.MatchVarianceError):
-            await service.approve_invoice(
-                session, tenant, principal, detail.id, InvoiceApproval()
-            )
+            await service.approve_invoice(session, tenant, principal, detail.id, InvoiceApproval())
 
     async def test_a_price_inside_tolerance_approves(self, ctx) -> None:
         session, tenant, principal = ctx
@@ -532,9 +523,7 @@ class TestVendorInvoice:
 
 
 class TestPaymentReducesOutstanding:
-    async def test_a_part_payment_reduces_the_outstanding_and_moves_the_status(
-        self, ctx
-    ) -> None:
+    async def test_a_part_payment_reduces_the_outstanding_and_moves_the_status(self, ctx) -> None:
         session, tenant, principal = ctx
         fixture = await seed(session, tenant.company_id)
         invoice = await approved_invoice(session, tenant, principal, fixture)
@@ -706,9 +695,7 @@ class TestPaymentReducesOutstanding:
         )
         await service.approve_payment(session, tenant, principal, payment.id)
         request = AllocationRequest(
-            allocations=[
-                PaymentAllocationIn(vendor_invoice_id=invoice.id, amount=Decimal("1000"))
-            ]
+            allocations=[PaymentAllocationIn(vendor_invoice_id=invoice.id, amount=Decimal("1000"))]
         )
 
         await service.allocate_payment(session, tenant, payment.id, request)
@@ -929,9 +916,7 @@ class TestCustomerReceipt:
                 payment.id,
                 AllocationRequest(
                     allocations=[
-                        PaymentAllocationIn(
-                            vendor_invoice_id=uuid.uuid4(), amount=Decimal("100")
-                        )
+                        PaymentAllocationIn(vendor_invoice_id=uuid.uuid4(), amount=Decimal("100"))
                     ]
                 ),
             )
@@ -948,9 +933,9 @@ class TestLedger:
         accounts = await service.ensure_system_accounts(session, tenant)
         before = (
             await session.execute(
-                select(func.count()).select_from(LedgerEntry).where(
-                    LedgerEntry.company_id == tenant.company_id
-                )
+                select(func.count())
+                .select_from(LedgerEntry)
+                .where(LedgerEntry.company_id == tenant.company_id)
             )
         ).scalar_one()
 
@@ -972,9 +957,9 @@ class TestLedger:
 
         after = (
             await session.execute(
-                select(func.count()).select_from(LedgerEntry).where(
-                    LedgerEntry.company_id == tenant.company_id
-                )
+                select(func.count())
+                .select_from(LedgerEntry)
+                .where(LedgerEntry.company_id == tenant.company_id)
             )
         ).scalar_one()
         assert after == before

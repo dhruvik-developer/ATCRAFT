@@ -10,7 +10,7 @@
  *   P.INVENTORY_TRANSFER        raise and move a transfer
  *   P.INVENTORY_ADJUST          raise, submit and post an adjustment
  *   P.INVENTORY_ADJUST_APPROVE  approve one somebody else raised
- *   P.INVENTORY_PHYSICAL_COUNT  open a sheet and count it
+ *   P.INVENTORY_PHYSICAL_COUNT  open a sheet, key its counts, recount or cancel it
  *   P.INVENTORY_RECONCILE       accept what was counted and post the variance
  *
  * The last pair is the one to watch: whoever walks the aisles is not
@@ -558,7 +558,13 @@ describe('physical counts', () => {
 
     await screen.findByText('PC-DRAFT')
     expect(within(rowFor('PC-DRAFT')).getByRole('button', { name: /start/i })).toBeInTheDocument()
-    expect(within(rowFor('PC-COUNTED')).queryByRole('button')).not.toBeInTheDocument()
+    // The counter may reopen or cancel a counted sheet, but never accept it.
+    expect(
+      within(rowFor('PC-COUNTED')).queryByRole('button', { name: /confirm/i }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(rowFor('PC-COUNTED')).getByRole('button', { name: /recount/i }),
+    ).toBeInTheDocument()
   })
 
   it('offers Confirm to a reconciler who cannot count', async () => {
@@ -585,10 +591,13 @@ describe('physical counts', () => {
     expect(screen.queryByRole('button', { name: /new count/i })).not.toBeInTheDocument()
   })
 
-  it('offers Confirm only on a sheet that has been counted', async () => {
-    // COUNT_FLOW: DRAFT -> IN_PROGRESS -> COUNTED -> CONFIRMED. Confirm was once
-    // offered on every unsettled status, so it appeared on sheets nobody had
-    // finished counting - which would post the snapshot back over itself.
+  it('offers each status exactly the edges COUNT_FLOW has for it', async () => {
+    // COUNT_FLOW: DRAFT -> IN_PROGRESS -> COUNTED -> CONFIRMED, with a recount
+    // edge back to IN_PROGRESS and a cancel edge from each unsettled status.
+    // Confirm was once offered on every unsettled status, so it appeared on
+    // sheets nobody had finished counting - which would post the snapshot back
+    // over itself. And IN_PROGRESS once offered nothing at all, so a started
+    // sheet could never be counted, confirmed or cancelled from any screen.
     renderScreen(<MovementsPage />, {
       route: COUNTS_TAB,
       permissions: [P.INVENTORY_VIEW, P.INVENTORY_PHYSICAL_COUNT, P.INVENTORY_RECONCILE],
@@ -605,13 +614,132 @@ describe('physical counts', () => {
 
     await screen.findByText('PC-DRAFT')
     expect(within(rowFor('PC-DRAFT')).getByRole('button', { name: /start/i })).toBeInTheDocument()
-    // IN_PROGRESS moves on by keying entries, which this screen does not do.
-    expect(within(rowFor('PC-PROGRESS')).queryByRole('button')).not.toBeInTheDocument()
+    expect(
+      within(rowFor('PC-DRAFT')).getByRole('button', { name: /^cancel$/i }),
+    ).toBeInTheDocument()
+    // IN_PROGRESS moves on by keying entries - the step that used to be missing.
+    expect(
+      within(rowFor('PC-PROGRESS')).getByRole('button', { name: /key counts/i }),
+    ).toBeInTheDocument()
+    expect(
+      within(rowFor('PC-PROGRESS')).queryByRole('button', { name: /confirm/i }),
+    ).not.toBeInTheDocument()
     expect(
       within(rowFor('PC-COUNTED')).getByRole('button', { name: /confirm/i }),
     ).toBeInTheDocument()
+    expect(
+      within(rowFor('PC-COUNTED')).getByRole('button', { name: /recount/i }),
+    ).toBeInTheDocument()
+    // CONFIRMED and CANCELLED are terminal.
     expect(within(rowFor('PC-CONFIRMED')).queryByRole('button')).not.toBeInTheDocument()
     expect(within(rowFor('PC-CANCELLED')).queryByRole('button')).not.toBeInTheDocument()
+  })
+
+  it('keys counted quantities as decimal strings against the line ids', async () => {
+    // The entries endpoint accepts a subset of the sheet and only moves it to
+    // COUNTED once every line has a figure, so saving after one aisle is safe.
+    // A line left blank is not sent: it stays uncounted rather than becoming
+    // zero stock.
+    const { user, fetch } = renderScreen(<MovementsPage />, {
+      route: COUNTS_TAB,
+      permissions: [P.INVENTORY_VIEW, P.INVENTORY_PHYSICAL_COUNT],
+      routes: {
+        'GET /inventory/physical-counts': page([count({ status: 'IN_PROGRESS' })]),
+        'GET /inventory/physical-counts/pc000000-0000-7000-8000-000000000001/lines': page([
+          {
+            id: 'ln1',
+            line_number: 1,
+            item_id: ITEM.id,
+            item_code: ITEM.code,
+            item_name: ITEM.name,
+            location_id: null,
+            batch_id: null,
+            system_quantity: '100.0000',
+            counted_quantity: null,
+            variance_quantity: null,
+            unit_cost: '125.00',
+            variance_value: null,
+            counted_at: null,
+            counted_by_id: null,
+            notes: null,
+          },
+          {
+            id: 'ln2',
+            line_number: 2,
+            item_id: 'it000000-0000-7000-8000-000000000002',
+            item_code: 'HINGE-4',
+            item_name: 'Butt hinge 4 inch',
+            location_id: null,
+            batch_id: null,
+            system_quantity: '40.0000',
+            counted_quantity: null,
+            variance_quantity: null,
+            unit_cost: '30.00',
+            variance_value: null,
+            counted_at: null,
+            counted_by_id: null,
+            notes: null,
+          },
+        ]),
+        'POST /inventory/physical-counts': ok(count({ status: 'IN_PROGRESS' })),
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: /key counts/i }))
+    const dialog = await screen.findByRole('dialog')
+    expect(await within(dialog).findByText('HINGE-4')).toBeInTheDocument()
+
+    const saveButton = within(dialog).getByRole('button', { name: /save counts/i })
+    // Nothing keyed, nothing to save.
+    expect(saveButton).toBeDisabled()
+
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Counted quantity for BRASS-ROD-12' }),
+      '90.5',
+    )
+    expect(saveButton).toBeEnabled()
+    await user.click(saveButton)
+
+    await expect.poll(() => fetch.calls.some((call) => call.method === 'POST')).toBe(true)
+    const call = fetch.calls.find((c) => c.method === 'POST')!
+    expect(call.path).toBe(
+      '/inventory/physical-counts/pc000000-0000-7000-8000-000000000001/entries',
+    )
+    expect(call.body).toEqual({ entries: [{ line_id: 'ln1', counted_quantity: '90.5' }] })
+    const sent = call.body as { entries: { counted_quantity: unknown }[] }
+    expect(typeof sent.entries[0]!.counted_quantity).toBe('string')
+  })
+
+  it('cancels a sheet only with a recorded reason', async () => {
+    // Cancel exists because an open sheet blocks every new count for the
+    // warehouse (`open_count_exists`), and the API records why it was closed.
+    const { user, fetch } = renderScreen(<MovementsPage />, {
+      route: COUNTS_TAB,
+      permissions: [P.INVENTORY_VIEW, P.INVENTORY_PHYSICAL_COUNT],
+      routes: {
+        'GET /inventory/physical-counts': page([count({ status: 'DRAFT' })]),
+        'POST /inventory/physical-counts': ok(count({ status: 'CANCELLED' })),
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: /^cancel$/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel count' }))
+
+    // Refused locally before the round trip: the API would 422 an empty reason.
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(/give a reason/i)
+    expect(fetch.calls.filter((call) => call.method === 'POST')).toHaveLength(0)
+
+    await user.type(
+      within(dialog).getByRole('textbox', { name: /reason/i }),
+      'Scoped to the wrong aisle',
+    )
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel count' }))
+
+    await expect.poll(() => fetch.calls.some((call) => call.method === 'POST')).toBe(true)
+    const call = fetch.calls.find((c) => c.method === 'POST')!
+    expect(call.path).toBe('/inventory/physical-counts/pc000000-0000-7000-8000-000000000001/cancel')
+    expect(call.body).toEqual({ reason: 'Scoped to the wrong aisle' })
   })
 
   it('shows the variance before asking for an irreversible posting', async () => {

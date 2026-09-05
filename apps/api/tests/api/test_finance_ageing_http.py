@@ -34,7 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.modules.finance.models import VendorInvoice, VendorInvoiceStatus
 from src.modules.vendors.models import Vendor, VendorType
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.api, pytest.mark.integration]
 
 
 def mount_module_routers() -> bool:
@@ -288,7 +288,7 @@ class TestTheReportRefusesRatherThanReportingZero:
     async def test_a_currency_asked_for_with_nothing_open_in_it_still_names_the_debt(
         self, api_client, session: AsyncSession, company
     ) -> None:
-        """"We owe nothing in euros" is a real answer - but not the whole one."""
+        """ "We owe nothing in euros" is a real answer - but not the whole one."""
         vendor = await _vendor(session, company.id, "Local Brass")
         await _open_invoice(session, company.id, vendor, amount="59000", currency="INR")
 

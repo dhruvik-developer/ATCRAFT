@@ -41,6 +41,7 @@ a route or in the engine:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import importlib
 import uuid
@@ -58,9 +59,10 @@ from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import TenantContext
 from src.core.errors import AppError, BusinessRuleError, ErrorCode, NotFoundError
 from src.core.logging import get_logger
+from src.core.observability import mrp_run_duration, mrp_runs_total
 from src.core.pagination import PageParams, SortParams
 from src.core.ratelimit import RateLimitPolicy, enforce_policy
-from src.core.responses import OffsetPagination
+from src.core.responses import OffsetPagination, api_path
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import to_quantity
 from src.modules.audit.models import AuditAction
@@ -79,6 +81,8 @@ from src.modules.mrp.models import (
     MrpSuggestionType,
 )
 from src.modules.mrp.repository import (
+    MRP_RUN_ENTITY,
+    MRP_SUGGESTION_ENTITY,
     DatabaseMrpSource,
     MrpDemandRepository,
     MrpRequirementRepository,
@@ -107,9 +111,20 @@ from src.modules.mrp.schemas import (
 
 log = get_logger(__name__)
 
-#: Where a client polls for a run's progress. Kept as one constant so the value
-#: returned in a 202 body cannot drift away from the route that serves it.
-STATUS_URL_TEMPLATE = "/api/v1/mrp/runs/{run_id}"
+#: Where a client polls for a run's progress, relative to the mounted prefix.
+#: Kept as one constant so the value returned in a 202 body cannot drift away
+#: from the route that serves it. The prefix is applied by :func:`status_url` at
+#: call time rather than baked in here: an import-time f-string over
+#: ``settings.api_v1_prefix`` would ignore a prefix bound later - by a test, or
+#: by an operator who changes ``API_V1_PREFIX`` - and point at a route that no
+#: longer exists.
+STATUS_URL_TEMPLATE = "/mrp/runs/{run_id}"
+
+
+def status_url(run_id: uuid.UUID | str) -> str:
+    """Absolute path a client polls for one run: ``GET /mrp/runs/{id}``."""
+    return api_path(STATUS_URL_TEMPLATE.format(run_id=run_id))
+
 
 #: Celery task name. Must match the ``@async_task(name=...)`` in
 #: ``src.workers.tasks.mrp``; the API dispatches by name so it never has to
@@ -206,6 +221,24 @@ CONVERSION_HOOKS: dict[ConversionTarget, tuple[str, str]] = {
 }
 
 
+def _target_label(target: ConversionTarget) -> str:
+    """``JOB_WORK_ORDER`` -> ``job work order``, for messages."""
+    return target.value.lower().replace("_", " ")
+
+
+#: Why a deployed module cannot create the document from a planning request.
+#: Read when the module is present but exposes no hook, so the planner is told
+#: the real reason rather than "module not available". A job work order needs a
+#: vendor, a process and a return date, none of which planning chooses -
+#: picking a vendor here would be an invented business rule (CLAUDE.md).
+MANUAL_CONVERSION_REASONS: dict[ConversionTarget, str] = {
+    ConversionTarget.JOB_WORK_ORDER: (
+        "A job work order needs a vendor and a process, which planning does not choose; "
+        "raise it by hand from this suggestion and then ignore the suggestion."
+    ),
+}
+
+
 # -----------------------------------------------------------------------------
 # Serialisation helpers
 # -----------------------------------------------------------------------------
@@ -242,7 +275,7 @@ def _run_read(run: MrpRun, *, status_counts: dict[str, int] | None = None) -> Mr
         result_summary=summary or None,
         warnings=[str(w) for w in warnings],
         suggestion_counts_by_status=status_counts or {},
-        status_url=STATUS_URL_TEMPLATE.format(run_id=run.id),
+        status_url=status_url(run.id),
     )
 
 
@@ -260,6 +293,18 @@ def _safe_error(exc: BaseException) -> str:
         f"The planning run failed with an unexpected {type(exc).__name__}. "
         "The full error is in the server log against this run's request id."
     )
+
+
+def _observe_run_outcome(run: MrpRun) -> None:
+    """Count the run and time it, once its terminal status is on the row.
+
+    Labelled on mode and outcome only - both are closed vocabularies, so the
+    series count is bounded. The duration is measured from ``started_at``; a run
+    that failed before it started has no runtime to report.
+    """
+    mrp_runs_total.labels(mode=str(run.mode), status=str(run.status)).inc()
+    if run.started_at is not None and run.completed_at is not None:
+        mrp_run_duration.observe((run.completed_at - run.started_at).total_seconds())
 
 
 # -----------------------------------------------------------------------------
@@ -534,17 +579,20 @@ async def _dispatch(
     from src.core.logging import get_request_id
     from src.workers.celery_app import celery_app
 
+    # The kwargs are evaluated here, on the event loop, so the request id comes
+    # from this request's context; only the blocking broker round-trip is moved
+    # off the loop, where it would otherwise stall every other request for as
+    # long as the broker takes to answer.
+    payload = {
+        "run_id": str(run.id),
+        "company_id": str(tenant.company_id),
+        "user_id": str(tenant.user_id),
+        "lock_token": token,
+        "request_id": get_request_id(),
+    }
     try:
-        task = celery_app.send_task(
-            MRP_TASK_NAME,
-            kwargs={
-                "run_id": str(run.id),
-                "company_id": str(tenant.company_id),
-                "user_id": str(tenant.user_id),
-                "lock_token": token,
-                "request_id": get_request_id(),
-            },
-            queue="mrp",
+        task = await asyncio.to_thread(
+            celery_app.send_task, MRP_TASK_NAME, kwargs=payload, queue="mrp"
         )
     except Exception as exc:
         log.error("mrp.dispatch_failed", run_code=run.code, error=str(exc))
@@ -580,8 +628,15 @@ async def _run_inline(session: AsyncSession, tenant: TenantContext, run_id: uuid
     try:
         await execute_run(session, tenant, run_id=run_id)
     except Exception as exc:
-        with contextlib.suppress(Exception):
+        try:
             await fail_run(session, tenant, run_id=run_id, error=_safe_error(exc))
+        except Exception:
+            # The original failure is re-raised below and logged by the unhandled
+            # handler. This one is different: the FAILED record could not be
+            # written, so the run stays RUNNING until ``_close_abandoned_runs``
+            # declares it dead and every ``start_run`` until then answers 409.
+            # An operator asking "why is planning blocked" needs this line.
+            log.exception("mrp.fail_run_failed", run_id=str(run_id))
         raise
 
 
@@ -711,7 +766,7 @@ async def execute_run(
         # documents. The lock makes the second delivery see RUNNING.
         run = await repository.lock_for_update(run_id)
         if run is None:
-            raise NotFoundError(MrpRun.__name__, run_id)
+            raise NotFoundError(MRP_RUN_ENTITY, run_id)
         previous = str(run.status)
         RUN_LIFECYCLE.assert_transition(MrpRunStatus(run.status), MrpRunStatus.RUNNING)
         run.status = MrpRunStatus.RUNNING
@@ -763,7 +818,7 @@ async def execute_run(
         # any legal edge in the state machine.
         run = await repository.lock_for_update(run_id)
         if run is None:
-            raise NotFoundError(MrpRun.__name__, run_id)
+            raise NotFoundError(MRP_RUN_ENTITY, run_id)
 
         session.add_all(_requirement_rows(run, tenant, plan))
         session.add_all(_suggestion_rows(run, tenant, plan))
@@ -772,6 +827,7 @@ async def execute_run(
         RUN_LIFECYCLE.assert_transition(MrpRunStatus(run.status), MrpRunStatus.COMPLETED)
         run.status = MrpRunStatus.COMPLETED
         run.completed_at = utcnow()
+        _observe_run_outcome(run)
         run.suggestion_count = len(plan.suggestions)
         run.result_summary = {**plan.stats, "warnings": list(plan.warnings)}
         repository.touch(run)
@@ -840,6 +896,7 @@ async def fail_run(
         run.status = MrpRunStatus.FAILED
         run.error_message = error[:2000]
         run.completed_at = utcnow()
+        _observe_run_outcome(run)
         repository.touch(run)
         await record_status_change(
             session,
@@ -1029,7 +1086,19 @@ async def _invoke_conversion_hook(
 
     hook = getattr(module, function_name, None)
     if hook is None:
-        return None
+        # The module is deployed but does not take conversions from planning.
+        # That is not the "module absent" case the seam tolerates: closing the
+        # suggestion here would tell the planner a deployment gap explained a
+        # document that was never going to be created. Refuse instead, with the
+        # reason, and leave the suggestion OPEN for the planner to action.
+        raise BusinessRuleError(
+            MANUAL_CONVERSION_REASONS.get(
+                target,
+                f"The {_target_label(target)} module does not accept conversions from "
+                "planning; raise the document by hand and then ignore the suggestion.",
+            ),
+            details={"target": target.value, "item_code": request.item_code},
+        )
 
     created = await hook(session, tenant, request)
     if created is None:
@@ -1063,7 +1132,7 @@ async def convert_suggestion(
         # refused by the state machine.
         suggestion = await suggestions.lock_for_update(suggestion_id)
         if suggestion is None:
-            raise NotFoundError(MrpSuggestion.__name__, suggestion_id)
+            raise NotFoundError(MRP_SUGGESTION_ENTITY, suggestion_id)
         run = await MrpRunRepository(session, tenant).get_or_404(suggestion.run_id)
 
         target = _conversion_target(suggestion, payload.target)
@@ -1128,7 +1197,7 @@ async def convert_suggestion(
         f"Converted to {target.value} {created[1]}."
         if created
         else (
-            f"The {target.value.lower().replace('_', ' ')} module is not available, so no "
+            f"The {_target_label(target)} module is not available, so no "
             "document was created. The suggestion is closed and the conversion request "
             "is returned for the caller to action."
         )
@@ -1236,4 +1305,5 @@ __all__ = [
     "release_planning_lock",
     "shortage_report",
     "start_run",
+    "status_url",
 ]

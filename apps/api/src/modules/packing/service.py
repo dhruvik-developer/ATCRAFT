@@ -83,7 +83,6 @@ from src.core.clock import utcnow
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import (
-    AppError,
     BusinessRuleError,
     ErrorCode,
     NotFoundError,
@@ -150,6 +149,9 @@ from src.modules.packing.schemas import (
     SealResult,
 )
 from src.modules.products.models import ItemGroup
+from src.modules.reports import service as reports_service
+from src.modules.reports.models import ReportKey
+from src.modules.reports.repository import ReportSnapshotRepository
 
 log = get_logger(__name__)
 
@@ -613,9 +615,7 @@ def _line_facts(lines: Sequence[PackingOrderLine]) -> list[LineFacts]:
     ]
 
 
-def order_detail(
-    order: PackingOrder, lines: Sequence[PackingOrderLine]
-) -> PackingOrderDetail:
+def order_detail(order: PackingOrder, lines: Sequence[PackingOrderLine]) -> PackingOrderDetail:
     detail = PackingOrderDetail.model_validate(order)
     detail.lines = [PackingOrderLineRead.model_validate(line) for line in lines]
     return detail
@@ -877,9 +877,7 @@ async def _apply_packed_quantities(
     """
     repo = PackingOrderLineRepository(session, tenant)
     rows = await repo.lock_for_order(order.id)
-    updated = recompute_packed_quantities(
-        lines=_line_facts(rows), released=released, added=added
-    )
+    updated = recompute_packed_quantities(lines=_line_facts(rows), released=released, added=added)
     if not updated:
         return
 
@@ -989,7 +987,7 @@ async def list_packing_materials(
 async def find_cartons_holding_serial(
     session: AsyncSession, tenant: TenantContext, serial_id: uuid.UUID
 ) -> list[CartonDetail]:
-    """"Which carton contains this serial?" - the question this module exists for.
+    """ "Which carton contains this serial?" - the question this module exists for.
 
     Answered through the GIN index on ``carton_contents.serial_ids``. A correct
     data set returns at most one carton; the return type is a list because the
@@ -1074,9 +1072,7 @@ async def create_order(
                 details={"customer_id": str(customer.id)},
             )
 
-        warehouses = await WarehouseLookupRepository(session, tenant).load(
-            [payload.warehouse_id]
-        )
+        warehouses = await WarehouseLookupRepository(session, tenant).load([payload.warehouse_id])
         found = warehouses.get(payload.warehouse_id)
         if found is None:
             raise NotFoundError("Warehouse", payload.warehouse_id)
@@ -1130,9 +1126,7 @@ async def create_order(
             entity_type=AUDIT_PACKING_ORDER,
             entity_id=order.id,
             entity_code=order.code,
-            summary=(
-                f"Created {order.code}: pack {len(lines)} line(s) for {customer.code}"
-            ),
+            summary=(f"Created {order.code}: pack {len(lines)} line(s) for {customer.code}"),
             user_id=tenant.user_id,
             new_values={
                 **snapshot(order, ORDER_AUDITED_FIELDS),
@@ -1239,8 +1233,7 @@ async def delete_draft_order(
         order = await _lock_order(repo, order_id)
         if PackingOrderStatus(order.status) is not PackingOrderStatus.DRAFT:
             raise BusinessRuleError(
-                f"{order.code} is {order.status}; only a draft may be deleted. "
-                "Cancel it instead.",
+                f"{order.code} is {order.status}; only a draft may be deleted. Cancel it instead.",
                 details={"order_id": str(order.id), "status": str(order.status)},
             )
 
@@ -1345,9 +1338,7 @@ async def add_carton(
             entity_type=AUDIT_CARTON,
             entity_id=carton.id,
             entity_code=carton.barcode,
-            summary=(
-                f"Opened carton {carton.carton_number} ({carton.barcode}) on {order.code}"
-            ),
+            summary=(f"Opened carton {carton.carton_number} ({carton.barcode}) on {order.code}"),
             user_id=tenant.user_id,
             new_values={
                 **snapshot(carton, CARTON_AUDITED_FIELDS),
@@ -1385,8 +1376,7 @@ async def replace_carton_contents(
             raise NotFoundError("Carton", carton_id)
         if carton.is_sealed:
             raise BusinessRuleError(
-                f"Carton {carton.barcode} is sealed; what is inside a closed box cannot "
-                "be edited.",
+                f"Carton {carton.barcode} is sealed; what is inside a closed box cannot be edited.",
                 details={"carton_id": str(carton.id), "barcode": carton.barcode},
             )
 
@@ -1453,9 +1443,7 @@ async def _write_contents(
     lines = await line_repo.list_for_order(order.id)
     by_number = {facts.line_number: facts for facts in _line_facts(lines)}
 
-    items = await ItemLookupRepository(session, tenant).load(
-        [line.item_id for line in lines]
-    )
+    items = await ItemLookupRepository(session, tenant).load([line.item_id for line in lines])
     planned = plan_contents(requests, lines=by_number, items=items)
 
     await _validate_batches(session, tenant, planned)
@@ -1490,9 +1478,7 @@ async def _write_contents(
     CartonRepository(session, tenant).touch(carton)
     await session.flush()
 
-    await _apply_packed_quantities(
-        session, tenant, order, released=released, added=planned
-    )
+    await _apply_packed_quantities(session, tenant, order, released=released, added=planned)
     return rows
 
 
@@ -1586,8 +1572,7 @@ async def seal_carton(
         contents = await content_repo.list_for_carton(carton.id)
         if not contents:
             raise BusinessRuleError(
-                f"Carton {carton.barcode} is empty; sealing it would consume a box for "
-                "nothing.",
+                f"Carton {carton.barcode} is empty; sealing it would consume a box for nothing.",
                 details={"carton_id": str(carton.id), "barcode": carton.barcode},
             )
 
@@ -1724,9 +1709,7 @@ async def carton_label(
 
     sales_order_code: str | None = None
     if order.sales_order_id is not None:
-        header = await SalesOrderLookupRepository(session, tenant).get_header(
-            order.sales_order_id
-        )
+        header = await SalesOrderLookupRepository(session, tenant).get_header(order.sales_order_id)
         sales_order_code = header[0] if header is not None else None
 
     items = await ItemLookupRepository(session, tenant).load([row.item_id for row in contents])
@@ -1996,17 +1979,18 @@ async def cancel_order(
 
         cartons = await carton_repo.list_for_order(order.id)
         if cartons:
-            contents = await content_repo.list_for_cartons([c.id for c in cartons])
+            carton_ids = [c.id for c in cartons]
+            contents = await content_repo.list_for_cartons(carton_ids)
             released: dict[uuid.UUID, Decimal] = {}
             for rows in contents.values():
                 for line_id, quantity in _released_quantities(rows).items():
                     released[line_id] = released.get(line_id, ZERO) + quantity
-            for carton in cartons:
-                await content_repo.delete_for_carton(carton.id)
-                await carton_repo.hard_delete(carton)
-            await _apply_packed_quantities(
-                session, tenant, order, released=released, added=[]
-            )
+            # Two statements for the whole set, not two per carton: the order's
+            # row lock is held for the duration, and a fifty-carton order must
+            # not turn into a hundred round-trips under it.
+            await content_repo.delete_for_cartons(carton_ids)
+            await carton_repo.bulk_delete(carton_ids)
+            await _apply_packed_quantities(session, tenant, order, released=released, added=[])
 
         await _transition(
             session,
@@ -2026,15 +2010,34 @@ async def cancel_order(
 # -----------------------------------------------------------------------------
 
 
+def packing_list_parameters(order: PackingOrder) -> dict[str, Any]:
+    """What a packing-list job is a render *of*, as stored on its job row.
+
+    The order's ``updated_at`` is part of it so the hash - and the row - say
+    which version of the order the PDF describes. A packing list is never reused
+    across requests (cartons change between two clicks), so the hash exists to
+    identify the artefact in a support conversation, not to deduplicate jobs.
+    """
+    return {
+        "report_key": str(ReportKey.PACKING_LIST),
+        "packing_order_id": str(order.id),
+        "packing_order_code": order.code,
+        "as_of": order.updated_at.isoformat(),
+    }
+
+
 async def queue_packing_list(
     session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
 ) -> str:
     """Hand the packing-list PDF to Celery and return the job id.
 
-    The worker is reached by task *name* so the API process never imports the
-    worker package, and the broker is imported inside the function so a broker
-    that is unreachable fails this request rather than application start-up -
-    the same pattern ``mrp`` uses to dispatch a run.
+    The job id is a ``report_snapshots`` row, not the Celery task id: the row is
+    what ``GET /reports/jobs/{id}`` reads, what the worker marks RUNNING,
+    COMPLETED or FAILED, and what carries the ``document_id`` the client
+    downloads. A bare task id can be resolved by nothing in the API. The row is
+    created and audited in one transaction before the task is published, so a
+    broker that refuses the task can mark the job FAILED rather than leave the
+    client polling a job that never existed.
     """
     repo = PackingOrderRepository(session, tenant)
     order = await repo.get_or_404(order_id)
@@ -2047,29 +2050,13 @@ async def queue_packing_list(
             details={"order_id": str(order.id), "status": str(order.status)},
         )
 
-    from src.core.logging import get_request_id
-    from src.workers.celery_app import celery_app
-
-    try:
-        task = celery_app.send_task(
-            PACKING_LIST_TASK_NAME,
-            kwargs={
-                "packing_order_id": str(order.id),
-                "company_id": str(tenant.company_id),
-                "user_id": str(tenant.user_id),
-                "request_id": get_request_id(),
-            },
-            queue=PACKING_LIST_QUEUE,
-        )
-    except Exception as exc:
-        log.error("packing.packing_list_dispatch_failed", code=order.code, error=str(exc))
-        raise AppError(
-            "The packing list could not be queued for background generation.",
-            code=ErrorCode.SERVICE_UNAVAILABLE,
-            status_code=503,
-        ) from exc
-
+    snapshots = ReportSnapshotRepository(session, tenant)
     async with transaction(session):
+        job = reports_service.new_job_snapshot(
+            ReportKey.PACKING_LIST, packing_list_parameters(order), now=utcnow()
+        )
+        snapshots.add(job)
+        await session.flush()
         await record_audit(
             session,
             company_id=tenant.company_id,
@@ -2079,11 +2066,21 @@ async def queue_packing_list(
             entity_code=order.code,
             summary=f"Queued the packing list for {order.code}",
             user_id=tenant.user_id,
-            context={"task": PACKING_LIST_TASK_NAME, "job_id": task.id},
+            context={"task": PACKING_LIST_TASK_NAME, "job_id": str(job.id)},
         )
 
-    log.info("packing.packing_list_queued", code=order.code, job_id=task.id)
-    return str(task.id)
+    await reports_service.dispatch_job(
+        session,
+        tenant,
+        job,
+        task_name=PACKING_LIST_TASK_NAME,
+        queue=PACKING_LIST_QUEUE,
+        task_kwargs={"packing_order_id": str(order.id)},
+        subject="The packing list",
+    )
+
+    log.info("packing.packing_list_queued", code=order.code, job_id=str(job.id))
+    return str(job.id)
 
 
 async def packing_list_data(
@@ -2106,9 +2103,7 @@ async def packing_list_data(
     customer = await CustomerLookupRepository(session, tenant).get_facts(order.customer_id)
     sales_order_code: str | None = None
     if order.sales_order_id is not None:
-        header = await SalesOrderLookupRepository(session, tenant).get_header(
-            order.sales_order_id
-        )
+        header = await SalesOrderLookupRepository(session, tenant).get_header(order.sales_order_id)
         sales_order_code = header[0] if header is not None else None
 
     item_ids = {line.item_id for line in lines}
@@ -2202,6 +2197,7 @@ __all__ = [
     "net_weight_of",
     "order_detail",
     "packing_list_data",
+    "packing_list_parameters",
     "plan_contents",
     "queue_packing_list",
     "ready_for_dispatch",

@@ -306,7 +306,7 @@ export default function RfqDetailPage() {
     return (
       <div className="space-y-4">
         <Skeleton className="h-7 w-64" />
-        <Skeleton className="h-4 w-96" />
+        <Skeleton className="h-4 w-full max-w-sm" />
         <Skeleton className="h-10 w-full" />
         <div className="grid gap-4 lg:grid-cols-3">
           <Skeleton className="h-64 lg:col-span-2" />
@@ -461,7 +461,11 @@ export default function RfqDetailPage() {
                   {
                     label: 'Replies due',
                     value: rfq.response_due_date ? (
-                      <span className={overdueDays !== null ? 'font-medium text-destructive' : undefined}>
+                      <span
+                        className={
+                          overdueDays !== null ? 'font-medium text-destructive' : undefined
+                        }
+                      >
                         {formatDate(rfq.response_due_date)}
                       </span>
                     ) : (
@@ -532,9 +536,7 @@ export default function RfqDetailPage() {
         </Card>
       </div>
 
-      {canManage && (
-        <RfqFormDialog open={editOpen} onOpenChange={setEditOpen} rfqId={rfq.id} />
-      )}
+      {canManage && <RfqFormDialog open={editOpen} onOpenChange={setEditOpen} rfqId={rfq.id} />}
 
       <RfqCommandDialog
         rfq={command ? rfq : null}

@@ -72,9 +72,7 @@ def _operation(
     )
 
 
-def _component(
-    *, required: str = "100", item_code: str = "RM-1"
-) -> ProductionOrderComponent:
+def _component(*, required: str = "100", item_code: str = "RM-1") -> ProductionOrderComponent:
     return ProductionOrderComponent(
         id=uuid.uuid4(),
         item_id=uuid.uuid4(),
@@ -314,9 +312,7 @@ def test_the_total_is_the_sum_of_the_printed_lines():
         operation_cost_line(_operation(setup="15", run="45", cost_per_hour="300")),
     ]
 
-    cost = summarise_cost(
-        order=order, materials=materials, operations=operations, is_final=True
-    )
+    cost = summarise_cost(order=order, materials=materials, operations=operations, is_final=True)
     assert cost.material_cost == sum(line.total_cost for line in materials)
     assert cost.operation_cost == sum(line.total_cost for line in operations)
     assert cost.total_cost == cost.material_cost + cost.operation_cost

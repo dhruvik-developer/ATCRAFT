@@ -592,9 +592,7 @@ class TestListing:
                 WarehouseFilters(), PageParams(), SortParams(sort_by="company_id")
             )
 
-    async def test_pages_do_not_overlap(
-        self, session: AsyncSession, tenant: TenantContext
-    ) -> None:
+    async def test_pages_do_not_overlap(self, session: AsyncSession, tenant: TenantContext) -> None:
         service = WarehouseService(session, tenant)
         for index in range(5):
             await service.create_warehouse(_payload(f"wh-{index}"))
