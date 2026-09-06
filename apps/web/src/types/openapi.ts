@@ -15193,6 +15193,8 @@ export interface components {
              * Format: uuid
              */
             company_id: string;
+            /** Company Name */
+            company_name: string;
             /** Department Id */
             department_id?: string | null;
             /** Email */

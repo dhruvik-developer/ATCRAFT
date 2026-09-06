@@ -159,6 +159,9 @@ class MeResponse(BaseModel):
 
     user_id: uuid.UUID
     company_id: uuid.UUID
+    #: Shown in the sidebar on every screen. With two deployments on one box it
+    #: is also how a person tells the client's environment from the test one.
+    company_name: str
     email: str
     full_name: str
     is_superuser: bool

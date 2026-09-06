@@ -427,6 +427,46 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
   `setattr` loop, so any id it does not look up is an id nobody checked.
   `tests/unit/test_products_reference_probes.py` exists because this class
   already shipped once.
+- **A hand-written frontend type is compared with nothing.** `ItemDetail` in
+  `features/items/item-model.ts` is declared by hand rather than as
+  `SchemaOf<'...'>`, so `tsc` checks it against no contract at all. When
+  `items.valuation_method` was dropped from the API - migration `7e8eb4bdd0ed`,
+  every item is FIFO - the interface kept declaring it and
+  `item-detail-page.tsx` kept drawing a "Valuation" row from it. `humanise`
+  returns `'-'` for `undefined`, so every item in the ERP showed a labelled row
+  with a dash in it for months, on a screen people read daily, with a green
+  build the whole time. The reason the shape is hand-written at all is worth
+  knowing: 27 endpoints set `response_model=None` because the response varies by
+  permission (`get_item` returns `ItemDetailWithCost` to a principal who may see
+  costs), and an endpoint with no response model emits an empty `schema: {}`
+  into `openapi.json` - so the generated types have nothing to offer and the
+  frontend has to write the shape itself. `tests/unit/test_frontend_contract_types.py`
+  now compares each hand-written mirror against the *Pydantic* model, which
+  exists whatever the router declares. Register a new mirror there, or derive it
+  from the generated types and need no entry.
+- **A button offered on a status the state machine cannot leave strands the
+  document.** The job-work list offered Close on `QC_PENDING`, and the machine
+  has no `QC_PENDING -> CLOSED` edge - that status has exactly one way out,
+  `QC_PENDING -> COMPLETED` by recording the inspection verdict. Nothing in the
+  application called that endpoint either, so an order whose output went to QC
+  hold could not be completed, could not be closed, and its output stayed on
+  hold: real stock, owned and valued, that nothing could release. Press the
+  button on every status a predicate admits, or read the transition table -
+  `isClosable` and its friends are assertions about the machine, and an
+  optimistic one shows a control that can only fail.
+- **A sortable column the server does not allow empties the table.** The MRP
+  shortage report marked `available_quantity` and `incoming_quantity` sortable;
+  the repository's `sortable_fields` listed neither, so clicking either heading
+  answered 422 and the rows vanished - the two questions a planner most wants to
+  ask that screen. Both were real indexed columns; the whitelist had simply not
+  kept up. A column with `enableSorting: true` is a claim about the endpoint
+  behind it.
+- **A status with no entry in the badge map reads as a draft.** `STATUS_VARIANTS`
+  in `components/shared.tsx` falls back to the neutral `secondary`, so `POSTED` -
+  which every goods receipt and every stock adjustment in a live tenant carries -
+  rendered the same grey as `DRAFT`. The fallback is what hides it: nothing
+  errors, the badge just says the wrong thing on every row of two daily screens.
+  Add the key when a status reaches the UI.
 - **`shrink-0` on a group that is itself `flex-wrap` defeats the wrap.** The
   `PageHeader` actions box was `flex shrink-0 flex-wrap`; `shrink-0` pins the
   box at its single-line max-content width, so the inner wrap never fires and

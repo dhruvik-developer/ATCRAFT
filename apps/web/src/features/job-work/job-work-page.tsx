@@ -77,7 +77,7 @@ import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { indexById } from '@/lib/utils'
 
-import { JobWorkIssueDialog, JobWorkReceiveDialog } from './job-work-dialogs'
+import { JobWorkIssueDialog, JobWorkQcResultDialog, JobWorkReceiveDialog } from './job-work-dialogs'
 import {
   AT_VENDOR_STATUSES,
   JOB_WORK_STATUSES,
@@ -88,6 +88,7 @@ import {
   daysOverdue,
   isApprovable,
   isCancellable,
+  awaitsInspection,
   isClosable,
   isDeletable,
   isEditable,
@@ -192,6 +193,7 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
   const [receiveFor, setReceiveFor] = useState<JobWorkOrderRow | null>(null)
   const [approveFor, setApproveFor] = useState<JobWorkOrderRow | null>(null)
   const [closeFor, setCloseFor] = useState<JobWorkOrderRow | null>(null)
+  const [verdictFor, setVerdictFor] = useState<JobWorkOrderRow | null>(null)
   const [amendFor, setAmendFor] = useState<JobWorkOrderRow | null>(null)
   const [cancelFor, setCancelFor] = useState<JobWorkOrderRow | null>(null)
   const [deleteFor, setDeleteFor] = useState<JobWorkOrderRow | null>(null)
@@ -221,6 +223,9 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
   const canIssue = can(P.JOB_WORK_ISSUE)
   const canReceive = can(P.JOB_WORK_RECEIVE)
   const canClose = can(P.JOB_WORK_CLOSE)
+  // The endpoint requires qc.decide, not a job-work right: whoever decides
+  // that output is good is not necessarily whoever runs the order.
+  const canDecideQc = can(P.QC_DECIDE)
   // Raising an order, amending it, cancelling it and deleting it are one right:
   // `POST /job-work`, `PATCH /job-work/{id}`, `DELETE /job-work/{id}` and
   // `POST /job-work/{id}/cancel` all declare `job_work.create`. The API treats
@@ -461,6 +466,7 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
           const showIssue = canIssue && acceptsIssue(order.status)
           const showReceive = canReceive && acceptsReceipt(order.status)
           const showClose = canClose && isClosable(order.status)
+          const showVerdict = canDecideQc && awaitsInspection(order.status)
           const showCancel = canCreate && isCancellable(order.status)
           const showDelete = canCreate && isDeletable(order.status)
 
@@ -469,6 +475,7 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
             !showApprove &&
             !showIssue &&
             !showReceive &&
+            !showVerdict &&
             !showClose &&
             !showCancel &&
             !showDelete
@@ -515,6 +522,12 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
                     Receive output
                   </DropdownMenuItem>
                 )}
+                {showVerdict && (
+                  <DropdownMenuItem onSelect={() => setVerdictFor(order)}>
+                    <ClipboardCheck />
+                    Record inspection verdict
+                  </DropdownMenuItem>
+                )}
                 {showClose && (
                   <DropdownMenuItem onSelect={() => setCloseFor(order)}>
                     <Lock />
@@ -542,7 +555,7 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
     }
 
     return defs
-  }, [canApprove, canIssue, canReceive, canClose, canCreate, vendorById])
+  }, [canApprove, canIssue, canReceive, canClose, canDecideQc, canCreate, vendorById])
 
   return (
     <>
@@ -674,6 +687,15 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
           id="job-work-approve-reason"
         />
       </ConfirmDialog>
+
+      {verdictFor && (
+        <JobWorkQcResultDialog
+          open
+          onOpenChange={(next) => !next && setVerdictFor(null)}
+          orderId={verdictFor.id}
+          orderCode={verdictFor.code}
+        />
+      )}
 
       <ConfirmDialog
         open={closeFor !== null}

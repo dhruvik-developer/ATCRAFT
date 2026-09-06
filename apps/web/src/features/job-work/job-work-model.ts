@@ -98,8 +98,20 @@ export const acceptsIssue = (status: JobWorkStatus): boolean =>
 export const acceptsReceipt = (status: JobWorkStatus): boolean =>
   status === 'ISSUED' || status === 'PARTIALLY_RECEIVED'
 
+/**
+ * QC_PENDING is deliberately absent.
+ *
+ * The state machine gives that status one outbound edge and it is not this one:
+ * QC_PENDING -> COMPLETED, by recording the inspection verdict. Offering Close
+ * here produced a button that always failed, and because nothing in the
+ * application recorded a verdict either, the order and its held stock had no
+ * way forward at all. `awaitsInspection` below is what that status offers.
+ */
 export const isClosable = (status: JobWorkStatus): boolean =>
-  status === 'RECEIVED' || status === 'QC_PENDING' || status === 'COMPLETED'
+  status === 'RECEIVED' || status === 'COMPLETED'
+
+/** Output is on QC hold and the verdict is the only thing that moves it. */
+export const awaitsInspection = (status: JobWorkStatus): boolean => status === 'QC_PENDING'
 
 /**
  * Only a draft is still editable.

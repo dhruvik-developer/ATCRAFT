@@ -647,3 +647,199 @@ export function JobWorkReceiveDialog({
     </Dialog>
   )
 }
+
+// ---------------------------------------------------------- QC verdict ------
+
+/**
+ * The inspection verdict on output held for QC.
+ *
+ * This screen was missing, and its absence stranded documents. A job-work order
+ * whose output is held for inspection sits in QC_PENDING, and the state machine
+ * gives that status exactly ONE way out - record the verdict, which moves it to
+ * COMPLETED. Nothing in the application called that endpoint, while the order
+ * list offered a Close button on the same status that the server refuses,
+ * because there is no QC_PENDING -> CLOSED edge. So the order could not be
+ * closed, could not be completed, and its output stayed on QC hold: real stock,
+ * owned and valued, that nothing could release and nobody could explain.
+ *
+ * The verdict is stated per output item and must account for every held unit,
+ * which the server enforces. That is not pedantry: releasing part of a held lot
+ * and leaving the rest in limbo is how stock becomes permanently unusable
+ * without anyone deciding that it should be.
+ */
+
+const verdictSchema = z.object({
+  reason: z.string().trim().min(1, 'A reason is required.').max(500),
+  lines: z.array(
+    z.object({
+      line_number: z.number(),
+      output_item_id: z.string(),
+      held_quantity: z.string(),
+      accepted_quantity: z.string(),
+      rejected_quantity: z.string(),
+    }),
+  ),
+})
+
+type VerdictFormValues = z.infer<typeof verdictSchema>
+
+/** Everything held is proposed as accepted; rejecting is the deliberate edit. */
+function verdictDefaults(order: JobWorkOrderDetail | undefined): VerdictFormValues {
+  return {
+    reason: '',
+    lines: (order?.lines ?? []).map((line) => ({
+      line_number: line.line_number,
+      output_item_id: line.expected_output_item_id,
+      held_quantity: line.received_output_quantity,
+      accepted_quantity: line.received_output_quantity,
+      rejected_quantity: '0',
+    })),
+  }
+}
+
+export function JobWorkQcResultDialog({
+  open,
+  onOpenChange,
+  orderId,
+  orderCode,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  orderId: string
+  orderCode: string
+}) {
+  const queryClient = useQueryClient()
+  const orderQuery = useJobWorkOrder(orderId, open)
+  const order = orderQuery.data
+
+  const {
+    register,
+    control,
+    handleSubmit,
+    reset,
+    setError,
+    watch,
+    formState: { errors },
+  } = useForm<VerdictFormValues>({
+    resolver: zodResolver(verdictSchema),
+    defaultValues: verdictDefaults(undefined),
+  })
+
+  const { fields } = useFieldArray({ control, name: 'lines' })
+  const lines = watch('lines')
+
+  useEffect(() => {
+    if (open && order) reset(verdictDefaults(order))
+  }, [open, order, reset])
+
+  const record = useMutation({
+    mutationFn: (values: VerdictFormValues) =>
+      api.post(`/job-work/${orderId}/qc-result`, {
+        reason: values.reason,
+        items: values.lines.map((line) => ({
+          output_item_id: line.output_item_id,
+          accepted_quantity: asDecimal(line.accepted_quantity),
+          rejected_quantity: asDecimal(line.rejected_quantity),
+        })),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: jobWorkKeys.all })
+      // Accepted output leaves QC hold and becomes promisable, so every stock
+      // figure on every other screen has moved.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
+      toast.success('Verdict recorded', `The held output on ${orderCode} has been decided.`)
+      onOpenChange(false)
+    },
+    onError: (error) => applyFieldErrors(error, setError),
+  })
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="xl">
+        <DialogHeader>
+          <DialogTitle>Inspection verdict on {orderCode}</DialogTitle>
+          <DialogDescription>
+            Accepted output is released and can be promised and sold. Rejected output stays on the
+            books, out of the available pool. Every held unit has to be decided - the order cannot
+            leave inspection with part of a lot undecided.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit((values) => record.mutate(values))}>
+          <DialogBody className="space-y-4">
+            {orderQuery.isLoading && <p className="text-sm text-muted-foreground">Loading...</p>}
+
+            {fields.map((field, index) => {
+              const line = lines[index]
+              const held = toDecimal(line?.held_quantity ?? '0')
+              const decided = toDecimal(line?.accepted_quantity ?? '0').plus(
+                toDecimal(line?.rejected_quantity ?? '0'),
+              )
+              const shortfall = held.minus(decided)
+
+              return (
+                <div key={field.id} className="rounded-md border p-3">
+                  <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                    <p className="text-sm font-medium">Line {field.line_number}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatQuantity(field.held_quantity)} held for inspection
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <Label htmlFor={`accepted-${index}`}>Accepted</Label>
+                      <Input
+                        id={`accepted-${index}`}
+                        className="mt-1.5"
+                        inputMode="decimal"
+                        {...register(`lines.${index}.accepted_quantity`)}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor={`rejected-${index}`}>Rejected</Label>
+                      <Input
+                        id={`rejected-${index}`}
+                        className="mt-1.5"
+                        inputMode="decimal"
+                        {...register(`lines.${index}.rejected_quantity`)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Shown before the request rather than after the refusal: the
+                      server enforces this and a person filling the form should
+                      not have to press Save to discover the arithmetic. */}
+                  {!shortfall.isZero() && (
+                    <p className="mt-2 text-xs text-destructive">
+                      {shortfall.greaterThan(0)
+                        ? `${formatQuantity(shortfall.toString())} still undecided.`
+                        : `${formatQuantity(shortfall.negated().toString())} more than is held.`}
+                    </p>
+                  )}
+                </div>
+              )
+            })}
+
+            <div>
+              <Label htmlFor="verdict-reason" required>
+                Reason
+              </Label>
+              <Input id="verdict-reason" className="mt-1.5" {...register('reason')} />
+              <FieldError message={errors.reason?.message} />
+            </div>
+          </DialogBody>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={record.isPending}>
+              Record verdict
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}

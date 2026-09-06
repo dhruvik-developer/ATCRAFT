@@ -170,7 +170,6 @@ function OverviewPanel({
               { label: 'Lead time', value: `${item.lead_time_days} day(s)` },
               { label: 'HSN code', value: item.hsn_code ?? '-' },
               { label: 'GST rate', value: formatPercent(item.gst_rate, 2) },
-              { label: 'Valuation', value: humanise(item.valuation_method) },
               { label: 'Reorder level', value: formatQuantity(item.reorder_level) },
               { label: 'Reorder quantity', value: formatQuantity(item.reorder_quantity) },
               { label: 'Minimum order', value: formatQuantity(item.min_order_quantity) },

@@ -40,6 +40,7 @@ import { queryKeys } from '@/lib/query-client'
 interface MeResponse {
   user_id: string
   company_id: string
+  company_name: string
   email: string
   full_name: string
   is_superuser: boolean
@@ -65,9 +66,14 @@ export interface CurrentUser {
   full_name: string
   company_id: string
   /**
-   * Not returned by any auth endpoint - `/auth/me` carries `company_id` only.
-   * Kept optional so the callers that show it degrade to nothing rather than
-   * rendering `undefined`; see the report's shared-changes note.
+   * The tenant's name, for the sidebar. It was declared here and rendered on
+   * every screen for months while no endpoint sent it, so the line under
+   * "Atcraft ERP" was simply blank; `/auth/me` carries it now.
+   *
+   * Still optional, because the sign-in response does not carry it - the
+   * session is established from `/auth/me` a moment later, and a name that
+   * appears one paint after the shell is better than a second request on the
+   * critical path.
    */
   company_name?: string
   is_superuser: boolean
@@ -92,6 +98,7 @@ function toCurrentUser(me: MeResponse): CurrentUser {
     email: me.email,
     full_name: me.full_name,
     company_id: me.company_id,
+    company_name: me.company_name,
     is_superuser: me.is_superuser,
     mfa_enabled: me.mfa_enabled,
     permissions: me.permissions ?? [],

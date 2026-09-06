@@ -162,6 +162,11 @@ const STATUS_VARIANTS: Record<
 
   // settled, closed
   CLOSED: 'secondary',
+  // Every goods receipt and every stock adjustment in a live tenant is POSTED,
+  // and without an entry here all of them fell through to the neutral fallback
+  // and read the same grey as a DRAFT. A posted document is a settled fact that
+  // moved stock, which is the opposite of a draft.
+  POSTED: 'success',
   OBSOLETE: 'muted',
   RELEASED_RESERVATION: 'muted',
   IGNORED: 'muted',

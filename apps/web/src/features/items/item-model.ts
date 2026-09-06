@@ -59,8 +59,6 @@ export type ItemGroup = (typeof ITEM_GROUPS)[number]
 export const PRODUCTION_TYPES = ['MAKE', 'BUY', 'MAKE_OR_BUY', 'JOB_WORK'] as const
 export type ProductionType = (typeof PRODUCTION_TYPES)[number]
 
-export type ValuationMethod = 'FIFO' | 'WEIGHTED_AVERAGE' | 'STANDARD'
-
 export type PriceType = 'SALE' | 'DEALER' | 'DISTRIBUTOR'
 
 // ---------------------------------------------------------- capabilities ----
@@ -149,6 +147,19 @@ export interface ItemRow extends Record<SummaryCapabilityKey, boolean> {
 }
 
 /** `GET /products/items/{id}`. */
+/**
+ * The item as the detail screen reads it.
+ *
+ * Hand-written rather than `SchemaOf<'ItemDetail'>`, which is a real cost worth
+ * naming: `tsc` compares this against nothing, so a field the API stops sending
+ * stays declared here and stays rendered. That happened - `valuation_method`
+ * was dropped from the API when every item became FIFO, and for months this
+ * interface still declared it and the screen still drew a "Valuation" row for
+ * it, which `humanise(undefined)` rendered as a dash on every item in the ERP.
+ *
+ * `tests/unit/test_frontend_contract_types.py` now compares the two, so the next
+ * one fails a build instead of shipping.
+ */
 export interface ItemDetail extends Record<CapabilityKey, boolean> {
   id: string
   code: string
@@ -188,7 +199,6 @@ export interface ItemDetail extends Record<CapabilityKey, boolean> {
   is_batch_tracked: boolean
   is_serial_tracked: boolean
   default_warehouse_id: string | null
-  valuation_method: ValuationMethod
   is_active: boolean
   lifecycle_state: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED'
 

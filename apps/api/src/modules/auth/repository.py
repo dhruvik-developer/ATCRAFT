@@ -144,19 +144,30 @@ async def increment_failed_attempts(session: AsyncSession, account: User) -> int
 
 async def get_account_summary(
     session: AsyncSession, user_id: uuid.UUID, company_id: uuid.UUID
-) -> tuple[bool, bool, datetime | None] | None:
-    """The three account flags ``/auth/me`` adds to the principal.
+) -> tuple[bool, bool, datetime | None, str] | None:
+    """The account flags ``/auth/me`` adds to the principal, and the company name.
 
-    A column projection rather than the entity: ``/auth/me`` is polled by every
-    page load, and it needs three fields out of a wide row it will not modify.
+    A column projection rather than the entities: ``/auth/me`` is polled by every
+    page load, and it needs four fields out of two wide rows it will not modify.
+
+    The company name is joined here rather than fetched by the browser from
+    ``/organization/company``, and the reason is a permission: that endpoint
+    needs ``company.view``, which an ordinary storekeeper does not hold, so the
+    name would stay blank for exactly the people who look at the sidebar all
+    day. Every caller of ``/auth/me`` is by definition entitled to know which
+    company they are signed in to.
     """
-    stmt = select(*_ACCOUNT_SUMMARY_COLUMNS).where(
-        User.id == user_id,
-        User.company_id == company_id,
-        User.deleted_at.is_(None),
+    stmt = (
+        select(*_ACCOUNT_SUMMARY_COLUMNS, Company.name)
+        .join(Company, Company.id == User.company_id)
+        .where(
+            User.id == user_id,
+            User.company_id == company_id,
+            User.deleted_at.is_(None),
+        )
     )
     row = (await session.execute(stmt)).first()
-    return (bool(row[0]), bool(row[1]), row[2]) if row is not None else None
+    return (bool(row[0]), bool(row[1]), row[2], row[3]) if row is not None else None
 
 
 async def find_reset_token(session: AsyncSession, token_hash: str) -> PasswordResetToken | None:

@@ -757,11 +757,12 @@ class AuthService:
         summary = await get_account_summary(self.session, principal.user_id, principal.company_id)
         if summary is None:
             raise NotFoundError("Account", principal.user_id)
-        must_change_password, mfa_enabled, last_login_at = summary
+        must_change_password, mfa_enabled, last_login_at, company_name = summary
 
         return MeResponse(
             user_id=principal.user_id,
             company_id=principal.company_id,
+            company_name=company_name,
             email=principal.email,
             full_name=principal.full_name,
             is_superuser=principal.is_superuser,

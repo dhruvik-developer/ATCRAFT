@@ -21,7 +21,20 @@ async function navigate(route) {
     window.history.pushState({}, '', path)
     window.dispatchEvent(new PopStateEvent('popstate'))
   }, route)
-  await page.locator('main').waitFor({ timeout: 30_000 })
+  try {
+    await page.locator('main').waitFor({ timeout: 30_000 })
+  } catch {
+    // Two screens - the prices tab and the item detail - occasionally lose the
+    // race between the popstate and their lazy chunk, and the route then never
+    // mounts. Pushing the entry again after the chunk has had time to arrive
+    // costs a second and is the difference between 51 screens and 53.
+    await page.waitForTimeout(2000)
+    await page.evaluate((path) => {
+      window.history.pushState({}, '', path)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    }, route)
+    await page.locator('main').waitFor({ timeout: 30_000 })
+  }
 }
 
 /** The sidebar's collapse control exists only inside the application shell. */
@@ -294,7 +307,15 @@ for (const screen of SCREENS) {
     captured.push({ file: `${screen.file}.png`, route, title: screen.title })
     console.log(`  ${screen.file}`)
 
-    if (screen.action?.dialog) await page.keyboard.press('Escape')
+    if (screen.action?.dialog) {
+      // Wait for it to actually be gone, not merely asked to go. Radix marks
+      // the rest of the page aria-hidden while a modal is open, so `main` is
+      // not *visible* until the close finishes - and the next screen's
+      // `waitFor` then times out against a page that is perfectly fine. That
+      // cost the two screens following a dialog on three separate runs.
+      await page.keyboard.press('Escape')
+      await page.getByRole('dialog').waitFor({ state: 'detached', timeout: 15_000 }).catch(() => {})
+    }
   } catch (error) {
     skipped.push(`${screen.file} (${route}: ${String(error).split('\n')[0].slice(0, 100)})`)
     console.log(`  SKIPPED ${screen.file}`)

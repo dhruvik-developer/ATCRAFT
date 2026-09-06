@@ -20821,6 +20821,10 @@
             "title": "Company Id",
             "type": "string"
           },
+          "company_name": {
+            "title": "Company Name",
+            "type": "string"
+          },
           "department_id": {
             "anyOf": [
               {
@@ -20923,6 +20927,7 @@
         "required": [
           "user_id",
           "company_id",
+          "company_name",
           "email",
           "full_name",
           "is_superuser",

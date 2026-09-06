@@ -677,6 +677,12 @@ class MrpRequirementRepository(BaseRepository[MrpRequirement]):
         "item_code": MrpRequirement.item_code,
         "level": MrpRequirement.level,
         "gross_requirement": MrpRequirement.gross_requirement,
+        # Both are columns on the row and both are offered as sortable by the
+        # shortage table, and neither was listed here - so the two questions a
+        # planner most wants to ask that screen ("what am I shortest of" and
+        # "what is already coming") answered 422 and emptied the table.
+        "available_quantity": MrpRequirement.available_quantity,
+        "incoming_quantity": MrpRequirement.incoming_quantity,
         "shortage_quantity": MrpRequirement.shortage_quantity,
         "earliest_required_date": MrpRequirement.earliest_required_date,
     }
