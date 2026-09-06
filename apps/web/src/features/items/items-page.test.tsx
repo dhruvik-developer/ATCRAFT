@@ -28,7 +28,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
-import { fail, page, renderScreen } from '@/test/harness'
+import { fail, ok, page, renderScreen } from '@/test/harness'
 import { P } from '@/lib/permissions'
 
 import ItemsPage from './items-page'
@@ -376,5 +376,57 @@ describe('the create dialog', () => {
 
     expect(await within(dialog).findByText('Base unit is required')).toBeVisible()
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+  })
+
+  it('sends the chosen finish as an id, and omits the ones left unset', async () => {
+    // The three were free text and API-only before the attribute master landed,
+    // so the form had no way to set them at all: a client could define their
+    // finishes and then not use them. What matters here is the shape on the
+    // wire - an id, or absent - because a "No finish" option that posted an
+    // empty string would be a foreign key the server has to reject.
+    const { user, fetch } = renderScreen(<ItemsPage />, {
+      permissions: [P.ITEM_VIEW, P.ITEM_CREATE, P.UOM_VIEW, P.ITEM_ATTRIBUTE_VIEW],
+      routes: {
+        'GET /products/items': page([BRASS_ROD]),
+        'GET /products/uoms': UOMS,
+        'GET /products/attributes': page([
+          {
+            id: 'att-brushed',
+            attribute: 'FINISH',
+            code: 'BRUSHED',
+            name: 'Brushed',
+            sort_order: 0,
+            is_active: true,
+          },
+        ]),
+        'POST /products/items': ok(BRASS_ROD),
+      },
+    })
+
+    await screen.findByRole('link', { name: 'RM-001' })
+    await user.click(screen.getByRole('button', { name: /new item/i }))
+    const dialog = await screen.findByRole('dialog')
+
+    await user.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'RM-003')
+    await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Brass rod 16mm')
+
+    await user.click(within(dialog).getByRole('combobox', { name: /base unit/i }))
+    await user.click(await screen.findByRole('option', { name: /KG/ }))
+
+    await user.click(within(dialog).getByRole('combobox', { name: /^finish$/i }))
+    await user.click(await screen.findByRole('option', { name: 'Brushed' }))
+
+    await user.click(within(dialog).getByRole('button', { name: /create item/i }))
+
+    const body = (await waitFor(() => fetch.requestFor('POST', '/products/items'))) as Record<
+      string,
+      unknown
+    >
+
+    expect(body.finish_id).toBe('att-brushed')
+    // Left on "No size" - null, not '' - so the server stores no reference
+    // rather than refusing a foreign key that cannot resolve.
+    expect(body.size_id).toBeNull()
+    expect(body.colour_id).toBeNull()
   })
 })

@@ -14689,7 +14689,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"code\": \"\",\n  \"name\": \"\",\n  \"barcode\": \"\",\n  \"colour\": \"\",\n  \"cost_delta\": 0,\n  \"finish\": \"\",\n  \"is_active\": true,\n  \"price_delta\": 0,\n  \"size\": \"\"\n}"
+              "raw": "{\n  \"code\": \"\",\n  \"name\": \"\",\n  \"barcode\": \"\",\n  \"colour_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"cost_delta\": 0,\n  \"finish_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"is_active\": true,\n  \"price_delta\": 0,\n  \"size_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Add a variant",
             "header": [
@@ -14807,7 +14807,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"base_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"code\": \"\",\n  \"item_group\": \"RAW_MATERIAL\",\n  \"name\": \"\",\n  \"can_be_assembly_component\": false,\n  \"can_be_bom_component\": false,\n  \"can_be_spare\": false,\n  \"can_job_work\": false,\n  \"can_manufacture\": false,\n  \"can_purchase\": false,\n  \"can_return\": false,\n  \"can_scrap\": false,\n  \"can_sell\": false,\n  \"category_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"colour\": \"\",\n  \"dealer_price\": 0,\n  \"default_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"description\": \"\",\n  \"finish\": \"\",\n  \"gst_rate\": 0,\n  \"hsn_code\": \"\",\n  \"is_active\": true,\n  \"is_batch_tracked\": false,\n  \"is_serial_tracked\": false,\n  \"lead_time_days\": 0,\n  \"min_order_quantity\": 0,\n  \"production_type\": \"MAKE\",\n  \"purchase_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"reorder_level\": 0,\n  \"reorder_quantity\": 0,\n  \"safety_stock\": 0,\n  \"sale_price\": 0,\n  \"sale_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"shelf_life_days\": 0,\n  \"size\": \"\",\n  \"standard_cost\": 0\n}"
+              "raw": "{\n  \"base_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"code\": \"\",\n  \"item_group\": \"RAW_MATERIAL\",\n  \"name\": \"\",\n  \"can_be_assembly_component\": false,\n  \"can_be_bom_component\": false,\n  \"can_be_spare\": false,\n  \"can_job_work\": false,\n  \"can_manufacture\": false,\n  \"can_purchase\": false,\n  \"can_return\": false,\n  \"can_scrap\": false,\n  \"can_sell\": false,\n  \"category_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"colour_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"dealer_price\": 0,\n  \"default_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"description\": \"\",\n  \"finish_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"gst_rate\": 0,\n  \"hsn_code\": \"\",\n  \"is_active\": true,\n  \"is_batch_tracked\": false,\n  \"is_serial_tracked\": false,\n  \"lead_time_days\": 0,\n  \"min_order_quantity\": 0,\n  \"production_type\": \"MAKE\",\n  \"purchase_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"reorder_level\": 0,\n  \"reorder_quantity\": 0,\n  \"safety_stock\": 0,\n  \"sale_price\": 0,\n  \"sale_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"shelf_life_days\": 0,\n  \"size_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"standard_cost\": 0\n}"
             },
             "description": "Create an item",
             "header": [
@@ -14828,6 +14828,40 @@
                 "items"
               ],
               "raw": "{{base_url}}/api/v1/products/items"
+            }
+          }
+        },
+        {
+          "name": "Create an item attribute",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"attribute\": \"FINISH\",\n  \"code\": \"\",\n  \"name\": \"\",\n  \"is_active\": true,\n  \"sort_order\": 0\n}"
+            },
+            "description": "Create an item attribute",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "attributes"
+              ],
+              "raw": "{{base_url}}/api/v1/products/attributes"
             }
           }
         },
@@ -15117,6 +15151,64 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "List item attributes (finish, size, colour)",
+          "request": {
+            "description": "List item attributes (finish, size, colour)",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "attributes"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "attribute",
+                  "value": "FINISH"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "is_active",
+                  "value": "False"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/products/attributes?"
             }
           }
         },
@@ -15927,7 +16019,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"barcode\": \"\",\n  \"colour\": \"\",\n  \"cost_delta\": 0,\n  \"finish\": \"\",\n  \"is_active\": false,\n  \"name\": \"\",\n  \"price_delta\": 0,\n  \"size\": \"\"\n}"
+              "raw": "{\n  \"barcode\": \"\",\n  \"colour_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"cost_delta\": 0,\n  \"finish_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"is_active\": false,\n  \"name\": \"\",\n  \"price_delta\": 0,\n  \"size_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Update a variant",
             "header": [
@@ -15969,7 +16061,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"base_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"can_be_assembly_component\": false,\n  \"can_be_bom_component\": false,\n  \"can_be_spare\": false,\n  \"can_job_work\": false,\n  \"can_manufacture\": false,\n  \"can_purchase\": false,\n  \"can_return\": false,\n  \"can_scrap\": false,\n  \"can_sell\": false,\n  \"category_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"colour\": \"\",\n  \"dealer_price\": 0,\n  \"default_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"description\": \"\",\n  \"finish\": \"\",\n  \"gst_rate\": 0,\n  \"hsn_code\": \"\",\n  \"is_batch_tracked\": false,\n  \"is_serial_tracked\": false,\n  \"item_group\": \"RAW_MATERIAL\",\n  \"lead_time_days\": 0,\n  \"min_order_quantity\": 0,\n  \"name\": \"\",\n  \"production_type\": \"MAKE\",\n  \"purchase_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"reorder_level\": 0,\n  \"reorder_quantity\": 0,\n  \"safety_stock\": 0,\n  \"sale_price\": 0,\n  \"sale_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"shelf_life_days\": 0,\n  \"size\": \"\",\n  \"standard_cost\": 0\n}"
+              "raw": "{\n  \"base_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"can_be_assembly_component\": false,\n  \"can_be_bom_component\": false,\n  \"can_be_spare\": false,\n  \"can_job_work\": false,\n  \"can_manufacture\": false,\n  \"can_purchase\": false,\n  \"can_return\": false,\n  \"can_scrap\": false,\n  \"can_sell\": false,\n  \"category_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"colour_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"dealer_price\": 0,\n  \"default_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"description\": \"\",\n  \"finish_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"gst_rate\": 0,\n  \"hsn_code\": \"\",\n  \"is_batch_tracked\": false,\n  \"is_serial_tracked\": false,\n  \"item_group\": \"RAW_MATERIAL\",\n  \"lead_time_days\": 0,\n  \"min_order_quantity\": 0,\n  \"name\": \"\",\n  \"production_type\": \"MAKE\",\n  \"purchase_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"reorder_level\": 0,\n  \"reorder_quantity\": 0,\n  \"safety_stock\": 0,\n  \"sale_price\": 0,\n  \"sale_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"shelf_life_days\": 0,\n  \"size_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"standard_cost\": 0\n}"
             },
             "description": "Update an item",
             "header": [
@@ -15995,6 +16087,48 @@
                 {
                   "description": "item_id of the record",
                   "key": "item_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update an item attribute",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"is_active\": false,\n  \"name\": \"\",\n  \"sort_order\": 0\n}"
+            },
+            "description": "Update an item attribute",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "attributes",
+                ":attribute_id"
+              ],
+              "raw": "{{base_url}}/api/v1/products/attributes/{attribute_id}",
+              "variable": [
+                {
+                  "description": "attribute_id of the record",
+                  "key": "attribute_id",
                   "value": ""
                 }
               ]

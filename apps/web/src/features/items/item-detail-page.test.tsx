@@ -39,6 +39,19 @@ import ItemDetailPage from './item-detail-page'
 const ITEM_ID = '01a00000-0000-7000-8000-0000000000i1'
 
 /** `GET /products/items/{id}` as the API sends it, with cost included. */
+/** The finish both the item and its variant carry. */
+const FINISH_ID = 'att-brushed'
+const FINISHES = page([
+  {
+    id: FINISH_ID,
+    attribute: 'FINISH',
+    code: 'BRUSHED',
+    name: 'Brushed',
+    sort_order: 0,
+    is_active: true,
+  },
+])
+
 const ITEM = {
   id: ITEM_ID,
   code: 'RM-001',
@@ -54,9 +67,9 @@ const ITEM = {
   sale_price: '250.0000',
   dealer_price: '230.0000',
   standard_cost: '80.5000',
-  finish: null,
-  size: null,
-  colour: null,
+  finish_id: FINISH_ID,
+  size_id: null,
+  colour_id: null,
   production_type: 'BUY',
   lead_time_days: 7,
   reorder_level: '100.0000',
@@ -88,9 +101,9 @@ const VARIANT = {
   item_id: ITEM_ID,
   code: 'RM-001-BR',
   name: 'Brass rod 12mm - brushed',
-  finish: 'Brushed',
-  size: null,
-  colour: null,
+  finish_id: FINISH_ID,
+  size_id: null,
+  colour_id: null,
   price_delta: '15.000000',
   cost_delta: '4.000000',
   barcode: null,
@@ -154,6 +167,9 @@ function baseRoutes(overrides: Record<string, unknown> = {}) {
     [`GET /products/items/${ITEM_ID}`]: ok(ITEM),
     'GET /products/categories': CATEGORIES,
     'GET /products/uoms': UOMS,
+    // The screen resolves the three attribute ids to names from these; without
+    // them the labeller falls back to printing the raw id.
+    'GET /products/attributes': FINISHES,
     ...overrides,
   }
 }

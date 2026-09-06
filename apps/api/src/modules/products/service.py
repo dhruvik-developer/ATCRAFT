@@ -53,6 +53,8 @@ from src.modules.audit.service import record_audit, record_status_change, snapsh
 from src.modules.products.models import (
     MAX_CATEGORY_DEPTH,
     Item,
+    ItemAttribute,
+    ItemAttributeType,
     ItemCategory,
     ItemGroup,
     ItemLifecycleState,
@@ -65,6 +67,7 @@ from src.modules.products.models import (
     UomConversion,
 )
 from src.modules.products.repository import (
+    ItemAttributeRepository,
     ItemCategoryRepository,
     ItemPriceRepository,
     ItemRepository,
@@ -78,6 +81,9 @@ from src.modules.products.schemas import (
     CategoryOut,
     CategoryUpdate,
     ConversionResult,
+    ItemAttributeCreate,
+    ItemAttributeOut,
+    ItemAttributeUpdate,
     ItemCreate,
     ItemDetail,
     ItemDetailWithCost,
@@ -108,6 +114,11 @@ from src.modules.products.schemas import (
 AUDIT_ITEM = "item"
 AUDIT_CATEGORY = "item_category"
 AUDIT_UOM = "unit_of_measure"
+AUDIT_ITEM_ATTRIBUTE = "item_attribute"
+
+#: What an audit row records for an attribute. `attribute` is absent because
+#: it cannot be changed - see ItemAttributeUpdate.
+ITEM_ATTRIBUTE_AUDITED_FIELDS = ["code", "name", "sort_order", "is_active"]
 AUDIT_UOM_CONVERSION = "uom_conversion"
 AUDIT_VARIANT = "item_variant"
 AUDIT_PRICE = "item_price"
@@ -127,9 +138,9 @@ ITEM_AUDITED_FIELDS = [
     "standard_cost",
     "sale_price",
     "dealer_price",
-    "finish",
-    "size",
-    "colour",
+    "finish_id",
+    "size_id",
+    "colour_id",
     "can_purchase",
     "can_manufacture",
     "can_sell",
@@ -1059,6 +1070,66 @@ async def _assert_default_warehouse_exists(
         raise NotFoundError("Warehouse", warehouse_id)
 
 
+async def _require_attribute(
+    session: AsyncSession,
+    tenant: TenantContext,
+    attribute_id: uuid.UUID | None,
+    kind: ItemAttributeType,
+) -> None:
+    """Refuse an attribute that is not this tenant's, not this kind, or retired.
+
+    Three separate checks, and the first two are the ones that matter.
+
+    A foreign key to ``item_attributes.id`` is satisfied by ANY globally unique
+    id, so without this the database would happily let company A's item point at
+    company B's finish - the constraint is met and nothing complains. That is a
+    tenant-isolation breach of exactly the class
+    ``tests/unit/test_products_reference_probes.py`` exists for, and reading the
+    row through the tenant-scoped repository is what closes it: a row belonging
+    to another company simply is not found.
+
+    The kind check is the second: a COLOUR id in ``finish_id`` also satisfies the
+    foreign key, and would then show the wrong list's value on every screen that
+    renders the item. The two columns are indistinguishable to the database and
+    quite distinguishable to a person.
+
+    Retired values are refused on the way in but not on the way out - an item
+    that already carries a finish keeps it after that finish is retired, because
+    rewriting history to suit a master-data edit is worse than showing a value
+    that is no longer offered.
+    """
+    if attribute_id is None:
+        return
+
+    attribute = await ItemAttributeRepository(session, tenant).get(attribute_id)
+    if attribute is None:
+        raise NotFoundError("Item attribute", attribute_id)
+    if attribute.attribute != kind:
+        raise ValidationError(
+            f"'{attribute.name}' is a {str(attribute.attribute).lower()}, not a {kind.lower()}.",
+            details={"attribute_id": str(attribute_id), "expected": kind.value},
+        )
+    if not attribute.is_active:
+        raise ValidationError(
+            f"'{attribute.name}' has been retired and cannot be assigned.",
+            details={"attribute_id": str(attribute_id)},
+        )
+
+
+async def _require_attributes(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    finish_id: uuid.UUID | None,
+    size_id: uuid.UUID | None,
+    colour_id: uuid.UUID | None,
+) -> None:
+    """The three together, in a fixed order so the first complaint is stable."""
+    await _require_attribute(session, tenant, finish_id, ItemAttributeType.FINISH)
+    await _require_attribute(session, tenant, size_id, ItemAttributeType.SIZE)
+    await _require_attribute(session, tenant, colour_id, ItemAttributeType.COLOUR)
+
+
 async def create_item(session: AsyncSession, tenant: TenantContext, payload: ItemCreate) -> Item:
     repo = ItemRepository(session, tenant)
     code = normalise_code(payload.code)
@@ -1110,9 +1181,9 @@ async def create_item(session: AsyncSession, tenant: TenantContext, payload: Ite
             standard_cost=payload.standard_cost,
             sale_price=payload.sale_price,
             dealer_price=payload.dealer_price,
-            finish=payload.finish,
-            size=payload.size,
-            colour=payload.colour,
+            finish_id=payload.finish_id,
+            size_id=payload.size_id,
+            colour_id=payload.colour_id,
             production_type=payload.production_type,
             lead_time_days=payload.lead_time_days,
             reorder_level=payload.reorder_level,
@@ -1240,6 +1311,18 @@ async def update_item(
             )
             if category is None:
                 raise NotFoundError("Item category", scalar_updates["category_id"])
+
+        # Same reasoning as the category above, and the same failure if it were
+        # skipped: `scalar_updates` is applied with a blind setattr loop, so an
+        # id that is never looked up through a tenant-scoped repository is an id
+        # that was never checked at all.
+        for field, kind in (
+            ("finish_id", ItemAttributeType.FINISH),
+            ("size_id", ItemAttributeType.SIZE),
+            ("colour_id", ItemAttributeType.COLOUR),
+        ):
+            if field in scalar_updates:
+                await _require_attribute(session, tenant, scalar_updates[field], kind)
 
         base_uom_id = scalar_updates.get("base_uom_id", item.base_uom_id)
         purchase_uom_id = scalar_updates.get("purchase_uom_id", item.purchase_uom_id)
@@ -1404,6 +1487,112 @@ async def search_items_keyset(
 # -----------------------------------------------------------------------------
 
 
+# -----------------------------------------------------------------------------
+# Item attributes - the client's own finish, size and colour vocabulary
+# -----------------------------------------------------------------------------
+
+
+async def create_item_attribute(
+    session: AsyncSession, tenant: TenantContext, payload: ItemAttributeCreate
+) -> ItemAttributeOut:
+    repo = ItemAttributeRepository(session, tenant)
+
+    async with transaction(session):
+        if await repo.get_by_code(payload.attribute, payload.code) is not None:
+            raise DuplicateError(
+                f"A {payload.attribute.lower()} with code '{payload.code}' already exists.",
+                details={"attribute": payload.attribute.value, "code": payload.code},
+            )
+
+        attribute = ItemAttribute(
+            attribute=payload.attribute,
+            code=payload.code,
+            name=payload.name,
+            sort_order=payload.sort_order,
+            is_active=payload.is_active,
+        )
+        repo.add(attribute)
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.CREATE,
+            entity_type=AUDIT_ITEM_ATTRIBUTE,
+            entity_id=attribute.id,
+            entity_code=attribute.code,
+            summary=f"Created {attribute.attribute.lower()} {attribute.code}",
+            user_id=tenant.user_id,
+            new_values=snapshot(attribute, ITEM_ATTRIBUTE_AUDITED_FIELDS),
+        )
+
+    return ItemAttributeOut.model_validate(attribute)
+
+
+async def update_item_attribute(
+    session: AsyncSession,
+    tenant: TenantContext,
+    attribute_id: uuid.UUID,
+    payload: ItemAttributeUpdate,
+) -> ItemAttributeOut:
+    repo = ItemAttributeRepository(session, tenant)
+
+    async with transaction(session):
+        attribute = await repo.get_or_404(attribute_id)
+        before = snapshot(attribute, ITEM_ATTRIBUTE_AUDITED_FIELDS)
+
+        if payload.name is not None:
+            attribute.name = payload.name
+        if payload.sort_order is not None:
+            attribute.sort_order = payload.sort_order
+        if payload.is_active is not None:
+            # Retiring is how a value leaves the picker. It is refused while
+            # something still carries it, because a retired value that items
+            # still show is a value nobody can re-select after an edit - the
+            # form would silently drop it. Renaming stays free: items reference
+            # the row, which is the whole reason this table exists.
+            if not payload.is_active and await repo.is_used(attribute_id):
+                raise BusinessRuleError(
+                    f"'{attribute.name}' is still used by items or variants and cannot be retired.",
+                    details={"attribute_id": str(attribute_id)},
+                )
+            attribute.is_active = payload.is_active
+
+        repo.touch(attribute)
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.UPDATE,
+            entity_type=AUDIT_ITEM_ATTRIBUTE,
+            entity_id=attribute.id,
+            entity_code=attribute.code,
+            summary=f"Updated {attribute.attribute.lower()} {attribute.code}",
+            user_id=tenant.user_id,
+            old_values=before,
+            new_values=snapshot(attribute, ITEM_ATTRIBUTE_AUDITED_FIELDS),
+        )
+
+    return ItemAttributeOut.model_validate(attribute)
+
+
+async def list_item_attributes(
+    session: AsyncSession,
+    tenant: TenantContext,
+    params: PageParams,
+    *,
+    attribute: ItemAttributeType | None = None,
+    search: str | None = None,
+    is_active: bool | None = None,
+) -> tuple[list[ItemAttributeOut], OffsetPagination]:
+    repo = ItemAttributeRepository(session, tenant)
+    rows, pagination = await repo.list_page_search(
+        params, attribute=attribute, search=search, is_active=is_active
+    )
+    return [ItemAttributeOut.model_validate(row) for row in rows], pagination
+
+
 async def create_variant(
     session: AsyncSession, tenant: TenantContext, item_id: uuid.UUID, payload: VariantCreate
 ) -> VariantOut:
@@ -1415,21 +1604,35 @@ async def create_variant(
 
         if await repo.code_exists(payload.code):
             raise DuplicateError(f"A variant with code '{payload.code}' already exists.")
+        await _require_attributes(
+            session,
+            tenant,
+            finish_id=payload.finish_id,
+            size_id=payload.size_id,
+            colour_id=payload.colour_id,
+        )
         if await repo.combination_exists(
-            item_id, finish=payload.finish, size=payload.size, colour=payload.colour
+            item_id,
+            finish_id=payload.finish_id,
+            size_id=payload.size_id,
+            colour_id=payload.colour_id,
         ):
             raise DuplicateError(
                 "This finish/size/colour combination already exists for the item.",
-                details={"finish": payload.finish, "size": payload.size, "colour": payload.colour},
+                details={
+                    "finish_id": str(payload.finish_id) if payload.finish_id else None,
+                    "size_id": str(payload.size_id) if payload.size_id else None,
+                    "colour_id": str(payload.colour_id) if payload.colour_id else None,
+                },
             )
 
         variant = ItemVariant(
             item_id=item.id,
             code=payload.code,
             name=payload.name,
-            finish=payload.finish,
-            size=payload.size,
-            colour=payload.colour,
+            finish_id=payload.finish_id,
+            size_id=payload.size_id,
+            colour_id=payload.colour_id,
             price_delta=payload.price_delta,
             cost_delta=payload.cost_delta,
             barcode=payload.barcode,
@@ -1449,9 +1652,9 @@ async def create_variant(
             user_id=tenant.user_id,
             new_values={
                 "item_id": item.id,
-                "finish": variant.finish,
-                "size": variant.size,
-                "colour": variant.colour,
+                "finish_id": str(variant.finish_id) if variant.finish_id else None,
+                "size_id": str(variant.size_id) if variant.size_id else None,
+                "colour_id": str(variant.colour_id) if variant.colour_id else None,
                 "price_delta": variant.price_delta,
             },
         )
@@ -1465,9 +1668,9 @@ async def update_variant(
     repo = ItemVariantRepository(session, tenant)
     audited = [
         "name",
-        "finish",
-        "size",
-        "colour",
+        "finish_id",
+        "size_id",
+        "colour_id",
         "price_delta",
         "cost_delta",
         "barcode",
@@ -1479,17 +1682,34 @@ async def update_variant(
         before = snapshot(variant, audited)
 
         data = payload.model_dump(exclude_unset=True)
+
+        # The three attributes are the one place `null` means "clear it" rather
+        # than "leave it alone". Everywhere else in this module null means no
+        # change, and the loop below keeps that - but a variant's finish is a
+        # value a person genuinely removes, and the Select that edits it has a
+        # "None" option. Without this the option would post null, the loop would
+        # skip it, and the dialog would report success having changed nothing:
+        # a silent no-op is the worst of the three possible behaviours.
+        clearable = {"finish_id", "size_id", "colour_id"}
         for field, value in data.items():
-            if value is not None:
+            if value is not None or field in clearable:
                 setattr(variant, field, value)
 
-        if not any((variant.finish, variant.size, variant.colour)):
+        await _require_attributes(
+            session,
+            tenant,
+            finish_id=variant.finish_id,
+            size_id=variant.size_id,
+            colour_id=variant.colour_id,
+        )
+
+        if not any((variant.finish_id, variant.size_id, variant.colour_id)):
             raise ValidationError("A variant must keep at least one of finish, size or colour.")
-        if {"finish", "size", "colour"} & data.keys() and await repo.combination_exists(
+        if clearable & data.keys() and await repo.combination_exists(
             variant.item_id,
-            finish=variant.finish,
-            size=variant.size,
-            colour=variant.colour,
+            finish_id=variant.finish_id,
+            size_id=variant.size_id,
+            colour_id=variant.colour_id,
             exclude_id=variant.id,
         ):
             raise DuplicateError("This finish/size/colour combination already exists for the item.")

@@ -63,6 +63,8 @@ class Permission(StrEnum):
     CATEGORY_MANAGE = "category.manage"
     UOM_VIEW = "uom.view"
     UOM_MANAGE = "uom.manage"
+    ITEM_ATTRIBUTE_VIEW = "item_attribute.view"
+    ITEM_ATTRIBUTE_MANAGE = "item_attribute.manage"
     PRICE_VIEW = "price.view"
     PRICE_MANAGE = "price.manage"
 
@@ -209,7 +211,7 @@ PERMISSION_GROUPS: dict[str, tuple[str, ...]] = {
     "Organisation": ("company", "branch", "plant", "department", "settings"),
     "Identity & Access": ("user", "role", "permission"),
     "Business Partners": ("customer", "dealer", "vendor", "transporter"),
-    "Item Master": ("item", "category", "uom", "price"),
+    "Item Master": ("item", "category", "uom", "item_attribute", "price"),
     "Warehouses": ("warehouse", "location"),
     "Inventory": ("inventory", "reservation", "allocation"),
     "Engineering": ("bom", "routing", "work_center", "machine"),
@@ -582,6 +584,8 @@ ROLE_PRESETS: dict[str, dict[str, object]] = {
                 Permission.CATEGORY_VIEW,
                 Permission.CATEGORY_MANAGE,
                 Permission.UOM_VIEW,
+                Permission.ITEM_ATTRIBUTE_VIEW,
+                Permission.ITEM_ATTRIBUTE_MANAGE,
                 Permission.BOM_VIEW,
                 Permission.BOM_CREATE,
                 Permission.BOM_UPDATE,

@@ -205,18 +205,36 @@ async def _seed_roles(session: AsyncSession, company: Company) -> dict[str, Role
     }
 
     created = 0
+    refreshed = 0
     for code, spec in ROLE_PRESETS.items():
-        if code in existing:
-            continue
         permission_values = spec["permissions"]
         if not isinstance(permission_values, (list, tuple, set, frozenset)):
             raise TypeError(f"Role preset {code!r} has an invalid permissions collection")
+        wanted = sorted(str(permission) for permission in permission_values)
+
+        if code in existing:
+            # A SYSTEM role's permission list is ours, not the client's, and the
+            # stored copy is a snapshot from the day the company was seeded. So
+            # a permission added in a later release reached the enum, the
+            # presets and the API and never reached the role - the screen it
+            # gates stayed invisible to every existing account, including the
+            # superuser, and the only cure was editing roles by hand on each
+            # deployment. Refreshing here closes that for every future release.
+            #
+            # Only `is_system` roles. A role the client built is theirs, and
+            # rewriting its permissions from a preset would silently undo
+            # whatever they had decided.
+            role = existing[code]
+            if role.is_system and role.permissions != wanted:
+                role.permissions = wanted
+                refreshed += 1
+            continue
         role = Role(
             company_id=company.id,
             code=code,
             name=str(spec["name"]),
             description=str(spec["description"]),
-            permissions=sorted(str(p) for p in permission_values),
+            permissions=wanted,
             is_system=bool(spec.get("is_system")),
             is_vendor_role=bool(spec.get("is_vendor_role")),
             is_active=True,
@@ -226,7 +244,7 @@ async def _seed_roles(session: AsyncSession, company: Company) -> dict[str, Role
         created += 1
 
     await session.flush()
-    log.info("seed.roles", created=created, total=len(existing))
+    log.info("seed.roles", created=created, refreshed=refreshed, total=len(existing))
     return existing
 
 

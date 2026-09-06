@@ -36,6 +36,7 @@ import {
   CornerDownRight,
   FolderTree,
   MoreHorizontal,
+  Palette,
   Pencil,
   Plus,
   Ruler,
@@ -77,6 +78,7 @@ import { formatDate, formatMoney, formatQuantity, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
+import { ATTRIBUTE_KINDS, ItemAttributeFormDialog } from './attribute-dialogs'
 import { CategoryFormDialog, CategoryRetireDialog } from './category-dialogs'
 import {
   conversionStatement,
@@ -90,6 +92,7 @@ import {
   useVariantOptions,
   type CategoryRow,
   type ConversionRow,
+  type ItemAttributeRow,
   type PriceRow,
   type UomRow,
 } from './masters-model'
@@ -101,7 +104,7 @@ import {
   UomFormDialog,
 } from './uom-dialogs'
 
-type TabKey = 'categories' | 'units' | 'conversions' | 'prices'
+type TabKey = 'categories' | 'units' | 'conversions' | 'attributes' | 'prices'
 
 /**
  * Change several filters in ONE URL write.
@@ -805,6 +808,185 @@ function ConversionsTab() {
 
 // ---------------------------------------------------------------- prices ----
 
+// ------------------------------------------------------------ Attributes ----
+
+function AttributesTab() {
+  const { can } = useAuth()
+  const [searchParams] = useSearchParams()
+  const setFilters = useFilterWriter()
+
+  const canManage = can(P.ITEM_ATTRIBUTE_MANAGE)
+
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<ItemAttributeRow | null>(null)
+
+  // One tab with a kind filter rather than three tabs: the row shape, the
+  // dialog and the columns are identical for all three, and the same choice is
+  // already made for prices, which discriminate on `price_type`.
+  const kind = searchParams.get('kind') ?? ''
+  const status = searchParams.get('status') ?? ''
+
+  const list = useListQuery<ItemAttributeRow>({
+    path: '/products/attributes',
+    queryKey: mastersKeys.attributes,
+    staleTime: staleTimes.reference,
+    filters: {
+      ...(kind ? { attribute: kind } : {}),
+      ...(status ? { is_active: status === 'active' } : {}),
+    },
+  })
+
+  const columns = useMemo<ColumnDef<ItemAttributeRow, unknown>[]>(() => {
+    const defs: ColumnDef<ItemAttributeRow, unknown>[] = [
+      {
+        id: 'attribute',
+        header: 'Attribute',
+        enableSorting: false,
+        cell: ({ row }) => <Badge variant="secondary">{humanise(row.original.attribute)}</Badge>,
+      },
+      {
+        accessorKey: 'code',
+        header: 'Code',
+        enableSorting: false,
+        cell: ({ row }) => <span className="font-medium">{row.original.code}</span>,
+      },
+      { accessorKey: 'name', header: 'Name', enableSorting: false },
+      {
+        accessorKey: 'sort_order',
+        header: 'Position',
+        enableSorting: false,
+        meta: { align: 'right' },
+        cell: ({ row }) => <span className="tabular">{row.original.sort_order}</span>,
+      },
+      {
+        id: 'is_active',
+        header: 'Status',
+        enableSorting: false,
+        cell: ({ row }) => <ActiveBadge isActive={row.original.is_active} />,
+      },
+    ]
+
+    // No delete, deliberately: an attribute an item references must be retired
+    // rather than removed, or the item would show a value nothing can offer
+    // back. Retirement is the `is_active` flag on the edit form, and the server
+    // refuses even that while something still uses the value.
+    if (canManage) {
+      defs.push({
+        id: 'actions',
+        header: '',
+        enableSorting: false,
+        enableHiding: false,
+        meta: { align: 'right' },
+        cell: ({ row }) => (
+          <div className="flex justify-end">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Edit ${row.original.code}`}
+              onClick={() => {
+                setEditing(row.original)
+                setFormOpen(true)
+              }}
+            >
+              <Pencil />
+            </Button>
+          </div>
+        ),
+      })
+    }
+
+    return defs
+  }, [canManage])
+
+  const newButton = canManage ? (
+    <Button
+      onClick={() => {
+        setEditing(null)
+        setFormOpen(true)
+      }}
+    >
+      <Plus />
+      New value
+    </Button>
+  ) : null
+
+  return (
+    <>
+      <TabIntro actions={newButton}>
+        The permitted finishes, sizes and colours. Items and variants choose from these rather than
+        typing, which is what lets a report group by finish and a correction to a spelling reach
+        every item at once.
+      </TabIntro>
+
+      <DataTable
+        columns={columns}
+        data={list.data}
+        pagination={list.pagination}
+        isLoading={list.isLoading}
+        isFetching={list.isFetching}
+        error={list.error}
+        onPageChange={list.setPage}
+        onLimitChange={list.setLimit}
+        onSearchChange={list.setSearch}
+        onRefresh={() => void list.refetch()}
+        searchValue={list.search}
+        searchPlaceholder="Search code or name..."
+        getRowId={(row) => row.id}
+        emptyTitle="No values yet"
+        emptyDescription="Add the finishes, sizes and colours this company uses, and they appear on every item form."
+        emptyAction={newButton}
+        toolbar={
+          <div className="flex flex-wrap gap-2">
+            <Select
+              value={kind || SELECT_ALL}
+              onValueChange={(value) =>
+                setFilters({ kind: value === SELECT_ALL ? undefined : value })
+              }
+            >
+              <SelectTrigger className="w-full sm:w-[10rem]" aria-label="Attribute">
+                <SelectValue placeholder="All attributes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SELECT_ALL}>All attributes</SelectItem>
+                {ATTRIBUTE_KINDS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={status || SELECT_ALL}
+              onValueChange={(value) =>
+                setFilters({ status: value === SELECT_ALL ? undefined : value })
+              }
+            >
+              <SelectTrigger className="w-full sm:w-[9rem]" aria-label="Status">
+                <SelectValue placeholder="Any status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SELECT_ALL}>Any status</SelectItem>
+                <SelectItem value="active">Offered</SelectItem>
+                <SelectItem value="inactive">Retired</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        }
+      />
+
+      {canManage && (
+        <ItemAttributeFormDialog
+          open={formOpen}
+          onOpenChange={setFormOpen}
+          attribute={editing}
+          defaultKind={kind || 'FINISH'}
+        />
+      )}
+    </>
+  )
+}
+
 function PricesTab() {
   const { can } = useAuth()
   const [searchParams] = useSearchParams()
@@ -1133,6 +1315,9 @@ export default function MastersPage() {
           { key: 'conversions' as const, label: 'Conversions', icon: ArrowLeftRight },
         ]
       : []),
+    ...(can(P.ITEM_ATTRIBUTE_VIEW)
+      ? [{ key: 'attributes' as const, label: 'Attributes', icon: Palette }]
+      : []),
     ...(can(P.PRICE_VIEW) ? [{ key: 'prices' as const, label: 'Prices', icon: Tags }] : []),
   ]
 
@@ -1186,6 +1371,10 @@ export default function MastersPage() {
 
           <TabsContent value="conversions">
             <ConversionsTab />
+          </TabsContent>
+
+          <TabsContent value="attributes">
+            <AttributesTab />
           </TabsContent>
 
           <TabsContent value="prices">

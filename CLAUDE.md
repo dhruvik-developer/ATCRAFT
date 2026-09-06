@@ -127,7 +127,11 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
   dropping `items.valuation_method` broke 43 tests across them, twice: the column
   list and the `VALUES` clause are edited separately, and the same file holds
   several `VALUES` shapes, so fixing the ones you grep for leaves the others.
-  Convert them to `tests/seed_support` when you next touch them.
+  Both files have since been converted to `tests/seed_support`, whose
+  `seed_item` builds through the ORM with `**overrides` and so names no columns
+  at all - which is why dropping `items.finish`, `size` and `colour` cost two
+  test lines rather than forty-three. Keep it that way: the rule is the ORM, not
+  the column list.
 - **Never hand-write another module's table in a test.** A `CREATE TABLE x (...)`
   or a `Table("x", Base.metadata, ...)` in a test file states a row shape its
   module has not defined yet, and collides with the real table the day that
@@ -411,6 +415,18 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
   check disagrees with a unit test, confirm the browser is running your code -
   `curl http://127.0.0.1/src/<path>.tsx | grep <YourNewSymbol>` answers it in one
   line - before believing either.
+- **A foreign key to a UUID is not a tenant check, and not a kind check.**
+  `items.finish_id` references `item_attributes.id`. A UUID is globally unique,
+  so the constraint is perfectly satisfied by one company's item pointing at
+  another company's finish: nothing complains, the wrong company's word simply
+  appears on the screen. It is also satisfied by a COLOUR row's id sitting in
+  `finish_id`, which the database cannot tell apart and a person reading the item
+  can. Both are closed by reading the row through the tenant-scoped repository
+  and checking `attribute`, in `_require_attribute` - never by trusting the FK.
+  `update_item` matters most here because it applies its payload with a blind
+  `setattr` loop, so any id it does not look up is an id nobody checked.
+  `tests/unit/test_products_reference_probes.py` exists because this class
+  already shipped once.
 - **`shrink-0` on a group that is itself `flex-wrap` defeats the wrap.** The
   `PageHeader` actions box was `flex shrink-0 flex-wrap`; `shrink-0` pins the
   box at its single-line max-content width, so the inner wrap never fires and

@@ -49,13 +49,16 @@ from src.core.responses import (
     PaginatedResponse,
 )
 from src.modules.products import service
-from src.modules.products.models import PriceType
+from src.modules.products.models import ItemAttributeType, PriceType
 from src.modules.products.repository import ItemRepository
 from src.modules.products.schemas import (
     CategoryCreate,
     CategoryOut,
     CategoryUpdate,
     ConversionResult,
+    ItemAttributeCreate,
+    ItemAttributeOut,
+    ItemAttributeUpdate,
     ItemCreate,
     ItemFilters,
     ItemStatusChange,
@@ -177,6 +180,53 @@ async def delete_category(
 # -----------------------------------------------------------------------------
 # Units of measure
 # -----------------------------------------------------------------------------
+
+
+@router.get(
+    "/attributes",
+    response_model=PaginatedResponse[ItemAttributeOut],
+    summary="List item attributes (finish, size, colour)",
+    dependencies=[require_permission(Permission.ITEM_ATTRIBUTE_VIEW)],
+)
+async def list_item_attributes(
+    session: DbSession,
+    tenant: Tenant,
+    params: PageDep,
+    attribute: Annotated[ItemAttributeType | None, Query()] = None,
+    search: Annotated[str | None, Query(max_length=64)] = None,
+    is_active: Annotated[bool | None, Query()] = None,
+) -> PaginatedResponse[ItemAttributeOut]:
+    rows, pagination = await service.list_item_attributes(
+        session, tenant, params, attribute=attribute, search=search, is_active=is_active
+    )
+    return paginated(rows, pagination)
+
+
+@router.post(
+    "/attributes",
+    response_model=ApiResponse[ItemAttributeOut],
+    status_code=status.HTTP_201_CREATED,
+    summary="Create an item attribute",
+    dependencies=[require_permission(Permission.ITEM_ATTRIBUTE_MANAGE)],
+)
+async def create_item_attribute(
+    session: DbSession, tenant: Tenant, payload: ItemAttributeCreate
+) -> ApiResponse[ItemAttributeOut]:
+    attribute = await service.create_item_attribute(session, tenant, payload)
+    return ApiResponse.ok(attribute, "Attribute created")
+
+
+@router.patch(
+    "/attributes/{attribute_id}",
+    response_model=ApiResponse[ItemAttributeOut],
+    summary="Update an item attribute",
+    dependencies=[require_permission(Permission.ITEM_ATTRIBUTE_MANAGE)],
+)
+async def update_item_attribute(
+    session: DbSession, tenant: Tenant, attribute_id: uuid.UUID, payload: ItemAttributeUpdate
+) -> ApiResponse[ItemAttributeOut]:
+    attribute = await service.update_item_attribute(session, tenant, attribute_id, payload)
+    return ApiResponse.ok(attribute, "Attribute updated")
 
 
 @router.get(

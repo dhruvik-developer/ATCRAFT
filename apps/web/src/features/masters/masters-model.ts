@@ -55,6 +55,7 @@ export const mastersKeys = {
   category: (id: string) => ['masters', 'categories', 'detail', id] as const,
   categoryReference: () => ['masters', 'categories', 'reference'] as const,
   uoms: (params: unknown) => ['masters', 'uoms', params] as const,
+  attributes: (params: unknown) => ['masters', 'attributes', params] as const,
   uomReference: () => ['masters', 'uoms', 'reference'] as const,
   conversions: (params: unknown) => ['masters', 'conversions', params] as const,
   conversionCheck: (params: unknown) => ['masters', 'conversions', 'check', params] as const,
@@ -66,6 +67,9 @@ export const mastersKeys = {
 
 /** One row of `GET /products/categories` (`CategoryOut`). */
 export type CategoryRow = SchemaOf<'CategoryOut'>
+
+/** One row of `GET /products/attributes` (`ItemAttributeOut`). */
+export type ItemAttributeRow = SchemaOf<'ItemAttributeOut'>
 
 /** One row of `GET /products/uoms` (`UomOut`). */
 export type UomRow = SchemaOf<'UomOut'>

@@ -30,6 +30,7 @@ from src.core.errors import (
     DuplicateError,
     InvalidStateTransitionError,
     NotFoundError,
+    ValidationError,
 )
 from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
@@ -38,6 +39,7 @@ from src.modules.audit.models import AuditLog
 from src.modules.products import service
 from src.modules.products.models import (
     Item,
+    ItemAttributeType,
     ItemGroup,
     PriceType,
     ProductionType,
@@ -47,6 +49,9 @@ from src.modules.products.repository import ItemRepository
 from src.modules.products.schemas import (
     CategoryCreate,
     CategoryUpdate,
+    ItemAttributeCreate,
+    ItemAttributeOut,
+    ItemAttributeUpdate,
     ItemCreate,
     ItemDetailWithCost,
     ItemFilters,
@@ -56,6 +61,7 @@ from src.modules.products.schemas import (
     UomConversionCreate,
     UomCreate,
     VariantCreate,
+    VariantUpdate,
     VendorLinkCreate,
 )
 from src.modules.vendors.models import Vendor, VendorType
@@ -778,12 +784,19 @@ async def test_duplicate_attribute_combination_is_refused(
     session, tenant, _ = ctx
     units = await seed_units(session, tenant)
     item = await service.create_item(session, tenant, item_payload("VAR-1", units["NOS"]))
+    finish = await service.create_item_attribute(
+        session,
+        tenant,
+        ItemAttributeCreate(
+            attribute=ItemAttributeType.FINISH, code="ANTIQUE-BRASS", name="Antique Brass"
+        ),
+    )
 
     await service.create_variant(
         session,
         tenant,
         item.id,
-        VariantCreate(code="VAR-1-AB", name="Antique Brass", finish="Antique Brass"),
+        VariantCreate(code="VAR-1-AB", name="Antique Brass", finish_id=finish.id),
     )
 
     with pytest.raises(DuplicateError):
@@ -791,7 +804,7 @@ async def test_duplicate_attribute_combination_is_refused(
             session,
             tenant,
             item.id,
-            VariantCreate(code="VAR-1-AB2", name="Antique Brass again", finish="Antique Brass"),
+            VariantCreate(code="VAR-1-AB2", name="Antique Brass again", finish_id=finish.id),
         )
 
 
@@ -1024,3 +1037,269 @@ async def test_another_company_s_warehouse_cannot_be_an_item_s_default(
         await session.execute(select(Item.default_warehouse_id).where(Item.id == item_id))
     ).scalar_one()
     assert stored_default is None
+
+
+# -----------------------------------------------------------------------------
+# The client-editable finish, size and colour vocabulary
+# -----------------------------------------------------------------------------
+#
+# These three were free text on the item, so "Brushed", "brushed" and "Brushed
+# Steel" were three different finishes and no report could group by finish. They
+# are rows now, which is what makes them governable - and which introduces two
+# failure modes free text did not have.
+#
+# The first matters more than any CRUD assertion here. `items.finish_id` is a
+# foreign key to `item_attributes.id`, and a UUID is globally unique, so the
+# database is perfectly satisfied by one company's item pointing at another
+# company's finish: nothing complains, the wrong company's word simply appears
+# on the screen. Reading the row through a tenant-scoped repository is what
+# closes it, and `tests/unit/test_products_reference_probes.py` exists because
+# this class of defect has shipped here before.
+#
+# The second is subtler: a colour's id in `finish_id` also satisfies the foreign
+# key. The two columns are indistinguishable to the database and quite
+# distinguishable to a person reading the item.
+
+
+async def _finish(
+    session: AsyncSession, tenant: TenantContext, code: str, name: str
+) -> ItemAttributeOut:
+    return await service.create_item_attribute(
+        session,
+        tenant,
+        ItemAttributeCreate(attribute=ItemAttributeType.FINISH, code=code, name=name),
+    )
+
+
+async def test_an_attribute_code_is_normalised_so_one_finish_cannot_become_three(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    session, tenant, _ = ctx
+
+    # The whole point of the table: upper-cased and whitespace-collapsed, so
+    # these spellings are one value rather than several.
+    created = await _finish(session, tenant, "  satin  stainless ", "Satin Stainless")
+
+    assert created.code == "SATIN STAINLESS"
+    assert created.attribute == ItemAttributeType.FINISH
+    assert created.is_active is True
+
+
+async def test_the_same_attribute_code_twice_is_refused(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    session, tenant, _ = ctx
+    await _finish(session, tenant, "BLACK-NICKEL", "Black Nickel")
+
+    with pytest.raises(DuplicateError):
+        await _finish(session, tenant, "BLACK-NICKEL", "Black Nickel again")
+
+
+async def test_a_finish_and_a_colour_may_share_a_code(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    """Uniqueness is per kind, not global - "BLACK" is legitimately both."""
+    session, tenant, _ = ctx
+    await _finish(session, tenant, "BLACK", "Black")
+
+    colour = await service.create_item_attribute(
+        session,
+        tenant,
+        ItemAttributeCreate(attribute=ItemAttributeType.COLOUR, code="BLACK", name="Black"),
+    )
+
+    assert colour.attribute == ItemAttributeType.COLOUR
+
+
+async def test_renaming_an_attribute_is_free(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    """The reason this is a table: items reference the row, not the words in it."""
+    session, tenant, _ = ctx
+    created = await _finish(session, tenant, "SATIN", "Statin Stainless")
+
+    fixed = await service.update_item_attribute(
+        session, tenant, created.id, ItemAttributeUpdate(name="Satin Stainless")
+    )
+
+    assert fixed.name == "Satin Stainless"
+    assert fixed.code == "SATIN", "the code identifies the row and must not move with the name"
+
+
+async def test_an_item_takes_a_finish_by_id(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    finish = await _finish(session, tenant, "BRUSHED", "Brushed")
+    item = await service.create_item(session, tenant, item_payload("ATTR-1", units["NOS"]))
+
+    updated = await service.update_item(session, tenant, item.id, ItemUpdate(finish_id=finish.id))
+
+    assert updated.finish_id == finish.id
+
+
+async def test_a_colour_is_refused_where_a_finish_belongs(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    """The foreign key cannot tell these apart. A person reading the item can."""
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    colour = await service.create_item_attribute(
+        session,
+        tenant,
+        ItemAttributeCreate(
+            attribute=ItemAttributeType.COLOUR, code="MATT-BLACK", name="Matt Black"
+        ),
+    )
+    item = await service.create_item(session, tenant, item_payload("ATTR-2", units["NOS"]))
+
+    with pytest.raises(ValidationError):
+        await service.update_item(session, tenant, item.id, ItemUpdate(finish_id=colour.id))
+
+
+async def test_an_unknown_attribute_id_is_refused(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    """An id from another tenant lands here too: the scoped read does not find it."""
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    item = await service.create_item(session, tenant, item_payload("ATTR-3", units["NOS"]))
+
+    with pytest.raises(NotFoundError):
+        await service.update_item(session, tenant, item.id, ItemUpdate(finish_id=uuid.uuid4()))
+
+
+async def test_a_retired_attribute_cannot_be_newly_assigned(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    finish = await _finish(session, tenant, "DISCONTINUED", "Discontinued")
+    await service.update_item_attribute(
+        session, tenant, finish.id, ItemAttributeUpdate(is_active=False)
+    )
+    item = await service.create_item(session, tenant, item_payload("ATTR-4", units["NOS"]))
+
+    with pytest.raises(ValidationError):
+        await service.update_item(session, tenant, item.id, ItemUpdate(finish_id=finish.id))
+
+
+async def test_an_attribute_in_use_cannot_be_retired(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    """Otherwise the item shows a value its own edit form can no longer offer."""
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    finish = await _finish(session, tenant, "IN-USE", "In use")
+    item = await service.create_item(session, tenant, item_payload("ATTR-5", units["NOS"]))
+    await service.update_item(session, tenant, item.id, ItemUpdate(finish_id=finish.id))
+
+    with pytest.raises(BusinessRuleError):
+        await service.update_item_attribute(
+            session, tenant, finish.id, ItemAttributeUpdate(is_active=False)
+        )
+
+
+async def test_an_attribute_only_a_variant_carries_still_counts_as_in_use(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    # Both tables, not only `items`: a finish used solely on a variant is still
+    # a finish something on screen displays.
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    finish = await _finish(session, tenant, "VARIANT-ONLY", "Variant only")
+    item = await service.create_item(session, tenant, item_payload("ATTR-6", units["NOS"]))
+    await service.create_variant(
+        session,
+        tenant,
+        item.id,
+        VariantCreate(code="ATTR-6-V", name="Variant", finish_id=finish.id),
+    )
+
+    with pytest.raises(BusinessRuleError):
+        await service.update_item_attribute(
+            session, tenant, finish.id, ItemAttributeUpdate(is_active=False)
+        )
+
+
+async def test_an_unused_attribute_retires(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    session, tenant, _ = ctx
+    finish = await _finish(session, tenant, "UNUSED", "Unused")
+
+    retired = await service.update_item_attribute(
+        session, tenant, finish.id, ItemAttributeUpdate(is_active=False)
+    )
+
+    assert retired.is_active is False
+
+
+async def test_clearing_a_variant_attribute_actually_clears_it(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    """`null` means "remove this", not "leave it alone".
+
+    Everywhere else in this module a null field on an update means no change,
+    and the three attributes are the deliberate exception: a Select with a
+    "None" option posts null, and without the exception the update would report
+    success having changed nothing - a silent no-op, the worst of the three
+    possible behaviours.
+    """
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    finish = await _finish(session, tenant, "CLEARABLE", "Clearable")
+    size = await service.create_item_attribute(
+        session,
+        tenant,
+        ItemAttributeCreate(attribute=ItemAttributeType.SIZE, code="52MM", name="52mm"),
+    )
+    item = await service.create_item(session, tenant, item_payload("ATTR-7", units["NOS"]))
+    variant = await service.create_variant(
+        session,
+        tenant,
+        item.id,
+        VariantCreate(code="ATTR-7-V", name="Variant", finish_id=finish.id, size_id=size.id),
+    )
+
+    cleared = await service.update_variant(
+        session, tenant, variant.id, VariantUpdate(finish_id=None)
+    )
+
+    assert cleared.finish_id is None
+    assert cleared.size_id == size.id, "clearing one attribute must not touch the others"
+
+
+async def test_listing_attributes_orders_and_filters_by_kind(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    """The list path, which no test exercised until it answered 500.
+
+    `list_page` takes ONE order clause. Passing a tuple reaches
+    `query.order_by(...)` as a single argument and SQLAlchemy raises
+    "ORDER BY expression expected" - a 500 on every request to the endpoint,
+    while every unit and service test stayed green because none of them listed.
+    That is the same shape as the `search_page` defect in CLAUDE.md, and the
+    lesson is the same: an ordering that nothing calls is an ordering nothing
+    checks.
+    """
+    session, tenant, _ = ctx
+    await _finish(session, tenant, "ZINC", "Zinc")
+    await _finish(session, tenant, "ALUMINIUM", "Aluminium")
+    await service.create_item_attribute(
+        session,
+        tenant,
+        ItemAttributeCreate(attribute=ItemAttributeType.SIZE, code="75MM", name="75mm"),
+    )
+
+    everything, _ = await service.list_item_attributes(
+        session, tenant, PageParams(page=1, limit=50)
+    )
+    finishes, _ = await service.list_item_attributes(
+        session, tenant, PageParams(page=1, limit=50), attribute=ItemAttributeType.FINISH
+    )
+
+    assert {row.code for row in everything} >= {"ZINC", "ALUMINIUM", "75MM"}
+    assert {row.attribute for row in finishes} == {ItemAttributeType.FINISH}
+    assert "75MM" not in {row.code for row in finishes}

@@ -53,6 +53,7 @@ from decimal import Decimal
 
 from sqlalchemy import select
 
+from src.common.codes import normalise_code
 from src.core.clock import today
 from src.core.demo_data import DemoContext, find_by_code
 from src.core.deps import TenantContext
@@ -70,6 +71,8 @@ from src.modules.customers.service import CustomerService
 from src.modules.organization.models import Branch
 from src.modules.products.models import (
     Item,
+    ItemAttribute,
+    ItemAttributeType,
     ItemCategory,
     ItemGroup,
     ItemPrice,
@@ -78,6 +81,7 @@ from src.modules.products.models import (
     ProductionType,
     UnitOfMeasure,
 )
+from src.modules.products.repository import ItemAttributeRepository
 from src.modules.products.schemas import (
     CategoryCreate,
     ItemCreate,
@@ -170,6 +174,7 @@ class _ItemSpec:
     shelf_life_days: int | None = None
     finish: str | None = None
     size: str | None = None
+    colour: str | None = None
     description: str | None = None
     #: Explicit capability override. ``None`` leaves the item group's default.
     can_manufacture: bool | None = None
@@ -1011,6 +1016,52 @@ async def _seed_units(ctx: DemoContext) -> None:
         _alias(ctx, "uom", f"UOM-{uom.code}", uom.id)
 
 
+async def _seed_item_attributes(ctx: DemoContext) -> None:
+    """Create the finish, size and colour vocabulary the item specs reference.
+
+    Derived from ``ITEMS`` rather than listed separately, so a spec that names a
+    new finish gets one without a second edit here - and so the two can never
+    disagree, which is the failure this whole table exists to prevent.
+
+    Existence is keyed on ``(attribute, code)``, which is what identifies the
+    row, and never on anything derived from the clock: a demo loader whose
+    idempotence depends on the day it runs stops being idempotent tomorrow.
+    """
+    repo = ItemAttributeRepository(ctx.session, ctx.tenant)
+
+    wanted: dict[tuple[ItemAttributeType, str], str] = {}
+    for spec in ITEMS:
+        for kind, value in (
+            (ItemAttributeType.FINISH, spec.finish),
+            (ItemAttributeType.SIZE, spec.size),
+            (ItemAttributeType.COLOUR, spec.colour),
+        ):
+            if value:
+                wanted.setdefault((kind, _attribute_code(value)), value)
+
+    for (kind, code), name in sorted(wanted.items()):
+        existing = await repo.get_by_code(kind, code)
+        if existing is not None:
+            _seen(ctx, "item_attribute", f"{kind.value}:{code}", existing.id, created=False)
+            continue
+
+        attribute = ItemAttribute(company_id=ctx.company_id, attribute=kind, code=code, name=name)
+        repo.add(attribute)
+        await ctx.session.flush()
+        _seen(ctx, "item_attribute", f"{kind.value}:{code}", attribute.id, created=True)
+
+
+def _attribute_code(value: str) -> str:
+    """The same derivation the backfill migration uses, so the two agree."""
+    return normalise_code(value).replace(" ", "-")[:32]
+
+
+def _attribute_id(ctx: DemoContext, kind: ItemAttributeType, value: str | None) -> uuid.UUID | None:
+    return (
+        ctx.maybe_id("item_attribute", f"{kind.value}:{_attribute_code(value)}") if value else None
+    )
+
+
 async def _seed_warehouses(ctx: DemoContext) -> None:
     """Register the baseline warehouses, creating any that are missing.
 
@@ -1156,8 +1207,9 @@ async def _seed_items(ctx: DemoContext) -> None:
                 standard_cost=Decimal(spec.standard_cost),
                 sale_price=Decimal(spec.sale_price),
                 dealer_price=Decimal(spec.dealer_price),
-                finish=spec.finish,
-                size=spec.size,
+                finish_id=_attribute_id(ctx, ItemAttributeType.FINISH, spec.finish),
+                size_id=_attribute_id(ctx, ItemAttributeType.SIZE, spec.size),
+                colour_id=_attribute_id(ctx, ItemAttributeType.COLOUR, spec.colour),
                 production_type=spec.production_type,
                 lead_time_days=spec.lead_time_days,
                 reorder_level=Decimal(spec.reorder_level),
@@ -1631,6 +1683,7 @@ async def seed(ctx: DemoContext) -> None:
     anchor = today()
 
     await _seed_units(ctx)
+    await _seed_item_attributes(ctx)
     await _seed_warehouses(ctx)
     await _seed_locations(ctx)
     await _seed_categories(ctx)

@@ -54,7 +54,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `users` | `users`, `roles`, `user_roles`, `user_sessions`, `password_reset_tokens`, `login_attempts` |
 | `audit` | `audit_logs`, `approval_requests` |
 | `warehouses` | `warehouses`, `storage_locations` |
-| `products` | `item_categories`, `units_of_measure`, `uom_conversions`, `items`, `item_variants`, `item_prices`, `item_vendor_links` |
+| `products` | `item_categories`, `units_of_measure`, `uom_conversions`, `item_attributes`, `items`, `item_variants`, `item_prices`, `item_vendor_links` |
 | `vendors` | `vendors`, `vendor_contacts`, `vendor_categories`, `transporters` |
 | `customers` | `customers`, `customer_addresses`, `customer_contacts` |
 | `inventory` | `inventory_transactions`, `inventory_balances`, `inventory_cost_layers`, `inventory_cost_consumptions`, `stock_batches`, `stock_serials`, `stock_transfers`, `stock_transfer_lines`, `stock_adjustments`, `stock_adjustment_lines`, `physical_counts`, `physical_count_lines` |
@@ -97,9 +97,42 @@ CONSUMABLE | PACKING_MATERIAL | SPARE | SCRAP | SERVICE`) is a **reporting and
 default-behaviour classification only**. No business rule may read it to decide
 whether an operation is permitted — read the capability flag instead.
 
+### Item attributes
+
+`item_attributes` holds the permitted finishes, sizes and colours, one row per
+value, discriminated by an `attribute` column (`FINISH | SIZE | COLOUR`) and
+unique per `(company_id, attribute, code)` — a finish and a colour may both be
+called BLACK. `items` and `item_variants` reference it by
+`finish_id` / `size_id` / `colour_id`.
+
+These were free text until `4c1d70b8ea92`, which is why the table exists:
+nothing branched on the values, but nothing governed them either, so "Brushed",
+"brushed" and "Brushed Steel" were three different finishes and no report could
+group by finish.
+
+Three rules follow from it being a client-editable list:
+
+* **Nothing may branch on a value.** That property is what makes the list safe to
+  hand to an administrator, and it is the reason this is a master table rather
+  than an enum. A rule that reads a finish by name belongs in code, and the
+  finish then belongs in an enum.
+* **The kind cannot change after creation.** `ItemAttributeUpdate` does not carry
+  `attribute`; moving a value between kinds would retarget every item pointing at
+  it. Renaming, by contrast, is free and is the point.
+* **Assignment is validated for tenant and kind, not only for existence.** A
+  foreign key to a globally unique UUID is satisfied by another company's row,
+  and by a colour's id in `finish_id`. `_require_attribute` in the products
+  service reads through the tenant-scoped repository and checks the kind; see
+  `test_a_colour_is_refused_where_a_finish_belongs`.
+
+Retirement is the `is_active` flag and is refused while an item or a variant
+still carries the value — otherwise an item would display a value its own edit
+form could no longer offer, and saving that form would silently drop it. There
+is no delete.
+
 Other required columns: `code`, `name`, `category_id`, `base_uom_id`,
 `purchase_uom_id`, `sale_uom_id`, `hsn_code`, `gst_rate`, `standard_cost`,
-`sale_price`, `dealer_price`, `finish`, `size`, `colour`, `production_type`
+`sale_price`, `dealer_price`, `finish_id`, `size_id`, `colour_id`, `production_type`
 (`MAKE | BUY | MAKE_OR_BUY | JOB_WORK`), `lead_time_days`, `reorder_level`,
 `reorder_quantity`, `min_order_quantity`, `safety_stock`, `shelf_life_days`,
 `is_batch_tracked`, `is_serial_tracked`, `default_warehouse_id`, `is_active`.

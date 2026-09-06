@@ -52,7 +52,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
-from src.core.models import TenantMasterEntity
+from src.core.models import TenantMasterEntity, sql_in_list
 from src.core.types import GUID, Money, Quantity, UnitPrice
 
 # A conversion factor is neither money nor a quantity: it is a ratio that has to
@@ -119,6 +119,26 @@ class UomCategory(StrEnum):
     AREA = "AREA"
     VOLUME = "VOLUME"
     TIME = "TIME"
+
+
+#: Stand-in for NULL in the variant combination index below. The nil UUID is
+#: not a valid id anywhere in the system, so COALESCE-ing to it makes "no
+#: finish" one indexable value instead of an unenforceable NULL.
+ATTRIBUTE_NULL_SENTINEL = "00000000-0000-0000-0000-000000000000"
+
+
+class ItemAttributeType(StrEnum):
+    """Which physical attribute a permitted value belongs to.
+
+    The *kinds* are fixed in code because each one is a column on ``items`` and
+    ``item_variants``; a fourth kind is a schema change either way. The *values*
+    are the client's, which is the entire point of the table below - so nothing
+    anywhere may branch on an ``ItemAttribute.code``.
+    """
+
+    FINISH = "FINISH"
+    SIZE = "SIZE"
+    COLOUR = "COLOUR"
 
 
 class ItemLifecycleState(StrEnum):
@@ -251,6 +271,62 @@ class UomConversion(TenantMasterEntity):
     )
 
 
+class ItemAttribute(TenantMasterEntity):
+    """A permitted finish, size or colour - the client's own vocabulary.
+
+    Before this table the three attributes were free text on the item, so
+    "Brushed", "brushed" and "Brushed Steel" were three different finishes and
+    no report could group by finish. Making them rows rather than strings is
+    what makes them governable: a rename reaches every item at once, because
+    items reference the row and not the spelling.
+
+    One table with a discriminator rather than three tables. The row shape,
+    the dialog and the screen are identical for all three kinds, and the same
+    choice is already made for item prices, which discriminate on
+    ``price_type``.
+
+    Nothing in the application may branch on a value here. That is the property
+    that makes the list safe to hand to an administrator, and it is the reason
+    this is a master table rather than an enum.
+    """
+
+    __tablename__ = "item_attributes"
+
+    attribute: Mapped[ItemAttributeType] = mapped_column(String(16), nullable=False)
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    #: Presentation order. Sizes are the reason this exists: "12mm, 25mm, 50mm"
+    #: is the order a person expects and is not the order they sort in.
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+
+    __table_args__ = (
+        # Per kind, not globally: a finish and a colour may both be called
+        # "BLACK" without either being a duplicate.
+        UniqueConstraint(
+            "company_id",
+            "attribute",
+            "code",
+            name="uq_item_attributes_company_id_attribute_code",
+        ),
+        CheckConstraint(
+            f"attribute IN ({sql_in_list(ItemAttributeType)})",
+            name="attribute_known",
+        ),
+        # The picker's query: one kind, live rows, in presentation order.
+        Index(
+            "ix_item_attributes_company_attribute",
+            "company_id",
+            "attribute",
+            "sort_order",
+            postgresql_where=text("is_active AND deleted_at IS NULL"),
+        ),
+    )
+
+
 class Item(TenantMasterEntity):
     """The item master. One row per thing the company buys, makes, sells or ships."""
 
@@ -301,9 +377,18 @@ class Item(TenantMasterEntity):
     # --- physical attributes -------------------------------------------------
     # Denormalised onto the item as the *default* combination; genuinely
     # variant-bearing items carry their combinations in item_variants.
-    finish: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    size: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    colour: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # RESTRICT rather than SET NULL: a finish that items still use must be
+    # retired (soft-deleted, so history still resolves), never removed out
+    # from under them. See ItemAttribute.
+    finish_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("item_attributes.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    size_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("item_attributes.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    colour_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("item_attributes.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
 
     # --- capability flags: master rules section 1 ----------------------------
     # Independent on purpose. Every one of these is read by a different module,
@@ -471,9 +556,15 @@ class ItemVariant(TenantMasterEntity):
     code: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    finish: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    size: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    colour: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    finish_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("item_attributes.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    size_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("item_attributes.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    colour_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("item_attributes.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
 
     # Deltas rather than absolute prices: a price revision on the parent item
     # then applies to every variant without touching 200 variant rows.
@@ -492,13 +583,17 @@ class ItemVariant(TenantMasterEntity):
     __table_args__ = (
         UniqueConstraint("company_id", "code", name="uq_item_variants_company_id_code"),
         # COALESCE, because NULL <> NULL would let "no finish, no size, red" be
-        # entered twice - the classic nullable-unique hole.
+        # entered twice - the classic nullable-unique hole. The sentinel is the
+        # nil UUID rather than '' now that these are foreign keys: coalesce on a
+        # uuid column needs a uuid, and the nil UUID is not a valid id anywhere
+        # in the system so it cannot collide with a real attribute row. Same
+        # device, same reasoning, as GRAIN_NULL_SENTINEL in inventory/models.py.
         Index(
             "uq_item_variants_attribute_combo",
             "item_id",
-            text("coalesce(finish, '')"),
-            text("coalesce(size, '')"),
-            text("coalesce(colour, '')"),
+            text(f"coalesce(finish_id, '{ATTRIBUTE_NULL_SENTINEL}'::uuid)"),
+            text(f"coalesce(size_id, '{ATTRIBUTE_NULL_SENTINEL}'::uuid)"),
+            text(f"coalesce(colour_id, '{ATTRIBUTE_NULL_SENTINEL}'::uuid)"),
             unique=True,
             postgresql_where=text("deleted_at IS NULL"),
         ),

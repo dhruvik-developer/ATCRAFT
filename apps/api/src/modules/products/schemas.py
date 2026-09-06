@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from src.common.codes import normalise_code
 from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
 from src.modules.products.models import (
+    ItemAttributeType,
     ItemGroup,
     ItemLifecycleState,
     PriceType,
@@ -124,6 +125,42 @@ class UomOut(_Base):
     is_active: bool
 
 
+class ItemAttributeCreate(_Base):
+    attribute: ItemAttributeType
+    code: Annotated[str, Field(min_length=1, max_length=32)]
+    name: Annotated[str, Field(min_length=1, max_length=64)]
+    sort_order: Annotated[int, Field(ge=0, le=9999)] = 0
+    is_active: bool = True
+
+    @field_validator("code")
+    @classmethod
+    def _normalise(cls, value: str) -> str:
+        return normalise_code(value)
+
+
+class ItemAttributeUpdate(_Base):
+    """``None`` means "leave alone" on every field.
+
+    ``attribute`` is absent on purpose: moving a value from FINISH to COLOUR
+    would silently retarget every item that references it, and the two are
+    unique per kind, so the move could also collide. Retire it and make a new
+    one instead.
+    """
+
+    name: Annotated[str, Field(min_length=1, max_length=64)] | None = None
+    sort_order: Annotated[int, Field(ge=0, le=9999)] | None = None
+    is_active: bool | None = None
+
+
+class ItemAttributeOut(_Base):
+    id: uuid.UUID
+    attribute: ItemAttributeType
+    code: str
+    name: str
+    sort_order: int
+    is_active: bool
+
+
 class UomConversionCreate(_Base):
     from_uom_id: uuid.UUID
     to_uom_id: uuid.UUID
@@ -196,9 +233,9 @@ class ItemCreate(CapabilityFlags):
     sale_price: PriceField = Decimal("0")
     dealer_price: PriceField = Decimal("0")
 
-    finish: Annotated[str, Field(max_length=64)] | None = None
-    size: Annotated[str, Field(max_length=64)] | None = None
-    colour: Annotated[str, Field(max_length=64)] | None = None
+    finish_id: uuid.UUID | None = None
+    size_id: uuid.UUID | None = None
+    colour_id: uuid.UUID | None = None
 
     production_type: ProductionType = ProductionType.BUY
     lead_time_days: Annotated[int, Field(ge=0, le=3650)] = 0
@@ -238,9 +275,9 @@ class ItemUpdate(CapabilityFlags):
     sale_price: PriceField | None = None
     dealer_price: PriceField | None = None
 
-    finish: Annotated[str, Field(max_length=64)] | None = None
-    size: Annotated[str, Field(max_length=64)] | None = None
-    colour: Annotated[str, Field(max_length=64)] | None = None
+    finish_id: uuid.UUID | None = None
+    size_id: uuid.UUID | None = None
+    colour_id: uuid.UUID | None = None
 
     production_type: ProductionType | None = None
     lead_time_days: Annotated[int, Field(ge=0, le=3650)] | None = None
@@ -300,9 +337,9 @@ class ItemDetail(_Base):
     sale_price: Decimal
     dealer_price: Decimal
 
-    finish: str | None
-    size: str | None
-    colour: str | None
+    finish_id: uuid.UUID | None
+    size_id: uuid.UUID | None
+    colour_id: uuid.UUID | None
 
     can_purchase: bool
     can_manufacture: bool
@@ -455,9 +492,9 @@ def item_filters(
 class VariantCreate(_Base):
     code: Annotated[str, Field(min_length=1, max_length=64)]
     name: Annotated[str, Field(min_length=1, max_length=255)]
-    finish: Annotated[str, Field(max_length=64)] | None = None
-    size: Annotated[str, Field(max_length=64)] | None = None
-    colour: Annotated[str, Field(max_length=64)] | None = None
+    finish_id: uuid.UUID | None = None
+    size_id: uuid.UUID | None = None
+    colour_id: uuid.UUID | None = None
     price_delta: Annotated[Decimal, Field(max_digits=18, decimal_places=6)] = Decimal("0")
     cost_delta: Annotated[Decimal, Field(max_digits=18, decimal_places=4)] = Decimal("0")
     barcode: Annotated[str, Field(max_length=64)] | None = None
@@ -472,16 +509,16 @@ class VariantCreate(_Base):
     def _at_least_one_attribute(self) -> VariantCreate:
         # A variant with no distinguishing attribute is a duplicate of its
         # parent item and would make the attribute-combination index useless.
-        if not any((self.finish, self.size, self.colour)):
+        if not any((self.finish_id, self.size_id, self.colour_id)):
             raise ValueError("A variant must differ in at least one of finish, size or colour.")
         return self
 
 
 class VariantUpdate(_Base):
     name: Annotated[str, Field(min_length=1, max_length=255)] | None = None
-    finish: Annotated[str, Field(max_length=64)] | None = None
-    size: Annotated[str, Field(max_length=64)] | None = None
-    colour: Annotated[str, Field(max_length=64)] | None = None
+    finish_id: uuid.UUID | None = None
+    size_id: uuid.UUID | None = None
+    colour_id: uuid.UUID | None = None
     price_delta: Annotated[Decimal, Field(max_digits=18, decimal_places=6)] | None = None
     cost_delta: Annotated[Decimal, Field(max_digits=18, decimal_places=4)] | None = None
     barcode: Annotated[str, Field(max_length=64)] | None = None
@@ -493,9 +530,9 @@ class VariantOut(_Base):
     item_id: uuid.UUID
     code: str
     name: str
-    finish: str | None
-    size: str | None
-    colour: str | None
+    finish_id: uuid.UUID | None
+    size_id: uuid.UUID | None
+    colour_id: uuid.UUID | None
     price_delta: Decimal
     cost_delta: Decimal
     barcode: str | None

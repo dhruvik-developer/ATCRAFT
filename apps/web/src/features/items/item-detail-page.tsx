@@ -44,6 +44,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
+import { attributeLabeller, useItemAttributeOptions } from '@/hooks/use-item-attribute-options'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { indexById } from '@/lib/utils'
@@ -135,6 +136,19 @@ function OverviewPanel({
   uomLabel: (id: string | null) => string
   canViewCost: boolean
 }) {
+  // The three attribute lists, resolved here rather than threaded down as
+  // props: `useItemAttributeOptions` is a cached query keyed per kind, so the
+  // panel that shows the item and the panel that shows its variants share one
+  // fetch however many times it is called.
+  const finishes = useItemAttributeOptions('FINISH')
+  const sizes = useItemAttributeOptions('SIZE')
+  const colours = useItemAttributeOptions('COLOUR')
+  // Memoised so the column definitions below can depend on them honestly: a
+  // labeller rebuilt every render would rebuild the columns every render too.
+  const finishLabel = useMemo(() => attributeLabeller(finishes.data), [finishes.data])
+  const sizeLabel = useMemo(() => attributeLabeller(sizes.data), [sizes.data])
+  const colourLabel = useMemo(() => attributeLabeller(colours.data), [colours.data])
+
   return (
     <div className="grid gap-4 lg:grid-cols-3">
       <Card className="lg:col-span-2">
@@ -183,9 +197,9 @@ function OverviewPanel({
                     },
                   ]
                 : []),
-              { label: 'Finish', value: item.finish ?? '-' },
-              { label: 'Size', value: item.size ?? '-' },
-              { label: 'Colour', value: item.colour ?? '-' },
+              { label: 'Finish', value: finishLabel(item.finish_id) },
+              { label: 'Size', value: sizeLabel(item.size_id) },
+              { label: 'Colour', value: colourLabel(item.colour_id) },
               { label: 'Created', value: formatDateTime(item.created_at) },
               { label: 'Last updated', value: formatDateTime(item.updated_at) },
             ]}
@@ -430,6 +444,19 @@ function VariantsPanel({
   canRetire: boolean
   onRetire: (variant: ItemVariant) => void
 }) {
+  // The three attribute lists, resolved here rather than threaded down as
+  // props: `useItemAttributeOptions` is a cached query keyed per kind, so the
+  // panel that shows the item and the panel that shows its variants share one
+  // fetch however many times it is called.
+  const finishes = useItemAttributeOptions('FINISH')
+  const sizes = useItemAttributeOptions('SIZE')
+  const colours = useItemAttributeOptions('COLOUR')
+  // Memoised so the column definitions below can depend on them honestly: a
+  // labeller rebuilt every render would rebuild the columns every render too.
+  const finishLabel = useMemo(() => attributeLabeller(finishes.data), [finishes.data])
+  const sizeLabel = useMemo(() => attributeLabeller(sizes.data), [sizes.data])
+  const colourLabel = useMemo(() => attributeLabeller(colours.data), [colours.data])
+
   const panel = usePanelQuery<ItemVariant>({
     queryKey: [...queryKeys.items.detail(itemId), 'variants'],
     path: `/products/items/${itemId}/variants`,
@@ -460,7 +487,11 @@ function VariantsPanel({
         header: 'Finish / size / colour',
         enableSorting: false,
         cell: ({ row }) => {
-          const attributes = [row.original.finish, row.original.size, row.original.colour]
+          const attributes = [
+            row.original.finish_id && finishLabel(row.original.finish_id),
+            row.original.size_id && sizeLabel(row.original.size_id),
+            row.original.colour_id && colourLabel(row.original.colour_id),
+          ]
             .filter(Boolean)
             .join(' / ')
           return attributes ? (
@@ -536,7 +567,7 @@ function VariantsPanel({
     }
 
     return defs
-  }, [canRetire, canViewCost, onRetire])
+  }, [canRetire, canViewCost, onRetire, finishLabel, sizeLabel, colourLabel])
 
   return (
     <DataTable

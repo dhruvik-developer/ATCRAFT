@@ -168,9 +168,14 @@ export interface ItemDetail extends Record<CapabilityKey, boolean> {
   /** Sent only to a principal holding `item.cost_view`. */
   standard_cost?: DecimalString
 
-  finish: string | null
-  size: string | null
-  colour: string | null
+  /**
+   * References into `item_attributes`, not text. The name is resolved from
+   * the cached attribute list - see `useItemAttributeOptions` - the same way
+   * `category_id` and `base_uom_id` above are.
+   */
+  finish_id: string | null
+  size_id: string | null
+  colour_id: string | null
 
   production_type: ProductionType
   lead_time_days: number

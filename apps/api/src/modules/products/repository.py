@@ -40,6 +40,8 @@ from src.core.pagination import CursorParams, PageParams
 from src.core.responses import CursorPagination, OffsetPagination
 from src.modules.products.models import (
     Item,
+    ItemAttribute,
+    ItemAttributeType,
     ItemCategory,
     ItemPrice,
     ItemVariant,
@@ -282,6 +284,73 @@ class UnitOfMeasureRepository(BaseRepository[UnitOfMeasure]):
                 ),
             )
         )
+        return bool((await self.session.execute(stmt)).scalar())
+
+
+class ItemAttributeRepository(BaseRepository[ItemAttribute]):
+    model = ItemAttribute
+    entity_label = "Item attribute"
+    searchable_fields = ("code", "name")
+    sortable_fields = {  # noqa: RUF012
+        "code": ItemAttribute.code,
+        "name": ItemAttribute.name,
+        "sort_order": ItemAttribute.sort_order,
+    }
+
+    async def get_by_code(self, attribute: ItemAttributeType, code: str) -> ItemAttribute | None:
+        """Scoped by kind as well as code - the pair is what is unique."""
+        stmt = self._scoped().where(
+            ItemAttribute.attribute == attribute, ItemAttribute.code == code
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def list_page_search(
+        self,
+        params: PageParams,
+        *,
+        attribute: ItemAttributeType | None = None,
+        search: str | None = None,
+        is_active: bool | None = None,
+    ) -> tuple[list[ItemAttribute], OffsetPagination]:
+        stmt = self._scoped()
+        if attribute is not None:
+            stmt = stmt.where(ItemAttribute.attribute == attribute)
+        if is_active is not None:
+            stmt = stmt.where(ItemAttribute.is_active.is_(is_active))
+        stmt = self._apply_search(stmt, search)
+        # `list_page` takes ONE order clause, not a tuple - a tuple reaches
+        # `query.order_by(...)` as a single argument and SQLAlchemy raises
+        # "ORDER BY expression expected". The multi-column order goes on the
+        # statement; the single clause below is what `list_page` appends.
+        stmt = stmt.order_by(ItemAttribute.attribute.asc(), ItemAttribute.sort_order.asc())
+        return await self.list_page(params, stmt=stmt, order_by=ItemAttribute.code.asc())
+
+    async def is_used(self, attribute_id: uuid.UUID) -> bool:
+        """Whether any live item or variant still points at this value.
+
+        Both tables and all six columns, because retiring a finish that a
+        variant still carries would leave that variant describing itself with a
+        value the picker no longer offers.
+        """
+        item_used = exists().where(
+            Item.company_id == self.tenant.company_id,
+            Item.deleted_at.is_(None),
+            or_(
+                Item.finish_id == attribute_id,
+                Item.size_id == attribute_id,
+                Item.colour_id == attribute_id,
+            ),
+        )
+        variant_used = exists().where(
+            ItemVariant.company_id == self.tenant.company_id,
+            ItemVariant.deleted_at.is_(None),
+            or_(
+                ItemVariant.finish_id == attribute_id,
+                ItemVariant.size_id == attribute_id,
+                ItemVariant.colour_id == attribute_id,
+            ),
+        )
+        stmt = select(or_(item_used, variant_used))
         return bool((await self.session.execute(stmt)).scalar())
 
 
@@ -537,9 +606,9 @@ class ItemVariantRepository(BaseRepository[ItemVariant]):
         self,
         item_id: uuid.UUID,
         *,
-        finish: str | None,
-        size: str | None,
-        colour: str | None,
+        finish_id: uuid.UUID | None,
+        size_id: uuid.UUID | None,
+        colour_id: uuid.UUID | None,
         exclude_id: uuid.UUID | None = None,
     ) -> bool:
         """Pre-flight for the COALESCE unique index.
@@ -549,9 +618,9 @@ class ItemVariantRepository(BaseRepository[ItemVariant]):
         """
         stmt = self._scoped().where(
             ItemVariant.item_id == item_id,
-            ItemVariant.finish.is_not_distinct_from(finish),
-            ItemVariant.size.is_not_distinct_from(size),
-            ItemVariant.colour.is_not_distinct_from(colour),
+            ItemVariant.finish_id.is_not_distinct_from(finish_id),
+            ItemVariant.size_id.is_not_distinct_from(size_id),
+            ItemVariant.colour_id.is_not_distinct_from(colour_id),
         )
         if exclude_id is not None:
             stmt = stmt.where(ItemVariant.id != exclude_id)

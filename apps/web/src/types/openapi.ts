@@ -4722,6 +4722,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/products/attributes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List item attributes (finish, size, colour) */
+        get: operations["list_item_attributes_api_v1_products_attributes_get"];
+        put?: never;
+        /** Create an item attribute */
+        post: operations["create_item_attribute_api_v1_products_attributes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/attributes/{attribute_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update an item attribute */
+        patch: operations["update_item_attribute_api_v1_products_attributes__attribute_id__patch"];
+        trace?: never;
+    };
     "/api/v1/products/categories": {
         parameters: {
             query?: never;
@@ -8029,6 +8064,20 @@ export interface components {
         /** ApiResponse[IssueResult] */
         ApiResponse_IssueResult_: {
             data?: components["schemas"]["IssueResult"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[ItemAttributeOut] */
+        ApiResponse_ItemAttributeOut_: {
+            data?: components["schemas"]["ItemAttributeOut"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -13724,6 +13773,69 @@ export interface components {
             /** Quantity At Vendor */
             quantity_at_vendor: string;
         };
+        /** ItemAttributeCreate */
+        ItemAttributeCreate: {
+            attribute: components["schemas"]["ItemAttributeType"];
+            /** Code */
+            code: string;
+            /**
+             * Is Active
+             * @default true
+             */
+            is_active: boolean;
+            /** Name */
+            name: string;
+            /**
+             * Sort Order
+             * @default 0
+             */
+            sort_order: number;
+        };
+        /** ItemAttributeOut */
+        ItemAttributeOut: {
+            attribute: components["schemas"]["ItemAttributeType"];
+            /** Code */
+            code: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Is Active */
+            is_active: boolean;
+            /** Name */
+            name: string;
+            /** Sort Order */
+            sort_order: number;
+        };
+        /**
+         * ItemAttributeType
+         * @description Which physical attribute a permitted value belongs to.
+         *
+         *     The *kinds* are fixed in code because each one is a column on ``items`` and
+         *     ``item_variants``; a fourth kind is a schema change either way. The *values*
+         *     are the client's, which is the entire point of the table below - so nothing
+         *     anywhere may branch on an ``ItemAttribute.code``.
+         * @enum {string}
+         */
+        ItemAttributeType: "FINISH" | "SIZE" | "COLOUR";
+        /**
+         * ItemAttributeUpdate
+         * @description ``None`` means "leave alone" on every field.
+         *
+         *     ``attribute`` is absent on purpose: moving a value from FINISH to COLOUR
+         *     would silently retarget every item that references it, and the two are
+         *     unique per kind, so the move could also collide. Retire it and make a new
+         *     one instead.
+         */
+        ItemAttributeUpdate: {
+            /** Is Active */
+            is_active?: boolean | null;
+            /** Name */
+            name?: string | null;
+            /** Sort Order */
+            sort_order?: number | null;
+        };
         /** ItemCreate */
         ItemCreate: {
             /**
@@ -13753,8 +13865,8 @@ export interface components {
             category_id?: string | null;
             /** Code */
             code: string;
-            /** Colour */
-            colour?: string | null;
+            /** Colour Id */
+            colour_id?: string | null;
             /**
              * Dealer Price
              * @default 0
@@ -13764,8 +13876,8 @@ export interface components {
             default_warehouse_id?: string | null;
             /** Description */
             description?: string | null;
-            /** Finish */
-            finish?: string | null;
+            /** Finish Id */
+            finish_id?: string | null;
             /**
              * Gst Rate
              * @default 0
@@ -13829,8 +13941,8 @@ export interface components {
             sale_uom_id?: string | null;
             /** Shelf Life Days */
             shelf_life_days?: number | null;
-            /** Size */
-            size?: string | null;
+            /** Size Id */
+            size_id?: string | null;
             /**
              * Standard Cost
              * @default 0
@@ -13925,16 +14037,16 @@ export interface components {
             can_sell?: boolean | null;
             /** Category Id */
             category_id?: string | null;
-            /** Colour */
-            colour?: string | null;
+            /** Colour Id */
+            colour_id?: string | null;
             /** Dealer Price */
             dealer_price?: number | string | null;
             /** Default Warehouse Id */
             default_warehouse_id?: string | null;
             /** Description */
             description?: string | null;
-            /** Finish */
-            finish?: string | null;
+            /** Finish Id */
+            finish_id?: string | null;
             /** Gst Rate */
             gst_rate?: number | string | null;
             /** Hsn Code */
@@ -13965,8 +14077,8 @@ export interface components {
             sale_uom_id?: string | null;
             /** Shelf Life Days */
             shelf_life_days?: number | null;
-            /** Size */
-            size?: string | null;
+            /** Size Id */
+            size_id?: string | null;
             /** Standard Cost */
             standard_cost?: number | string | null;
         };
@@ -16365,6 +16477,22 @@ export interface components {
         PaginatedResponse_InspectionSummary_: {
             /** Data */
             data?: components["schemas"]["InspectionSummary"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** PaginatedResponse[ItemAttributeOut] */
+        PaginatedResponse_ItemAttributeOut_: {
+            /** Data */
+            data?: components["schemas"]["ItemAttributeOut"][];
             /**
              * Message
              * @default Operation completed successfully
@@ -23258,15 +23386,15 @@ export interface components {
             barcode?: string | null;
             /** Code */
             code: string;
-            /** Colour */
-            colour?: string | null;
+            /** Colour Id */
+            colour_id?: string | null;
             /**
              * Cost Delta
              * @default 0
              */
             cost_delta: number | string;
-            /** Finish */
-            finish?: string | null;
+            /** Finish Id */
+            finish_id?: string | null;
             /**
              * Is Active
              * @default true
@@ -23279,8 +23407,8 @@ export interface components {
              * @default 0
              */
             price_delta: number | string;
-            /** Size */
-            size?: string | null;
+            /** Size Id */
+            size_id?: string | null;
         };
         /** VariantOut */
         VariantOut: {
@@ -23288,12 +23416,12 @@ export interface components {
             barcode: string | null;
             /** Code */
             code: string;
-            /** Colour */
-            colour: string | null;
+            /** Colour Id */
+            colour_id: string | null;
             /** Cost Delta */
             cost_delta: string;
-            /** Finish */
-            finish: string | null;
+            /** Finish Id */
+            finish_id: string | null;
             /**
              * Id
              * Format: uuid
@@ -23310,27 +23438,27 @@ export interface components {
             name: string;
             /** Price Delta */
             price_delta: string;
-            /** Size */
-            size: string | null;
+            /** Size Id */
+            size_id: string | null;
         };
         /** VariantUpdate */
         VariantUpdate: {
             /** Barcode */
             barcode?: string | null;
-            /** Colour */
-            colour?: string | null;
+            /** Colour Id */
+            colour_id?: string | null;
             /** Cost Delta */
             cost_delta?: number | string | null;
-            /** Finish */
-            finish?: string | null;
+            /** Finish Id */
+            finish_id?: string | null;
             /** Is Active */
             is_active?: boolean | null;
             /** Name */
             name?: string | null;
             /** Price Delta */
             price_delta?: number | string | null;
-            /** Size */
-            size?: string | null;
+            /** Size Id */
+            size_id?: string | null;
         };
         /**
          * VendorCategoryAssign
@@ -56663,6 +56791,302 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaginatedResponse_WorkOrderRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_item_attributes_api_v1_products_attributes_get: {
+        parameters: {
+            query?: {
+                attribute?: components["schemas"]["ItemAttributeType"] | null;
+                search?: string | null;
+                is_active?: boolean | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_ItemAttributeOut_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    create_item_attribute_api_v1_products_attributes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItemAttributeCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ItemAttributeOut_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_item_attribute_api_v1_products_attributes__attribute_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                attribute_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItemAttributeUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ItemAttributeOut_"];
                 };
             };
             /** @description Malformed request */

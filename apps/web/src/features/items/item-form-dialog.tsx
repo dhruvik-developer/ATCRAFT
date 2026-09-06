@@ -9,7 +9,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import { Controller, useForm } from 'react-hook-form'
+import { Controller, useForm, type Control } from 'react-hook-form'
 import { z } from 'zod'
 
 import { FieldError } from '@/components/shared'
@@ -35,6 +35,10 @@ import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { humanise, toDecimal } from '@/lib/format'
 import { success } from '@/lib/messages'
+import {
+  useItemAttributeOptions,
+  type ItemAttributeOption,
+} from '@/hooks/use-item-attribute-options'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -61,6 +65,9 @@ const schema = z.object({
   name: z.string().trim().min(1, 'Name is required').max(255, 'Name is at most 255 characters'),
   item_group: z.enum(ITEM_GROUPS),
   category_id: z.string(),
+  finish_id: z.string(),
+  size_id: z.string(),
+  colour_id: z.string(),
   base_uom_id: z.string().min(1, 'Base unit is required'),
   purchase_uom_id: z.string(),
   sale_uom_id: z.string(),
@@ -100,6 +107,9 @@ function emptyValues(): ItemFormValues {
     name: '',
     item_group: 'RAW_MATERIAL',
     category_id: SELECT_NONE,
+    finish_id: SELECT_NONE,
+    size_id: SELECT_NONE,
+    colour_id: SELECT_NONE,
     base_uom_id: '',
     purchase_uom_id: SELECT_NONE,
     sale_uom_id: SELECT_NONE,
@@ -127,6 +137,9 @@ function valuesFrom(item: ItemDetail): ItemFormValues {
     name: item.name,
     item_group: item.item_group,
     category_id: item.category_id ?? SELECT_NONE,
+    finish_id: item.finish_id ?? SELECT_NONE,
+    size_id: item.size_id ?? SELECT_NONE,
+    colour_id: item.colour_id ?? SELECT_NONE,
     base_uom_id: item.base_uom_id,
     purchase_uom_id: item.purchase_uom_id ?? SELECT_NONE,
     sale_uom_id: item.sale_uom_id ?? SELECT_NONE,
@@ -160,6 +173,9 @@ function buildPayload(
     name: values.name.trim(),
     item_group: values.item_group,
     category_id: asId(values.category_id),
+    finish_id: asId(values.finish_id),
+    size_id: asId(values.size_id),
+    colour_id: asId(values.colour_id),
     base_uom_id: values.base_uom_id,
     purchase_uom_id: asId(values.purchase_uom_id),
     sale_uom_id: asId(values.sale_uom_id),
@@ -182,6 +198,53 @@ function buildPayload(
   }
 }
 
+/**
+ * One of the three physical attributes.
+ *
+ * Written once rather than three times: the three differ only in their label
+ * and which list they read, and three copies of a Select is three places for a
+ * "No finish" sentinel to be spelled differently.
+ */
+function AttributeSelect({
+  id,
+  label,
+  name,
+  control,
+  options,
+}: {
+  id: string
+  label: string
+  name: 'finish_id' | 'size_id' | 'colour_id'
+  control: Control<ItemFormValues>
+  options: ItemAttributeOption[] | undefined
+}) {
+  const none = `No ${label.toLowerCase()}`
+  return (
+    <div>
+      <Label htmlFor={id}>{label}</Label>
+      <Controller
+        control={control}
+        name={name}
+        render={({ field }) => (
+          <Select value={field.value} onValueChange={field.onChange}>
+            <SelectTrigger id={id} className="mt-1.5">
+              <SelectValue placeholder={none} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={SELECT_NONE}>{none}</SelectItem>
+              {(options ?? []).map((option) => (
+                <SelectItem key={option.id} value={option.id}>
+                  {option.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      />
+    </div>
+  )
+}
+
 export function ItemFormDialog({
   open,
   onOpenChange,
@@ -200,6 +263,13 @@ export function ItemFormDialog({
   const showCost = can(P.ITEM_COST_VIEW)
 
   const categories = useCategoryOptions(open && can(P.CATEGORY_VIEW))
+  // The client's own vocabulary. Gated on the read right like the category
+  // list above: an account without it gets empty selects rather than an
+  // error, and the item's existing values still show on the detail screen.
+  const mayReadAttributes = open && can(P.ITEM_ATTRIBUTE_VIEW)
+  const finishes = useItemAttributeOptions('FINISH', mayReadAttributes)
+  const sizes = useItemAttributeOptions('SIZE', mayReadAttributes)
+  const colours = useItemAttributeOptions('COLOUR', mayReadAttributes)
   const uoms = useUomOptions(open && can(P.UOM_VIEW))
 
   const {
@@ -345,6 +415,34 @@ export function ItemFormDialog({
                 />
                 <FieldError message={errors.category_id?.message} />
               </div>
+
+              {/* The physical attributes. Each is a value the client maintains
+                  at Masters -> Attributes; before that they were free text, so
+                  the same finish could be spelled three ways and no report
+                  could group by it. */}
+              <AttributeSelect
+                id="item-finish"
+                label="Finish"
+                name="finish_id"
+                control={control}
+                options={finishes.data}
+              />
+
+              <AttributeSelect
+                id="item-size"
+                label="Size"
+                name="size_id"
+                control={control}
+                options={sizes.data}
+              />
+
+              <AttributeSelect
+                id="item-colour"
+                label="Colour"
+                name="colour_id"
+                control={control}
+                options={colours.data}
+              />
 
               <div>
                 <Label htmlFor="item-base-uom" required>
