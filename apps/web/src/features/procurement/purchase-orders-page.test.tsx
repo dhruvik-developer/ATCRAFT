@@ -24,7 +24,7 @@
  */
 
 import { screen, waitFor, within } from '@testing-library/react'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } from '@/test/harness'
@@ -32,26 +32,6 @@ import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } fro
 import type { PurchaseOrderRow } from './procurement-types'
 import PurchaseOrderDetailPage from './purchase-order-detail-page'
 import PurchaseOrdersPage from './purchase-orders-page'
-
-/** Pseudo-classes jsdom answers by re-entering its own selector engine. */
-const TOP_LAYER_SELECTORS = new Set([':modal', ':fullscreen', ':popover-open'])
-
-beforeAll(() => {
-  // Floating UI asks every popper it positions whether the element is in the
-  // top layer, and nwsapi answers `:modal` by asking jsdom to match
-  // `:fullscreen`, which re-enters nwsapi: one dropdown costs tens of millions
-  // of `matches` calls. False is what a browser answers here anyway.
-  const nativeMatches = Element.prototype.matches
-  Element.prototype.matches = function (this: Element, selector: string) {
-    return TOP_LAYER_SELECTORS.has(selector) ? false : nativeMatches.call(this, selector)
-  }
-  // Radix Select reads the Pointer Capture API off its trigger and scrolls the
-  // active option into view; jsdom implements neither.
-  Element.prototype.hasPointerCapture ??= () => false
-  Element.prototype.setPointerCapture ??= () => undefined
-  Element.prototype.releasePointerCapture ??= () => undefined
-  Element.prototype.scrollIntoView ??= () => undefined
-})
 
 /**
  * Wait for a control, then read it again.

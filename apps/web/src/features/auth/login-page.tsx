@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 
 import { prefetchRoute } from '@/app/route-loaders'
+import { ThemeToggle } from '@/components/theme-toggle'
 import { Button } from '@/components/ui/button'
 import {
   Alert,
@@ -206,7 +207,14 @@ export function LoginPage() {
 
       {/* Form panel - the page's <main>. Without a main landmark every element
           here sits outside one, and "skip to content" has nothing to skip to. */}
-      <main className="flex items-center justify-center p-4 sm:p-6">
+      <main className="relative flex items-center justify-center p-4 sm:p-6">
+        {/* The theme control belongs here too. It used to live only in
+            `AppLayout`, which this page never renders - so the one screen an
+            operator sees before signing in was the one screen whose theme they
+            could not change, on the shift where they most wanted to. */}
+        <div className="absolute right-4 top-4 sm:right-6 sm:top-6">
+          <ThemeToggle />
+        </div>
         <Card className="w-full max-w-md border-0 shadow-none sm:border sm:shadow-sm">
           <CardHeader>
             <div className="mb-2 flex items-center gap-2.5 lg:hidden">

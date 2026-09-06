@@ -26,43 +26,13 @@
  */
 
 import { screen, within } from '@testing-library/react'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen } from '@/test/harness'
 
 import MovementsPage from './movements-page'
 import type { PhysicalCountRow, StockAdjustmentRow, StockTransferRow } from './types'
-
-/**
- * Two shims this environment needs before a real dropdown can be operated,
- * neither of which changes what the screen does.
- *
- * jsdom implements neither pointer capture nor `scrollIntoView`, and Radix's
- * select and popover primitives call both while opening.
- *
- * The third line is about speed, and it is the difference between a 20-second
- * file and a 20-minute one. Floating UI asks `element.matches(':modal')` to
- * detect the top layer; nwsapi 2.2.27, the selector engine inside jsdom 25,
- * answers `:modal` by calling `element.matches()` again - itself - and recurses
- * until the stack overflows and the throw is swallowed, at 20-30 seconds per
- * popper mount. False is also a browser's answer for a Radix div: it is not a
- * native `<dialog>` and not the fullscreen element.
- */
-beforeAll(() => {
-  const proto = window.Element.prototype as unknown as Record<string, unknown>
-  if (!proto.hasPointerCapture) proto.hasPointerCapture = () => false
-  if (!proto.setPointerCapture) proto.setPointerCapture = () => {}
-  if (!proto.releasePointerCapture) proto.releasePointerCapture = () => {}
-  if (!proto.scrollIntoView) proto.scrollIntoView = () => {}
-
-  const nativeMatches = window.Element.prototype.matches
-  const TOP_LAYER = /^:(modal|fullscreen|popover-open|open|closed)$/
-  window.Element.prototype.matches = function (this: Element, selector: string) {
-    if (typeof selector === 'string' && TOP_LAYER.test(selector.trim())) return false
-    return nativeMatches.call(this, selector)
-  }
-})
 
 const ITEM = {
   id: 'it000000-0000-7000-8000-000000000001',

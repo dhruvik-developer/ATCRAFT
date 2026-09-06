@@ -36,18 +36,6 @@ beforeAll(async () => {
     import('@/features/auth/profile-page'),
     import('@/features/admin/users-page'),
   ])
-
-  // Floating UI's `isTopLayer` asks `element.matches(':modal')` on every
-  // position computation, and `nwsapi` - jsdom's selector engine - has no
-  // implementation for that pseudo-class and takes about 1.2 s per call to say
-  // so. One dropdown open then costs over twenty seconds. Nothing in jsdom is
-  // ever in the top layer, so false is both correct and instant. Belongs in
-  // `src/test/setup.ts` with the other jsdom stubs.
-  const nativeMatches = Element.prototype.matches
-  Element.prototype.matches = function patched(this: Element, selectors: string): boolean {
-    if (selectors === ':modal' || selectors === ':popover-open') return false
-    return nativeMatches.call(this, selectors)
-  }
 })
 
 const DENIAL = 'You do not have access to this page'

@@ -4,10 +4,8 @@ import {
   ChevronDown,
   LogOut,
   Menu,
-  Moon,
   PanelLeftClose,
   Search,
-  Sun,
   User as UserIcon,
   X,
 } from 'lucide-react'
@@ -38,30 +36,14 @@ import { api } from '@/lib/api-client'
 import { NOTIFICATION_POLL_MS, STORAGE_KEYS } from '@/lib/constants'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
+import { ThemeToggle } from '@/components/theme-toggle'
 import { cn, initials } from '@/lib/utils'
 import type { SchemaOf } from '@/types/api'
 
-const THEME_KEY = STORAGE_KEYS.theme
 const SIDEBAR_KEY = STORAGE_KEYS.sidebar
-
-function useTheme() {
-  const [theme, setTheme] = useState<'light' | 'dark'>(
-    () =>
-      (localStorage.getItem(THEME_KEY) as 'light' | 'dark' | null) ??
-      (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
-  )
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark')
-    localStorage.setItem(THEME_KEY, theme)
-  }, [theme])
-
-  return { theme, toggle: () => setTheme((t) => (t === 'dark' ? 'light' : 'dark')) }
-}
 
 export function AppLayout() {
   const { user, logout, can, canAny } = useAuth()
-  const { theme, toggle } = useTheme()
   const location = useLocation()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -239,9 +221,10 @@ export function AppLayout() {
             )}
 
             <div className="ml-auto flex items-center gap-1">
-              <Button variant="ghost" size="icon-sm" onClick={toggle} aria-label="Toggle theme">
-                {theme === 'dark' ? <Sun /> : <Moon />}
-              </Button>
+              {/* Light / Dark / System. Every state is one click away and
+                  visibly current, which a single cycling button cannot manage
+                  with three states. */}
+              <ThemeToggle />
 
               {/* Hidden outright without the right, rather than shown as a
                   permanently empty bell linking to a route the guard refuses. */}

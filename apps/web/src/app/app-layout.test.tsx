@@ -21,36 +21,12 @@
 
 import { screen, waitFor, within } from '@testing-library/react'
 import { Route, Routes, useLocation } from 'react-router-dom'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { ok, renderScreen, type RouteTable } from '@/test/harness'
 import { P } from '@/lib/permissions'
 
 import { AppLayout } from './app-layout'
-
-beforeAll(() => {
-  /**
-   * Short-circuit the top-layer pseudo-classes.
-   *
-   * Floating UI's `isTopLayer` - reached on every position computation for any
-   * Radix popper, so every menu, select, popover and dialog - asks
-   * `element.matches(':modal')`. `nwsapi`, the selector engine jsdom uses, has
-   * no implementation for it and takes roughly **1.2 seconds per call** to
-   * decide so, which puts a single dropdown open at over twenty seconds and
-   * blows through vitest's default timeout.
-   *
-   * Nothing in jsdom is ever in the top layer, so answering false is correct as
-   * well as fast: the account-menu test below drops from 27 s to under 0.3 s.
-   * This belongs in `src/test/setup.ts` beside the `matchMedia` and
-   * `ResizeObserver` stubs - it is here only because that file is not mine to
-   * edit.
-   */
-  const nativeMatches = Element.prototype.matches
-  Element.prototype.matches = function patched(this: Element, selectors: string): boolean {
-    if (selectors === ':modal' || selectors === ':popover-open') return false
-    return nativeMatches.call(this, selectors)
-  }
-})
 
 /** `GET /notifications/unread-count` - the `UnreadCountRead` payload. */
 function unreadCount(count: number, capped = false): RouteTable {

@@ -78,6 +78,7 @@ possible and must never be simulated by fetching everything and filtering.
 | Frontend data | TanStack Query only; keys from `queryKeys` in `lib/query-client.ts` |
 | Frontend lists | `useListQuery` + `DataTable`, server-side everything |
 | Lazy pages | `app/route-loaders.ts` is the one list of lazy pages; `lazy()` and the sidebar hover prefetch both read it |
+| Colour | never a literal - a token from `styles/globals.css`, which `:root` and `.dark` both define. `lib/theme.ts` is the one place the light/dark/system decision is made, shared with the pre-React paint in `main.tsx` |
 
 ## Assumptions
 
@@ -364,6 +365,52 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
   per account by `LOGIN_PER_EMAIL` and the lockout, which are fixed constants -
   raising the per-address budget does not weaken it. Sizing table in
   `docs/security.md` section 8.
+- **jsdom answers `:modal` by asking itself, and swallows the overflow.** One
+  `user.click` on a Radix Select trigger cost 36-46 s; the query that found the
+  trigger cost 32 ms and everything after the menu opened cost 130 ms. jsdom
+  uses nwsapi as a library and never calls its `install()`, so nwsapi's internal
+  `_matches` is never assigned and its `matchesNative` falls back to
+  `node.matches` - which is nwsapi. `isModal` is
+  `matchesNative(node, ':modal') || isFullscreen(node)`, so the query re-enters
+  itself; nwsapi's own try/catch swallows the `RangeError` from the blown stack
+  and every unwinding frame restarts the other branch, making it depth-squared
+  rather than a fast failure. One `document.body.matches(':modal')` costs
+  1,717,414 internal calls and ~616 ms and returns `false`; `matches(':hover')`
+  costs 0.2 ms. Floating UI's `isTopLayer` asks `:popover-open` then `:modal`,
+  and Radix positions Select, DropdownMenu, Popover and Tooltip at
+  `strategy: 'fixed'` - which walks every ancestor on every measurement - so 46
+  honest probes became ~61 million calls. Four files paid it, 14 tests, ~644 s,
+  and three of the four open a *DropdownMenu*, so it was never a Select problem.
+  `src/test/setup.ts` now answers those three selectors `false` for everything,
+  which is the answer jsdom eventually gives anyway; `src/test/top-layer-shim.test.ts`
+  fails if the recursion returns. Do NOT widen it to `:open` / `:closed`, which
+  nwsapi answers from a real `<details>`/`<dialog>` branch, and do not "fix" this
+  by changing `SelectContent` to `position="item-aligned"` - that is a 61,000x
+  speedup bought by shipping different popover behaviour to users to make a test
+  fast. Measured: the reported test 44,985 ms -> 1,554 ms, the whole frontend
+  suite 489 s -> 165 s.
+- **The fix existing in 15 files is not the fix existing.** Every one of those
+  four slow files was slow because a shim 15 of their 16 siblings already
+  carried had never been copied into them - and two of the copies say in their
+  own comments that it "belongs in `src/test/setup.ts`", which nobody had done
+  because the file was outside whatever change was in front of them at the time.
+  A workaround pasted into the file you are touching is a note that something
+  belongs one level up; put it there, or it becomes a 644-second tax collected
+  from whoever writes the next screen test.
+- **A bind-mounted Vite dev server serves what it cached at startup.** Docker
+  Desktop on Windows and macOS does not deliver inotify events across a bind
+  mount, so Vite's watcher never fires: the file on disk is plainly correct, the
+  container can `cat` it, and the module the browser receives is the transform
+  Vite made hours ago. Nothing errors. This is worse than a build failure,
+  because every check still passes - a full Playwright run went green against a
+  frontend that did not contain the change it was meant to be testing, and the
+  only tell was a control that was simply absent from the page. `vite.config.ts`
+  has had the switch (`VITE_USE_POLLING`) and a comment saying exactly why since
+  before this happened; nothing set it for `docker-compose.dev.yml`, the one
+  stack whose entire purpose is that bind mount. It is set now. When a browser
+  check disagrees with a unit test, confirm the browser is running your code -
+  `curl http://127.0.0.1/src/<path>.tsx | grep <YourNewSymbol>` answers it in one
+  line - before believing either.
 - **`shrink-0` on a group that is itself `flex-wrap` defeats the wrap.** The
   `PageHeader` actions box was `flex shrink-0 flex-wrap`; `shrink-0` pins the
   box at its single-line max-content width, so the inner wrap never fires and

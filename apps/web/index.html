@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
+    <!--
+      The browser's own chrome - the mobile address bar, and the canvas behind
+      an overscroll - is coloured from these, and it is the one part of the page
+      the stylesheet cannot reach. Without them a dark ERP on a phone sits under
+      a white address bar. The values are the resolved `--background` token for
+      each theme; they are literals because this file is parsed before any CSS
+      loads, so keep them in step with globals.css.
+    -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#11151c" />
     <meta name="description" content="Atcraft Manufacturing ERP" />
     <meta name="robots" content="noindex, nofollow" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />

@@ -26,47 +26,13 @@
  */
 
 import { screen, within } from '@testing-library/react'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen } from '@/test/harness'
 
 import ReservationsPage from './reservations-page'
 import type { ReservationRow } from './types'
-
-/**
- * Two shims this environment needs before a real dropdown can be operated. Both
- * are about jsdom, not about the app, and neither changes what the screen does.
- *
- * **Pointer capture and `scrollIntoView`.** jsdom implements neither, and Radix's
- * select, popover and menu primitives call both while opening. Without them
- * every interaction with a real control throws, which would push this file
- * towards asserting state instead of the controls a user actually operates.
- *
- * **`Element.matches(':modal')`.** This one is expensive rather than fatal, and
- * it is worth writing down because it makes the difference between a 12-second
- * file and a 12-minute one. Floating UI asks `element.matches(':modal')` to
- * detect the top layer, and nwsapi 2.2.27 - the selector engine inside jsdom 25
- * - answers `:modal` and `:fullscreen` by calling `element.matches()` again,
- * which is itself, so it recurses until the stack overflows and the throw is
- * swallowed. Every popper mount costs 20-30 seconds of that. Returning false is
- * also what a browser returns here: these are Radix divs, not a native
- * `<dialog>` and not a fullscreen element.
- */
-beforeAll(() => {
-  const proto = window.Element.prototype as unknown as Record<string, unknown>
-  if (!proto.hasPointerCapture) proto.hasPointerCapture = () => false
-  if (!proto.setPointerCapture) proto.setPointerCapture = () => {}
-  if (!proto.releasePointerCapture) proto.releasePointerCapture = () => {}
-  if (!proto.scrollIntoView) proto.scrollIntoView = () => {}
-
-  const nativeMatches = window.Element.prototype.matches
-  const TOP_LAYER = /^:(modal|fullscreen|popover-open|open|closed)$/
-  window.Element.prototype.matches = function (this: Element, selector: string) {
-    if (typeof selector === 'string' && TOP_LAYER.test(selector.trim())) return false
-    return nativeMatches.call(this, selector)
-  }
-})
 
 const ITEM = {
   id: 'it000000-0000-7000-8000-000000000001',

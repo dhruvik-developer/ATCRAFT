@@ -28,34 +28,13 @@
  */
 
 import { screen, within } from '@testing-library/react'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen } from '@/test/harness'
 
 import AccountsPage from './accounts-page'
 import type { LedgerAccount, LedgerStatement, LedgerStatementRow } from './ledger-model'
-
-/**
- * What jsdom is missing before a Radix select can be operated: it implements
- * neither pointer capture nor `scrollIntoView`, and answering `:modal`
- * natively sends nwsapi into a self-recursion costing tens of seconds per
- * mount. `false` is also a browser's answer for a Radix `div`.
- */
-beforeAll(() => {
-  const proto = window.Element.prototype as unknown as Record<string, unknown>
-  if (!proto.hasPointerCapture) proto.hasPointerCapture = () => false
-  if (!proto.setPointerCapture) proto.setPointerCapture = () => {}
-  if (!proto.releasePointerCapture) proto.releasePointerCapture = () => {}
-  if (!proto.scrollIntoView) proto.scrollIntoView = () => {}
-
-  const nativeMatches = window.Element.prototype.matches
-  const TOP_LAYER = /^:(modal|fullscreen|popover-open|open|closed)$/
-  window.Element.prototype.matches = function (this: Element, selector: string) {
-    if (typeof selector === 'string' && TOP_LAYER.test(selector.trim())) return false
-    return nativeMatches.call(this, selector)
-  }
-})
 
 const RECEIVABLE_ID = 'ac000000-0000-7000-8000-000000000001'
 const PAYABLE_ID = 'ac000000-0000-7000-8000-000000000002'

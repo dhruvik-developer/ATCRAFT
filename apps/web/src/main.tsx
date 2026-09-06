@@ -7,36 +7,25 @@ import { AppRouter } from '@/app/router'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { installGlobalErrorReporting } from '@/lib/error-reporting'
 import { Toaster } from '@/components/ui/toaster'
+import { ThemeProvider } from '@/app/theme-context'
 import { AuthProvider } from '@/features/auth/auth-context'
-import { STORAGE_KEYS } from '@/lib/constants'
 import { queryClient } from '@/lib/query-client'
+import { applyStoredTheme } from '@/lib/theme'
 import '@/styles/globals.css'
 
 /**
  * Paint the right theme on the first frame.
  *
- * `useTheme` in AppLayout owns the toggle, but it only runs once that layout
- * mounts - which on a hard reload is after `/auth/me` has returned, and on the
- * login page never. A dark-theme operator therefore got a full white screen for
- * the length of the auth round trip and a light login page on a fresh visit.
- * Setting the class here, before the first render, removes both. Reading
- * `localStorage` can itself throw when site data is blocked, so it is guarded;
- * the media query is the same fallback `useTheme` uses, so the two agree.
+ * The provider owns the theme once React is running, but it only runs once
+ * React is running - which on a hard reload is after `/auth/me` has returned.
+ * A dark-theme operator therefore got a full white screen for the length of
+ * that round trip, and a light login page on a fresh visit. Setting the class
+ * here, before the first render, removes both.
+ *
+ * The logic lives in `@/lib/theme` and not here, because the provider reads the
+ * same storage a moment later: two implementations of "which theme is this"
+ * that drift apart produce a screen that changes colour just after it loads.
  */
-function applyStoredTheme(): void {
-  let stored: string | null = null
-  try {
-    stored = localStorage.getItem(STORAGE_KEYS.theme)
-  } catch {
-    // Storage unavailable (private window, blocked site data). Fall through to
-    // the OS preference rather than failing the boot.
-  }
-  const dark = stored
-    ? stored === 'dark'
-    : window.matchMedia('(prefers-color-scheme: dark)').matches
-  document.documentElement.classList.toggle('dark', dark)
-}
-
 applyStoredTheme()
 
 /**
@@ -96,17 +85,24 @@ installGlobalErrorReporting()
 createRoot(container).render(
   <StrictMode>
     <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          {/* AuthProvider sits inside the router because its restore flow
-              navigates, and inside QueryClientProvider because it clears the
-              cache on sign-out. */}
-          <AuthProvider>
-            <AppRouter />
-          </AuthProvider>
-        </BrowserRouter>
-        <Toaster />
-      </QueryClientProvider>
+      {/* Outermost of the providers: the theme applies to every screen, the
+          login page included, and it depends on nothing else. The boundary's
+          own fallback renders outside this and reads no context - it is themed
+          by the `dark` class `applyStoredTheme` already put on <html>, which is
+          what makes a crash screen dark for a dark-theme operator. */}
+      <ThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <BrowserRouter>
+            {/* AuthProvider sits inside the router because its restore flow
+                navigates, and inside QueryClientProvider because it clears the
+                cache on sign-out. */}
+            <AuthProvider>
+              <AppRouter />
+            </AuthProvider>
+          </BrowserRouter>
+          <Toaster />
+        </QueryClientProvider>
+      </ThemeProvider>
     </ErrorBoundary>
   </StrictMode>,
 )

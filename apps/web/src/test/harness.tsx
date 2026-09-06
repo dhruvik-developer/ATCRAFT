@@ -36,6 +36,7 @@ import type { ReactElement, ReactNode } from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { expect, vi } from 'vitest'
 
+import { ThemeProvider } from '@/app/theme-context'
 import { AuthProvider } from '@/features/auth/auth-context'
 import { setTokens } from '@/lib/api-client'
 
@@ -262,13 +263,15 @@ export function renderScreen(ui: ReactElement, options: RenderScreenOptions = {}
   })
 
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[route]}>
-        <AuthProvider>
-          {path ? <Routes>{<Route path={path} element={children} />}</Routes> : children}
-        </AuthProvider>
-      </MemoryRouter>
-    </QueryClientProvider>
+    <ThemeProvider>
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[route]}>
+          <AuthProvider>
+            {path ? <Routes>{<Route path={path} element={children} />}</Routes> : children}
+          </AuthProvider>
+        </MemoryRouter>
+      </QueryClientProvider>
+    </ThemeProvider>
   )
 
   const result = render(ui, { wrapper })

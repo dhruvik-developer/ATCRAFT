@@ -22,33 +22,13 @@
  */
 
 import { screen, waitFor, within } from '@testing-library/react'
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { P } from '@/lib/permissions'
 import { toast } from '@/lib/toast'
 import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } from '@/test/harness'
 
 import GoodsReceiptsPage from './goods-receipts-page'
-
-/** Pseudo-classes jsdom answers by re-entering its own selector engine. */
-const TOP_LAYER_SELECTORS = new Set([':modal', ':fullscreen', ':popover-open'])
-
-beforeAll(() => {
-  // Floating UI asks every popper whether its element is in the top layer, and
-  // nwsapi answers `:modal` by asking jsdom to match `:fullscreen`, which
-  // re-enters nwsapi: one popover costs tens of millions of `matches` calls and
-  // roughly twenty seconds. False is what a browser answers here anyway.
-  const nativeMatches = Element.prototype.matches
-  Element.prototype.matches = function (this: Element, selector: string) {
-    return TOP_LAYER_SELECTORS.has(selector) ? false : nativeMatches.call(this, selector)
-  }
-  // Radix Select reads the Pointer Capture API off its trigger and scrolls the
-  // active option into view; jsdom implements neither.
-  Element.prototype.hasPointerCapture ??= () => false
-  Element.prototype.setPointerCapture ??= () => undefined
-  Element.prototype.releasePointerCapture ??= () => undefined
-  Element.prototype.scrollIntoView ??= () => undefined
-})
 
 afterEach(() => {
   vi.restoreAllMocks()

@@ -38,7 +38,7 @@
  */
 
 import { screen, within } from '@testing-library/react'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen } from '@/test/harness'
@@ -46,31 +46,6 @@ import { fail, ok, page, renderScreen } from '@/test/harness'
 import { PaymentCommandDialog, PaymentFormDialog } from './payment-dialogs'
 import type { PaymentDetail, PaymentRow } from './payment-model'
 import PaymentsPage from './payments-page'
-
-/**
- * What jsdom is missing before a real Radix menu or popover can be operated.
- *
- * Pointer capture and `scrollIntoView` are called while a dropdown opens and
- * jsdom implements neither. The `:modal` shim is about time rather than
- * correctness: nwsapi answers that selector by calling `matches()` on itself
- * and recursing until the stack overflows, tens of seconds per popper mount,
- * and `false` is also what a browser answers for a Radix `div` - it is not a
- * native `<dialog>`. None of this changes what the screen does.
- */
-beforeAll(() => {
-  const proto = window.Element.prototype as unknown as Record<string, unknown>
-  if (!proto.hasPointerCapture) proto.hasPointerCapture = () => false
-  if (!proto.setPointerCapture) proto.setPointerCapture = () => {}
-  if (!proto.releasePointerCapture) proto.releasePointerCapture = () => {}
-  if (!proto.scrollIntoView) proto.scrollIntoView = () => {}
-
-  const nativeMatches = window.Element.prototype.matches
-  const TOP_LAYER = /^:(modal|fullscreen|popover-open|open|closed)$/
-  window.Element.prototype.matches = function (this: Element, selector: string) {
-    if (typeof selector === 'string' && TOP_LAYER.test(selector.trim())) return false
-    return nativeMatches.call(this, selector)
-  }
-})
 
 const PAYMENT_ID = 'pm000000-0000-7000-8000-000000000001'
 const DETAIL_PATH = `/finance/payments/${PAYMENT_ID}`

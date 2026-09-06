@@ -20,35 +20,12 @@
  */
 
 import { screen, waitFor, within } from '@testing-library/react'
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 
 import { fail, ok, page, renderScreen, type RouteTable } from '@/test/harness'
 import { P } from '@/lib/permissions'
 
 import UsersPage from './users-page'
-
-beforeAll(() => {
-  /**
-   * Short-circuit the top-layer pseudo-classes.
-   *
-   * Floating UI's `isTopLayer` - reached whenever a Radix popper positions
-   * itself, so on every menu, select and dialog this screen opens - asks
-   * `element.matches(':modal')`. `nwsapi`, jsdom's selector engine, has no
-   * implementation for that pseudo-class and takes roughly **1.2 seconds per
-   * call** to decide so, which puts a single dropdown open past twenty seconds
-   * and through vitest's default timeout.
-   *
-   * Nothing in jsdom is ever in the top layer, so false is both correct and
-   * instant. This belongs in `src/test/setup.ts` next to the `matchMedia` and
-   * `ResizeObserver` stubs; it is duplicated here only because that file is not
-   * mine to edit.
-   */
-  const nativeMatches = Element.prototype.matches
-  Element.prototype.matches = function patched(this: Element, selectors: string): boolean {
-    if (selectors === ':modal' || selectors === ':popover-open') return false
-    return nativeMatches.call(this, selectors)
-  }
-})
 
 beforeEach(() => {
   /**

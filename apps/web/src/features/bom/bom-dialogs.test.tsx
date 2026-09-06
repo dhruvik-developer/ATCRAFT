@@ -9,33 +9,13 @@
  */
 
 import { screen, within } from '@testing-library/react'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen, type RouteTable } from '@/test/harness'
 
 import { BomFormDialog } from './bom-dialogs'
 import type { BomRow } from './bom-model'
-
-/**
- * The same jsdom shims `movements-page.test.tsx` carries, for the same reason:
- * Radix's select and popover call pointer capture and `scrollIntoView` while
- * opening, and Floating UI's `:modal` probe recurses inside nwsapi.
- */
-beforeAll(() => {
-  const proto = window.Element.prototype as unknown as Record<string, unknown>
-  if (!proto.hasPointerCapture) proto.hasPointerCapture = () => false
-  if (!proto.setPointerCapture) proto.setPointerCapture = () => {}
-  if (!proto.releasePointerCapture) proto.releasePointerCapture = () => {}
-  if (!proto.scrollIntoView) proto.scrollIntoView = () => {}
-
-  const nativeMatches = window.Element.prototype.matches
-  const TOP_LAYER = /^:(modal|fullscreen|popover-open|open|closed)$/
-  window.Element.prototype.matches = function (this: Element, selector: string) {
-    if (typeof selector === 'string' && TOP_LAYER.test(selector.trim())) return false
-    return nativeMatches.call(this, selector)
-  }
-})
 
 const ITEM = {
   id: 'it000000-0000-7000-8000-000000000001',

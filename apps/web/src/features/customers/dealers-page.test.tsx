@@ -28,30 +28,13 @@
  */
 
 import { screen, waitFor } from '@testing-library/react'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
 import { fail, page, renderScreen, type FetchRecorder } from '@/test/harness'
 
 import type { Dealer } from './dealer-model'
 import DealersPage from './dealers-page'
-
-/** Pseudo-classes jsdom answers by re-entering its own selector engine. */
-const TOP_LAYER_SELECTORS = new Set([':modal', ':fullscreen', ':popover-open'])
-
-beforeAll(() => {
-  // Floating UI asks every popper whether its element is in the top layer, and
-  // nwsapi answers `:modal` by asking jsdom to match `:fullscreen`, which
-  // re-enters nwsapi: one dropdown costs tens of millions of `matches` calls.
-  const nativeMatches = Element.prototype.matches
-  Element.prototype.matches = function (this: Element, selector: string) {
-    return TOP_LAYER_SELECTORS.has(selector) ? false : nativeMatches.call(this, selector)
-  }
-  Element.prototype.hasPointerCapture ??= () => false
-  Element.prototype.setPointerCapture ??= () => undefined
-  Element.prototype.releasePointerCapture ??= () => undefined
-  Element.prototype.scrollIntoView ??= () => undefined
-})
 
 // ------------------------------------------------------------- fixtures ----
 

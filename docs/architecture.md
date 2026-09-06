@@ -274,6 +274,33 @@ server knows why it refused. `app/route-loaders.ts` is the single list of lazily
 pages: `React.lazy` in the route table and the sidebar's hover prefetch both
 read it, so a chunk warmed on hover is the one the click resolves.
 
+Light, dark and system. The palette is entirely CSS custom properties in
+`styles/globals.css` - a `:root` set and a `.dark` set - and Tailwind is
+configured `darkMode: ['class']`, so a screen never writes a `dark:` variant and
+never names a colour: it names a token and the theme swaps underneath. That is
+why the whole ERP themes correctly with no per-screen work, charts included
+(`fill: 'hsl(var(--primary))'`). The few literal `text-white` / `bg-black/50`
+uses are deliberate - the sidebar is dark in both themes, and a modal scrim is
+black in both.
+
+`lib/theme.ts` owns the decision and is shared with `main.tsx`, which paints
+before React mounts so a dark operator never sees a white flash while
+`/auth/me` is in flight; two implementations of "which theme is this" would
+otherwise change colour a moment after the page loads. `app/theme-context.tsx`
+owns it from then on, and it is mounted at the root rather than inside
+`AppLayout` so the login page - the one screen you see before signing in - can
+change theme too.
+
+The preference has three states, not two, and `system` is the default. It is
+stored by *removing* the key, so an absent preference and an explicit "follow
+the system" are one state rather than two spellings of one intent. Storage is
+written only when a person chooses: persisting from a mount effect, which is
+what the first implementation did, silently opted every operator out of
+following their OS on their first visit and left no way back. While the
+preference is `system` the provider subscribes to `prefers-color-scheme`, so a
+laptop switching to dark at sunset is followed; while it is pinned it does not
+subscribe at all.
+
 Every screen is responsive down to a 360px phone. The shared primitives carry
 the safety nets - `DialogContent` scrolls its own overflow, `TabsList` wraps,
 `PageHeader` actions wrap, `DataTable` scrolls horizontally inside a `min-w-0`

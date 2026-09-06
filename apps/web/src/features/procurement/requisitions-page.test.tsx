@@ -24,7 +24,7 @@
  */
 
 import { screen, waitFor, within } from '@testing-library/react'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { TooltipProvider } from '@/components/ui/overlays'
 import { toDateInput } from '@/lib/format'
@@ -33,30 +33,6 @@ import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } fro
 
 import type { RequisitionRow } from './procurement-types'
 import RequisitionsPage from './requisitions-page'
-
-/** Pseudo-classes jsdom answers by re-entering its own selector engine. */
-const TOP_LAYER_SELECTORS = new Set([':modal', ':fullscreen', ':popover-open'])
-
-beforeAll(() => {
-  // Two jsdom gaps, neither of them anything to do with the screen under test.
-  //
-  // The `:modal` shim is the one that matters. Floating UI asks every popper it
-  // positions whether the element is in the top layer, and nwsapi answers
-  // `:modal` by asking jsdom to match `:fullscreen`, which re-enters nwsapi.
-  // One dropdown costs tens of millions of `matches` calls and about twenty
-  // seconds; a file of them never finishes. False is what a browser answers
-  // here anyway - nothing in these tests is in the top layer.
-  const nativeMatches = Element.prototype.matches
-  Element.prototype.matches = function (this: Element, selector: string) {
-    return TOP_LAYER_SELECTORS.has(selector) ? false : nativeMatches.call(this, selector)
-  }
-  // And Radix Select reads the Pointer Capture API off its trigger and scrolls
-  // the active option into view; without either, the listbox never opens.
-  Element.prototype.hasPointerCapture ??= () => false
-  Element.prototype.setPointerCapture ??= () => undefined
-  Element.prototype.releasePointerCapture ??= () => undefined
-  Element.prototype.scrollIntoView ??= () => undefined
-})
 
 /**
  * Wait for a control, then read it again.

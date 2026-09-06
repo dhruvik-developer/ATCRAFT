@@ -83,6 +83,15 @@ services:
     command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
     environment:
       VITE_API_BASE_URL: /api/v1
+      # Hot reload silently does not work without this. The source below is a
+      # bind mount, and Docker Desktop on Windows and macOS does not deliver
+      # inotify events across one - so Vite's watcher never fires, it keeps
+      # serving the transform it cached at startup, and an edit appears to have
+      # no effect while the file on disk is plainly correct. `vite.config.ts`
+      # already has the switch; nothing was setting it for the one stack whose
+      # whole purpose is the bind mount. Polling costs a little idle CPU, which
+      # is the right trade for a development container.
+      VITE_USE_POLLING: "true"
     volumes:
       - ./apps/web/src:/app/src
       - ./apps/web/public:/app/public

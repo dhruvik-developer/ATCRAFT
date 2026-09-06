@@ -26,28 +26,13 @@
  */
 
 import { screen, waitFor, within } from '@testing-library/react'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
 import { ok, page, renderScreen } from '@/test/harness'
 
 import DispatchPage from './dispatch-page'
 import type { DispatchRow, DispatchStatus, DispatchTrackingRow } from './dispatch-types'
-
-/**
- * jsdom implements neither the Pointer Capture API nor `scrollIntoView`, and
- * Radix's menus and selects call both while opening. Without them the click on
- * a trigger throws inside the event handler and the failure reads as "no menu
- * item found", which looks like a missing action rather than a missing browser
- * API.
- */
-beforeAll(() => {
-  const proto = window.HTMLElement.prototype as unknown as Record<string, unknown>
-  proto.hasPointerCapture ??= () => false
-  proto.setPointerCapture ??= () => {}
-  proto.releasePointerCapture ??= () => {}
-  proto.scrollIntoView ??= () => {}
-})
 
 /** Long enough for one popper to position itself under jsdom. */
 const POPPER = 90_000
