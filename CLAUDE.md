@@ -467,6 +467,20 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
   rendered the same grey as `DRAFT`. The fallback is what hides it: nothing
   errors, the badge just says the wrong thing on every row of two daily screens.
   Add the key when a status reaches the UI.
+- **A dev-server proxy default that is right on the host is wrong in the
+  container.** `vite.config.ts` sends `/api` to `http://localhost:8000`, which is
+  correct for `make dev` - Vite and the API both run on the host there. The
+  Docker dev stack runs Vite *inside a container*, where `localhost` is the
+  frontend itself and nothing listens on :8000, so the proxy answered
+  `ECONNREFUSED` and Vite reported that to the browser as a **500**. The failure
+  shape is the trap: :5173 serves the SPA perfectly, the sign-in screen paints,
+  and only the submit fails - with a status that blames the API, while the
+  backend log shows the request never arrived. The port is published in the dev
+  overlay and `tests/e2e/.env` names it as the default `E2E_BASE_URL`, so it is a
+  door the project invites you through; it had never carried a request. Set
+  `VITE_API_PROXY_TARGET` per stack. When a 500 has no matching line in the
+  server log, suspect the thing between them.
+
 - **`shrink-0` on a group that is itself `flex-wrap` defeats the wrap.** The
   `PageHeader` actions box was `flex shrink-0 flex-wrap`; `shrink-0` pins the
   box at its single-line max-content width, so the inner wrap never fires and

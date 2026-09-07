@@ -83,6 +83,18 @@ services:
     command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
     environment:
       VITE_API_BASE_URL: /api/v1
+      # Where Vite's own `/api` proxy sends a request that arrives on the
+      # published :5173 port rather than through nginx.
+      #
+      # `vite.config.ts` defaults this to `http://localhost:8000`, which is
+      # correct for `make dev` - Vite and the API both run on the host there.
+      # Inside this container `localhost` is the *frontend*, nothing listens on
+      # :8000, and the proxy answers ECONNREFUSED. Vite reports that to the
+      # browser as a 500, so the sign-in page loads perfectly and every
+      # submission fails with no indication that the API was never reached.
+      # The port is published, and `tests/e2e/.env` names it as the default
+      # base URL, so this is a door the project invites you through.
+      VITE_API_PROXY_TARGET: http://backend:8000
       # Hot reload silently does not work without this. The source below is a
       # bind mount, and Docker Desktop on Windows and macOS does not deliver
       # inotify events across one - so Vite's watcher never fires, it keeps
