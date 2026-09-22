@@ -1,10 +1,10 @@
 """Generate a Postman collection from the OpenAPI contract.
 
-Generated, never hand-written. There are 491 operations across 363 paths, so a
-hand-maintained collection would be wrong within a week and nobody would know
-which half. This reads the same ``openapi.json`` the frontend's TypeScript
-types are generated from, so the collection describes the server by
-construction; ``--check`` fails the build when it does not, exactly as
+Generated, never hand-written. The operation count is whatever ``openapi.json``
+currently describes, so a hand-maintained collection would be wrong within a
+week and nobody would know which half. This reads the same ``openapi.json`` the
+frontend's TypeScript types are generated from, so the collection describes
+the server by construction; ``--check`` fails the build when it does not, exactly as
 ``export_openapi.py --check`` does for the contract itself.
 
 What the collection gives you that the raw spec does not

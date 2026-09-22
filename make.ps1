@@ -98,6 +98,7 @@ function Show-Help {
         'typecheck'        = 'Type-check only'
         'contract'         = 'Regenerate the OpenAPI contract, the frontend types and the Postman collection'
         'contract-check'   = 'Fail if the contract, the generated types or the collection are stale'
+        'postman'          = 'Regenerate the Postman collection from the committed OpenAPI contract'
         'check'            = 'contract-check + lint + test + test-web (what CI runs)'
         'hooks'            = 'Install the git pre-commit and pre-push hooks'
         'hooks-run'        = 'Run every hook against the whole tree, as a push would'
@@ -210,8 +211,19 @@ switch ($Target) {
         Invoke-Step "& '$py' -m mypy src" $ApiDir
         Invoke-Step 'npm run typecheck' $WebDir
     }
-    'contract'       { $py = Get-VenvPython; Invoke-Step "& '$py' -m scripts.export_openapi" $ApiDir; Invoke-Step 'npm run contract:types' $WebDir }
-    'contract-check' { $py = Get-VenvPython; Invoke-Step "& '$py' -m scripts.export_openapi --check" $ApiDir; Invoke-Step 'npm run contract:check' $WebDir }
+    'contract' {
+        $py = Get-VenvPython
+        Invoke-Step "& '$py' -m scripts.export_openapi" $ApiDir
+        Invoke-Step 'npm run contract:types' $WebDir
+        Invoke-Step "& '$py' -m scripts.export_postman" $ApiDir
+    }
+    'contract-check' {
+        $py = Get-VenvPython
+        Invoke-Step "& '$py' -m scripts.export_openapi --check" $ApiDir
+        Invoke-Step 'npm run contract:check' $WebDir
+        Invoke-Step "& '$py' -m scripts.export_postman --check" $ApiDir
+    }
+    'postman' { $py = Get-VenvPython; Invoke-Step "& '$py' -m scripts.export_postman" $ApiDir }
     'check' { & $PSCommandPath contract-check; & $PSCommandPath lint; & $PSCommandPath test; & $PSCommandPath test-web }
 
     'shell-api' { Invoke-Docker ($DcDev + @('exec', 'backend', 'bash')) }

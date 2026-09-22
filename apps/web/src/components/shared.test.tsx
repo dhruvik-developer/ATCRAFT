@@ -1,7 +1,28 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { DateRangeFilter } from './shared'
+import { DateRangeFilter, StatusBadge } from './shared'
+
+describe('StatusBadge', () => {
+  it('colours a lifecycle status instead of falling through to the unmapped grey', () => {
+    const { rerender } = render(<StatusBadge status="INACTIVE" />)
+    const inactive = screen.getByText('Inactive')
+    expect(inactive.className).toContain('bg-muted')
+    expect(inactive.className).not.toContain('bg-secondary')
+
+    rerender(<StatusBadge status="PACKED" />)
+    expect(screen.getByText('Packed').className).toContain('text-success')
+
+    rerender(<StatusBadge status="UNDER_REVIEW" />)
+    expect(screen.getByText('Under Review').className).toContain('text-warning')
+
+    rerender(<StatusBadge status="BREAKDOWN" />)
+    expect(screen.getByText('Breakdown').className).toContain('text-destructive')
+
+    rerender(<StatusBadge status="NOT_A_REAL_STATUS" />)
+    expect(screen.getByText('Not A Real Status').className).toContain('bg-secondary')
+  })
+})
 
 describe('DateRangeFilter', () => {
   it('labels each input, names them from the id prefix and reports each edge on its own', () => {

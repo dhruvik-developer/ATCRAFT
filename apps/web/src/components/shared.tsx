@@ -120,6 +120,16 @@ const STATUS_VARIANTS: Record<
   PENDING_APPROVAL: 'warning',
   QUEUED: 'secondary',
   NOT_DISPATCHED: 'muted',
+  // A deactivated master, a retired machine and a deleted file are settled
+  // facts, not drafts. Left unmapped they wore the same grey as DRAFT.
+  INACTIVE: 'muted',
+  ARCHIVED: 'muted',
+  RETIRED: 'muted',
+  DELETED: 'muted',
+  ROTATED: 'muted',
+  READ: 'muted',
+  NOT_REQUIRED: 'muted',
+  NOT_MATCHED: 'muted',
 
   // in flight
   RUNNING: 'default',
@@ -134,15 +144,27 @@ const STATUS_VARIANTS: Record<
   ISSUED: 'default',
   ALLOCATED: 'default',
   READY_FOR_DISPATCH: 'default',
+  UNREAD: 'default',
+  COUNTED: 'default',
+  ORDERED: 'default',
+  JOB_WORK: 'default',
   PARTIALLY_RECEIVED: 'warning',
   PARTIALLY_DISPATCHED: 'warning',
   PARTIALLY_PAID: 'warning',
   PARTIALLY_ALLOCATED: 'warning',
   PARTIALLY_CONSUMED: 'warning',
+  PARTIALLY_ORDERED: 'warning',
   QC_PENDING: 'warning',
+  QC_HOLD: 'warning',
   HOLD: 'warning',
   REWORK: 'warning',
   DISPUTED: 'warning',
+  UNDER_REVIEW: 'warning',
+  QUARANTINED: 'warning',
+  MAINTENANCE: 'warning',
+  SUSPENDED: 'warning',
+  VARIANCE: 'warning',
+  OVERRIDDEN: 'warning',
   LATE: 'destructive',
 
   // settled, good
@@ -159,6 +181,16 @@ const STATUS_VARIANTS: Record<
   INVOICED: 'success',
   CONSUMED: 'secondary',
   ACTIVE: 'success',
+  AVAILABLE: 'success',
+  IN_STOCK: 'success',
+  RETURN: 'success',
+  RETURNED: 'success',
+  PACKED: 'success',
+  HANDED_OVER: 'success',
+  PASSED: 'success',
+  MATCHED: 'success',
+  SELECTED: 'success',
+  EXECUTED: 'success',
 
   // settled, closed
   CLOSED: 'secondary',
@@ -178,6 +210,10 @@ const STATUS_VARIANTS: Record<
   REJECTED: 'destructive',
   FAILED: 'destructive',
   SCRAP: 'destructive',
+  SCRAPPED: 'destructive',
+  DAMAGED: 'destructive',
+  BREAKDOWN: 'destructive',
+  REVOKED: 'destructive',
   BLOCKED: 'destructive',
 }
 

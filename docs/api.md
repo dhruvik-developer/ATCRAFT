@@ -16,13 +16,16 @@ permissions).
 All four are regenerated together:
 
 ```bash
-make contract          # writes all of them
-make contract-check    # fails if any is stale — CI and the pre-push hook run this
+make contract          # writes all of them (Windows: .\make.ps1 contract)
+make postman           # the collection only (Windows: .\make.ps1 postman)
+make contract-check    # fails if any is stale (Windows: .\make.ps1 contract-check)
 ```
+
+CI and the pre-push hook run the same three checks `contract-check` runs.
 
 ### Using the Postman collection
 
-Import `postman_collection.json` (Postman v2.1 format, 491 requests in 27
+Import `postman_collection.json` (Postman v2.1 format, 494 requests in 27
 folders, one per tag). Then:
 
 1. Set the `base_url` variable if it is not `http://127.0.0.1:8000/api/v1`.

@@ -39,6 +39,15 @@ const POPPER = 90_000
 
 const DISPATCH_ID = '01a00000-0000-7000-8000-0000000000d1'
 
+/** A promised date that is still ahead, whatever day the suite runs. */
+function promisedAhead(days: number): string {
+  const date = new Date()
+  date.setDate(date.getDate() + days)
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
 /** One row of `GET /dispatch` (`DispatchSummary`). */
 function dispatch(overrides: Partial<DispatchRow> = {}): DispatchRow {
   return {
@@ -106,10 +115,11 @@ async function openActions(
   status: DispatchStatus,
   permissions: string[],
   routes: Record<string, unknown> = {},
+  row: Partial<DispatchRow> = {},
 ) {
   const rendered = renderScreen(<DispatchPage />, {
     permissions,
-    routes: { 'GET /dispatch': page([dispatch({ status })]), ...routes },
+    routes: { 'GET /dispatch': page([dispatch({ status, ...row })]), ...routes },
   })
   await screen.findByText('DSP-0001')
   await rendered.user.click(screen.getByRole('button', { name: 'Actions for DSP-0001' }))
@@ -333,6 +343,10 @@ describe('the lifecycle the row offers', () => {
         'DISPATCHED',
         [P.DISPATCH_VIEW, P.DISPATCH_UPDATE, P.DISPATCH_CONFIRM_DELIVERY],
         { [`POST /dispatch/${DISPATCH_ID}/deliver`]: ok(null) },
+        // The fixture's September date is now in the past, and a late arrival
+        // refuses to post until a delay reason is given. That gate has its own
+        // test; this one is the on-time payload.
+        { expected_delivery_date: promisedAhead(14) },
       )
 
       const items = menuItems()

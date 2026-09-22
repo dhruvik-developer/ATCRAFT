@@ -14,13 +14,18 @@
 import { chromium } from '@playwright/test'
 
 import { ADMIN_EMAIL, ADMIN_PASSWORD, BASE_URL } from '../lib/env.mjs'
+import { readyAdminToken } from '../lib/session.mjs'
 
-/** Screens worth checking: a list, a dashboard, a form-heavy one, a chart one. */
+/** Screens worth checking: a list, a dashboard, a form-heavy one, a chart one.
+
+These are application routes (`route-loaders.ts`), not API paths. The inventory
+list lives at `/inventory`; `/inventory/balances` is the API that feeds it.
+ */
 const SCREENS = [
   ['/', 'dashboard'],
-  ['/inventory/balances', 'inventory list'],
-  ['/products/items', 'item master'],
-  ['/finance/receivables', 'finance + charts'],
+  ['/inventory', 'inventory list'],
+  ['/items', 'item master'],
+  ['/finance', 'finance'],
   ['/notifications', 'notifications'],
 ]
 
@@ -65,6 +70,10 @@ if ((await themeGroup.count()) === 0) {
 }
 
 // --- sign in -----------------------------------------------------------------
+// A fresh seed forces a password change before any screen will open. Do that
+// through the API first, or the form login below parks on /change-password and
+// the theme checks time out on a page that has no shell.
+await readyAdminToken()
 await page.getByLabel('Email').fill(ADMIN_EMAIL)
 await page.locator('input[type="password"]').first().fill(ADMIN_PASSWORD)
 await page.getByRole('button', { name: /sign in/i }).click()

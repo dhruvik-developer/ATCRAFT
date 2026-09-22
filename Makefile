@@ -151,6 +151,9 @@ contract-check: ## Fail if the contract, the generated types or the collection a
 	cd $(WEB_DIR) && npm run contract:check
 	cd $(API_DIR) && python -m scripts.export_postman --check
 
+postman: ## Regenerate the Postman collection from the committed OpenAPI contract
+	cd $(API_DIR) && python -m scripts.export_postman
+
 check: contract-check lint test test-web ## Everything CI runs
 
 shell-api: ## Shell inside the backend container

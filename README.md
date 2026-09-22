@@ -192,6 +192,7 @@ not duplicate them.
 | `test-web` / `test-e2e` / `test-load` | Frontend, Playwright, Locust |
 | `lint` / `format` / `typecheck` | Quality gates |
 | `contract` / `contract-check` | Regenerate the OpenAPI contract, the frontend types and the Postman collection / fail if any is stale |
+| `postman` | Regenerate only the Postman collection from the committed contract |
 | `check` | `contract-check` + `lint` + `test` + `test-web` — what CI runs |
 | `hooks` / `hooks-run` | Install the git hooks / run every hook on the whole tree |
 | `lock` | Regenerate the hash-locked Python requirements |
