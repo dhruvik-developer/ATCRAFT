@@ -65,6 +65,10 @@ class Permission(StrEnum):
     UOM_MANAGE = "uom.manage"
     ITEM_ATTRIBUTE_VIEW = "item_attribute.view"
     ITEM_ATTRIBUTE_MANAGE = "item_attribute.manage"
+    BRAND_VIEW = "brand.view"
+    BRAND_MANAGE = "brand.manage"
+    MANUFACTURER_VIEW = "manufacturer.view"
+    MANUFACTURER_MANAGE = "manufacturer.manage"
     PRICE_VIEW = "price.view"
     PRICE_MANAGE = "price.manage"
 
@@ -211,7 +215,15 @@ PERMISSION_GROUPS: dict[str, tuple[str, ...]] = {
     "Organisation": ("company", "branch", "plant", "department", "settings"),
     "Identity & Access": ("user", "role", "permission"),
     "Business Partners": ("customer", "dealer", "vendor", "transporter"),
-    "Item Master": ("item", "category", "uom", "item_attribute", "price"),
+    "Item Master": (
+        "item",
+        "category",
+        "uom",
+        "item_attribute",
+        "brand",
+        "manufacturer",
+        "price",
+    ),
     "Warehouses": ("warehouse", "location"),
     "Inventory": ("inventory", "reservation", "allocation"),
     "Engineering": ("bom", "routing", "work_center", "machine"),
@@ -296,6 +308,10 @@ _PURCHASE = frozenset(
         Permission.VENDOR_RATE,
         Permission.ITEM_VIEW,
         Permission.ITEM_COST_VIEW,
+        # A buyer sources by maker and brand: "that maker's cylinder, from
+        # whichever distributor has it" is a normal purchasing question.
+        Permission.BRAND_VIEW,
+        Permission.MANUFACTURER_VIEW,
         Permission.PURCHASE_REQUISITION_VIEW,
         Permission.PURCHASE_REQUISITION_CREATE,
         Permission.RFQ_VIEW,
@@ -408,6 +424,8 @@ _SALES = frozenset(
         Permission.SALES_ORDER_UPDATE,
         Permission.SALES_INVOICE_VIEW,
         Permission.ITEM_VIEW,
+        # Dealers order by brand; a salesperson has to be able to read it.
+        Permission.BRAND_VIEW,
         Permission.PRICE_VIEW,
         Permission.INVENTORY_VIEW,
         Permission.RESERVATION_VIEW,
@@ -564,6 +582,7 @@ ROLE_PRESETS: dict[str, dict[str, object]] = {
                 Permission.PURCHASE_REQUISITION_VIEW,
                 Permission.PURCHASE_REQUISITION_CREATE,
                 Permission.ITEM_VIEW,
+                Permission.BRAND_VIEW,
                 Permission.WAREHOUSE_VIEW,
                 Permission.REPORT_VIEW,
                 Permission.DASHBOARD_VIEW,
@@ -586,6 +605,10 @@ ROLE_PRESETS: dict[str, dict[str, object]] = {
                 Permission.UOM_VIEW,
                 Permission.ITEM_ATTRIBUTE_VIEW,
                 Permission.ITEM_ATTRIBUTE_MANAGE,
+                Permission.BRAND_VIEW,
+                Permission.BRAND_MANAGE,
+                Permission.MANUFACTURER_VIEW,
+                Permission.MANUFACTURER_MANAGE,
                 Permission.BOM_VIEW,
                 Permission.BOM_CREATE,
                 Permission.BOM_UPDATE,

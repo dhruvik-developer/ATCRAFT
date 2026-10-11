@@ -1,12 +1,14 @@
 /**
  * Item master maintenance: categories, units of measure, the conversions
- * between units, and the dated price list.
+ * between units, the finish/size/colour vocabulary, brands, manufacturers, and
+ * the dated price list.
  *
- * Four small masters share one screen because they are maintained together and
- * separately from anything transactional - and because three of them are
+ * Small masters share one screen because they are maintained together and
+ * separately from anything transactional - and because most of them are
  * meaningless alone. A category is only useful once items hang off it, a unit
  * only once something is measured in it, a conversion only once two units
- * exist.
+ * exist. The brand and manufacturer tabs live in their own modules
+ * (`brands-tab.tsx`, `manufacturers-tab.tsx`) and load on first open.
  *
  * The tab lives in the URL so a colleague can be sent straight to the unit
  * conversions rather than "open Masters, then click the third tab". Switching
@@ -17,23 +19,27 @@
  *
  * Reads and writes are gated separately, because the API gates them separately:
  * `category.view` / `category.manage`, `uom.view` / `uom.manage`,
- * `price.view` / `price.manage`. A tab whose *read* right is missing is not
- * rendered at all; a tab whose write right is missing is fully readable with no
- * create, edit or delete affordance. All of it is presentation - the API
- * authorises every request regardless (master rules 38).
+ * `item_attribute.view` / `.manage`, `brand.view` / `.manage`,
+ * `manufacturer.view` / `.manage`, `price.view` / `price.manage`. A tab whose
+ * *read* right is missing is not rendered at all; a tab whose write right is
+ * missing is fully readable with no create, edit or delete affordance. All of
+ * it is presentation - the API authorises every request regardless (master
+ * rules 38).
  *
- * None of these four list endpoints publishes `sort_by`, so every column here
- * sets `enableSorting: false`. Paging, searching and filtering are all
- * server-side; nothing on this screen fetches a table to filter it in the
- * browser.
+ * None of the list endpoints behind the tabs in this file publishes `sort_by`,
+ * so every column here sets `enableSorting: false`. Paging, searching and
+ * filtering are all server-side; nothing on this screen fetches a table to
+ * filter it in the browser.
  */
 
 import type { ColumnDef } from '@tanstack/react-table'
 import { useQuery } from '@tanstack/react-query'
 import {
   ArrowLeftRight,
+  Award,
   Calculator,
   CornerDownRight,
+  Factory,
   FolderTree,
   MoreHorizontal,
   Palette,
@@ -46,11 +52,11 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
-import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import { Suspense, lazy, useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { EmptyState, PageHeader } from '@/components/shared'
+import { EmptyState, PageHeader, PanelLoader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -96,6 +102,7 @@ import {
   type PriceRow,
   type UomRow,
 } from './masters-model'
+import { ActiveBadge, StatusFilter, TabIntro } from './masters-shared'
 import { PriceDeleteDialog, PriceFormDialog } from './price-dialogs'
 import {
   ConversionDeleteDialog,
@@ -103,87 +110,18 @@ import {
   UomConversionCheckDialog,
   UomFormDialog,
 } from './uom-dialogs'
+import { useFilterWriter } from './use-filter-writer'
 
-type TabKey = 'categories' | 'units' | 'conversions' | 'attributes' | 'prices'
+type TabKey =
+  'categories' | 'units' | 'conversions' | 'attributes' | 'brands' | 'manufacturers' | 'prices'
 
-/**
- * Change several filters in ONE URL write.
- *
- * `setSearchParams` is not a React state setter: two calls in the same handler
- * both start from the URL captured at render, and only the last navigation
- * survives. That cost the finance screen its Clear button, and this screen has
- * several controls that must move two keys at once - drilling into a branch
- * sets the parent and drops the "top level only" scope together.
- */
-function useFilterWriter() {
-  const [, setSearchParams] = useSearchParams()
-
-  return useCallback(
-    (next: Record<string, string | undefined>) => {
-      setSearchParams(
-        (current) => {
-          const updated = new URLSearchParams(current)
-          for (const [key, value] of Object.entries(next)) {
-            if (value === undefined || value === '') updated.delete(key)
-            else updated.set(key, value)
-          }
-          // The page number belonged to the previous narrowing, not this one.
-          updated.delete('page')
-          return updated
-        },
-        { replace: true },
-      )
-    },
-    [setSearchParams],
-  )
-}
-
-/** Active / inactive, the same three-way control on three of the four tabs. */
-function StatusFilter({
-  value,
-  onChange,
-  label,
-}: {
-  value: string
-  onChange: (next: string | undefined) => void
-  label: string
-}) {
-  return (
-    <Select
-      value={value || SELECT_ALL}
-      onValueChange={(next) => onChange(next === SELECT_ALL ? undefined : next)}
-    >
-      <SelectTrigger className="w-full sm:w-[150px]" aria-label={label}>
-        <SelectValue placeholder="Any status" />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={SELECT_ALL}>Any status</SelectItem>
-        <SelectItem value="active">Active</SelectItem>
-        <SelectItem value="inactive">Inactive</SelectItem>
-      </SelectContent>
-    </Select>
-  )
-}
-
-function ActiveBadge({ isActive }: { isActive: boolean }) {
-  return isActive ? (
-    <Badge variant="secondary">Active</Badge>
-  ) : (
-    <Badge variant="muted">Inactive</Badge>
-  )
-}
-
-/** The sentence that introduces a tab, above its table. */
-function TabIntro({ children, actions }: { children: ReactNode; actions?: ReactNode }) {
-  return (
-    <div className="mb-4 mt-4 flex flex-wrap items-start justify-between gap-3">
-      <p className="max-w-3xl text-sm text-muted-foreground">{children}</p>
-      {actions && (
-        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{actions}</div>
-      )}
-    </div>
-  )
-}
+// The brand and manufacturer tabs load on first open. Each carries its own list,
+// form and retire dialog, and folding all of it into this chunk would put the
+// screen over its bundle budget for two tabs most visits never open.
+const BrandsTab = lazy(() => import('./brands-tab').then((m) => ({ default: m.BrandsTab })))
+const ManufacturersTab = lazy(() =>
+  import('./manufacturers-tab').then((m) => ({ default: m.ManufacturersTab })),
+)
 
 // ------------------------------------------------------------ categories ----
 
@@ -1318,6 +1256,10 @@ export default function MastersPage() {
     ...(can(P.ITEM_ATTRIBUTE_VIEW)
       ? [{ key: 'attributes' as const, label: 'Attributes', icon: Palette }]
       : []),
+    ...(can(P.BRAND_VIEW) ? [{ key: 'brands' as const, label: 'Brands', icon: Award }] : []),
+    ...(can(P.MANUFACTURER_VIEW)
+      ? [{ key: 'manufacturers' as const, label: 'Manufacturers', icon: Factory }]
+      : []),
     ...(can(P.PRICE_VIEW) ? [{ key: 'prices' as const, label: 'Prices', icon: Tags }] : []),
   ]
 
@@ -1339,14 +1281,14 @@ export default function MastersPage() {
     <div>
       <PageHeader
         title="Item master data"
-        description="The vocabulary every other screen depends on: how items are classified, what they are measured in, how those measures relate, and what they sell for."
+        description="The vocabulary every other screen depends on: how items are classified, what they are measured in, how those measures relate, who makes them and under which brand they sell, and what they sell for."
       />
 
       {active === undefined ? (
         <EmptyState
           icon={ShieldAlert}
           title="Nothing here for this account"
-          description="Maintaining item master data needs one of the category.view, uom.view or price.view rights. Ask an administrator for the one you need."
+          description="Maintaining item master data needs one of the category.view, uom.view, item_attribute.view, brand.view, manufacturer.view or price.view rights. Ask an administrator for the one you need."
         />
       ) : (
         <Tabs value={active} onValueChange={selectTab}>
@@ -1375,6 +1317,18 @@ export default function MastersPage() {
 
           <TabsContent value="attributes">
             <AttributesTab />
+          </TabsContent>
+
+          <TabsContent value="brands">
+            <Suspense fallback={<PanelLoader />}>
+              <BrandsTab />
+            </Suspense>
+          </TabsContent>
+
+          <TabsContent value="manufacturers">
+            <Suspense fallback={<PanelLoader />}>
+              <ManufacturersTab />
+            </Suspense>
           </TabsContent>
 
           <TabsContent value="prices">

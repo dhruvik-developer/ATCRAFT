@@ -43,15 +43,22 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.ids import new_id
-from src.core.pagination import CursorParams, PageParams
+from src.core.messages import NO_FIELDS_TO_UPDATE
+from src.core.pagination import CursorParams, PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import to_factor, to_quantity, to_unit_price
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
+from src.modules.organization.service import (
+    MasterLifecycleState,
+    master_lifecycle,
+    referenced_in_use,
+)
 from src.modules.products.models import (
     MAX_CATEGORY_DEPTH,
+    Brand,
     Item,
     ItemAttribute,
     ItemAttributeType,
@@ -61,22 +68,30 @@ from src.modules.products.models import (
     ItemPrice,
     ItemVariant,
     ItemVendorLink,
+    Manufacturer,
     PriceType,
     ProductionType,
     UnitOfMeasure,
     UomConversion,
 )
 from src.modules.products.repository import (
+    BRAND_ENTITY,
+    MANUFACTURER_ENTITY,
+    BrandRepository,
     ItemAttributeRepository,
     ItemCategoryRepository,
     ItemPriceRepository,
     ItemRepository,
     ItemVariantRepository,
     ItemVendorLinkRepository,
+    ManufacturerRepository,
     UnitOfMeasureRepository,
     UomConversionRepository,
 )
 from src.modules.products.schemas import (
+    BrandCreate,
+    BrandOut,
+    BrandUpdate,
     CategoryCreate,
     CategoryOut,
     CategoryUpdate,
@@ -92,6 +107,9 @@ from src.modules.products.schemas import (
     ItemSummary,
     ItemSummaryWithCost,
     ItemUpdate,
+    ManufacturerCreate,
+    ManufacturerOut,
+    ManufacturerUpdate,
     PriceCreate,
     PriceOut,
     PriceUpdate,
@@ -119,6 +137,18 @@ AUDIT_ITEM_ATTRIBUTE = "item_attribute"
 #: What an audit row records for an attribute. `attribute` is absent because
 #: it cannot be changed - see ItemAttributeUpdate.
 ITEM_ATTRIBUTE_AUDITED_FIELDS = ["code", "name", "sort_order", "is_active"]
+AUDIT_BRAND = "brand"
+AUDIT_MANUFACTURER = "manufacturer"
+BRAND_AUDITED_FIELDS = ["code", "name", "description", "manufacturer_id", "sort_order", "is_active"]
+MANUFACTURER_AUDITED_FIELDS = [
+    "code",
+    "name",
+    "legal_name",
+    "country",
+    "website",
+    "notes",
+    "is_active",
+]
 AUDIT_UOM_CONVERSION = "uom_conversion"
 AUDIT_VARIANT = "item_variant"
 AUDIT_PRICE = "item_price"
@@ -141,6 +171,9 @@ ITEM_AUDITED_FIELDS = [
     "finish_id",
     "size_id",
     "colour_id",
+    "brand_id",
+    "manufacturer_id",
+    "manufacturer_part_number",
     "can_purchase",
     "can_manufacture",
     "can_sell",
@@ -240,6 +273,31 @@ def lifecycle_state(item: Item) -> ItemLifecycleState:
     if item.deleted_at is not None:
         return ItemLifecycleState.ARCHIVED
     return ItemLifecycleState.ACTIVE if item.is_active else ItemLifecycleState.INACTIVE
+
+
+# -----------------------------------------------------------------------------
+# Brand and manufacturer lifecycles
+# -----------------------------------------------------------------------------
+#
+# The organisation masters' machine, not the item-attribute shortcut of
+# assigning `is_active` directly: ACTIVE <-> INACTIVE, and ARCHIVED (retired,
+# soft-deleted) terminal, with every move through `assert_transition` and onto
+# the audit trail as a status change. Retirement is refused while anything live
+# still names the record (docs/assumptions.md §A1-1).
+
+BRAND_LIFECYCLE: StateMachine[MasterLifecycleState] = master_lifecycle(
+    BRAND_ENTITY, Permission.BRAND_MANAGE
+)
+MANUFACTURER_LIFECYCLE: StateMachine[MasterLifecycleState] = master_lifecycle(
+    MANUFACTURER_ENTITY, Permission.MANUFACTURER_MANAGE
+)
+
+
+def master_state(record: Brand | Manufacturer) -> MasterLifecycleState:
+    """Project a brand's or manufacturer's two flags onto the lifecycle."""
+    if record.deleted_at is not None:
+        return MasterLifecycleState.ARCHIVED
+    return MasterLifecycleState.ACTIVE if record.is_active else MasterLifecycleState.INACTIVE
 
 
 # -----------------------------------------------------------------------------
@@ -1130,6 +1188,53 @@ async def _require_attributes(
     await _require_attribute(session, tenant, colour_id, ItemAttributeType.COLOUR)
 
 
+async def _require_brand(
+    session: AsyncSession, tenant: TenantContext, brand_id: uuid.UUID | None
+) -> None:
+    """Refuse a brand that is not this tenant's, or that has been retired.
+
+    The same two failures ``_require_attribute`` closes, for the same reason: a
+    foreign key to ``brands.id`` is satisfied by any company's brand, so the row
+    is read through the tenant-scoped repository - another company's id is
+    simply not found, and is reported exactly as a missing one is. An inactive
+    or archived brand is refused on the way in; an item that already carries a
+    brand keeps it (the brand cannot be retired while it does).
+
+    Read ``FOR SHARE``, so a deactivation or retirement of the same brand that
+    is still in flight is waited for rather than read around - see
+    ``BrandRepository.get_for_assignment``.
+    """
+    if brand_id is None:
+        return
+    brand = await BrandRepository(session, tenant).get_for_assignment(brand_id)
+    if brand is None:
+        raise NotFoundError(BRAND_ENTITY, brand_id)
+    if not brand.is_active:
+        raise ValidationError(
+            f"Brand '{brand.name}' is inactive and cannot be assigned.",
+            details={"brand_id": str(brand_id)},
+        )
+
+
+async def _require_manufacturer(
+    session: AsyncSession, tenant: TenantContext, manufacturer_id: uuid.UUID | None
+) -> None:
+    """Refuse a manufacturer that is not this tenant's, or that has been retired.
+
+    Read ``FOR SHARE`` for the reason ``_require_brand`` gives.
+    """
+    if manufacturer_id is None:
+        return
+    manufacturer = await ManufacturerRepository(session, tenant).get_for_assignment(manufacturer_id)
+    if manufacturer is None:
+        raise NotFoundError(MANUFACTURER_ENTITY, manufacturer_id)
+    if not manufacturer.is_active:
+        raise ValidationError(
+            f"Manufacturer '{manufacturer.name}' is inactive and cannot be assigned.",
+            details={"manufacturer_id": str(manufacturer_id)},
+        )
+
+
 async def create_item(session: AsyncSession, tenant: TenantContext, payload: ItemCreate) -> Item:
     repo = ItemRepository(session, tenant)
     code = normalise_code(payload.code)
@@ -1144,6 +1249,21 @@ async def create_item(session: AsyncSession, tenant: TenantContext, payload: Ite
             category = await ItemCategoryRepository(session, tenant).get(payload.category_id)
             if category is None:
                 raise NotFoundError("Item category", payload.category_id)
+
+        # Every reference below is a foreign key to a globally unique id, and a
+        # foreign key is not a tenant check: another company's finish, brand or
+        # maker satisfies it, and so does a colour's id in `finish_id`. Each is
+        # read through a tenant-scoped repository before the row is written -
+        # update_item has always done this for the attributes; creation did not.
+        await _require_attributes(
+            session,
+            tenant,
+            finish_id=payload.finish_id,
+            size_id=payload.size_id,
+            colour_id=payload.colour_id,
+        )
+        await _require_brand(session, tenant, payload.brand_id)
+        await _require_manufacturer(session, tenant, payload.manufacturer_id)
 
         await _validate_item_units(
             session,
@@ -1184,6 +1304,9 @@ async def create_item(session: AsyncSession, tenant: TenantContext, payload: Ite
             finish_id=payload.finish_id,
             size_id=payload.size_id,
             colour_id=payload.colour_id,
+            brand_id=payload.brand_id,
+            manufacturer_id=payload.manufacturer_id,
+            manufacturer_part_number=payload.manufacturer_part_number,
             production_type=payload.production_type,
             lead_time_days=payload.lead_time_days,
             reorder_level=payload.reorder_level,
@@ -1323,6 +1446,20 @@ async def update_item(
         ):
             if field in scalar_updates:
                 await _require_attribute(session, tenant, scalar_updates[field], kind)
+
+        # The brand and the maker, for the same reason. ASSUMPTION: checked only
+        # when the value actually changes - re-saving an item whose brand is
+        # unchanged re-asserts a reference that was validated when it was set,
+        # and the item form posts every field on every save. An item keeps the
+        # brand it has; only a new assignment must be live and active
+        # (docs/assumptions.md §A1-1).
+        if "brand_id" in scalar_updates and scalar_updates["brand_id"] != item.brand_id:
+            await _require_brand(session, tenant, scalar_updates["brand_id"])
+        if (
+            "manufacturer_id" in scalar_updates
+            and scalar_updates["manufacturer_id"] != item.manufacturer_id
+        ):
+            await _require_manufacturer(session, tenant, scalar_updates["manufacturer_id"])
 
         base_uom_id = scalar_updates.get("base_uom_id", item.base_uom_id)
         purchase_uom_id = scalar_updates.get("purchase_uom_id", item.purchase_uom_id)
@@ -1591,6 +1728,381 @@ async def list_item_attributes(
         params, attribute=attribute, search=search, is_active=is_active
     )
     return [ItemAttributeOut.model_validate(row) for row in rows], pagination
+
+
+# -----------------------------------------------------------------------------
+# Manufacturers and brands - classification the client maintains
+# -----------------------------------------------------------------------------
+#
+# Nothing anywhere may branch on either (docs/database.md section 3; ASSUMPTION:
+# docs/assumptions.md §A1-2). What the service does enforce is the shape of the
+# lists themselves: codes are unique per company for ever, every activation and
+# retirement goes through the lifecycle machine, and a value that something live
+# still names cannot be deactivated or retired - otherwise an item would show a
+# brand its own edit form could no longer offer, and saving that form would
+# silently drop it.
+#
+# ASSUMPTION: "live" means not soft-deleted, so an INACTIVE item, link or brand
+# still holds the value it names; deactivating and retiring are refused on the
+# same terms; and a retired code is never reissued. docs/assumptions.md §A1-1.
+
+
+def _duplicate_code(entity: str, code: str) -> DuplicateError:
+    """The refusal for a reused code, placed on the form's ``code`` field."""
+    message = (
+        f"{entity} code '{code}' is already used in this company. "
+        "Codes of retired records are not reused."
+    )
+    return DuplicateError(message, details={"code": code, "fields": {"code": [message]}})
+
+
+def _target_state(
+    machine: StateMachine[MasterLifecycleState],
+    record: Brand | Manufacturer,
+    changes: dict[str, Any],
+) -> tuple[MasterLifecycleState, MasterLifecycleState | None]:
+    """The current state, and the state an ``is_active`` change moves to (or None).
+
+    A PATCH that restates the current flag is not a transition and moves
+    nothing; a real change is asserted against the machine before anything is
+    written, so a refused move leaves the row untouched.
+    """
+    current = master_state(record)
+    if "is_active" not in changes or changes["is_active"] == record.is_active:
+        return current, None
+    target = MasterLifecycleState.ACTIVE if changes["is_active"] else MasterLifecycleState.INACTIVE
+    machine.assert_transition(current, target)
+    return current, target
+
+
+async def _record_lifecycle_move(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    entity_type: str,
+    record: Brand | Manufacturer,
+    current: MasterLifecycleState,
+    target: MasterLifecycleState,
+    reason: str,
+    action: AuditAction = AuditAction.STATUS_CHANGE,
+) -> None:
+    await record_status_change(
+        session,
+        company_id=tenant.company_id,
+        entity_type=entity_type,
+        entity_id=record.id,
+        entity_code=record.code,
+        from_status=str(current),
+        to_status=str(target),
+        user_id=tenant.user_id,
+        action=action,
+        reason=reason,
+    )
+
+
+async def _locked_manufacturer(
+    repo: ManufacturerRepository, manufacturer_id: uuid.UUID
+) -> Manufacturer:
+    """The live maker, row-locked for a change, or "not found".
+
+    Locked before anything is decided, so an assignment of it still in flight is
+    waited for and the "still in use?" probe below sees its committed rows -
+    see ``ManufacturerRepository.lock_for_update``.
+    """
+    manufacturer = await repo.lock_for_update(manufacturer_id)
+    if manufacturer is None:
+        raise NotFoundError(MANUFACTURER_ENTITY, manufacturer_id)
+    return manufacturer
+
+
+async def _locked_brand(repo: BrandRepository, brand_id: uuid.UUID) -> Brand:
+    """The live brand, row-locked for a change, or "not found" - as above."""
+    brand = await repo.lock_for_update(brand_id)
+    if brand is None:
+        raise NotFoundError(BRAND_ENTITY, brand_id)
+    return brand
+
+
+async def _refuse_if_manufacturer_in_use(
+    repo: ManufacturerRepository, manufacturer: Manufacturer, *, doing: str
+) -> None:
+    usage = await repo.usage(manufacturer.id)
+    if usage.in_use:
+        holders = usage.holders()
+        listed = holders[0] if len(holders) == 1 else f"{', '.join(holders[:-1])} and {holders[-1]}"
+        raise referenced_in_use(
+            f"Manufacturer {manufacturer.code} is still named by live {listed}, so it cannot "
+            f"be {doing}. Change those first.",
+            manufacturer_code=manufacturer.code,
+            referenced_by=holders,
+        )
+
+
+async def _refuse_if_brand_in_use(repo: BrandRepository, brand: Brand, *, doing: str) -> None:
+    if await repo.is_used(brand.id):
+        raise referenced_in_use(
+            f"Brand {brand.code} is still carried by live items, so it cannot be {doing}. "
+            "Move those items to another brand first.",
+            brand_code=brand.code,
+            referenced_by=["items"],
+        )
+
+
+async def create_manufacturer(
+    session: AsyncSession, tenant: TenantContext, payload: ManufacturerCreate
+) -> ManufacturerOut:
+    repo = ManufacturerRepository(session, tenant)
+
+    async with transaction(session):
+        if await repo.code_taken(payload.code):
+            raise _duplicate_code(MANUFACTURER_ENTITY, payload.code)
+
+        manufacturer = Manufacturer(**payload.model_dump())
+        repo.add(manufacturer)
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.CREATE,
+            entity_type=AUDIT_MANUFACTURER,
+            entity_id=manufacturer.id,
+            entity_code=manufacturer.code,
+            summary=f"Created manufacturer {manufacturer.code} ({manufacturer.name})",
+            user_id=tenant.user_id,
+            new_values=snapshot(manufacturer, MANUFACTURER_AUDITED_FIELDS),
+        )
+
+    return ManufacturerOut.model_validate(manufacturer)
+
+
+async def update_manufacturer(
+    session: AsyncSession,
+    tenant: TenantContext,
+    manufacturer_id: uuid.UUID,
+    payload: ManufacturerUpdate,
+) -> ManufacturerOut:
+    changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
+
+    repo = ManufacturerRepository(session, tenant)
+
+    async with transaction(session):
+        manufacturer = await _locked_manufacturer(repo, manufacturer_id)
+        before = snapshot(manufacturer, MANUFACTURER_AUDITED_FIELDS)
+        current, target = _target_state(MANUFACTURER_LIFECYCLE, manufacturer, changes)
+        if target is MasterLifecycleState.INACTIVE:
+            await _refuse_if_manufacturer_in_use(repo, manufacturer, doing="deactivated")
+
+        for field, value in changes.items():
+            setattr(manufacturer, field, value)
+        repo.touch(manufacturer)
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.UPDATE,
+            entity_type=AUDIT_MANUFACTURER,
+            entity_id=manufacturer.id,
+            entity_code=manufacturer.code,
+            summary=f"Updated manufacturer {manufacturer.code}",
+            user_id=tenant.user_id,
+            old_values=before,
+            new_values=snapshot(manufacturer, MANUFACTURER_AUDITED_FIELDS),
+        )
+        if target is not None:
+            await _record_lifecycle_move(
+                session,
+                tenant,
+                entity_type=AUDIT_MANUFACTURER,
+                record=manufacturer,
+                current=current,
+                target=target,
+                reason="Activation flag changed through manufacturer update",
+            )
+
+    return ManufacturerOut.model_validate(manufacturer)
+
+
+async def delete_manufacturer(
+    session: AsyncSession, tenant: TenantContext, manufacturer_id: uuid.UUID, *, reason: str
+) -> None:
+    """Retire a manufacturer: archive it (soft delete), refused while anything names it."""
+    repo = ManufacturerRepository(session, tenant)
+
+    async with transaction(session):
+        manufacturer = await _locked_manufacturer(repo, manufacturer_id)
+        current = master_state(manufacturer)
+        MANUFACTURER_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
+        await _refuse_if_manufacturer_in_use(repo, manufacturer, doing="retired")
+
+        manufacturer.is_active = False
+        await repo.soft_delete(manufacturer)
+        await _record_lifecycle_move(
+            session,
+            tenant,
+            entity_type=AUDIT_MANUFACTURER,
+            record=manufacturer,
+            current=current,
+            target=MasterLifecycleState.ARCHIVED,
+            reason=reason,
+            action=AuditAction.DELETE,
+        )
+
+
+async def get_manufacturer(
+    session: AsyncSession, tenant: TenantContext, manufacturer_id: uuid.UUID
+) -> ManufacturerOut:
+    manufacturer = await ManufacturerRepository(session, tenant).get_or_404(manufacturer_id)
+    return ManufacturerOut.model_validate(manufacturer)
+
+
+async def list_manufacturers(
+    session: AsyncSession,
+    tenant: TenantContext,
+    params: PageParams,
+    *,
+    search: str | None = None,
+    is_active: bool | None = None,
+    sort: SortParams | None = None,
+) -> tuple[list[ManufacturerOut], OffsetPagination]:
+    rows, pagination = await ManufacturerRepository(session, tenant).list_page_search(
+        params, search=search, is_active=is_active, sort=sort
+    )
+    return [ManufacturerOut.model_validate(row) for row in rows], pagination
+
+
+async def create_brand(
+    session: AsyncSession, tenant: TenantContext, payload: BrandCreate
+) -> BrandOut:
+    repo = BrandRepository(session, tenant)
+
+    async with transaction(session):
+        if await repo.code_taken(payload.code):
+            raise _duplicate_code(BRAND_ENTITY, payload.code)
+        await _require_manufacturer(session, tenant, payload.manufacturer_id)
+
+        brand = Brand(**payload.model_dump())
+        repo.add(brand)
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.CREATE,
+            entity_type=AUDIT_BRAND,
+            entity_id=brand.id,
+            entity_code=brand.code,
+            summary=f"Created brand {brand.code} ({brand.name})",
+            user_id=tenant.user_id,
+            new_values=snapshot(brand, BRAND_AUDITED_FIELDS),
+        )
+
+    return BrandOut.model_validate(brand)
+
+
+async def update_brand(
+    session: AsyncSession, tenant: TenantContext, brand_id: uuid.UUID, payload: BrandUpdate
+) -> BrandOut:
+    changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
+
+    repo = BrandRepository(session, tenant)
+
+    async with transaction(session):
+        brand = await _locked_brand(repo, brand_id)
+        before = snapshot(brand, BRAND_AUDITED_FIELDS)
+        current, target = _target_state(BRAND_LIFECYCLE, brand, changes)
+        if target is MasterLifecycleState.INACTIVE:
+            await _refuse_if_brand_in_use(repo, brand, doing="deactivated")
+        # A new owner must be a live maker of this company; clearing the owner
+        # (an explicit null) needs no check, and an unchanged one was checked
+        # when it was set.
+        if "manufacturer_id" in changes and changes["manufacturer_id"] != brand.manufacturer_id:
+            await _require_manufacturer(session, tenant, changes["manufacturer_id"])
+
+        for field, value in changes.items():
+            setattr(brand, field, value)
+        repo.touch(brand)
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.UPDATE,
+            entity_type=AUDIT_BRAND,
+            entity_id=brand.id,
+            entity_code=brand.code,
+            summary=f"Updated brand {brand.code}",
+            user_id=tenant.user_id,
+            old_values=before,
+            new_values=snapshot(brand, BRAND_AUDITED_FIELDS),
+        )
+        if target is not None:
+            await _record_lifecycle_move(
+                session,
+                tenant,
+                entity_type=AUDIT_BRAND,
+                record=brand,
+                current=current,
+                target=target,
+                reason="Activation flag changed through brand update",
+            )
+
+    return BrandOut.model_validate(brand)
+
+
+async def delete_brand(
+    session: AsyncSession, tenant: TenantContext, brand_id: uuid.UUID, *, reason: str
+) -> None:
+    """Retire a brand: archive it (soft delete), refused while live items carry it."""
+    repo = BrandRepository(session, tenant)
+
+    async with transaction(session):
+        brand = await _locked_brand(repo, brand_id)
+        current = master_state(brand)
+        BRAND_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
+        await _refuse_if_brand_in_use(repo, brand, doing="retired")
+
+        brand.is_active = False
+        await repo.soft_delete(brand)
+        await _record_lifecycle_move(
+            session,
+            tenant,
+            entity_type=AUDIT_BRAND,
+            record=brand,
+            current=current,
+            target=MasterLifecycleState.ARCHIVED,
+            reason=reason,
+            action=AuditAction.DELETE,
+        )
+
+
+async def get_brand(session: AsyncSession, tenant: TenantContext, brand_id: uuid.UUID) -> BrandOut:
+    return BrandOut.model_validate(await BrandRepository(session, tenant).get_or_404(brand_id))
+
+
+async def list_brands(
+    session: AsyncSession,
+    tenant: TenantContext,
+    params: PageParams,
+    *,
+    search: str | None = None,
+    is_active: bool | None = None,
+    manufacturer_id: uuid.UUID | None = None,
+    sort: SortParams | None = None,
+) -> tuple[list[BrandOut], OffsetPagination]:
+    rows, pagination = await BrandRepository(session, tenant).list_page_search(
+        params,
+        search=search,
+        is_active=is_active,
+        manufacturer_id=manufacturer_id,
+        sort=sort,
+    )
+    return [BrandOut.model_validate(row) for row in rows], pagination
 
 
 async def create_variant(
@@ -2045,6 +2557,9 @@ async def link_vendor(
         # time off this link (section 40).
         if not await item_repo.vendor_exists(payload.vendor_id):
             raise NotFoundError("Vendor", payload.vendor_id)
+        # The maker this source supplies: a foreign key to a globally unique id,
+        # so it is read through the tenant-scoped repository like the vendor.
+        await _require_manufacturer(session, tenant, payload.manufacturer_id)
 
         if await repo.get_pair(item.id, payload.vendor_id) is not None:
             raise DuplicateError("This vendor is already linked to the item.")
@@ -2061,6 +2576,8 @@ async def link_vendor(
             vendor_id=payload.vendor_id,
             vendor_item_code=payload.vendor_item_code,
             vendor_item_name=payload.vendor_item_name,
+            manufacturer_id=payload.manufacturer_id,
+            manufacturer_part_number=payload.manufacturer_part_number,
             is_preferred=payload.is_preferred,
             lead_time_days=payload.lead_time_days,
             min_order_quantity=payload.min_order_quantity,
@@ -2083,12 +2600,20 @@ async def link_vendor(
             user_id=tenant.user_id,
             new_values={
                 "vendor_id": link.vendor_id,
+                "manufacturer_id": link.manufacturer_id,
+                "manufacturer_part_number": link.manufacturer_part_number,
                 "is_preferred": link.is_preferred,
                 "lead_time_days": link.lead_time_days,
             },
         )
 
     return VendorLinkOut.model_validate(link)
+
+
+#: The vendor-link fields an explicit ``null`` clears rather than leaves alone -
+#: see ``VendorLinkUpdate``. Every other field keeps the module's "null means no
+#: change" rule.
+VENDOR_LINK_CLEARABLE_FIELDS = frozenset({"manufacturer_id", "manufacturer_part_number"})
 
 
 async def update_vendor_link(
@@ -2098,6 +2623,8 @@ async def update_vendor_link(
     audited = [
         "vendor_item_code",
         "vendor_item_name",
+        "manufacturer_id",
+        "manufacturer_part_number",
         "is_preferred",
         "lead_time_days",
         "min_order_quantity",
@@ -2110,8 +2637,11 @@ async def update_vendor_link(
         before = snapshot(link, audited)
 
         data = payload.model_dump(exclude_unset=True)
+        if "manufacturer_id" in data and data["manufacturer_id"] != link.manufacturer_id:
+            await _require_manufacturer(session, tenant, data["manufacturer_id"])
+
         for field, value in data.items():
-            if value is not None:
+            if value is not None or field in VENDOR_LINK_CLEARABLE_FIELDS:
                 setattr(link, field, value)
 
         if data.get("is_preferred"):
@@ -2169,40 +2699,52 @@ async def list_vendor_links(
 
 
 __all__ = [
+    "BRAND_LIFECYCLE",
     "CAPABILITY_FIELDS",
     "ITEM_LIFECYCLE",
     "ITEM_MASTER_FALLBACK_FIELD",
+    "MANUFACTURER_LIFECYCLE",
     "PRODUCTION_TYPE_REQUIRED_CAPABILITIES",
+    "VENDOR_LINK_CLEARABLE_FIELDS",
     "UomGraph",
     "build_category_path",
     "category_depth",
     "change_item_status",
     "convert_quantity",
+    "create_brand",
     "create_category",
     "create_conversion",
     "create_item",
+    "create_manufacturer",
     "create_price",
     "create_uom",
     "create_variant",
     "default_capabilities",
+    "delete_brand",
     "delete_category",
     "delete_conversion",
     "delete_item",
+    "delete_manufacturer",
     "delete_price",
     "delete_variant",
+    "get_brand",
     "get_category",
     "get_item",
+    "get_manufacturer",
     "item_response",
     "item_summaries",
     "lifecycle_state",
     "link_vendor",
+    "list_brands",
     "list_categories",
     "list_conversions",
+    "list_manufacturers",
     "list_prices",
     "list_uoms",
     "list_variants",
     "list_vendor_links",
     "load_uom_graph",
+    "master_state",
     "may_view_cost",
     "resolve_capabilities",
     "resolve_price",
@@ -2210,8 +2752,10 @@ __all__ = [
     "search_items_keyset",
     "select_price_row",
     "unlink_vendor",
+    "update_brand",
     "update_category",
     "update_item",
+    "update_manufacturer",
     "update_price",
     "update_uom",
     "update_variant",

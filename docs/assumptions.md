@@ -883,6 +883,81 @@ denomination's balance rather than the company-currency cache.
 
 ---
 
+## §A1-1. Brand and manufacturer codes are normalised, never reused, and a value in use cannot be retired
+
+**Assumed.** A brand or manufacturer code passes through `normalise_code` - upper
+case, internal whitespace collapsed, no alphabet check - the same canonical form
+every other products master uses, rather than the organisation masters' stricter
+`validate_code`. The code is unique per company *including retired rows*, is fixed
+once created (an update that carries one is refused), and is never reissued after
+a retirement. Deactivating and retiring (archiving, a soft delete) are refused on
+the same terms, with `REFERENCED_RECORD_IN_USE`: a brand while any live item
+carries it; a manufacturer while any live item, live item-vendor link or live
+brand names it. "Live" means not soft-deleted, so an *inactive* item still holds
+its brand. A brand or maker must be active to be newly assigned, but an item
+keeps the one it has: an unchanged reference is not re-checked when the item is
+saved again. Retirement is terminal - there is no restore endpoint.
+
+**Why.** One canonical form across the item masters means "atcraft pro" and
+"ATCRAFT  PRO" cannot become two brands, and the codes of the brand and
+manufacturer sit beside item, category and attribute codes that already follow it.
+A retired code still appears on the audit trail and in the history of the items
+that carried it, so reissuing it would make that history ambiguous. Refusing to
+retire a value that is still in use is the item-attribute rule: otherwise an item
+would show a brand its own edit form can no longer offer, and saving that form
+would silently drop it.
+
+**Where.** `src/modules/products/schemas.py` - `BrandCreate`, `BrandUpdate`,
+`ManufacturerCreate`, `ManufacturerUpdate`; `src/modules/products/repository.py` -
+`_code_taken`, `BrandRepository.is_used`, `ManufacturerRepository.usage`;
+`src/modules/products/service.py` - `BRAND_LIFECYCLE`, `MANUFACTURER_LIFECYCLE`,
+`update_brand`, `delete_brand`, `update_manufacturer`, `delete_manufacturer`,
+`update_item`.
+
+**Impact if wrong.** If codes must follow the organisation alphabet, swap
+`normalise_code` for `validate_code` in the four schemas (existing codes would
+need checking first). If a retired brand must be restorable, add an
+`ARCHIVED -> INACTIVE` edge and a restore route, as customers have. If retiring a
+brand should instead clear it from its items, that is a bulk update that rewrites
+item history and needs its own audit and confirmation design.
+
+---
+
+## §A1-2. A brand has at most one owner, a part number is free text, and nothing branches on either master
+
+**Assumed.** A brand names at most one manufacturer as its owner
+(`brands.manufacturer_id`), recorded for reference only. A manufacturer's part
+number is free text up to 64 characters - trimmed, blank stored as NULL, not
+unique and never parsed - on the item and, separately, on each item-vendor link,
+because different sources may supply different makers' parts for the same item.
+A manufacturer is not a vendor. A new manufacturer is placed in India unless
+someone says otherwise. No price, discount, permission, posting, approval or
+stock rule reads a brand or a manufacturer; screens and reports may filter and
+group by them.
+
+**Why.** The proposal asks for brand and manufacturer *masters* - classification
+and traceability - and the client must be free to edit the lists, which is only
+safe if nothing computes with them. A brand with two owners is a licensing
+arrangement rather than a master-data fact. Every maker numbers its parts its own
+way, so any structure imposed on a part number would be wrong for some maker. The
+country default is the one the vendor and customer address columns already
+carry.
+
+**Where.** `src/modules/products/models.py` - `Brand.manufacturer_id`,
+`Item.manufacturer_part_number`, `ItemVendorLink.manufacturer_part_number`,
+`DEFAULT_MANUFACTURER_COUNTRY`; `docs/database.md` section 3, "Brands and
+manufacturers".
+
+**Impact if wrong.** If a brand may have several owners, `brands.manufacturer_id`
+becomes a link table. If part numbers must be unique per maker, that is a partial
+unique index on `(company_id, manufacturer_id, manufacturer_part_number)` and a
+data clean-up first. If a dealer discount or a price should depend on the brand,
+that is a pricing rule that must be applied in every price resolver
+(`products.resolve_price` and `sales.resolve_unit_price`), not a branch added
+here.
+
+---
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant

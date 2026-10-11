@@ -59,6 +59,10 @@ export const P = {
   UOM_MANAGE: 'uom.manage',
   ITEM_ATTRIBUTE_VIEW: 'item_attribute.view',
   ITEM_ATTRIBUTE_MANAGE: 'item_attribute.manage',
+  BRAND_VIEW: 'brand.view',
+  BRAND_MANAGE: 'brand.manage',
+  MANUFACTURER_VIEW: 'manufacturer.view',
+  MANUFACTURER_MANAGE: 'manufacturer.manage',
   PRICE_VIEW: 'price.view',
   PRICE_MANAGE: 'price.manage',
 

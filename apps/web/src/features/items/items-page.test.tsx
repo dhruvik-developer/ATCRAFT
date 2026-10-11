@@ -62,6 +62,31 @@ const UOMS = page([
   { id: 'uom-kg', code: 'KG', name: 'Kilogram', decimal_places: 3, is_active: true },
 ])
 
+const BRAND = {
+  id: 'brand-house',
+  code: 'ATCRAFT',
+  name: 'ATCRAFT',
+  description: null,
+  manufacturer_id: 'maker-own',
+  sort_order: 0,
+  is_active: true,
+  created_at: '2026-10-01T00:00:00Z',
+  updated_at: '2026-10-01T00:00:00Z',
+}
+
+const MAKER = {
+  id: 'maker-own',
+  code: 'ATCRAFT',
+  name: 'Atcraft Works',
+  legal_name: null,
+  country: 'India',
+  website: null,
+  notes: null,
+  is_active: true,
+  created_at: '2026-10-01T00:00:00Z',
+  updated_at: '2026-10-01T00:00:00Z',
+}
+
 /** Records the query string of every list request so a test can read it back. */
 function listSpy(rows: unknown[] = [BRASS_ROD]) {
   const queries: URLSearchParams[] = []
@@ -428,5 +453,111 @@ describe('the create dialog', () => {
     // rather than refusing a foreign key that cannot resolve.
     expect(body.size_id).toBeNull()
     expect(body.colour_id).toBeNull()
+  })
+
+  it('sends the chosen brand, maker and part number, each as the API stores it', async () => {
+    const { user, fetch } = renderScreen(<ItemsPage />, {
+      permissions: [P.ITEM_VIEW, P.ITEM_CREATE, P.UOM_VIEW, P.BRAND_VIEW, P.MANUFACTURER_VIEW],
+      routes: {
+        'GET /products/items': page([BRASS_ROD]),
+        'GET /products/uoms': UOMS,
+        'GET /products/brands': page([BRAND]),
+        'GET /products/manufacturers': page([MAKER]),
+        'POST /products/items': ok(BRASS_ROD),
+      },
+    })
+
+    await screen.findByRole('link', { name: 'RM-001' })
+    await user.click(screen.getAllByRole('button', { name: /new item/i })[0]!)
+    const dialog = await screen.findByRole('dialog')
+
+    await user.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'FG-010')
+    await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Lever handle')
+    await user.click(within(dialog).getByRole('combobox', { name: /base unit/i }))
+    await user.click(await screen.findByRole('option', { name: /KG/ }))
+    await user.click(within(dialog).getByRole('combobox', { name: /^brand$/i }))
+    await user.click(await screen.findByRole('option', { name: 'ATCRAFT' }))
+    await user.click(within(dialog).getByRole('combobox', { name: /^manufacturer$/i }))
+    await user.click(await screen.findByRole('option', { name: 'Atcraft Works' }))
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Manufacturer part number' }),
+      '  LH-52-AB  ',
+    )
+
+    await user.click(within(dialog).getByRole('button', { name: /create item/i }))
+
+    const body = (await waitFor(() => fetch.requestFor('POST', '/products/items'))) as Record<
+      string,
+      unknown
+    >
+    expect(body.brand_id).toBe('brand-house')
+    expect(body.manufacturer_id).toBe('maker-own')
+    expect(body.manufacturer_part_number).toBe('LH-52-AB')
+  })
+
+  it('posts null for a brand and maker left on None, and for a blank part number', async () => {
+    const { user, fetch } = renderScreen(<ItemsPage />, {
+      permissions: [P.ITEM_VIEW, P.ITEM_CREATE, P.UOM_VIEW],
+      routes: {
+        'GET /products/items': page([BRASS_ROD]),
+        'GET /products/uoms': UOMS,
+        'POST /products/items': ok(BRASS_ROD),
+      },
+    })
+
+    await screen.findByRole('link', { name: 'RM-001' })
+    await user.click(screen.getAllByRole('button', { name: /new item/i })[0]!)
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'RM-011')
+    await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Brass rod 18mm')
+    await user.click(within(dialog).getByRole('combobox', { name: /base unit/i }))
+    await user.click(await screen.findByRole('option', { name: /KG/ }))
+    await user.click(within(dialog).getByRole('button', { name: /create item/i }))
+
+    const body = (await waitFor(() => fetch.requestFor('POST', '/products/items'))) as Record<
+      string,
+      unknown
+    >
+    expect(body.brand_id).toBeNull()
+    expect(body.manufacturer_id).toBeNull()
+    expect(body.manufacturer_part_number).toBeNull()
+    // Neither list was asked for: the account holds neither read right, and the
+    // harness fails an unrouted request.
+    expect(fetch.calls.map((call) => call.path)).not.toContain('/products/brands')
+    expect(fetch.calls.map((call) => call.path)).not.toContain('/products/manufacturers')
+  })
+})
+
+// ------------------------------------------------------------- brand filter ----
+
+describe('the brand filter', () => {
+  it('sends the brand from the URL and names it on the closed control', async () => {
+    const list = listSpy()
+    renderScreen(<ItemsPage />, {
+      permissions: [P.ITEM_VIEW, P.BRAND_VIEW],
+      route: '/items?brand_id=brand-house',
+      routes: { 'GET /products/items': list.handler, 'GET /products/brands': page([BRAND]) },
+    })
+
+    await screen.findByRole('link', { name: 'RM-001' })
+    expect(list.last().get('brand_id')).toBe('brand-house')
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Filter by brand' })).toHaveTextContent(
+        'ATCRAFT',
+      ),
+    )
+    // It counts as a filter, so Clear is offered.
+    expect(screen.getByRole('button', { name: /^clear$/i })).toBeVisible()
+  })
+
+  it('is not offered, and brands are not fetched, without brand.view', async () => {
+    const { fetch } = renderScreen(<ItemsPage />, {
+      permissions: [P.ITEM_VIEW],
+      routes: { 'GET /products/items': page([BRASS_ROD]) },
+    })
+
+    await screen.findByRole('link', { name: 'RM-001' })
+    expect(screen.queryByRole('combobox', { name: 'Filter by brand' })).not.toBeInTheDocument()
+    expect(fetch.calls.map((call) => call.path)).not.toContain('/products/brands')
   })
 })

@@ -52,6 +52,9 @@ from src.modules.products import service
 from src.modules.products.models import ItemAttributeType, PriceType
 from src.modules.products.repository import ItemRepository
 from src.modules.products.schemas import (
+    BrandCreate,
+    BrandOut,
+    BrandUpdate,
     CategoryCreate,
     CategoryOut,
     CategoryUpdate,
@@ -65,6 +68,9 @@ from src.modules.products.schemas import (
     ItemSummary,
     ItemSummaryWithCost,
     ItemUpdate,
+    ManufacturerCreate,
+    ManufacturerOut,
+    ManufacturerUpdate,
     PriceCreate,
     PriceOut,
     PriceUpdate,
@@ -89,6 +95,13 @@ PageDep = Annotated[PageParams, Depends(page_params)]
 CursorDep = Annotated[CursorParams, Depends(cursor_params)]
 SortDep = Annotated[SortParams, Depends(sort_params)]
 FiltersDep = Annotated[ItemFilters, Depends(item_filters)]
+
+# Retirement carries its reason in the query string rather than a body, as the
+# organisation masters' does: a DELETE body is legal but several clients and
+# proxies drop it, and the reason is not optional.
+ReasonQuery = Annotated[
+    str, Query(min_length=3, max_length=255, description="Why the record is being retired")
+]
 
 
 # -----------------------------------------------------------------------------
@@ -227,6 +240,178 @@ async def update_item_attribute(
 ) -> ApiResponse[ItemAttributeOut]:
     attribute = await service.update_item_attribute(session, tenant, attribute_id, payload)
     return ApiResponse.ok(attribute, "Attribute updated")
+
+
+# -----------------------------------------------------------------------------
+# Brands
+# -----------------------------------------------------------------------------
+
+
+@router.get(
+    "/brands",
+    response_model=PaginatedResponse[BrandOut],
+    summary="List brands",
+    dependencies=[require_permission(Permission.BRAND_VIEW)],
+)
+async def list_brands(
+    session: DbSession,
+    tenant: Tenant,
+    params: PageDep,
+    sort: SortDep,
+    search: Annotated[str | None, Query(max_length=64, description="Code or name")] = None,
+    is_active: Annotated[bool | None, Query()] = None,
+    manufacturer_id: Annotated[
+        uuid.UUID | None, Query(description="Brands owned by this manufacturer")
+    ] = None,
+) -> PaginatedResponse[BrandOut]:
+    rows, pagination = await service.list_brands(
+        session,
+        tenant,
+        params,
+        search=search,
+        is_active=is_active,
+        manufacturer_id=manufacturer_id,
+        sort=sort,
+    )
+    return paginated(rows, pagination)
+
+
+@router.post(
+    "/brands",
+    response_model=ApiResponse[BrandOut],
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a brand",
+    dependencies=[require_permission(Permission.BRAND_MANAGE)],
+)
+async def create_brand(
+    session: DbSession, tenant: Tenant, payload: BrandCreate
+) -> ApiResponse[BrandOut]:
+    return ApiResponse.ok(await service.create_brand(session, tenant, payload), "Brand created")
+
+
+@router.get(
+    "/brands/{brand_id}",
+    response_model=ApiResponse[BrandOut],
+    summary="Get one brand",
+    dependencies=[require_permission(Permission.BRAND_VIEW)],
+)
+async def get_brand(
+    session: DbSession, tenant: Tenant, brand_id: uuid.UUID
+) -> ApiResponse[BrandOut]:
+    return ApiResponse.ok(await service.get_brand(session, tenant, brand_id))
+
+
+@router.patch(
+    "/brands/{brand_id}",
+    response_model=ApiResponse[BrandOut],
+    summary="Update a brand",
+    description="The code is fixed once created. An `is_active` change goes through the "
+    "brand lifecycle and is refused while live items carry the brand.",
+    dependencies=[require_permission(Permission.BRAND_MANAGE)],
+)
+async def update_brand(
+    session: DbSession, tenant: Tenant, brand_id: uuid.UUID, payload: BrandUpdate
+) -> ApiResponse[BrandOut]:
+    brand = await service.update_brand(session, tenant, brand_id, payload)
+    return ApiResponse.ok(brand, "Brand updated")
+
+
+@router.delete(
+    "/brands/{brand_id}",
+    response_model=ApiResponse[None],
+    summary="Retire a brand",
+    description="Archives the brand. Refused while live items carry it.",
+    dependencies=[require_permission(Permission.BRAND_MANAGE)],
+)
+async def delete_brand(
+    session: DbSession, tenant: Tenant, brand_id: uuid.UUID, reason: ReasonQuery
+) -> ApiResponse[None]:
+    await service.delete_brand(session, tenant, brand_id, reason=reason)
+    return ApiResponse.ok(None, "Brand retired")
+
+
+# -----------------------------------------------------------------------------
+# Manufacturers
+# -----------------------------------------------------------------------------
+
+
+@router.get(
+    "/manufacturers",
+    response_model=PaginatedResponse[ManufacturerOut],
+    summary="List manufacturers",
+    dependencies=[require_permission(Permission.MANUFACTURER_VIEW)],
+)
+async def list_manufacturers(
+    session: DbSession,
+    tenant: Tenant,
+    params: PageDep,
+    sort: SortDep,
+    search: Annotated[
+        str | None, Query(max_length=64, description="Code, name or legal name")
+    ] = None,
+    is_active: Annotated[bool | None, Query()] = None,
+) -> PaginatedResponse[ManufacturerOut]:
+    rows, pagination = await service.list_manufacturers(
+        session, tenant, params, search=search, is_active=is_active, sort=sort
+    )
+    return paginated(rows, pagination)
+
+
+@router.post(
+    "/manufacturers",
+    response_model=ApiResponse[ManufacturerOut],
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a manufacturer",
+    dependencies=[require_permission(Permission.MANUFACTURER_MANAGE)],
+)
+async def create_manufacturer(
+    session: DbSession, tenant: Tenant, payload: ManufacturerCreate
+) -> ApiResponse[ManufacturerOut]:
+    manufacturer = await service.create_manufacturer(session, tenant, payload)
+    return ApiResponse.ok(manufacturer, "Manufacturer created")
+
+
+@router.get(
+    "/manufacturers/{manufacturer_id}",
+    response_model=ApiResponse[ManufacturerOut],
+    summary="Get one manufacturer",
+    dependencies=[require_permission(Permission.MANUFACTURER_VIEW)],
+)
+async def get_manufacturer(
+    session: DbSession, tenant: Tenant, manufacturer_id: uuid.UUID
+) -> ApiResponse[ManufacturerOut]:
+    return ApiResponse.ok(await service.get_manufacturer(session, tenant, manufacturer_id))
+
+
+@router.patch(
+    "/manufacturers/{manufacturer_id}",
+    response_model=ApiResponse[ManufacturerOut],
+    summary="Update a manufacturer",
+    description="The code is fixed once created. An `is_active` change goes through the "
+    "manufacturer lifecycle and is refused while live items, item-vendor links or brands "
+    "name the manufacturer.",
+    dependencies=[require_permission(Permission.MANUFACTURER_MANAGE)],
+)
+async def update_manufacturer(
+    session: DbSession, tenant: Tenant, manufacturer_id: uuid.UUID, payload: ManufacturerUpdate
+) -> ApiResponse[ManufacturerOut]:
+    manufacturer = await service.update_manufacturer(session, tenant, manufacturer_id, payload)
+    return ApiResponse.ok(manufacturer, "Manufacturer updated")
+
+
+@router.delete(
+    "/manufacturers/{manufacturer_id}",
+    response_model=ApiResponse[None],
+    summary="Retire a manufacturer",
+    description="Archives the manufacturer. Refused while live items, item-vendor links or "
+    "brands name it.",
+    dependencies=[require_permission(Permission.MANUFACTURER_MANAGE)],
+)
+async def delete_manufacturer(
+    session: DbSession, tenant: Tenant, manufacturer_id: uuid.UUID, reason: ReasonQuery
+) -> ApiResponse[None]:
+    await service.delete_manufacturer(session, tenant, manufacturer_id, reason=reason)
+    return ApiResponse.ok(None, "Manufacturer retired")
 
 
 @router.get(

@@ -138,6 +138,8 @@ export interface ItemRow extends Record<SummaryCapabilityKey, boolean> {
   name: string
   item_group: ItemGroup
   category_id: string | null
+  /** Named through `useBrandOptions`; the list filters on it server-side. */
+  brand_id: string | null
   base_uom_id: string
   production_type: ProductionType
   sale_price: DecimalString
@@ -187,6 +189,15 @@ export interface ItemDetail extends Record<CapabilityKey, boolean> {
   finish_id: string | null
   size_id: string | null
   colour_id: string | null
+
+  /**
+   * Classification and traceability only - nothing branches on either. Named
+   * through `useBrandOptions` / `useManufacturerOptions`; the part number is
+   * the maker's own, as free text.
+   */
+  brand_id: string | null
+  manufacturer_id: string | null
+  manufacturer_part_number: string | null
 
   production_type: ProductionType
   lead_time_days: number
@@ -345,22 +356,14 @@ export interface ItemPrice {
   notes: string | null
 }
 
-/** `GET /products/items/{id}/vendors`. */
-export interface ItemVendorLink {
-  id: string
-  item_id: string
-  vendor_id: string
-  vendor_item_code: string | null
-  vendor_item_name: string | null
-  is_preferred: boolean
-  lead_time_days: number
-  min_order_quantity: DecimalString
-  order_multiple: DecimalString
-  last_purchase_price: DecimalString | null
-  last_purchase_date: string | null
-  currency: string
-  is_active: boolean
-}
+/**
+ * One row of `GET /products/items/{id}/vendors` (`VendorLinkOut`).
+ *
+ * Derived from the contract rather than restated: the endpoint declares its
+ * response model, so a hand-written copy would only be a second opinion - and
+ * the maker fields this row gained are exactly the kind a copy forgets.
+ */
+export type ItemVendorLink = SchemaOf<'VendorLinkOut'>
 
 export interface CategoryOption {
   id: string

@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/overlays'
 import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { useBrandOptions } from '@/hooks/use-brand-options'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatMoney, humanise } from '@/lib/format'
@@ -82,6 +83,7 @@ export default function ItemsPage() {
 
   const categoryId = searchParams.get('category_id') ?? ''
   const itemGroup = searchParams.get('item_group') ?? ''
+  const brandId = searchParams.get('brand_id') ?? ''
   // The API models `is_active` as a two-valued filter that always defaults to
   // active, so the control offers exactly the two states the server can answer
   // rather than an "all" option it would silently ignore.
@@ -92,6 +94,11 @@ export default function ItemsPage() {
 
   const categories = useCategoryOptions(can(P.CATEGORY_VIEW))
   const uoms = useUomOptions(can(P.UOM_VIEW))
+  // The brand filter is offered only to an account that may read brands; a
+  // shared link carrying `brand_id` still narrows the list for anyone, because
+  // the filter is the server's, not this control's.
+  const canFilterByBrand = can(P.BRAND_VIEW)
+  const brands = useBrandOptions(canFilterByBrand)
   const categoryById = useMemo(() => indexById(categories.data), [categories.data])
   const uomById = useMemo(() => indexById(uoms.data), [uoms.data])
 
@@ -103,6 +110,7 @@ export default function ItemsPage() {
     filters: {
       ...(categoryId ? { category_id: categoryId } : {}),
       ...(itemGroup ? { item_group: itemGroup } : {}),
+      ...(brandId ? { brand_id: brandId } : {}),
       is_active: activeState === 'false' ? false : true,
       ...Object.fromEntries(activeCapabilities.map((key) => [key, true])),
     },
@@ -113,6 +121,7 @@ export default function ItemsPage() {
     activeCapabilities.length +
     (categoryId ? 1 : 0) +
     (itemGroup ? 1 : 0) +
+    (brandId ? 1 : 0) +
     (activeState === 'false' ? 1 : 0)
 
   const columns = useMemo<ColumnDef<ItemRow, unknown>[]>(() => {
@@ -280,6 +289,27 @@ export default function ItemsPage() {
               </SelectContent>
             </Select>
 
+            {canFilterByBrand && (
+              <Select
+                value={brandId || SELECT_ALL}
+                onValueChange={(value) =>
+                  setParam('brand_id', value === SELECT_ALL ? undefined : value)
+                }
+              >
+                <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by brand">
+                  <SelectValue placeholder="All brands" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SELECT_ALL}>All brands</SelectItem>
+                  {(brands.data ?? []).map((brand) => (
+                    <SelectItem key={brand.id} value={brand.id}>
+                      {brand.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
             <Select value={activeState} onValueChange={(value) => setParam('is_active', value)}>
               <SelectTrigger className="w-full sm:w-[130px]" aria-label="Filter by status">
                 <SelectValue />
@@ -331,6 +361,7 @@ export default function ItemsPage() {
                   setParams({
                     category_id: undefined,
                     item_group: undefined,
+                    brand_id: undefined,
                     is_active: undefined,
                     ...Object.fromEntries(FILTERABLE_CAPABILITIES.map((key) => [key, undefined])),
                   })

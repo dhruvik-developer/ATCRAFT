@@ -100,6 +100,8 @@ const SCREENS = [
     title: 'Adding a finish',
     action: { click: 'New value', dialog: true },
   },
+  { file: '16-masters-brands', route: '/masters?tab=brands', title: 'Brands' },
+  { file: '17-masters-manufacturers', route: '/masters?tab=manufacturers', title: 'Manufacturers' },
   { file: '15-masters-prices', route: '/masters?tab=prices', title: 'Price lists' },
 
   // --- engineering --------------------------------------------------------

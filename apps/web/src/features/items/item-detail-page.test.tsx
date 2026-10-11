@@ -735,3 +735,129 @@ describe('retiring the item', () => {
     expect(within(dialog).queryByText('This item is still in use')).not.toBeInTheDocument()
   })
 })
+
+// -------------------------------------------------------- brand and maker ----
+
+const BRANDED = {
+  ...ITEM,
+  brand_id: 'brand-partner',
+  manufacturer_id: 'maker-cyl',
+  manufacturer_part_number: 'SCW-PC60-5P',
+}
+
+const BRANDS = page([
+  {
+    id: 'brand-partner',
+    code: 'SECUREPIN',
+    name: 'SecurePin',
+    description: null,
+    manufacturer_id: 'maker-cyl',
+    sort_order: 20,
+    is_active: true,
+    created_at: '2026-10-01T00:00:00Z',
+    updated_at: '2026-10-01T00:00:00Z',
+  },
+])
+
+const MAKERS = page([
+  {
+    id: 'maker-cyl',
+    code: 'CYLINDER',
+    name: 'Demo Cylinder Works',
+    legal_name: null,
+    country: 'India',
+    website: null,
+    notes: null,
+    is_active: true,
+    created_at: '2026-10-01T00:00:00Z',
+    updated_at: '2026-10-01T00:00:00Z',
+  },
+])
+
+describe('the brand and the maker', () => {
+  it('names the brand, the maker and the part number on the master record', async () => {
+    renderDetail({
+      permissions: [P.ITEM_VIEW, P.BRAND_VIEW, P.MANUFACTURER_VIEW],
+      routes: baseRoutes({
+        [`GET /products/items/${ITEM_ID}`]: ok(BRANDED),
+        'GET /products/brands': BRANDS,
+        'GET /products/manufacturers': MAKERS,
+      }),
+    })
+
+    expect(await screen.findByText('SecurePin')).toBeVisible()
+    expect(await screen.findByText('Demo Cylinder Works')).toBeVisible()
+    expect(screen.getByText('SCW-PC60-5P')).toBeVisible()
+  })
+
+  it('says a value is recorded, in words, to an account that cannot read the lists', async () => {
+    // Neither list is fetched - the harness fails an unrouted request - and the
+    // rows read as a sentence rather than as two raw ids.
+    renderDetail({
+      permissions: [P.ITEM_VIEW],
+      routes: baseRoutes({ [`GET /products/items/${ITEM_ID}`]: ok(BRANDED) }),
+    })
+
+    await screen.findByRole('heading', { name: /^RM-001/ })
+    expect(screen.getAllByText('Not in the active list')).toHaveLength(2)
+    expect(screen.queryByText('brand-partner')).not.toBeInTheDocument()
+    // The part number is the item's own text, not a reference, so it shows.
+    expect(screen.getByText('SCW-PC60-5P')).toBeVisible()
+  })
+
+  it('shows each source with the maker part number it supplies', async () => {
+    renderDetail({
+      permissions: [P.ITEM_VIEW, P.MANUFACTURER_VIEW],
+      tab: 'vendors',
+      routes: baseRoutes({
+        'GET /products/manufacturers': MAKERS,
+        [`GET /products/items/${ITEM_ID}/vendors`]: page([
+          {
+            id: 'link-1',
+            item_id: ITEM_ID,
+            vendor_id: 'vendor-fast',
+            vendor_item_code: 'PF-CYL-60-5P',
+            vendor_item_name: 'Pin cylinder 60mm',
+            manufacturer_id: 'maker-cyl',
+            manufacturer_part_number: 'SCW-PC60-5P',
+            is_preferred: true,
+            lead_time_days: 15,
+            min_order_quantity: '0.0000',
+            order_multiple: '0.0000',
+            last_purchase_price: null,
+            last_purchase_date: null,
+            currency: 'INR',
+            is_active: true,
+          },
+        ]),
+      }),
+    })
+
+    expect(await screen.findByRole('columnheader', { name: 'Maker part no.' })).toBeVisible()
+    expect(await screen.findByText('SCW-PC60-5P')).toBeVisible()
+    expect(await screen.findByText('Demo Cylinder Works')).toBeVisible()
+  })
+
+  it('keeps the brand and maker an editor cannot see when saving the item', async () => {
+    // Without brand.view and manufacturer.view the selects offer only "None";
+    // the form is seeded from the item, so the PATCH restates what is recorded
+    // rather than clearing it.
+    const { user, fetch } = renderDetail({
+      permissions: [P.ITEM_VIEW, P.ITEM_UPDATE, P.CATEGORY_VIEW, P.UOM_VIEW],
+      routes: baseRoutes({
+        [`GET /products/items/${ITEM_ID}`]: ok(BRANDED),
+        [`PATCH /products/items/${ITEM_ID}`]: ok(BRANDED),
+      }),
+    })
+
+    await screen.findByRole('heading', { name: /^RM-001/ })
+    await user.click(screen.getByRole('button', { name: /^edit$/i }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /save changes/i }))
+
+    const body = await waitForPatch(fetch)
+    expect(body.brand_id).toBe('brand-partner')
+    expect(body.manufacturer_id).toBe('maker-cyl')
+    expect(body.manufacturer_part_number).toBe('SCW-PC60-5P')
+  })
+})

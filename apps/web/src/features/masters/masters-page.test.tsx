@@ -956,3 +956,190 @@ describe('the price list', () => {
     )
   })
 })
+
+// ------------------------------------------------- brands and manufacturers ----
+
+const MAKER_ROWS = [
+  {
+    id: 'maker-own',
+    code: 'ATCRAFT',
+    name: 'Atcraft Works',
+    legal_name: null,
+    country: 'India',
+    website: null,
+    notes: null,
+    is_active: true,
+    created_at: '2026-10-01T00:00:00Z',
+    updated_at: '2026-10-01T00:00:00Z',
+  },
+]
+
+const BRAND_ROWS = [
+  {
+    id: 'brand-house',
+    code: 'ATCRAFT',
+    name: 'Atcraft House Brand',
+    description: 'The house brand.',
+    manufacturer_id: 'maker-own',
+    sort_order: 0,
+    is_active: true,
+    created_at: '2026-10-01T00:00:00Z',
+    updated_at: '2026-10-01T00:00:00Z',
+  },
+]
+
+describe('the brand and manufacturer tabs', () => {
+  it('appear with their own read rights, after the attributes and before prices', async () => {
+    renderScreen(<MastersPage />, {
+      permissions: [P.ITEM_ATTRIBUTE_VIEW, P.BRAND_VIEW, P.MANUFACTURER_VIEW, P.PRICE_VIEW],
+      allowUnrouted: true,
+    })
+
+    const tabs = await screen.findAllByRole('tab')
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      'Attributes',
+      'Brands',
+      'Manufacturers',
+      'Prices',
+    ])
+  })
+
+  it('open for a holder of brand.view alone, and list the server rows', async () => {
+    const brands = listSpy('/products/brands', BRAND_ROWS)
+    renderScreen(<MastersPage />, {
+      permissions: [P.BRAND_VIEW],
+      route: '/masters?tab=brands',
+      routes: brands.routes,
+    })
+
+    expect(await screen.findByRole('tab', { name: 'Brands', selected: true })).toBeVisible()
+    expect(await screen.findByText('Atcraft House Brand')).toBeVisible()
+    // No sort was asked for, so the server's own picker order applies.
+    expect(brands.last().has('sort_by')).toBe(false)
+  })
+
+  it('names the owner only for an account that may read manufacturers', async () => {
+    const { fetch } = renderScreen(<MastersPage />, {
+      permissions: [P.BRAND_VIEW],
+      route: '/masters?tab=brands',
+      routes: { 'GET /products/brands': page(BRAND_ROWS) },
+    })
+
+    expect(await screen.findByText('Not in the active list')).toBeVisible()
+    expect(fetch.calls.map((call) => call.path)).not.toContain('/products/manufacturers')
+  })
+
+  it('resolves the owner when the account may read manufacturers', async () => {
+    renderScreen(<MastersPage />, {
+      permissions: [P.BRAND_VIEW, P.MANUFACTURER_VIEW],
+      route: '/masters?tab=brands',
+      routes: {
+        'GET /products/brands': page(BRAND_ROWS),
+        'GET /products/manufacturers': page(MAKER_ROWS),
+      },
+    })
+
+    // Once in the owner cell; the owner filter's closed control shows "Any owner".
+    expect(await screen.findByText('Atcraft Works')).toBeVisible()
+  })
+
+  it('offers New brand and the row actions only to brand.manage', async () => {
+    const reader = renderScreen(<MastersPage />, {
+      permissions: [P.BRAND_VIEW],
+      route: '/masters?tab=brands',
+      routes: { 'GET /products/brands': page(BRAND_ROWS) },
+    })
+    await screen.findByText('Not in the active list')
+    expect(screen.queryByRole('button', { name: /new brand/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edit ATCRAFT' })).not.toBeInTheDocument()
+    reader.unmount()
+
+    renderScreen(<MastersPage />, {
+      permissions: [P.BRAND_VIEW, P.BRAND_MANAGE],
+      route: '/masters?tab=brands',
+      routes: { 'GET /products/brands': page(BRAND_ROWS) },
+    })
+    expect(await screen.findByRole('button', { name: 'Edit ATCRAFT' })).toBeVisible()
+    expect(screen.getAllByRole('button', { name: /new brand/i }).length).toBeGreaterThan(0)
+  })
+
+  it('sends the status filter from the URL to the server', async () => {
+    const brands = listSpy('/products/brands', BRAND_ROWS)
+    renderScreen(<MastersPage />, {
+      permissions: [P.BRAND_VIEW],
+      route: '/masters?tab=brands&status=inactive',
+      routes: brands.routes,
+    })
+
+    await screen.findByText('Not in the active list')
+    expect(brands.last().get('is_active')).toBe('false')
+  })
+
+  it('sorts on the whitelisted columns and offers no sort on the owner', async () => {
+    const brands = listSpy('/products/brands', BRAND_ROWS)
+    const { user } = renderScreen(<MastersPage />, {
+      permissions: [P.BRAND_VIEW],
+      route: '/masters?tab=brands',
+      routes: brands.routes,
+    })
+
+    await screen.findByText('Not in the active list')
+    const owner = screen.getByRole('columnheader', { name: /owner/i })
+    expect(within(owner).queryByRole('button')).not.toBeInTheDocument()
+
+    const name = screen.getByRole('columnheader', { name: /name/i })
+    await user.click(within(name).getByRole('button'))
+    await waitFor(() => expect(brands.last().get('sort_by')).toBe('name'))
+  })
+
+  it('retires through the row menu and shows the in-use refusal verbatim', async () => {
+    const refusal =
+      'Brand ATCRAFT is still carried by live items, so it cannot be retired. Move those items to another brand first.'
+    const reasons: (string | null)[] = []
+    const { user } = renderScreen(<MastersPage />, {
+      permissions: [P.BRAND_VIEW, P.BRAND_MANAGE],
+      route: '/masters?tab=brands',
+      routes: {
+        'GET /products/brands': page(BRAND_ROWS),
+        'DELETE /products/brands/brand-house': ({ url }) => {
+          reasons.push(url.searchParams.get('reason'))
+          return fail(422, 'REFERENCED_RECORD_IN_USE', refusal)
+        },
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'More actions for ATCRAFT' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Retire brand' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.type(within(dialog).getByLabelText(/reason/i), 'Rebranding')
+    await user.click(within(dialog).getByRole('button', { name: 'Retire brand' }))
+
+    expect(await within(dialog).findByText(refusal)).toBeVisible()
+    expect(reasons).toEqual(['Rebranding'])
+  })
+
+  it('lists manufacturers for a holder of manufacturer.view alone', async () => {
+    const makers = listSpy('/products/manufacturers', MAKER_ROWS)
+    renderScreen(<MastersPage />, {
+      permissions: [P.MANUFACTURER_VIEW],
+      route: '/masters?tab=manufacturers',
+      routes: makers.routes,
+    })
+
+    expect(await screen.findByRole('tab', { name: 'Manufacturers', selected: true })).toBeVisible()
+    expect(await screen.findByText('Atcraft Works')).toBeVisible()
+    expect(screen.queryByRole('button', { name: /new manufacturer/i })).not.toBeInTheDocument()
+  })
+
+  it('offers New manufacturer to manufacturer.manage', async () => {
+    renderScreen(<MastersPage />, {
+      permissions: [P.MANUFACTURER_VIEW, P.MANUFACTURER_MANAGE],
+      route: '/masters?tab=manufacturers',
+      routes: { 'GET /products/manufacturers': page(MAKER_ROWS) },
+    })
+
+    expect(
+      (await screen.findAllByRole('button', { name: /new manufacturer/i })).length,
+    ).toBeGreaterThan(0)
+  })
+})

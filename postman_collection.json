@@ -14764,6 +14764,74 @@
           }
         },
         {
+          "name": "Create a brand",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"code\": \"\",\n  \"name\": \"\",\n  \"description\": \"\",\n  \"is_active\": true,\n  \"manufacturer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"sort_order\": 0\n}"
+            },
+            "description": "Create a brand",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "brands"
+              ],
+              "raw": "{{base_url}}/api/v1/products/brands"
+            }
+          }
+        },
+        {
+          "name": "Create a manufacturer",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"code\": \"\",\n  \"name\": \"\",\n  \"country\": \"India\",\n  \"is_active\": true,\n  \"legal_name\": \"\",\n  \"notes\": \"\",\n  \"website\": \"\"\n}"
+            },
+            "description": "Create a manufacturer",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "manufacturers"
+              ],
+              "raw": "{{base_url}}/api/v1/products/manufacturers"
+            }
+          }
+        },
+        {
           "name": "Create a unit of measure",
           "request": {
             "body": {
@@ -14807,7 +14875,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"base_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"code\": \"\",\n  \"item_group\": \"RAW_MATERIAL\",\n  \"name\": \"\",\n  \"can_be_assembly_component\": false,\n  \"can_be_bom_component\": false,\n  \"can_be_spare\": false,\n  \"can_job_work\": false,\n  \"can_manufacture\": false,\n  \"can_purchase\": false,\n  \"can_return\": false,\n  \"can_scrap\": false,\n  \"can_sell\": false,\n  \"category_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"colour_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"dealer_price\": 0,\n  \"default_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"description\": \"\",\n  \"finish_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"gst_rate\": 0,\n  \"hsn_code\": \"\",\n  \"is_active\": true,\n  \"is_batch_tracked\": false,\n  \"is_serial_tracked\": false,\n  \"lead_time_days\": 0,\n  \"min_order_quantity\": 0,\n  \"production_type\": \"MAKE\",\n  \"purchase_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"reorder_level\": 0,\n  \"reorder_quantity\": 0,\n  \"safety_stock\": 0,\n  \"sale_price\": 0,\n  \"sale_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"shelf_life_days\": 0,\n  \"size_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"standard_cost\": 0\n}"
+              "raw": "{\n  \"base_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"code\": \"\",\n  \"item_group\": \"RAW_MATERIAL\",\n  \"name\": \"\",\n  \"brand_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"can_be_assembly_component\": false,\n  \"can_be_bom_component\": false,\n  \"can_be_spare\": false,\n  \"can_job_work\": false,\n  \"can_manufacture\": false,\n  \"can_purchase\": false,\n  \"can_return\": false,\n  \"can_scrap\": false,\n  \"can_sell\": false,\n  \"category_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"colour_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"dealer_price\": 0,\n  \"default_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"description\": \"\",\n  \"finish_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"gst_rate\": 0,\n  \"hsn_code\": \"\",\n  \"is_active\": true,\n  \"is_batch_tracked\": false,\n  \"is_serial_tracked\": false,\n  \"lead_time_days\": 0,\n  \"manufacturer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"manufacturer_part_number\": \"\",\n  \"min_order_quantity\": 0,\n  \"production_type\": \"MAKE\",\n  \"purchase_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"reorder_level\": 0,\n  \"reorder_quantity\": 0,\n  \"safety_stock\": 0,\n  \"sale_price\": 0,\n  \"sale_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"shelf_life_days\": 0,\n  \"size_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"standard_cost\": 0\n}"
             },
             "description": "Create an item",
             "header": [
@@ -14934,6 +15002,34 @@
           }
         },
         {
+          "name": "Get one brand",
+          "request": {
+            "description": "Get one brand",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "brands",
+                ":brand_id"
+              ],
+              "raw": "{{base_url}}/api/v1/products/brands/{brand_id}",
+              "variable": [
+                {
+                  "description": "brand_id of the record",
+                  "key": "brand_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Get one item",
           "request": {
             "description": "Get one item",
@@ -14990,6 +15086,34 @@
           }
         },
         {
+          "name": "Get one manufacturer",
+          "request": {
+            "description": "Get one manufacturer",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "manufacturers",
+                ":manufacturer_id"
+              ],
+              "raw": "{{base_url}}/api/v1/products/manufacturers/{manufacturer_id}",
+              "variable": [
+                {
+                  "description": "manufacturer_id of the record",
+                  "key": "manufacturer_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Link a vendor to an item",
           "request": {
             "body": {
@@ -14999,7 +15123,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"currency\": \"INR\",\n  \"is_preferred\": false,\n  \"last_purchase_date\": \"2026-01-01\",\n  \"last_purchase_price\": 0,\n  \"lead_time_days\": 0,\n  \"min_order_quantity\": 0,\n  \"order_multiple\": 0,\n  \"vendor_item_code\": \"\",\n  \"vendor_item_name\": \"\"\n}"
+              "raw": "{\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"currency\": \"INR\",\n  \"is_preferred\": false,\n  \"last_purchase_date\": \"2026-01-01\",\n  \"last_purchase_price\": 0,\n  \"lead_time_days\": 0,\n  \"manufacturer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"manufacturer_part_number\": \"\",\n  \"min_order_quantity\": 0,\n  \"order_multiple\": 0,\n  \"vendor_item_code\": \"\",\n  \"vendor_item_name\": \"\"\n}"
             },
             "description": "Link a vendor to an item",
             "header": [
@@ -15155,6 +15279,76 @@
           }
         },
         {
+          "name": "List brands",
+          "request": {
+            "description": "List brands",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "brands"
+              ],
+              "query": [
+                {
+                  "description": "Code or name",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "is_active",
+                  "value": "False"
+                },
+                {
+                  "description": "Brands owned by this manufacturer",
+                  "disabled": true,
+                  "key": "manufacturer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                },
+                {
+                  "description": "Field to sort by",
+                  "disabled": true,
+                  "key": "sort_by",
+                  "value": ""
+                },
+                {
+                  "description": "Sort direction",
+                  "disabled": true,
+                  "key": "sort_dir",
+                  "value": "asc"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/products/brands?"
+            }
+          }
+        },
+        {
           "name": "List item attributes (finish, size, colour)",
           "request": {
             "description": "List item attributes (finish, size, colour)",
@@ -15273,6 +15467,70 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/products/categories?"
+            }
+          }
+        },
+        {
+          "name": "List manufacturers",
+          "request": {
+            "description": "List manufacturers",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "manufacturers"
+              ],
+              "query": [
+                {
+                  "description": "Code, name or legal name",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "is_active",
+                  "value": "False"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                },
+                {
+                  "description": "Field to sort by",
+                  "disabled": true,
+                  "key": "sort_by",
+                  "value": ""
+                },
+                {
+                  "description": "Sort direction",
+                  "disabled": true,
+                  "key": "sort_dir",
+                  "value": "asc"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/products/manufacturers?"
             }
           }
         },
@@ -15563,6 +15821,78 @@
           }
         },
         {
+          "name": "Retire a brand",
+          "request": {
+            "description": "Archives the brand. Refused while live items carry it.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "brands",
+                ":brand_id"
+              ],
+              "query": [
+                {
+                  "description": "Why the record is being retired",
+                  "disabled": false,
+                  "key": "reason",
+                  "value": ""
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/products/brands/{brand_id}?",
+              "variable": [
+                {
+                  "description": "brand_id of the record",
+                  "key": "brand_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Retire a manufacturer",
+          "request": {
+            "description": "Archives the manufacturer. Refused while live items, item-vendor links or brands name it.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "manufacturers",
+                ":manufacturer_id"
+              ],
+              "query": [
+                {
+                  "description": "Why the record is being retired",
+                  "disabled": false,
+                  "key": "reason",
+                  "value": ""
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/products/manufacturers/{manufacturer_id}?",
+              "variable": [
+                {
+                  "description": "manufacturer_id of the record",
+                  "key": "manufacturer_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Retire a variant",
           "request": {
             "description": "Retire a variant",
@@ -15701,6 +16031,18 @@
                   "value": "False"
                 },
                 {
+                  "description": "Items sold under this brand",
+                  "disabled": true,
+                  "key": "brand_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "Items made by this manufacturer",
+                  "disabled": true,
+                  "key": "manufacturer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
                   "description": "",
                   "disabled": true,
                   "key": "can_purchase",
@@ -15831,6 +16173,18 @@
                   "value": "False"
                 },
                 {
+                  "description": "Items sold under this brand",
+                  "disabled": true,
+                  "key": "brand_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "Items made by this manufacturer",
+                  "disabled": true,
+                  "key": "manufacturer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
                   "description": "",
                   "disabled": true,
                   "key": "can_purchase",
@@ -15922,6 +16276,90 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/products/items?"
+            }
+          }
+        },
+        {
+          "name": "Update a brand",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"description\": \"\",\n  \"is_active\": false,\n  \"manufacturer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"name\": \"\",\n  \"sort_order\": 0\n}"
+            },
+            "description": "The code is fixed once created. An `is_active` change goes through the brand lifecycle and is refused while live items carry the brand.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "brands",
+                ":brand_id"
+              ],
+              "raw": "{{base_url}}/api/v1/products/brands/{brand_id}",
+              "variable": [
+                {
+                  "description": "brand_id of the record",
+                  "key": "brand_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update a manufacturer",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"country\": \"\",\n  \"is_active\": false,\n  \"legal_name\": \"\",\n  \"name\": \"\",\n  \"notes\": \"\",\n  \"website\": \"\"\n}"
+            },
+            "description": "The code is fixed once created. An `is_active` change goes through the manufacturer lifecycle and is refused while live items, item-vendor links or brands name the manufacturer.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "manufacturers",
+                ":manufacturer_id"
+              ],
+              "raw": "{{base_url}}/api/v1/products/manufacturers/{manufacturer_id}",
+              "variable": [
+                {
+                  "description": "manufacturer_id of the record",
+                  "key": "manufacturer_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },
@@ -16061,7 +16499,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"base_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"can_be_assembly_component\": false,\n  \"can_be_bom_component\": false,\n  \"can_be_spare\": false,\n  \"can_job_work\": false,\n  \"can_manufacture\": false,\n  \"can_purchase\": false,\n  \"can_return\": false,\n  \"can_scrap\": false,\n  \"can_sell\": false,\n  \"category_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"colour_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"dealer_price\": 0,\n  \"default_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"description\": \"\",\n  \"finish_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"gst_rate\": 0,\n  \"hsn_code\": \"\",\n  \"is_batch_tracked\": false,\n  \"is_serial_tracked\": false,\n  \"item_group\": \"RAW_MATERIAL\",\n  \"lead_time_days\": 0,\n  \"min_order_quantity\": 0,\n  \"name\": \"\",\n  \"production_type\": \"MAKE\",\n  \"purchase_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"reorder_level\": 0,\n  \"reorder_quantity\": 0,\n  \"safety_stock\": 0,\n  \"sale_price\": 0,\n  \"sale_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"shelf_life_days\": 0,\n  \"size_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"standard_cost\": 0\n}"
+              "raw": "{\n  \"base_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"brand_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"can_be_assembly_component\": false,\n  \"can_be_bom_component\": false,\n  \"can_be_spare\": false,\n  \"can_job_work\": false,\n  \"can_manufacture\": false,\n  \"can_purchase\": false,\n  \"can_return\": false,\n  \"can_scrap\": false,\n  \"can_sell\": false,\n  \"category_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"colour_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"dealer_price\": 0,\n  \"default_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"description\": \"\",\n  \"finish_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"gst_rate\": 0,\n  \"hsn_code\": \"\",\n  \"is_batch_tracked\": false,\n  \"is_serial_tracked\": false,\n  \"item_group\": \"RAW_MATERIAL\",\n  \"lead_time_days\": 0,\n  \"manufacturer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"manufacturer_part_number\": \"\",\n  \"min_order_quantity\": 0,\n  \"name\": \"\",\n  \"production_type\": \"MAKE\",\n  \"purchase_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"reorder_level\": 0,\n  \"reorder_quantity\": 0,\n  \"safety_stock\": 0,\n  \"sale_price\": 0,\n  \"sale_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"shelf_life_days\": 0,\n  \"size_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"standard_cost\": 0\n}"
             },
             "description": "Update an item",
             "header": [
@@ -16145,7 +16583,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"is_active\": false,\n  \"is_preferred\": false,\n  \"lead_time_days\": 0,\n  \"min_order_quantity\": 0,\n  \"order_multiple\": 0,\n  \"vendor_item_code\": \"\",\n  \"vendor_item_name\": \"\"\n}"
+              "raw": "{\n  \"is_active\": false,\n  \"is_preferred\": false,\n  \"lead_time_days\": 0,\n  \"manufacturer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"manufacturer_part_number\": \"\",\n  \"min_order_quantity\": 0,\n  \"order_multiple\": 0,\n  \"vendor_item_code\": \"\",\n  \"vendor_item_name\": \"\"\n}"
             },
             "description": "Update an item-vendor link",
             "header": [

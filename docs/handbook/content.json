@@ -3,7 +3,7 @@
     "systemSummary": "Atcraft is one system for running an architectural-hardware manufacturing business end to end: what you make and what it is built from, what customers have ordered, what has to be bought or made to cover it, what is on the shelf, what has been checked, packed and sent, and what is owed either way. Everything in it hangs off two things \u2014 an item master that every other document points at, and a stock ledger in which every single movement of material is written down with a reason and a name against it. Because of that, the stock figure on the screen is not an estimate that somebody keys in and corrects later; it is the arithmetic of documents your own people have raised, and every one of those documents can be traced back to who raised it, who approved it, and why. The rest \u2014 sales orders, MRP, purchase orders, goods receipts, quality inspections, production orders, job work, packing, dispatch, invoices and payments \u2014 is the paperwork of the business, arranged in the order the work actually happens.",
     "whatItReplaces": "Almost every business of this size runs on a stock register in a spreadsheet, a purchase file, a WhatsApp group for the shop floor and the accountant's own books \u2014 four records of the same facts that agree with each other only until somebody is on leave. The everyday cost is not the typing; it is that nobody can answer a plain question in one place: is this order covered, why did we buy 200 of those, who passed that lot, where did the twelve missing pieces go. What changes is that each of those facts now has exactly one home and one moment at which it is recorded. Stock changes only when a document is posted \u2014 a receipt, an issue, a production booking, a dispatch \u2014 never by editing a number, so the register cannot quietly drift. An order that cannot be covered from stock is not a discovery made at picking time; the shortfall is on the screen the moment the order is confirmed. What you give up is the freedom to fix things afterwards: an approved purchase order cannot be edited, a sealed carton cannot be unsealed, a posted movement cannot be deleted. Corrections happen the way they do in a ledger \u2014 by another entry, with a reason, that stays visible.",
     "signIn": "Open the address your administrator gave you and sign in on the Sign in screen with your email address and password. If your account has two-factor authentication switched on, the screen then asks for the six-digit code from your authenticator app; there is a \"Back to password\" link if you started with the wrong account. Get the password wrong too many times in a row and the screen holds you off with a visible countdown before it will try again \u2014 wait it out rather than reloading. There is a \"Forgotten your password?\" link below the button. The first time you sign in with a password an administrator issued for you, the system will not let you go any further: it takes you straight to \"Choose a new password\", explains that a temporary password is in use, and asks for a new one. The new password must be at least twelve characters and contain a lowercase letter, an uppercase letter, a digit and a symbol; a live checklist beside the box shows what is still missing, and the server additionally refuses very common passwords and anything containing your own email address. Setting it signs out every other device you were signed in on. Only when that is done does the rest of the application open. Afterwards, your own account lives on Profile & sessions, reached from your name at the top right: change your password there, switch two-factor authentication on or off, and see every device currently signed in as you \u2014 with a Revoke button beside each one, which is what to use the day a phone is lost.",
-    "navigation": "The menu down the left is deliberately not an alphabetical list of features; it is the order the work happens in, from demand through to accounts. Overview is the dashboard. Sales holds sales orders, customers and dealers. Inventory holds stock balances, the stock ledger, reservations, transfers and adjustments, warehouses and storage locations. Engineering holds items, bills of material, routings and the item masters (categories, units, conversions, attributes and price lists). Planning holds MRP. Procurement runs requisitions, purchase orders, goods receipts, RFQs, quotations, purchase returns, vendors and transporters. Manufacturing holds production orders, assembly, work orders and job work. Quality & Dispatch holds quality control, the QC check sheets, packing and dispatch. Finance holds ledgers and outstanding, vendor invoices, payments and the chart of accounts. Insights holds reports, the audit trail and documents. Administration holds users and roles, and the organisation record. Two things about the menu are worth knowing. First, you only see the sections your job needs \u2014 a storekeeper does not see Finance, because every screen in it would only refuse them; if a colleague describes a screen you cannot find, it is a permission question for your administrator, not a fault. Second, some entries carry a small number: open sales orders, requisitions waiting, purchase orders waiting for approval, jobs in progress, job work sitting at a vendor, inspections pending, consignments running late. That number is the day's queue. Along the top there is a box that searches items by code or name, a bell for notifications with the unread count on it, a light/dark switch, and your own name, which opens Profile & sessions and Sign out.",
+    "navigation": "The menu down the left is deliberately not an alphabetical list of features; it is the order the work happens in, from demand through to accounts. Overview is the dashboard. Sales holds sales orders, customers and dealers. Inventory holds stock balances, the stock ledger, reservations, transfers and adjustments, warehouses and storage locations. Engineering holds items, bills of material, routings and the item masters (categories, units, conversions, attributes, brands, manufacturers and price lists). Planning holds MRP. Procurement runs requisitions, purchase orders, goods receipts, RFQs, quotations, purchase returns, vendors and transporters. Manufacturing holds production orders, assembly, work orders and job work. Quality & Dispatch holds quality control, the QC check sheets, packing and dispatch. Finance holds ledgers and outstanding, vendor invoices, payments and the chart of accounts. Insights holds reports, the audit trail and documents. Administration holds users and roles, and the organisation record. Two things about the menu are worth knowing. First, you only see the sections your job needs \u2014 a storekeeper does not see Finance, because every screen in it would only refuse them; if a colleague describes a screen you cannot find, it is a permission question for your administrator, not a fault. Second, some entries carry a small number: open sales orders, requisitions waiting, purchase orders waiting for approval, jobs in progress, job work sitting at a vendor, inspections pending, consignments running late. That number is the day's queue. Along the top there is a box that searches items by code or name, a bell for notifications with the unread count on it, a light/dark switch, and your own name, which opens Profile & sessions and Sign out.",
     "endToEnd": [
       {
         "step": 1,
@@ -130,12 +130,12 @@
       {
         "role": "Purchase Manager",
         "forWhom": "Whoever carries the buying authority.",
-        "canDo": "The whole procurement cycle \u2014 vendors, requisitions, RFQs, quotations, purchase orders, returns \u2014 plus the approvals a buyer cannot give themselves: approving requisitions, and approving, rejecting or cancelling purchase orders. Can also start an MRP run."
+        "canDo": "The whole procurement cycle \u2014 vendors, requisitions, RFQs, quotations, purchase orders, returns \u2014 plus the approvals a buyer cannot give themselves: approving requisitions, and approving, rejecting or cancelling purchase orders. Can also start an MRP run. Reads the brand and manufacturer lists, because parts are often sourced by maker."
       },
       {
         "role": "Purchase Executive",
         "forWhom": "The buyer who does the day's procurement work.",
-        "canDo": "Raises and prices everything \u2014 vendors, requisitions, RFQs, quotations, purchase orders \u2014 and sends an approved order to the vendor. Deliberately cannot approve any of it. That gap is the control: the person who chooses the supplier and the price is not the person who commits the money."
+        "canDo": "Raises and prices everything \u2014 vendors, requisitions, RFQs, quotations, purchase orders \u2014 and sends an approved order to the vendor. Deliberately cannot approve any of it. That gap is the control: the person who chooses the supplier and the price is not the person who commits the money. Reads the brand and manufacturer lists, because parts are often sourced by maker."
       },
       {
         "role": "Production Supervisor",
@@ -155,7 +155,7 @@
       {
         "role": "Sales Executive",
         "forWhom": "Whoever takes customer orders.",
-        "canDo": "Maintains customers, raises and amends sales orders, and confirms them \u2014 which is what reserves stock and reports the shortfall. Sees prices, stock, reservations, dispatches and sales invoices. Cannot buy, make or ship."
+        "canDo": "Maintains customers, raises and amends sales orders, and confirms them \u2014 which is what reserves stock and reports the shortfall. Sees prices, brands, stock, reservations, dispatches and sales invoices. Cannot buy, make or ship."
       },
       {
         "role": "Accounts",
@@ -165,12 +165,12 @@
       {
         "role": "Production Planner",
         "forWhom": "The person who decides what gets made and bought, and when.",
-        "canDo": "Runs MRP, reads the shortage list and converts suggestions into requisitions and production orders. Sees bills of material with their costs, routings, stock, reservations, the order book and items. Can allocate and reallocate reserved stock between orders. Cannot approve a purchase order or release a job."
+        "canDo": "Runs MRP, reads the shortage list and converts suggestions into requisitions and production orders. Sees bills of material with their costs, routings, stock, reservations, the order book, and items with their brands. Can allocate and reallocate reserved stock between orders. Cannot approve a purchase order or release a job."
       },
       {
         "role": "Design Engineer",
         "forWhom": "Whoever owns the product data.",
-        "canDo": "Creates and maintains items, item categories, the finish/size/colour attributes, bills of material with their costs, and routings; can mark a BOM obsolete. Sees work centres and machines. Uploads drawings and specifications. Cannot approve a BOM, and touches nothing transactional."
+        "canDo": "Creates and maintains items, item categories, the finish/size/colour attributes, brands and manufacturers, bills of material with their costs, and routings; can mark a BOM obsolete. Sees work centres and machines. Uploads drawings and specifications. Cannot approve a BOM, and touches nothing transactional."
       },
       {
         "role": "Auditor",
@@ -183,12 +183,12 @@
         "canDo": "A narrow window onto their own records only \u2014 their purchase orders, their consignments, their documents \u2014 and the system additionally confines them to that one vendor and, for a vendor manager, to the item categories you assign. A vendor owner can also raise their invoices and see payments; a vendor dispatch manager records consignment and courier details; a vendor QC contact sees inspection outcomes on their own supplies."
       }
     ],
-    "configurable": "Your own staff maintain the lists the business genuinely owns, without anyone from the software side being involved: item categories, units of measure and the conversions between them, the finish, size and colour attributes, price lists, warehouses and the storage locations inside them, vendors, customers and dealers, transporters, work centres and the machines in them, the QC check sheets, and users and roles \u2014 including new roles of your own if the built-in ones do not match how you split the work. Branches, plants, departments and the accounting calendar are yours too, on the Organisation screen. What you cannot edit is the vocabulary the system computes with: the statuses a document can be in (draft, pending approval, approved, released, dispatched and so on) and the item groups (raw material, component, semi-finished, finished good, consumable, packing material, spare, scrap, service). That is deliberate, and it is what makes the rest trustworthy. The rules that protect you \u2014 an approved purchase order cannot be edited, a job cannot be released without its components held, a lot on QC hold cannot be issued \u2014 are written in terms of those statuses; if a status could be renamed or a new one added from a settings screen, the rule attached to it would quietly stop applying. Item groups are for reporting and for setting sensible defaults on a new item, and nothing in the system is allowed to decide what you may do based on them; the ticks on the item itself \u2014 can be sold, can be purchased, can be manufactured, can be a component, can be a spare \u2014 are the ones that decide, and those you set freely, item by item. So the practical rule is: if it is a name, a rate, a place, a person or a specification, you maintain it; if it is a step in a lifecycle, it is fixed, and the way to change how a lifecycle behaves is a change to the software, discussed and released like any other.",
+    "configurable": "Your own staff maintain the lists the business genuinely owns, without anyone from the software side being involved: item categories, units of measure and the conversions between them, the finish, size and colour attributes, brands and manufacturers, price lists, warehouses and the storage locations inside them, vendors, customers and dealers, transporters, work centres and the machines in them, the QC check sheets, and users and roles \u2014 including new roles of your own if the built-in ones do not match how you split the work. Branches, plants, departments and the accounting calendar are yours too, on the Organisation screen. What you cannot edit is the vocabulary the system computes with: the statuses a document can be in (draft, pending approval, approved, released, dispatched and so on) and the item groups (raw material, component, semi-finished, finished good, consumable, packing material, spare, scrap, service). That is deliberate, and it is what makes the rest trustworthy. The rules that protect you \u2014 an approved purchase order cannot be edited, a job cannot be released without its components held, a lot on QC hold cannot be issued \u2014 are written in terms of those statuses; if a status could be renamed or a new one added from a settings screen, the rule attached to it would quietly stop applying. Item groups are for reporting and for setting sensible defaults on a new item, and nothing in the system is allowed to decide what you may do based on them; the ticks on the item itself \u2014 can be sold, can be purchased, can be manufactured, can be a component, can be a spare \u2014 are the ones that decide, and those you set freely, item by item. So the practical rule is: if it is a name, a rate, a place, a person or a specification, you maintain it; if it is a step in a lifecycle, it is fixed, and the way to change how a lifecycle behaves is a change to the software, discussed and released like any other.",
     "gettingHelp": "When a screen refuses something, it tells you which of four things happened, and each has a different next step. If the message is about stock \u2014 not enough available \u2014 the quantity you asked for is promised elsewhere or has not arrived; check the reservations and the allocation panel on the order, and either free some up or plan for it. If it says the action is not allowed in this state, the document has moved past that point: a purchase order that has been approved cannot be edited, a production order that has started cannot be cancelled, a sealed carton cannot be reopened. The remedy is always to raise the next document rather than to undo the last \u2014 cancel and re-raise, adjust, return, or issue again \u2014 and that trail is a feature, not a nuisance. If it says you are not permitted, the account is right and the rights are not; note the screen and the button and ask your administrator, who can adjust your role on Users & Roles. If it says something changed since you opened it, someone else saved the same record while you were working \u2014 refresh the screen, look at what they did, and redo your change on top of it. Anything asking for a reason genuinely needs three characters or more, and that sentence is kept in the audit trail, so write the reason a colleague would need in six months, not \"ok\". Two habits pay for themselves: check the Audit trail before asking anyone what happened to a document, because it names who did what and when with the reason they gave; and if the message says something went wrong on the server, it carries a short reference code \u2014 send that code with your description, because it is what lets the fault be found in the logs immediately instead of being guessed at."
   },
   "chapters": [
     {
-      "groupIntro": "This chapter covers the way in and the reference lists the rest of the system draws on. It starts with signing in and the first-time password change, then the dashboard an owner opens each morning and the left-hand menu that maps the whole business. The larger part of it is Item master data, where the classifications, units, conversions, finishes and price lists live - the vocabulary every other screen picks from, and the one area the client is expected to maintain without help. It closes with the company's own structure of branches, plants and departments, the notification inbox, and the two screens where a person looks after their own account.",
+      "groupIntro": "This chapter covers the way in and the reference lists the rest of the system draws on. It starts with signing in and the first-time password change, then the dashboard an owner opens each morning and the left-hand menu that maps the whole business. The larger part of it is Item master data, where the classifications, units, conversions, finishes, brands, manufacturers and price lists live - the vocabulary every other screen picks from, and the one area the client is expected to maintain without help. It closes with the company's own structure of branches, plants and departments, the notification inbox, and the two screens where a person looks after their own account.",
       "groupTitle": "Getting in, and the lists everything else uses",
       "screens": [
         {
@@ -286,12 +286,12 @@
         {
           "route": "/masters",
           "title": "Item master data",
-          "purpose": "The vocabulary the whole system picks from: how items are classified, what they are measured in, how those measures relate to one another, the permitted finishes, sizes and colours, and what things sell for. Nothing here is a transaction - no stock moves, no money is posted - but almost every document elsewhere chooses from these lists, so an hour spent getting them right saves an argument at every goods receipt afterwards. This is the screen to reach for whenever the answer to \"can we change that ourselves?\" is yes.",
+          "purpose": "The vocabulary the whole system picks from: how items are classified, what they are measured in, how those measures relate to one another, the permitted finishes, sizes and colours, the brands products are sold under and the manufacturers that make them, and what things sell for. Nothing here is a transaction - no stock moves, no money is posted - but almost every document elsewhere chooses from these lists, so an hour spent getting them right saves an argument at every goods receipt afterwards. This is the screen to reach for whenever the answer to \"can we change that ourselves?\" is yes.",
           "whoUses": "The owner, or whoever is trusted with the item master - often the same person who creates new items.",
           "keyActions": [
             {
-              "action": "Move between the five lists",
-              "how": "The tabs across the top: Categories, Units, Conversions, Attributes, Prices.",
+              "action": "Move between the seven lists",
+              "how": "The tabs across the top: Categories, Units, Conversions, Attributes, Brands, Manufacturers, Prices.",
               "note": "The tab is part of the web address, so a colleague can be sent straight to the unit conversions rather than told to open Masters and click the third tab."
             },
             {
@@ -307,11 +307,11 @@
           ],
           "rules": [
             "Which tabs appear depends on what the account may read. Units and Conversions are governed by one right, so they always appear and disappear together.",
-            "None of the five lists can be sorted by clicking a column heading - each arrives in the order that makes sense for it: categories in tree order, prices by validity. The search box and filters are how a row is found.",
+            "Brands and Manufacturers can be sorted by clicking the Code or Name heading - and brands by Position as well. The other five lists cannot: each arrives in the order that makes sense for it - categories in tree order, prices by validity - and the search box and filters are how a row is found.",
             "Every list shows fifty rows at a time by default and pages through the rest."
           ],
-          "permission": "Opening the screen at all needs the right to read categories, units or prices. Each tab is then shown or hidden on its own read right, and the create, edit and delete buttons on its own change right - so a person can be given the ability to read every list and change only one of them.",
-          "notes": "Two things the deck assembler should know. First, the screenshot of /masters will show the Categories tab, because that is the first tab an owner sees. Second, and worth telling the client: the Attributes tab is governed by its own right, but that right alone does not open this screen - an account that may only maintain finishes and colours still needs the right to read categories, units or prices to get in. In practice grant the person the category read right as well. The sidebar entry has the same condition."
+          "permission": "Opening the screen at all needs the right to read at least one of its lists: categories, units, attributes, brands, manufacturers or prices. Each tab is then shown or hidden on its own read right, and the create, edit and delete buttons on its own change right - so a person can be given the ability to read every list and change only one of them.",
+          "notes": "Two things the deck assembler should know. First, the screenshot of /masters will show the Categories tab, because that is the first tab an owner sees. Second, and worth telling the client: every tab's read right opens this screen and its sidebar entry on its own - an account that may only maintain brands, say, gets in and sees only the Brands tab. On a system installed before brands and manufacturers existed, the administrator roles receive those four rights automatically and every other role is granted them from Settings -> Roles."
         },
         {
           "route": "/masters?tab=categories",
@@ -497,6 +497,108 @@
           ],
           "permission": "Reading the list needs the right to view item attributes; adding, renaming and retiring need the right to manage them. Without the change right the list is fully readable with no New button and no pencil.",
           "notes": "This is the newest part of the screen and the one the client asked for, so it deserves a full page in the deck. For the screenshot, filter to Finish - a list of real finishes reads far better than a mixture of all three. The Offered/Retired filter is labelled in those words rather than Active/Inactive, which is worth matching in the caption."
+        },
+        {
+          "route": "/masters?tab=brands",
+          "title": "Brands",
+          "purpose": "The names the business sells its products under - the house brand, a premium line, and any partner brand whose goods it resells. A brand is a record of its own rather than words typed on each item, so every item carrying it is found with one filter and a corrected spelling reaches every item at once. A brand may name the manufacturer that owns it. It is classification and nothing more: no price, discount, approval or permission anywhere in the system depends on which brand an item carries.",
+          "whoUses": "Whoever owns the product data - usually the person who maintains the item master.",
+          "keyActions": [
+            {
+              "action": "Add a brand",
+              "how": "New brand at the top right. Give it a code and a name, and optionally the manufacturer that owns it, a position in the list and a description.",
+              "note": "As soon as it is saved it appears in the Brand box on every item form and in the brand filter on the item list."
+            },
+            {
+              "action": "Correct a name or change the owner",
+              "how": "The pencil at the end of the row.",
+              "note": "Safe: items point at the brand record, not at its words, so the new name shows everywhere at once. The code is locked."
+            },
+            {
+              "action": "Choose the order brands are offered in",
+              "how": "The pencil, then change Position in the list. Lower comes first.",
+              "note": "Put the house brand first, whatever its code sorts as."
+            },
+            {
+              "action": "Stop offering a brand",
+              "how": "The pencil, then clear Offered on item forms and save.",
+              "note": "Refused while any item still carries the brand - move those items first."
+            },
+            {
+              "action": "Retire a brand",
+              "how": "The three-dot menu at the end of the row, then Retire brand. Give a reason and confirm.",
+              "note": "Refused while any item still carries the brand, and the dialog shows exactly why. The reason is kept on the audit trail."
+            },
+            {
+              "action": "Narrow or sort the list",
+              "how": "The status box and, for someone who may read manufacturers, the Owner box above the table; the search box finds a code or a name. Click the Code, Name or Position heading to sort.",
+              "note": ""
+            }
+          ],
+          "flow": [
+            "Open the Brands tab.",
+            "Press New brand.",
+            "Enter a short code (ATCRAFT-PRO) and the name as it should read on forms (ATCRAFT PRO).",
+            "Choose the owning manufacturer if there is one, and a position if the order on the form matters.",
+            "Save, then open any item form: the brand is now in the Brand list."
+          ],
+          "rules": [
+            "The code is unique within the business and fixed once created. A retired brand's code is never reused either, because it still appears in the history of the items that carried it.",
+            "A brand has at most one owner - the manufacturer whose brand it is - recorded for reference only.",
+            "A brand cannot be switched off or retired while any item, active or inactive, still carries it. Move the items to another brand first; the refusal says so.",
+            "Retiring is final: a retired brand disappears from every list and picker, and nothing on this screen brings it back.",
+            "Nothing in the system decides anything from a brand. Prices, discounts, approvals and stock all ignore it; it exists to classify, filter and report."
+          ],
+          "permission": "Reading the list needs the right to view brands; adding, editing and retiring need the right to manage them. The Owner column and filter also need the right to view manufacturers - without it a recorded owner reads 'Not in the active list'.",
+          "notes": "The demonstration data carries three brands - ATCRAFT, ATCRAFT PRO and a fictional partner brand on the bought-in lock cylinders - so the screenshot shows real rows."
+        },
+        {
+          "route": "/masters?tab=manufacturers",
+          "title": "Manufacturers",
+          "purpose": "Who actually makes a part. That is often not who sells it to you: a lock cylinder is routinely bought from a distributor while being made by someone else, which is why a manufacturer is a list of its own and not a vendor. The business's own works belong here too, as the maker of everything made in-house. An item records its maker and the maker's own part number, and each supplier link records which maker's part that supplier delivers - so a recall notice or a warranty claim can be traced to the right goods.",
+          "whoUses": "Whoever owns the product data, and the buyers who source parts by maker.",
+          "keyActions": [
+            {
+              "action": "Add a manufacturer",
+              "how": "New manufacturer at the top right. Give it a code and a name, and optionally its registered legal name, its country (India unless changed), website and notes.",
+              "note": "It is then offered on the item form, as a brand owner, and is shown against the supplier links that name it."
+            },
+            {
+              "action": "Correct the details",
+              "how": "The pencil at the end of the row.",
+              "note": "The code is locked; everything else can change."
+            },
+            {
+              "action": "Stop offering a manufacturer",
+              "how": "The pencil, then clear Offered on forms and save.",
+              "note": "Refused while items, supplier links or brands still name it."
+            },
+            {
+              "action": "Retire a manufacturer",
+              "how": "The three-dot menu, then Retire manufacturer. Give a reason and confirm.",
+              "note": "When it is refused, the dialog names what is in the way - items, supplier links or brands."
+            },
+            {
+              "action": "Narrow or sort the list",
+              "how": "The status box above the table; the search box finds a code, a name or a legal name. Click the Code or Name heading to sort.",
+              "note": ""
+            }
+          ],
+          "flow": [
+            "Open the Manufacturers tab.",
+            "Press New manufacturer.",
+            "Enter the code and the trading name; add the legal name and website if they help.",
+            "Save. The maker is now offered on the item form and as a brand owner."
+          ],
+          "rules": [
+            "The code is unique within the business, fixed once created, and never reused after the manufacturer is retired.",
+            "A manufacturer cannot be switched off or retired while any item, supplier link or brand still names it. The refusal says which.",
+            "A manufacturer is not a vendor. Nothing is ordered from, received from or paid to a manufacturer; those are vendor matters.",
+            "A manufacturer's part number is free text, kept exactly as the maker writes it; the system never interprets it.",
+            "Nothing in the system decides anything from a manufacturer: it is recorded for traceability and reporting."
+          ],
+          "permission": "Reading the list needs the right to view manufacturers; adding, editing and retiring need the right to manage them.",
+          "notes": "The demonstration data carries the company's own works and two fictional outside makers - a lock-cylinder maker and a spring and fastener maker - whose parts arrive through the demonstration fastener distributor."
         },
         {
           "route": "/masters?tab=prices",
@@ -808,8 +910,8 @@
               "note": "The search looks through the entire item master, not just the rows on screen. It needs at least two characters \u2014 a single letter would force the system to read every row and would be too slow to be useful, so it is ignored."
             },
             {
-              "action": "Narrow the list to one category, group or status",
-              "how": "Use the three drop-downs in the toolbar: category, item group, and Active only / Inactive only.",
+              "action": "Narrow the list to one category, group, brand or status",
+              "how": "Use the drop-downs in the toolbar: category, item group, brand (offered to someone who may read brands), and Active only / Inactive only.",
               "note": "Choosing a category also brings in everything filed under its sub-categories. The status control offers only the two real states \u2014 there is no 'show everything' option."
             },
             {
@@ -839,7 +941,7 @@
             "Press New item.",
             "Enter the code and the name. The code is normalised by the system, so RM-001 and 'rm 001' cannot become two separate items.",
             "Choose the item group \u2014 raw material, component, semi-finished, finished good, consumable, packing material, spare, scrap or service.",
-            "Optionally choose a category, and a finish, size and colour from the lists the business maintains.",
+            "Optionally choose a category, a finish, size and colour, a brand and a manufacturer from the lists the business maintains, and type the manufacturer's own part number.",
             "Choose the base unit \u2014 the unit stock is counted in. Optionally set a different purchase unit and sale unit; both start as 'Same as base'.",
             "Enter the HSN code and the GST rate.",
             "Choose the production type \u2014 Make, Buy, Make or buy, or Job work \u2014 and enter lead time in days, reorder level, and standard cost if you are entitled to see costs.",
@@ -856,7 +958,7 @@
             "A purchase or sale unit must be convertible to the base unit, and the conversion must already be defined under Masters. This is checked when you save, so the problem surfaces at the desk rather than at a goods receipt with the vendor's lorry at the gate.",
             "GST rate cannot exceed 100 percent and lead time cannot exceed 3650 days."
           ],
-          "permission": "Anyone who may view items can open this screen. New item appears only for someone with the right to create items. The Standard cost column is shown only to someone with the right to see item costs \u2014 the figure is withheld by the system itself, not merely hidden. The category and unit pickers need the separate rights to view categories and to view units; without them those drop-downs simply come up empty.",
+          "permission": "Anyone who may view items can open this screen. New item appears only for someone with the right to create items. The Standard cost column is shown only to someone with the right to see item costs \u2014 the figure is withheld by the system itself, not merely hidden. The category and unit pickers need the separate rights to view categories and to view units; without them those drop-downs simply come up empty. The brand filter, and the Brand and Manufacturer boxes on the form, need the rights to view brands and manufacturers; without them the boxes offer only 'None', and editing an item keeps whatever brand and maker it already records.",
           "notes": "Two honest gaps worth knowing before the screenshot is taken. (1) The grid deliberately carries no stock or reorder-level column \u2014 stock for one item is answered on that item's Stock tab, and putting it in a list of 50 rows would mean a separate stock look-up per row. (2) Nothing in the application deactivates an item, so the 'Inactive only' filter will normally return an empty list; items leave service by being retired, not deactivated. There is no delete on this screen. On a fresh system the capability icons on each row will look sparse, because the create form starts with every capability unticked rather than pre-ticking the ones usual for the chosen group."
         },
         {
@@ -867,7 +969,7 @@
           "keyActions": [
             {
               "action": "Read the master record",
-              "how": "Overview tab \u2014 code, name, group, category, the three units, production type, lead time, HSN and GST, reorder and safety levels, shelf life, whether stock is batch or serial tracked, sale and dealer price, and the finish, size and colour.",
+              "how": "Overview tab \u2014 code, name, group, category, the three units, production type, lead time, HSN and GST, reorder and safety levels, shelf life, whether stock is batch or serial tracked, sale and dealer price, the finish, size and colour, and the brand, the manufacturer and the manufacturer's part number.",
               "note": "The panel beside it lists all nine capabilities as separate Yes/No lines, never as a single classification."
             },
             {
@@ -897,7 +999,7 @@
             },
             {
               "action": "See the suppliers of this part",
-              "how": "Vendors tab \u2014 vendor, the vendor's own code for the part, lead time, minimum order, order multiple, last purchase price and date, and which one is preferred.",
+              "how": "Vendors tab \u2014 vendor, the vendor's own code for the part, the maker's part number it delivers (with the maker's name), lead time, minimum order, order multiple, last purchase price and date, and which one is preferred.",
               "note": "Read only. There is no screen anywhere in the application for adding or editing a supplier link."
             },
             {
@@ -923,7 +1025,8 @@
             "Retirement is not blocked by stock or by use in a bill of materials \u2014 but the confirmation goes and looks before you commit, and tells you how much stock will be left stranded and how many bills still list the part. That is a decision for you to take, not a rule the system will enforce.",
             "No reason is recorded for a retirement, because the system does not ask for one: the audit trail records the act and your name against it.",
             "A retired finish, size or colour cannot be assigned to an item, but an item that already carries one keeps it. Master data is tidied going forward, never by rewriting what was already recorded.",
-            "A variant's finish, size and colour combination is freed the moment it is retired, so an identical variant can be created again under a new code."
+            "A variant's finish, size and colour combination is freed the moment it is retired, so an identical variant can be created again under a new code.",
+            "A brand or manufacturer that has been switched off cannot be newly given to an item, and neither can be switched off while items still carry it - so the brand an item shows is always one the business still offers."
           ],
           "permission": "Viewing needs the right to see items. Edit appears for someone with the right to update items; Retire, both for the item and for a variant, needs the right to delete items \u2014 deliberately a different right, because deactivating is reversible and retiring is not. The Stock tab needs the right to view inventory, Where used the right to view bills of materials, and Prices the right to view prices; without them the tab shows a polite note instead of the data. Standard cost and the variants' cost difference are shown only with the right to see item costs.",
           "notes": "Several things on this screen are read-only and the deck should say so rather than leave the reader hunting for a button. Variants cannot be created or edited anywhere in the application \u2014 only listed and retired. Supplier links cannot be created or edited anywhere. Prices are maintained under Masters, not here. Sale price and dealer price appear on the Overview but there is no field for them on the item form, so on a system without seeded data they will read zero. The 'Valuation' line on the Overview will show a dash: the field was removed from the system and the screen still asks for it. Batch and serial tracking are shown but cannot be changed from any screen. There is no activate/deactivate control. The Where used tab lists direct parents only, so its Level column always reads 1."

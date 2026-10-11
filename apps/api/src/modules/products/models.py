@@ -69,6 +69,16 @@ MAX_CATEGORY_DEPTH = 8
 #: ``/<uuid>/`` per level, 37 characters each, plus headroom.
 CATEGORY_PATH_LENGTH = 512
 
+#: Where a manufacturer is assumed to be when nobody says otherwise - the same
+#: default the vendor and customer address columns carry. ASSUMPTION: a default,
+#: never a rule; docs/assumptions.md §A1-2.
+DEFAULT_MANUFACTURER_COUNTRY = "India"
+
+#: Upper bound of a brand's presentation position, mirrored by a CHECK so a
+#: value the schema would refuse cannot arrive by another route either. The same
+#: bound ``ItemAttribute.sort_order`` takes at the API.
+MAX_BRAND_SORT_ORDER = 9999
+
 
 class ItemGroup(StrEnum):
     """Reporting classification only.
@@ -327,6 +337,99 @@ class ItemAttribute(TenantMasterEntity):
     )
 
 
+class Manufacturer(TenantMasterEntity):
+    """Who actually makes a part - which is not always who sells it to us.
+
+    A cylinder made by one company is routinely bought through a distributor,
+    so a manufacturer is deliberately *not* a vendor: vendors carry payables,
+    approval and a portal login, and a maker carries none of that. The item
+    records its maker (and the maker's part number) for traceability; the
+    item-vendor link records which maker a particular source supplies.
+
+    Like the brand below, this is client-editable classification. Nothing in the
+    application may branch on a manufacturer - not on its code, not on its name,
+    not on its country. See ``docs/database.md`` section 3, "Brands and
+    manufacturers".
+    """
+
+    __tablename__ = "manufacturers"
+
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    #: The registered name, when it differs from the name the trade uses.
+    legal_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    country: Mapped[str] = mapped_column(
+        String(80),
+        nullable=False,
+        default=DEFAULT_MANUFACTURER_COUNTRY,
+        server_default=DEFAULT_MANUFACTURER_COUNTRY,
+    )
+    website: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "code", name="uq_manufacturers_company_id_code"),
+        # The picker's query: live makers, alphabetically.
+        Index(
+            "ix_manufacturers_company_active",
+            "company_id",
+            "name",
+            postgresql_where=text("is_active AND deleted_at IS NULL"),
+        ),
+    )
+
+
+class Brand(TenantMasterEntity):
+    """The name a product is sold under - ATCRAFT, a premium line, a partner's.
+
+    Separate from the item attributes on purpose: a brand is not a physical
+    property and does not vary by finish, so it lives on the item and never on a
+    variant. It may name the manufacturer that owns it; at most one, because a
+    brand with two owners is a licensing arrangement, not a master-data fact.
+
+    Nothing may branch on a brand. A dealer catalogue may *filter* by it - that
+    is what ``ix_items_company_brand`` exists for - but no price, permission or
+    posting rule may read it to decide anything.
+    """
+
+    __tablename__ = "brands"
+
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The brand owner. RESTRICT, so a maker cannot be removed from under the
+    #: brands it owns - and the service refuses to even retire one while a live
+    #: brand still names it. ASSUMPTION: at most one owner per brand, recorded
+    #: for reference only (docs/assumptions.md §A1-2).
+    manufacturer_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("manufacturers.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    #: Presentation order on pickers and in the catalogue: the house brand first,
+    #: whatever its code sorts as.
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "code", name="uq_brands_company_id_code"),
+        CheckConstraint(
+            f"sort_order >= 0 AND sort_order <= {MAX_BRAND_SORT_ORDER}",
+            name="sort_order_bounded",
+        ),
+        # The picker's query: live brands, in presentation order.
+        Index(
+            "ix_brands_company_active",
+            "company_id",
+            "sort_order",
+            postgresql_where=text("is_active AND deleted_at IS NULL"),
+        ),
+    )
+
+
 class Item(TenantMasterEntity):
     """The item master. One row per thing the company buys, makes, sells or ships."""
 
@@ -389,6 +492,21 @@ class Item(TenantMasterEntity):
     colour_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("item_attributes.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+
+    # --- brand and maker -----------------------------------------------------
+    # Classification and traceability only - nothing branches on either (see
+    # Brand). RESTRICT for the same reason as the attributes above: a brand that
+    # items carry is retired, never removed out from under them.
+    brand_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("brands.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    manufacturer_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("manufacturers.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    #: The maker's own part number, as free text - every maker numbers parts its
+    #: own way, so nothing here may parse it. ASSUMPTION: not unique and not
+    #: normalised beyond trimming (docs/assumptions.md §A1-2).
+    manufacturer_part_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # --- capability flags: master rules section 1 ----------------------------
     # Independent on purpose. Every one of these is read by a different module,
@@ -519,6 +637,14 @@ class Item(TenantMasterEntity):
             "company_id",
             "reorder_level",
             postgresql_where=text("reorder_level > 0 AND is_active AND deleted_at IS NULL"),
+        ),
+        # Browsing by brand - the item list's brand filter today, the dealer
+        # catalogue tomorrow - and the brand's own "still in use?" probe.
+        Index(
+            "ix_items_company_brand",
+            "company_id",
+            "brand_id",
+            postgresql_where=text("deleted_at IS NULL"),
         ),
         CheckConstraint("gst_rate >= 0 AND gst_rate <= 100", name="gst_rate_percentage"),
         CheckConstraint("standard_cost >= 0", name="standard_cost_non_negative"),
@@ -691,6 +817,16 @@ class ItemVendorLink(TenantMasterEntity):
     vendor_item_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     vendor_item_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    #: Who makes what this source supplies, and the maker's part number for it.
+    #: Per link rather than only per item: a distributor and the maker's own
+    #: depot may both supply "the same" cylinder, and only the link knows which
+    #: maker's part arrives from which source. Traceability only - nothing
+    #: branches on it.
+    manufacturer_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("manufacturers.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    manufacturer_part_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
     is_preferred: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
@@ -746,7 +882,10 @@ class ItemVendorLink(TenantMasterEntity):
 
 __all__ = [
     "CATEGORY_PATH_LENGTH",
+    "DEFAULT_MANUFACTURER_COUNTRY",
+    "MAX_BRAND_SORT_ORDER",
     "MAX_CATEGORY_DEPTH",
+    "Brand",
     "ConversionFactor",
     "Item",
     "ItemCategory",
@@ -755,6 +894,7 @@ __all__ = [
     "ItemPrice",
     "ItemVariant",
     "ItemVendorLink",
+    "Manufacturer",
     "PriceType",
     "ProductionType",
     "UnitOfMeasure",
