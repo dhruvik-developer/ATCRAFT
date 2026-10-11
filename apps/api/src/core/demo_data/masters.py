@@ -18,6 +18,8 @@ kind                    codes
 ``location``            ``DM-LOC-RM-A``, ``DM-LOC-RM-A-01`` ...
 ``category``            the baseline codes (``RAW-BRASS``) plus ``DM-CAT-*``
 ``item``                ``DM-RM-BRASS``, ``DM-BO-SCREW-CSK``, ``DM-FG-*`` ...
+``manufacturer``        ``DM-MFR-ATCRAFT``, ``DM-MFR-CYLINDER``, ``DM-MFR-SPRINGS``
+``brand``               ``DM-BRAND-ATCRAFT``, ``DM-BRAND-ATCRAFT-PRO``, ``DM-BRAND-SECUREPIN``
 ``customer``            ``DM-CUST-*``, ``DM-DLR-*``, ``DM-DIST-WEST``
 ``vendor``              ``DM-VEN-BRASS``, ``DM-VEN-SS``, ``DM-VEN-FAST`` ...
 ``transporter``         ``DM-TRN-VRL``, ``DM-TRN-GATI``, ``DM-TRN-CITY``
@@ -70,6 +72,7 @@ from src.modules.customers.schemas import AddressCreate, ContactCreate, Customer
 from src.modules.customers.service import CustomerService
 from src.modules.organization.models import Branch
 from src.modules.products.models import (
+    Brand,
     Item,
     ItemAttribute,
     ItemAttributeType,
@@ -77,18 +80,32 @@ from src.modules.products.models import (
     ItemGroup,
     ItemPrice,
     ItemVendorLink,
+    Manufacturer,
     PriceType,
     ProductionType,
     UnitOfMeasure,
 )
-from src.modules.products.repository import ItemAttributeRepository
+from src.modules.products.repository import ItemAttributeRepository, ItemRepository
 from src.modules.products.schemas import (
+    BrandCreate,
     CategoryCreate,
     ItemCreate,
+    ItemUpdate,
+    ManufacturerCreate,
     PriceCreate,
     VendorLinkCreate,
+    VendorLinkUpdate,
 )
-from src.modules.products.service import create_category, create_item, create_price, link_vendor
+from src.modules.products.service import (
+    create_brand,
+    create_category,
+    create_item,
+    create_manufacturer,
+    create_price,
+    link_vendor,
+    update_item,
+    update_vendor_link,
+)
 from src.modules.users.models import Role, User
 from src.modules.users.schemas import UserCreate
 from src.modules.users.service import UserService, generate_temporary_password
@@ -469,6 +486,90 @@ ITEMS: tuple[_ItemSpec, ...] = (
         warehouse="WH-SCR",
         can_manufacture=True,
     ),
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _ManufacturerSpec:
+    code: tuple[str, ...]
+    name: str
+    legal_name: str | None
+    notes: str
+
+
+#: Who makes things. The company's own works, which is the maker of record for
+#: everything made in-house, and two outside makers whose parts arrive through a
+#: distributor - which is exactly why a maker is not a vendor. The outside two
+#: are fictional and say so in their notes.
+MANUFACTURERS: tuple[_ManufacturerSpec, ...] = (
+    _ManufacturerSpec(
+        code=("MFR", "ATCRAFT"),
+        name="Atcraft Works",
+        legal_name=None,
+        notes=(
+            "Demonstration data. The company's own works - the maker of record for every "
+            "item made in-house."
+        ),
+    ),
+    _ManufacturerSpec(
+        code=("MFR", "CYLINDER"),
+        name="Saurashtra Cylinder Works (demo)",
+        legal_name="Saurashtra Cylinder Works Private Limited (demo)",
+        notes=(
+            "Demonstration data - a fictional lock-cylinder maker. Its cylinders are bought "
+            "through a fastener distributor, not from the maker directly."
+        ),
+    ),
+    _ManufacturerSpec(
+        code=("MFR", "SPRINGS"),
+        name="Western Springs and Fasteners (demo)",
+        legal_name="Western Springs and Fasteners LLP (demo)",
+        notes="Demonstration data - a fictional maker of springs and machine screws.",
+    ),
+)
+
+#: ``(code parts, name, owner manufacturer parts or None, position, description)``.
+#: The house brand first, then its premium line, then the partner brand the
+#: bought-in cylinders are sold under.
+BRANDS: tuple[tuple[tuple[str, ...], str, tuple[str, ...] | None, int, str], ...] = (
+    (("BRAND", "ATCRAFT"), "ATCRAFT", ("MFR", "ATCRAFT"), 0, "The house brand."),
+    (
+        ("BRAND", "ATCRAFT-PRO"),
+        "ATCRAFT PRO",
+        ("MFR", "ATCRAFT"),
+        10,
+        "The premium line: electronic locks and heavy-duty sets.",
+    ),
+    (
+        ("BRAND", "SECUREPIN"),
+        "SecurePin (demo)",
+        ("MFR", "CYLINDER"),
+        20,
+        "Demonstration data - a fictional partner brand, carried on the cylinders bought in "
+        "from its maker.",
+    ),
+)
+
+#: ``(item parts, brand parts or None, maker parts or None, maker's part number)``.
+#: Finished goods are ATCRAFT, made by the company's own works; the premium
+#: digital lock is ATCRAFT PRO. The sub-assemblies are made in-house but sold
+#: under no brand. The bought-in cylinder carries the partner brand and its
+#: maker; the spring and the screw carry only their maker, because nobody sells a
+#: screw by its brand.
+ITEM_BRANDING: tuple[
+    tuple[tuple[str, ...], tuple[str, ...] | None, tuple[str, ...] | None, str | None], ...
+] = (
+    (("FG", "LEVER-AB"), ("BRAND", "ATCRAFT"), ("MFR", "ATCRAFT"), None),
+    (("FG", "LEVER-SS"), ("BRAND", "ATCRAFT"), ("MFR", "ATCRAFT"), None),
+    (("FG", "MORTISE"), ("BRAND", "ATCRAFT"), ("MFR", "ATCRAFT"), None),
+    (("FG", "HINGE-SS"), ("BRAND", "ATCRAFT"), ("MFR", "ATCRAFT"), None),
+    (("FG", "DIGILOCK"), ("BRAND", "ATCRAFT-PRO"), ("MFR", "ATCRAFT"), None),
+    (("SF", "LEVER-BRASS"), None, ("MFR", "ATCRAFT"), None),
+    (("SF", "ROSE-SS"), None, ("MFR", "ATCRAFT"), None),
+    (("SF", "LOCKBODY"), None, ("MFR", "ATCRAFT"), None),
+    (("BO", "CYL-60"), ("BRAND", "SECUREPIN"), ("MFR", "CYLINDER"), "SCW-PC60-5P"),
+    (("BO", "SPRING"), None, ("MFR", "SPRINGS"), "WSF-TS12-LR"),
+    (("BO", "SCREW-CSK"), None, ("MFR", "SPRINGS"), "WSF-M4X25-CSK"),
 )
 
 
@@ -939,6 +1040,16 @@ ITEM_VENDORS: tuple[tuple[tuple[str, ...], tuple[str, ...], str, str, int], ...]
     (("PK", "POLYBAG"), ("VEN", "PACK"), "KP-LDPE-150250", "0.91", 6),
 )
 
+#: Whose part a source supplies, keyed on ``(item parts, vendor parts)``: the
+#: fastener distributor sells the cylinder maker's cylinders and the spring
+#: maker's springs and screws. The maker's own part number sits beside the
+#: distributor's code, because the two never match.
+LINK_MAKERS: dict[tuple[tuple[str, ...], tuple[str, ...]], tuple[tuple[str, ...], str]] = {
+    (("BO", "CYL-60"), ("VEN", "FAST")): (("MFR", "CYLINDER"), "SCW-PC60-5P"),
+    (("BO", "SPRING"), ("VEN", "FAST")): (("MFR", "SPRINGS"), "WSF-TS12-LR"),
+    (("BO", "SCREW-CSK"), ("VEN", "FAST")): (("MFR", "SPRINGS"), "WSF-M4X25-CSK"),
+}
+
 
 #: The two staff accounts, as ``(code parts, full name, e-mail, role, employee
 #: code)``. See the module docstring for why the buyer has to exist at all.
@@ -1054,6 +1165,101 @@ async def _seed_item_attributes(ctx: DemoContext) -> None:
 def _attribute_code(value: str) -> str:
     """The same derivation the backfill migration uses, so the two agree."""
     return normalise_code(value).replace(" ", "-")[:32]
+
+
+def _usable(ctx: DemoContext, kind: str, code: str, row: Brand | Manufacturer) -> None:
+    """Register a pre-existing brand or maker - unless it can no longer be assigned.
+
+    A client may have retired or deactivated a demo row since the last run.
+    Registering it anyway would hand the branding step an id the service refuses,
+    and one refusal fails the whole stage; so it is counted, reported as
+    skipped, and left out of the registry - which is all "do not assign it"
+    takes.
+    """
+    if row.deleted_at is not None or not row.is_active:
+        ctx.note(STAGE, existing=1)
+        ctx.skipped.append((STAGE, f"{kind} {code} is retired or inactive, so nothing is given it"))
+        return
+    _seen(ctx, kind, code, row.id, created=False)
+
+
+async def _seed_manufacturers(ctx: DemoContext) -> None:
+    """The three makers. Existence is keyed on the code, never on the clock."""
+    for spec in MANUFACTURERS:
+        code = ctx.code(*spec.code)
+        existing = await find_by_code(ctx.session, Manufacturer, ctx.company_id, code)
+        if existing is not None:
+            _usable(ctx, "manufacturer", code, existing)
+            continue
+
+        made = await create_manufacturer(
+            ctx.session,
+            ctx.tenant,
+            ManufacturerCreate(
+                code=code, name=spec.name, legal_name=spec.legal_name, notes=spec.notes
+            ),
+        )
+        _seen(ctx, "manufacturer", code, made.id, created=True)
+
+
+async def _seed_brands(ctx: DemoContext) -> None:
+    """The house brand, its premium line and one partner brand, each with its owner."""
+    for parts, name, owner, sort_order, description in BRANDS:
+        code = ctx.code(*parts)
+        existing = await find_by_code(ctx.session, Brand, ctx.company_id, code)
+        if existing is not None:
+            _usable(ctx, "brand", code, existing)
+            continue
+
+        made = await create_brand(
+            ctx.session,
+            ctx.tenant,
+            BrandCreate(
+                code=code,
+                name=name,
+                description=description,
+                # An owner the client has since retired is simply not recorded,
+                # rather than failing the stage on a refused reference.
+                manufacturer_id=ctx.maybe_id("manufacturer", ctx.code(*owner)) if owner else None,
+                sort_order=sort_order,
+            ),
+        )
+        _seen(ctx, "brand", code, made.id, created=True)
+
+
+async def _seed_item_branding(ctx: DemoContext) -> None:
+    """Give the demo items their brand, their maker and the maker's part number.
+
+    Fills blanks only, field by field, through the item service - so a database
+    whose items were loaded before brands existed gains them, a second run
+    changes nothing, and a value already recorded is never overwritten. Keyed on
+    the item code, never on anything derived from the clock.
+    """
+    repo = ItemRepository(ctx.session, ctx.tenant)
+
+    for item_parts, brand_parts, maker_parts, part_number in ITEM_BRANDING:
+        code = ctx.code(*item_parts)
+        item_id = ctx.maybe_id("item", code)
+        item = await repo.get(item_id) if item_id is not None else None
+        if item is None:
+            ctx.skipped.append((STAGE, f"no live item {code} to brand"))
+            continue
+
+        brand_id = ctx.maybe_id("brand", ctx.code(*brand_parts)) if brand_parts else None
+        maker_id = ctx.maybe_id("manufacturer", ctx.code(*maker_parts)) if maker_parts else None
+        wanted: dict[str, object] = {}
+        if brand_id is not None and item.brand_id is None:
+            wanted["brand_id"] = brand_id
+        if maker_id is not None and item.manufacturer_id is None:
+            wanted["manufacturer_id"] = maker_id
+        if part_number is not None and item.manufacturer_part_number is None:
+            wanted["manufacturer_part_number"] = part_number
+
+        if not wanted:
+            ctx.note(STAGE, existing=1)
+            continue
+        await update_item(ctx.session, ctx.tenant, item.id, ItemUpdate.model_validate(wanted))
+        ctx.note(STAGE, created=1)
 
 
 def _attribute_id(ctx: DemoContext, kind: ItemAttributeType, value: str | None) -> uuid.UUID | None:
@@ -1645,12 +1851,33 @@ async def _seed_item_vendor_links(ctx: DemoContext, anchor: date) -> None:
             ctx.skipped.append((STAGE, f"no vendor {ctx.code(*vendor_parts)} to link to an item"))
             continue
 
-        stmt = select(ItemVendorLink.id).where(
+        maker = LINK_MAKERS.get((item_parts, vendor_parts))
+        maker_id = ctx.maybe_id("manufacturer", ctx.code(*maker[0])) if maker else None
+        # The part number belongs to the maker, so it goes nowhere without one.
+        maker_part_number = maker[1] if maker is not None and maker_id is not None else None
+
+        stmt = select(ItemVendorLink).where(
             ItemVendorLink.company_id == ctx.company_id,
             ItemVendorLink.item_id == item_id,
             ItemVendorLink.vendor_id == vendor_id,
         )
-        if (await ctx.session.execute(stmt)).first() is not None:
+        existing = (await ctx.session.execute(stmt)).scalars().first()
+        if existing is not None:
+            # A link made before makers existed gains its maker; one that already
+            # names a maker - or that a client has retired - is left as it is.
+            if (
+                maker_id is not None
+                and existing.manufacturer_id is None
+                and existing.deleted_at is None
+            ):
+                await update_vendor_link(
+                    ctx.session,
+                    ctx.tenant,
+                    existing.id,
+                    VendorLinkUpdate(
+                        manufacturer_id=maker_id, manufacturer_part_number=maker_part_number
+                    ),
+                )
             ctx.note(STAGE, existing=1)
             continue
 
@@ -1661,6 +1888,8 @@ async def _seed_item_vendor_links(ctx: DemoContext, anchor: date) -> None:
             VendorLinkCreate(
                 vendor_id=vendor_id,
                 vendor_item_code=vendor_item_code,
+                manufacturer_id=maker_id,
+                manufacturer_part_number=maker_part_number,
                 is_preferred=True,
                 lead_time_days=lead_time,
                 last_purchase_price=Decimal(price),
@@ -1684,10 +1913,13 @@ async def seed(ctx: DemoContext) -> None:
 
     await _seed_units(ctx)
     await _seed_item_attributes(ctx)
+    await _seed_manufacturers(ctx)
+    await _seed_brands(ctx)
     await _seed_warehouses(ctx)
     await _seed_locations(ctx)
     await _seed_categories(ctx)
     await _seed_items(ctx)
+    await _seed_item_branding(ctx)
     await _seed_prices(ctx, anchor)
 
     buyer = await _seed_staff(ctx)

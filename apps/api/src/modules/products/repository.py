@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -36,9 +37,10 @@ from sqlalchemy.orm import InstrumentedAttribute, aliased, load_only
 
 from src.common.repository import BaseRepository
 from src.core.database import affected_rows
-from src.core.pagination import CursorParams, PageParams
+from src.core.pagination import CursorParams, PageParams, SortParams
 from src.core.responses import CursorPagination, OffsetPagination
 from src.modules.products.models import (
+    Brand,
     Item,
     ItemAttribute,
     ItemAttributeType,
@@ -46,6 +48,7 @@ from src.modules.products.models import (
     ItemPrice,
     ItemVariant,
     ItemVendorLink,
+    Manufacturer,
     PriceType,
     UnitOfMeasure,
     UomConversion,
@@ -95,14 +98,24 @@ async def _inventory_balances_exists(session: Any) -> bool:
     return found.scalar() is not None
 
 
+#: How a brand or a manufacturer is named wherever the application names one -
+#: by ``get_or_404``, by the service's own messages and by the lifecycle
+#: machines - so one record never answers to two spellings.
+BRAND_ENTITY = "Brand"
+MANUFACTURER_ENTITY = "Manufacturer"
+
+
 #: Columns every item list row needs. Cost is deliberately absent - it is added
-#: only for a principal holding ``item.cost_view``.
+#: only for a principal holding ``item.cost_view``. Every field of
+#: ``ItemSummary`` must be here: the list is loaded with ``raiseload``, so a
+#: field the schema reads and this tuple omits fails every item list.
 ITEM_SUMMARY_COLUMNS: tuple[InstrumentedAttribute[Any], ...] = (
     Item.id,
     Item.code,
     Item.name,
     Item.item_group,
     Item.category_id,
+    Item.brand_id,
     Item.base_uom_id,
     Item.production_type,
     Item.sale_price,
@@ -354,6 +367,181 @@ class ItemAttributeRepository(BaseRepository[ItemAttribute]):
         return bool((await self.session.execute(stmt)).scalar())
 
 
+async def _code_taken(repo: BaseRepository[Any], model: Any, code: str) -> bool:
+    """Has this company ever used ``code`` for this master - retired rows included?
+
+    The unique constraint covers soft-deleted rows too, so a probe that skipped
+    them would report "available" for a retired code and then lose to an
+    IntegrityError on INSERT. A retired brand's code also still sits on the
+    audit trail, which is the business reason it is never reissued.
+    """
+    stmt = (
+        select(model.id)
+        .where(model.company_id == repo.tenant.company_id, model.code == code)
+        .limit(1)
+    )
+    return (await repo.session.execute(stmt)).first() is not None
+
+
+@dataclass(frozen=True, slots=True)
+class ManufacturerUsage:
+    """Which live rows still name a manufacturer - one probe, three answers.
+
+    Three answers rather than one boolean so a refusal can say *what* still
+    points at the maker, which is the thing the person has to go and change.
+    """
+
+    items: bool
+    vendor_links: bool
+    brands: bool
+
+    @property
+    def in_use(self) -> bool:
+        return self.items or self.vendor_links or self.brands
+
+    def holders(self) -> list[str]:
+        """The kinds still referencing the maker, in the words a person uses."""
+        named = (
+            (self.items, "items"),
+            (self.vendor_links, "item-vendor links"),
+            (self.brands, "brands"),
+        )
+        return [label for present, label in named if present]
+
+
+class ManufacturerRepository(BaseRepository[Manufacturer]):
+    model = Manufacturer
+    entity_label = MANUFACTURER_ENTITY
+    searchable_fields = ("code", "name", "legal_name")
+    sortable_fields = {  # noqa: RUF012
+        "code": Manufacturer.code,
+        "name": Manufacturer.name,
+    }
+
+    async def code_taken(self, code: str) -> bool:
+        return await _code_taken(self, Manufacturer, code)
+
+    def build_list_stmt(
+        self, *, search: str | None, is_active: bool | None, sort: SortParams
+    ) -> Select[Any]:
+        stmt = self._scoped()
+        if is_active is not None:
+            stmt = stmt.where(Manufacturer.is_active.is_(is_active))
+        stmt = self._apply_search(stmt, search)
+        # `resolve` returns the default untouched when no column was asked for,
+        # so the default here is None and the picker order (name) is spelled
+        # out below rather than through `or` - a clause has no truth value.
+        chosen = sort.resolve(self.sortable_fields, None)
+        return stmt.order_by(Manufacturer.name.asc() if chosen is None else chosen)
+
+    async def list_page_search(
+        self,
+        params: PageParams,
+        *,
+        search: str | None = None,
+        is_active: bool | None = None,
+        sort: SortParams | None = None,
+    ) -> tuple[list[Manufacturer], OffsetPagination]:
+        stmt = self.build_list_stmt(search=search, is_active=is_active, sort=sort or SortParams())
+        # ONE clause for `list_page`: the id, as the tiebreak for a sort column
+        # whose values repeat, so rows cannot repeat or vanish across pages.
+        return await self.list_page(params, stmt=stmt, order_by=Manufacturer.id.asc())
+
+    async def usage(self, manufacturer_id: uuid.UUID) -> ManufacturerUsage:
+        """Live items, live item-vendor links and live brands naming the maker.
+
+        One statement, three EXISTS. "Live" is ``deleted_at IS NULL``: an
+        inactive item still shows its maker on screen, so it still counts.
+        """
+        company_id = self.tenant.company_id
+        on_items = exists().where(
+            Item.company_id == company_id,
+            Item.manufacturer_id == manufacturer_id,
+            Item.deleted_at.is_(None),
+        )
+        on_links = exists().where(
+            ItemVendorLink.company_id == company_id,
+            ItemVendorLink.manufacturer_id == manufacturer_id,
+            ItemVendorLink.deleted_at.is_(None),
+        )
+        on_brands = exists().where(
+            Brand.company_id == company_id,
+            Brand.manufacturer_id == manufacturer_id,
+            Brand.deleted_at.is_(None),
+        )
+        stmt = select(
+            on_items.label("items"), on_links.label("vendor_links"), on_brands.label("brands")
+        )
+        row = (await self.session.execute(stmt)).one()
+        return ManufacturerUsage(
+            items=bool(row.items), vendor_links=bool(row.vendor_links), brands=bool(row.brands)
+        )
+
+
+class BrandRepository(BaseRepository[Brand]):
+    model = Brand
+    entity_label = BRAND_ENTITY
+    searchable_fields = ("code", "name")
+    sortable_fields = {  # noqa: RUF012
+        "code": Brand.code,
+        "name": Brand.name,
+        "sort_order": Brand.sort_order,
+    }
+
+    async def code_taken(self, code: str) -> bool:
+        return await _code_taken(self, Brand, code)
+
+    def build_list_stmt(
+        self,
+        *,
+        search: str | None,
+        is_active: bool | None,
+        manufacturer_id: uuid.UUID | None,
+        sort: SortParams,
+    ) -> Select[Any]:
+        stmt = self._scoped()
+        if is_active is not None:
+            stmt = stmt.where(Brand.is_active.is_(is_active))
+        if manufacturer_id is not None:
+            stmt = stmt.where(Brand.manufacturer_id == manufacturer_id)
+        stmt = self._apply_search(stmt, search)
+        chosen = sort.resolve(self.sortable_fields, None)
+        if chosen is None:
+            # The picker order: the client's own position first, then the name
+            # a person reads. Both on the statement, because `list_page` below
+            # takes one clause and that one is the id tiebreak.
+            return stmt.order_by(Brand.sort_order.asc(), Brand.name.asc())
+        return stmt.order_by(chosen)
+
+    async def list_page_search(
+        self,
+        params: PageParams,
+        *,
+        search: str | None = None,
+        is_active: bool | None = None,
+        manufacturer_id: uuid.UUID | None = None,
+        sort: SortParams | None = None,
+    ) -> tuple[list[Brand], OffsetPagination]:
+        stmt = self.build_list_stmt(
+            search=search,
+            is_active=is_active,
+            manufacturer_id=manufacturer_id,
+            sort=sort or SortParams(),
+        )
+        return await self.list_page(params, stmt=stmt, order_by=Brand.id.asc())
+
+    async def is_used(self, brand_id: uuid.UUID) -> bool:
+        """Does any live item carry this brand? Served by ``ix_items_company_brand``."""
+        stmt = select(
+            exists().where(
+                Item.company_id == self.tenant.company_id,
+                Item.brand_id == brand_id,
+                Item.deleted_at.is_(None),
+            )
+        )
+        return bool((await self.session.execute(stmt)).scalar())
+
+
 class UomConversionRepository(BaseRepository[UomConversion]):
     model = UomConversion
     entity_label = "Unit conversion"
@@ -506,6 +694,10 @@ class ItemRepository(BaseRepository[Item]):
             stmt = stmt.where(Item.item_group == filters.item_group)
         if filters.production_type is not None:
             stmt = stmt.where(Item.production_type == filters.production_type)
+        if filters.brand_id is not None:
+            stmt = stmt.where(Item.brand_id == filters.brand_id)
+        if filters.manufacturer_id is not None:
+            stmt = stmt.where(Item.manufacturer_id == filters.manufacturer_id)
         if filters.default_warehouse_id is not None:
             stmt = stmt.where(Item.default_warehouse_id == filters.default_warehouse_id)
         if filters.is_batch_tracked is not None:
@@ -784,12 +976,17 @@ class ItemVendorLinkRepository(BaseRepository[ItemVendorLink]):
 
 
 __all__ = [
+    "BRAND_ENTITY",
     "ITEM_SUMMARY_COLUMNS",
+    "MANUFACTURER_ENTITY",
+    "BrandRepository",
     "ItemCategoryRepository",
     "ItemPriceRepository",
     "ItemRepository",
     "ItemVariantRepository",
     "ItemVendorLinkRepository",
+    "ManufacturerRepository",
+    "ManufacturerUsage",
     "UnitOfMeasureRepository",
     "UomConversionRepository",
 ]

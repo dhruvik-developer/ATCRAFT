@@ -39,6 +39,7 @@ from src.modules.audit.models import AuditLog
 from src.modules.products import service
 from src.modules.products.models import (
     Item,
+    ItemAttribute,
     ItemAttributeType,
     ItemGroup,
     PriceType,
@@ -1303,3 +1304,87 @@ async def test_listing_attributes_orders_and_filters_by_kind(
     assert {row.code for row in everything} >= {"ZINC", "ALUMINIUM", "75MM"}
     assert {row.attribute for row in finishes} == {ItemAttributeType.FINISH}
     assert "75MM" not in {row.code for row in finishes}
+
+
+# Creation, not only update. Every assignment test above goes through
+# `update_item`, which has always validated the three ids - and `create_item`
+# never did, so `POST /products/items` stored another tenant's finish, or a
+# colour in `finish_id`, without a murmur. These two pin the create path.
+
+
+async def test_create_item_refuses_another_company_s_attribute(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    outsider = await seed_support.seed_company(session, prefix="OTH")
+    theirs = ItemAttribute(
+        company_id=outsider.id, attribute=ItemAttributeType.FINISH, code="THEIRS", name="Theirs"
+    )
+    session.add(theirs)
+    await session.flush()
+    theirs_id = theirs.id
+
+    with pytest.raises(NotFoundError):
+        await service.create_item(
+            session, tenant, item_payload("ATTR-X1", units["NOS"], finish_id=theirs_id)
+        )
+
+    created = (
+        await session.execute(select(func.count()).select_from(Item).where(Item.code == "ATTR-X1"))
+    ).scalar_one()
+    assert created == 0
+
+
+async def test_create_item_refuses_a_colour_where_a_finish_belongs(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    colour = await service.create_item_attribute(
+        session,
+        tenant,
+        ItemAttributeCreate(attribute=ItemAttributeType.COLOUR, code="SATIN-RED", name="Satin Red"),
+    )
+
+    with pytest.raises(ValidationError):
+        await service.create_item(
+            session, tenant, item_payload("ATTR-X2", units["NOS"], finish_id=colour.id)
+        )
+
+
+async def test_create_item_refuses_a_retired_attribute(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    finish = await _finish(session, tenant, "RETIRED-ON-CREATE", "Retired on create")
+    await service.update_item_attribute(
+        session, tenant, finish.id, ItemAttributeUpdate(is_active=False)
+    )
+
+    with pytest.raises(ValidationError):
+        await service.create_item(
+            session, tenant, item_payload("ATTR-X3", units["NOS"], finish_id=finish.id)
+        )
+
+
+async def test_create_item_accepts_its_own_attributes(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    finish = await _finish(session, tenant, "OWN-FINISH", "Own finish")
+    size = await service.create_item_attribute(
+        session,
+        tenant,
+        ItemAttributeCreate(attribute=ItemAttributeType.SIZE, code="64MM", name="64mm"),
+    )
+
+    item = await service.create_item(
+        session,
+        tenant,
+        item_payload("ATTR-X4", units["NOS"], finish_id=finish.id, size_id=size.id),
+    )
+
+    assert (item.finish_id, item.size_id, item.colour_id) == (finish.id, size.id, None)

@@ -239,6 +239,13 @@ def _lifecycle(entity: str, manage: Permission) -> StateMachine[MasterLifecycleS
     )
 
 
+#: The same factory under a public name, for the master tables other modules own
+#: (the brand and manufacturer masters in ``products``). One definition of
+#: "activate, deactivate, retire" rather than a copy per module: a copy is how
+#: two masters end up disagreeing about whether a retired row may come back.
+master_lifecycle = _lifecycle
+
+
 BRANCH_LIFECYCLE = _lifecycle("Branch", Permission.BRANCH_MANAGE)
 PLANT_LIFECYCLE = _lifecycle("Plant", Permission.PLANT_MANAGE)
 DEPARTMENT_LIFECYCLE = _lifecycle("Department", Permission.DEPARTMENT_MANAGE)
@@ -1233,6 +1240,7 @@ __all__ = [
     "default_financial_year_code",
     "financial_year_state",
     "lifecycle_state",
+    "master_lifecycle",
     "ranges_overlap",
     "referenced_in_use",
 ]
