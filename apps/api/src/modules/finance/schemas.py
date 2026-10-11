@@ -233,6 +233,8 @@ class VendorInvoiceLineIn(BaseModel):
     #: by the caller from the vendor's place of supply; the split itself is
     #: computed on the server.
     is_interstate: bool = False
+    #: This line's own cost centre. Unset means "the invoice's".
+    cost_centre_id: uuid.UUID | None = None
     notes: Notes | None = None
 
     @model_validator(mode="after")
@@ -267,6 +269,9 @@ class VendorInvoiceCreate(BaseModel):
     due_date: date | None = None
     purchase_order_id: uuid.UUID | None = None
     goods_receipt_id: uuid.UUID | None = None
+    #: The cost centre the bill is charged to, and the default for every line
+    #: naming none of its own. Optional; NULL is "unallocated".
+    cost_centre_id: uuid.UUID | None = None
     #: NULL means "the currency this company keeps its books in" -
     #: ``companies.currency``, resolved once at creation and then frozen on the
     #: row. A module-level default here would let a company keeping books in one
@@ -299,6 +304,8 @@ class VendorInvoiceUpdate(BaseModel):
     due_date: date | None = None
     purchase_order_id: uuid.UUID | None = None
     goods_receipt_id: uuid.UUID | None = None
+    #: An explicit null clears the header cost centre.
+    cost_centre_id: uuid.UUID | None = None
     round_off_amount: Money | None = None
     notes: Notes | None = None
     lines: Annotated[list[VendorInvoiceLineIn], Field(max_length=MAX_INVOICE_LINES)] | None = None
@@ -312,6 +319,8 @@ class VendorInvoiceLineRead(BaseModel):
     item_id: uuid.UUID | None
     purchase_order_line_id: uuid.UUID | None
     goods_receipt_line_id: uuid.UUID | None
+    #: The line's own cost centre; null means it takes the invoice's.
+    cost_centre_id: uuid.UUID | None
     description: str | None
     hsn_code: str | None
     quantity: Decimal
@@ -350,6 +359,7 @@ class VendorInvoiceSummary(BaseModel):
     outstanding_amount: Decimal
     purchase_order_id: uuid.UUID | None
     goods_receipt_id: uuid.UUID | None
+    cost_centre_id: uuid.UUID | None
     created_at: datetime
 
 

@@ -244,6 +244,12 @@ class ProductionOrder(TenantEntity, OptimisticLockMixin):
     plant_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("plants.id", ondelete="RESTRICT"), nullable=True
     )
+    #: The cost centre the job is charged to. Material issues carry none of
+    #: their own: they reach a cost centre through ``production_order_id``.
+    #: NULL is "unallocated".
+    cost_centre_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("cost_centres.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
 
     # Planning is done in whole days; the shop floor's minute-level detail lives
     # on the work orders, which is where a scheduler actually needs it.

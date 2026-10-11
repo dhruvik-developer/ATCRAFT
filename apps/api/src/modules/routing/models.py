@@ -121,6 +121,11 @@ class WorkCenter(TenantMasterEntity):
     department_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("departments.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    #: The cost pool this centre's machine and labour hours are charged to.
+    #: NULL is "unallocated", not "the default centre".
+    cost_centre_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("cost_centres.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
 
     #: Units of output the centre can produce per hour. Zero means "not rated" -
     #: capacity planning skips it rather than dividing by zero.

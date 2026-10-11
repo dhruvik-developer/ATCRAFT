@@ -21,6 +21,8 @@ export const P = {
   PLANT_VIEW: 'plant.view',
   DEPARTMENT_MANAGE: 'department.manage',
   DEPARTMENT_VIEW: 'department.view',
+  COST_CENTRE_MANAGE: 'cost_centre.manage',
+  COST_CENTRE_VIEW: 'cost_centre.view',
   SETTINGS_MANAGE: 'settings.manage',
   SETTINGS_VIEW: 'settings.view',
 

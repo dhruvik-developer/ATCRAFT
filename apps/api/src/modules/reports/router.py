@@ -51,6 +51,7 @@ from src.core.responses import (
 from src.modules.reports import service
 from src.modules.reports.models import ReportKey
 from src.modules.reports.schemas import (
+    CostCentreExpenseRow,
     CourierTrackingRow,
     DashboardRead,
     DeadStockRow,
@@ -704,6 +705,38 @@ async def vendor_dispatch_history(
         period,
         filters,
         page,
+    )
+
+
+# -----------------------------------------------------------------------------
+# Finance
+# -----------------------------------------------------------------------------
+
+
+@router.get(
+    "/cost-centre-expense",
+    response_model=None,
+    summary="Cost centre statement",
+    description=(
+        "Posted income and expense per cost centre and account over the period, read "
+        "from the ledger. `search` matches the cost centre's code or name. Net is debit "
+        "minus credit: positive is cost, negative is income. A retired cost centre still "
+        "appears - posted history keeps it."
+    ),
+    responses=REPORT_RESPONSES,
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def cost_centre_expense(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[CostCentreExpenseRow] | AcceptedJobResponse:
+    return await _run(
+        session, tenant, principal, response, ReportKey.COST_CENTRE_EXPENSE, period, filters, page
     )
 
 

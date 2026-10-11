@@ -79,6 +79,8 @@ class WorkCenterCreate(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     plant_id: uuid.UUID | None = None
     department_id: uuid.UUID | None = None
+    #: The cost pool this centre is charged to. Validated in tenant and active.
+    cost_centre_id: uuid.UUID | None = None
     capacity_per_hour: NonNegativeQuantity = Decimal("0")
     cost_per_hour: NonNegativeMoney = Decimal("0")
     setup_cost: NonNegativeMoney = Decimal("0")
@@ -98,6 +100,8 @@ class WorkCenterUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     plant_id: uuid.UUID | None = None
     department_id: uuid.UUID | None = None
+    #: An explicit null clears it.
+    cost_centre_id: uuid.UUID | None = None
     capacity_per_hour: NonNegativeQuantity | None = None
     cost_per_hour: NonNegativeMoney | None = None
     setup_cost: NonNegativeMoney | None = None
@@ -115,6 +119,7 @@ class WorkCenterRead(BaseModel):
     description: str | None
     plant_id: uuid.UUID | None
     department_id: uuid.UUID | None
+    cost_centre_id: uuid.UUID | None
     capacity_per_hour: Decimal
     cost_per_hour: Decimal
     setup_cost: Decimal

@@ -22,8 +22,13 @@ Rules enforced here, and the reason each one exists:
 * **Closing a financial year is one-way for everyone but a platform
   administrator**, and both the close and any reopen are audited.
 * **Retirement is refused while anything still points at the record** - a user,
-  a warehouse, a plant or a child department. Retiring it anyway would leave
-  those rows pointing at something the UI no longer lists.
+  a warehouse, a plant, a work centre, an order or a child department. Retiring
+  it anyway would leave those rows pointing at something the UI no longer lists.
+* **A cost centre is optional everywhere and validated wherever it is named.**
+  A foreign key to a UUID is satisfied by another company's row, so every
+  module that accepts one asks :func:`require_cost_centre` (or the batch
+  :func:`require_cost_centres`) first. Posted ledger history keeps its centre
+  after retirement; only a *new* allocation needs it to be active.
 
 Every state change goes through a :class:`~src.core.state_machine.StateMachine`
 and is written to the audit log inside the same transaction as the change.
@@ -32,12 +37,14 @@ and is written to the audit log inside the same transaction as the change.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable, Sequence
 from datetime import date
 from enum import StrEnum
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.banking import mask_account_number
 from src.common.codes import financial_year_key
 from src.core.database import transaction
 from src.core.deps import TenantContext
@@ -47,18 +54,28 @@ from src.core.errors import (
     DuplicateError,
     ErrorCode,
     NotFoundError,
+    ValidationError,
 )
-from src.core.messages import NO_FIELDS_TO_UPDATE
+from src.core.messages import NO_FIELDS_TO_UPDATE, inactive_record
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
-from src.modules.organization.models import Branch, Company, Department, FinancialYear, Plant
+from src.modules.organization.models import (
+    Branch,
+    Company,
+    CostCentre,
+    Department,
+    FinancialYear,
+    Plant,
+)
 from src.modules.organization.repository import (
     BranchRepository,
     CompanyRepository,
+    CostCentreFacts,
+    CostCentreRepository,
     DepartmentRepository,
     FinancialYearRepository,
     PlantRepository,
@@ -70,6 +87,10 @@ from src.modules.organization.schemas import (
     BranchUpdate,
     CompanyRead,
     CompanyUpdate,
+    CostCentreCreate,
+    CostCentreFilters,
+    CostCentreRead,
+    CostCentreUpdate,
     DepartmentCreate,
     DepartmentFilters,
     DepartmentRead,
@@ -88,7 +109,11 @@ AUDIT_ENTITY_COMPANY = "company"
 AUDIT_ENTITY_BRANCH = "branch"
 AUDIT_ENTITY_PLANT = "plant"
 AUDIT_ENTITY_DEPARTMENT = "department"
+AUDIT_ENTITY_COST_CENTRE = "cost_centre"
 AUDIT_ENTITY_FINANCIAL_YEAR = "financial_year"
+
+#: How a cost centre is named in messages and on its state machine.
+COST_CENTRE_ENTITY = "Cost centre"
 
 # ASSUMPTION: a department hierarchy deeper than six levels is a data-entry
 # mistake rather than a real org chart - company > division > function >
@@ -96,6 +121,14 @@ AUDIT_ENTITY_FINANCIAL_YEAR = "financial_year"
 # database constraint, so raising it is a deliberate code change and not a
 # migration.
 MAX_DEPARTMENT_DEPTH = 6
+
+# ASSUMPTION: a cost-centre tree is bounded exactly like the department tree it
+# usually shadows - a plant > production > process > cell breakdown is four,
+# leaving room for two more. Equal to MAX_DEPARTMENT_DEPTH by definition rather
+# than by coincidence, so the two hierarchies cannot drift apart unnoticed; see
+# docs/assumptions.md §B1-5. Unlike the department rule, the depth counted is
+# the deepest descendant's, so a subtree cannot be reparented past the limit.
+MAX_COST_CENTRE_DEPTH = MAX_DEPARTMENT_DEPTH
 
 # ASSUMPTION: a financial year longer than 550 days (roughly 18 months) is a
 # typo. The Companies Act allows a first financial period of up to 15 months,
@@ -132,6 +165,12 @@ _COMPANY_AUDITED_FIELDS = [
     "financial_year_start_month",
     "timezone",
     "logo_document_id",
+    "bank_name",
+    "bank_account_name",
+    "bank_account_number",
+    "bank_ifsc",
+    "bank_branch",
+    "invoice_terms",
 ]
 
 _BRANCH_AUDITED_FIELDS = [
@@ -165,8 +204,25 @@ _DEPARTMENT_AUDITED_FIELDS = [
     "plant_id",
     "parent_id",
     "head_user_id",
+    "cost_centre_id",
     "is_active",
 ]
+
+_COST_CENTRE_AUDITED_FIELDS = [
+    "code",
+    "name",
+    "cost_centre_type",
+    "parent_id",
+    "plant_id",
+    "head_user_id",
+    "description",
+    "is_active",
+]
+
+#: Columns a cost-centre PATCH may not null. An explicit ``null`` for one of
+#: these is a client mistake, not an instruction, and is ignored rather than
+#: written into a NOT NULL column as an integrity error naming a constraint.
+_COST_CENTRE_REQUIRED_FIELDS = frozenset({"name", "cost_centre_type", "is_active"})
 
 _FINANCIAL_YEAR_AUDITED_FIELDS = [
     "code",
@@ -242,6 +298,7 @@ def _lifecycle(entity: str, manage: Permission) -> StateMachine[MasterLifecycleS
 BRANCH_LIFECYCLE = _lifecycle("Branch", Permission.BRANCH_MANAGE)
 PLANT_LIFECYCLE = _lifecycle("Plant", Permission.PLANT_MANAGE)
 DEPARTMENT_LIFECYCLE = _lifecycle("Department", Permission.DEPARTMENT_MANAGE)
+COST_CENTRE_LIFECYCLE = _lifecycle(COST_CENTRE_ENTITY, Permission.COST_CENTRE_MANAGE)
 FINANCIAL_YEAR_LIFECYCLE = _lifecycle("Financial year", Permission.SETTINGS_MANAGE)
 
 
@@ -276,7 +333,9 @@ FINANCIAL_YEAR_MACHINE: StateMachine[FinancialYearState] = StateMachine(
 )
 
 
-def lifecycle_state(record: Branch | Plant | Department | FinancialYear) -> MasterLifecycleState:
+def lifecycle_state(
+    record: Branch | Plant | Department | CostCentre | FinancialYear,
+) -> MasterLifecycleState:
     """Derive the lifecycle state of a master row from its flags."""
     if record.deleted_at is not None:
         return MasterLifecycleState.ARCHIVED
@@ -310,17 +369,20 @@ def assert_parent_allowed(
     parent_id: uuid.UUID,
     parent_ancestor_ids: list[uuid.UUID],
     max_depth: int = MAX_DEPARTMENT_DEPTH,
+    subtree_height: int = 0,
 ) -> None:
     """Reject a parent assignment that would break the tree.
 
     ``parent_ancestor_ids`` is the chain from the proposed parent up to its root,
     *including the parent itself*, as returned by the repository's recursive
-    walk. Three failures are possible:
+    walk. ``subtree_height`` is how many levels sit *below* the record - zero
+    for a leaf, and always zero on a create. Three failures are possible:
 
     * the record is its own parent;
     * the record already appears above the proposed parent, which would close a
       cycle - the case that turns a roll-up query into an infinite loop;
-    * the resulting chain would be deeper than ``max_depth``.
+    * the resulting chain would be deeper than ``max_depth``, counted to the
+      deepest descendant that moves with the record.
     """
     if node_id is not None and parent_id == node_id:
         raise BusinessRuleError(f"A {entity} cannot be its own parent.")
@@ -331,8 +393,9 @@ def assert_parent_allowed(
             details={"parent_id": str(parent_id)},
         )
 
-    # +1 for the record itself, which sits one level under the proposed parent.
-    depth = len(parent_ancestor_ids) + 1
+    # +1 for the record itself, which sits one level under the proposed parent,
+    # and the levels beneath it, which move with it.
+    depth = len(parent_ancestor_ids) + 1 + max(0, subtree_height)
     if depth > max_depth:
         raise BusinessRuleError(
             f"{entity.capitalize()} hierarchy may not be deeper than {max_depth} levels.",
@@ -395,13 +458,19 @@ class CompanyService:
 
         async with transaction(self.session):
             company = await self._load()
-            before = snapshot(company, _COMPANY_AUDITED_FIELDS)
+            before = _company_snapshot(company)
+            account_before = company.bank_account_number
 
             for field, value in changes.items():
                 setattr(company, field, value)
             # No ``touch`` here: ``companies`` carries no actor columns - it
             # predates every user in it - so the actor lives on the audit row.
             await self.session.flush()
+
+            # Two account numbers ending in the same four digits mask alike, so
+            # the diff alone could not show that the payee account moved. Say
+            # so explicitly, without writing either number down.
+            account_changed = company.bank_account_number != account_before
 
             await record_audit(
                 self.session,
@@ -416,7 +485,8 @@ class CompanyService:
                 summary=f"Updated company profile {company.code}",
                 user_id=self.tenant.user_id,
                 old_values=before,
-                new_values=snapshot(company, _COMPANY_AUDITED_FIELDS),
+                new_values=_company_snapshot(company),
+                context={"bank_account_number_changed": True} if account_changed else None,
             )
 
         return CompanyRead.model_validate(company)
@@ -429,6 +499,19 @@ class CompanyService:
             # error: from the caller's side the company genuinely is not there.
             raise NotFoundError("Company", self.tenant.company_id)
         return company
+
+
+def _company_snapshot(company: Company) -> dict[str, Any]:
+    """Audited company fields, with the bank account number masked.
+
+    The account customers pay into is printed on every invoice, so editing it
+    is how invoice-redirection fraud starts: the audit row must prove the
+    number changed without becoming a second copy of it - the rule the vendor
+    master already applies to the accounts the company pays out to.
+    """
+    captured = snapshot(company, _COMPANY_AUDITED_FIELDS)
+    captured["bank_account_number"] = mask_account_number(captured["bank_account_number"])
+    return captured
 
 
 # -----------------------------------------------------------------------------
@@ -738,6 +821,19 @@ class PlantService:
                     f"Plant {plant.code} still has warehouses. Reassign those first.",
                     plant_code=plant.code,
                 )
+            if await self.repo.referenced_by_cost_centres(plant.id):
+                raise referenced_in_use(
+                    f"Plant {plant.code} still has cost centres. Reassign or retire those first.",
+                    plant_code=plant.code,
+                )
+            carriers = await self.repo.referenced_by_carriers(plant.id)
+            if carriers:
+                raise referenced_in_use(
+                    f"Plant {plant.code} is still referenced by {', '.join(carriers)}. "
+                    "Reassign or retire those first, or deactivate the plant instead.",
+                    plant_code=plant.code,
+                    referenced_by=carriers,
+                )
 
             plant.is_active = False
             await self.repo.soft_delete(plant)
@@ -800,6 +896,8 @@ class DepartmentService:
             await self._assert_references(payload.plant_id, payload.head_user_id)
             if payload.parent_id is not None:
                 await self._assert_parent(node_id=None, parent_id=payload.parent_id)
+            if payload.cost_centre_id is not None:
+                await require_cost_centre(self.session, self.tenant, payload.cost_centre_id)
 
             department = Department(**payload.model_dump())
             self.repo.add(department)
@@ -836,6 +934,13 @@ class DepartmentService:
             new_parent = changes.get("parent_id")
             if new_parent is not None and new_parent != department.parent_id:
                 await self._assert_parent(node_id=department.id, parent_id=new_parent)
+
+            # Only a *new* default is validated: re-sending the one already held
+            # is not a fresh assignment, and the cost-centre deactivation guard
+            # keeps a department's default active anyway.
+            new_centre = changes.get("cost_centre_id")
+            if new_centre is not None and new_centre != department.cost_centre_id:
+                await require_cost_centre(self.session, self.tenant, new_centre)
 
             target_state: MasterLifecycleState | None = None
             if "is_active" in changes and changes["is_active"] != department.is_active:
@@ -895,6 +1000,14 @@ class DepartmentService:
                     f"Department {department.code} is still assigned to one or more users.",
                     department_code=department.code,
                 )
+            carriers = await self.repo.referenced_by_carriers(department.id)
+            if carriers:
+                raise referenced_in_use(
+                    f"Department {department.code} is still referenced by {', '.join(carriers)}. "
+                    "Reassign or retire those first, or deactivate the department instead.",
+                    department_code=department.code,
+                    referenced_by=carriers,
+                )
 
             department.is_active = False
             await self.repo.soft_delete(department)
@@ -934,6 +1047,375 @@ class DepartmentService:
             raise NotFoundError("Plant", plant_id)
         if head_user_id is not None and not await self.repo.user_exists(head_user_id):
             raise NotFoundError("User", head_user_id)
+
+
+# -----------------------------------------------------------------------------
+# Cost centre
+# -----------------------------------------------------------------------------
+
+
+class CostCentreService:
+    """Cost-centre master data, including the tree guard and the retire rules.
+
+    Two retirement levels, deliberately different:
+
+    * **Deactivating** stops a centre being offered for new allocations. It is
+      refused only while something would go on *handing it out*: an active
+      child (a live branch under a dead one), a department or a work centre
+      naming it as a default. Documents keep their reference.
+    * **Archiving** removes it from every list. It is refused while anything at
+      all still names it - a child, a department, a work centre or any document
+      - except posted ledger history, which keeps its centre for good.
+    """
+
+    def __init__(self, session: AsyncSession, tenant: TenantContext) -> None:
+        self.session = session
+        self.tenant = tenant
+        self.repo = CostCentreRepository(session, tenant)
+
+    async def list_cost_centres(
+        self, filters: CostCentreFilters, params: PageParams, sort: SortParams
+    ) -> tuple[list[CostCentreRead], OffsetPagination]:
+        stmt = self.repo.build_list_stmt(filters, sort)
+        rows, pagination = await self.repo.list_page(params, stmt=stmt, order_by=None)
+        return [CostCentreRead.model_validate(row) for row in rows], pagination
+
+    async def get_cost_centre(self, cost_centre_id: uuid.UUID) -> CostCentreRead:
+        return CostCentreRead.model_validate(await self.repo.get_or_404(cost_centre_id))
+
+    async def create_cost_centre(self, payload: CostCentreCreate) -> CostCentreRead:
+        async with transaction(self.session):
+            if await self.repo.code_taken(payload.code):
+                raise DuplicateError(
+                    f"Cost centre code '{payload.code}' is already used in this company.",
+                    details={"code": payload.code},
+                )
+            await self._assert_references(payload.plant_id, payload.head_user_id)
+            if payload.parent_id is not None:
+                parent = await self._assert_parent(
+                    node_id=None, parent_id=payload.parent_id, subtree_height=0
+                )
+                if payload.is_active:
+                    _assert_parent_active(parent)
+
+            centre = CostCentre(**payload.model_dump())
+            self.repo.add(centre)
+            await self.session.flush()
+
+            await record_audit(
+                self.session,
+                company_id=self.tenant.company_id,
+                action=AuditAction.CREATE,
+                entity_type=AUDIT_ENTITY_COST_CENTRE,
+                entity_id=centre.id,
+                entity_code=centre.code,
+                summary=f"Created cost centre {centre.code} ({centre.name})",
+                user_id=self.tenant.user_id,
+                new_values=snapshot(centre, _COST_CENTRE_AUDITED_FIELDS),
+            )
+
+        return CostCentreRead.model_validate(centre)
+
+    async def update_cost_centre(
+        self, cost_centre_id: uuid.UUID, payload: CostCentreUpdate
+    ) -> CostCentreRead:
+        changes = {
+            field: value
+            for field, value in payload.model_dump(exclude_unset=True).items()
+            if not (value is None and field in _COST_CENTRE_REQUIRED_FIELDS)
+        }
+        if not changes:
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
+
+        async with transaction(self.session):
+            centre = await self.repo.get_or_404(cost_centre_id)
+            before = snapshot(centre, _COST_CENTRE_AUDITED_FIELDS)
+            current_state = lifecycle_state(centre)
+
+            await self._assert_references(changes.get("plant_id"), changes.get("head_user_id"))
+
+            parent_changing = "parent_id" in changes and changes["parent_id"] != centre.parent_id
+            parent_id = changes.get("parent_id", centre.parent_id)
+            parent: CostCentre | None = None
+            if parent_changing and parent_id is not None:
+                parent = await self._assert_parent(
+                    node_id=centre.id,
+                    parent_id=parent_id,
+                    subtree_height=await self.repo.subtree_height(centre.id),
+                )
+
+            target_state: MasterLifecycleState | None = None
+            if "is_active" in changes and changes["is_active"] != centre.is_active:
+                target_state = (
+                    MasterLifecycleState.ACTIVE
+                    if changes["is_active"]
+                    else MasterLifecycleState.INACTIVE
+                )
+                COST_CENTRE_LIFECYCLE.assert_transition(current_state, target_state)
+                if target_state is MasterLifecycleState.INACTIVE:
+                    await self._assert_may_deactivate(centre)
+
+            # An active centre may not hang under an inactive one, whichever
+            # edit would produce that: activating the child or moving it.
+            will_be_active = changes.get("is_active", centre.is_active)
+            if (
+                will_be_active
+                and parent_id is not None
+                and (parent_changing or target_state is not None)
+            ):
+                if parent is None:
+                    parent = await self.repo.get(parent_id)
+                if parent is not None:
+                    _assert_parent_active(parent)
+
+            for field, value in changes.items():
+                setattr(centre, field, value)
+            self.repo.touch(centre)
+            await self.session.flush()
+
+            await record_audit(
+                self.session,
+                company_id=self.tenant.company_id,
+                action=AuditAction.UPDATE,
+                entity_type=AUDIT_ENTITY_COST_CENTRE,
+                entity_id=centre.id,
+                entity_code=centre.code,
+                summary=f"Updated cost centre {centre.code}",
+                user_id=self.tenant.user_id,
+                old_values=before,
+                new_values=snapshot(centre, _COST_CENTRE_AUDITED_FIELDS),
+            )
+            if target_state is not None:
+                await record_status_change(
+                    self.session,
+                    company_id=self.tenant.company_id,
+                    entity_type=AUDIT_ENTITY_COST_CENTRE,
+                    entity_id=centre.id,
+                    entity_code=centre.code,
+                    from_status=str(current_state),
+                    to_status=str(target_state),
+                    user_id=self.tenant.user_id,
+                    reason="Activation flag changed through cost centre update",
+                )
+
+        return CostCentreRead.model_validate(centre)
+
+    async def delete_cost_centre(self, cost_centre_id: uuid.UUID, *, reason: str) -> None:
+        """Retire (soft-delete) a cost centre nothing but posted history names."""
+        async with transaction(self.session):
+            centre = await self.repo.get_or_404(cost_centre_id)
+            current = lifecycle_state(centre)
+            COST_CENTRE_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
+
+            if await self.repo.has_live_children(centre.id):
+                raise referenced_in_use(
+                    f"Cost centre {centre.code} still has sub-centres. Retire or move those first.",
+                    cost_centre_code=centre.code,
+                )
+            if await self.repo.referenced_by_departments(centre.id):
+                raise referenced_in_use(
+                    f"Cost centre {centre.code} is still the default of one or more "
+                    "departments. Clear it there first.",
+                    cost_centre_code=centre.code,
+                )
+            carriers = await self.repo.referenced_by_carriers(centre.id)
+            if carriers:
+                # ASSUMPTION: any row that names the centre blocks archiving,
+                # whatever that document's status - see docs/assumptions.md
+                # §B1-3. Deactivation is the way to stop using a centre that
+                # documents still carry.
+                raise referenced_in_use(
+                    f"Cost centre {centre.code} is still referenced by {', '.join(carriers)}. "
+                    "Deactivate it instead so it stops being offered for new documents.",
+                    cost_centre_code=centre.code,
+                    referenced_by=carriers,
+                )
+
+            centre.is_active = False
+            await self.repo.soft_delete(centre)
+
+            await record_audit(
+                self.session,
+                company_id=self.tenant.company_id,
+                action=AuditAction.DELETE,
+                entity_type=AUDIT_ENTITY_COST_CENTRE,
+                entity_id=centre.id,
+                entity_code=centre.code,
+                summary=f"Retired cost centre {centre.code}",
+                user_id=self.tenant.user_id,
+                old_values={"status": str(current)},
+                new_values={"status": str(MasterLifecycleState.ARCHIVED)},
+                context={"reason": reason},
+            )
+
+    async def _assert_may_deactivate(self, centre: CostCentre) -> None:
+        """Refuse to switch off a centre something would keep handing out."""
+        # ASSUMPTION: deactivation is refused only by things that hand the
+        # centre out - an active child, a department default, a work centre.
+        # Documents keep their reference. docs/assumptions.md §B1-3.
+        if await self.repo.has_active_children(centre.id):
+            raise referenced_in_use(
+                f"Cost centre {centre.code} still has active sub-centres. "
+                "Deactivate or move those first.",
+                cost_centre_code=centre.code,
+            )
+        if await self.repo.referenced_by_departments(centre.id):
+            raise referenced_in_use(
+                f"Cost centre {centre.code} is the default of one or more departments. "
+                "Clear it there first.",
+                cost_centre_code=centre.code,
+            )
+        defaults = await self.repo.referenced_as_default(centre.id)
+        if defaults:
+            raise referenced_in_use(
+                f"Cost centre {centre.code} is still assigned to {', '.join(defaults)}. "
+                "Clear it there first.",
+                cost_centre_code=centre.code,
+                referenced_by=defaults,
+            )
+
+    async def _assert_parent(
+        self, *, node_id: uuid.UUID | None, parent_id: uuid.UUID, subtree_height: int
+    ) -> CostCentre:
+        """Load the proposed parent, then apply the pure tree rules."""
+        parent = await self.repo.get(parent_id)
+        if parent is None:
+            raise NotFoundError("Parent cost centre", parent_id)
+
+        ancestors = await self.repo.ancestor_ids(parent.id)
+        assert_parent_allowed(
+            entity="cost centre",
+            node_id=node_id,
+            parent_id=parent_id,
+            parent_ancestor_ids=ancestors,
+            max_depth=MAX_COST_CENTRE_DEPTH,
+            subtree_height=subtree_height,
+        )
+        return parent
+
+    async def _assert_references(
+        self, plant_id: uuid.UUID | None, head_user_id: uuid.UUID | None
+    ) -> None:
+        if plant_id is not None and not await self.repo.plant_exists(plant_id):
+            raise NotFoundError("Plant", plant_id)
+        if head_user_id is not None and not await self.repo.user_exists(head_user_id):
+            raise NotFoundError("User", head_user_id)
+
+
+def _assert_parent_active(parent: CostCentre) -> None:
+    """An active centre under an inactive one would be offered while its parent is not."""
+    # ASSUMPTION: active only under active, whichever edit would produce the
+    # opposite. docs/assumptions.md §B1-5.
+    if not parent.is_active:
+        raise BusinessRuleError(
+            f"Parent cost centre {parent.code} is inactive; an active cost centre cannot sit "
+            "under it. Activate the parent first, or create this one inactive.",
+            details={"parent_id": str(parent.id), "parent_code": parent.code},
+        )
+
+
+# -----------------------------------------------------------------------------
+# Public seam - how every other module validates a cost centre it was handed
+# -----------------------------------------------------------------------------
+# Organisation is the lowest module in the dependency order, so routing,
+# production, job work, inventory and finance all call these rather than
+# reading ``cost_centres`` themselves. A foreign key to a UUID is satisfied by
+# another company's row; these read through the tenant-scoped repository, so a
+# foreign id answers exactly as a missing one does - 404 - and never confirms it
+# exists elsewhere.
+
+#: The verb phrase an inactive centre's refusal ends with.
+_NOT_ASSIGNABLE = "cannot be assigned"
+
+
+def _not_assignable(code: str, cost_centre_id: uuid.UUID, field: str) -> ValidationError:
+    message = inactive_record(COST_CENTRE_ENTITY, code, _NOT_ASSIGNABLE)
+    return ValidationError(
+        message,
+        details={"fields": {field: [message]}, "cost_centre_id": str(cost_centre_id)},
+    )
+
+
+async def require_cost_centre(
+    session: AsyncSession,
+    tenant: TenantContext,
+    cost_centre_id: uuid.UUID,
+    *,
+    field: str = "cost_centre_id",
+) -> CostCentre:
+    """The cost centre a write is about to name, if it may name it.
+
+    Live and in this tenant, or :class:`NotFoundError` - another company's id
+    included. Active, or a 422 carrying ``details.fields[field]`` so a form can
+    show the refusal against the control that sent it. Only a *new* assignment
+    should come through here: a document re-saving the centre it already holds
+    is not allocating anything, and keeps its reference after deactivation.
+    """
+    centre = await CostCentreRepository(session, tenant).get(cost_centre_id)
+    if centre is None:
+        raise NotFoundError(COST_CENTRE_ENTITY, cost_centre_id)
+    if not centre.is_active:
+        raise _not_assignable(centre.code, centre.id, field)
+    return centre
+
+
+async def require_cost_centres(
+    session: AsyncSession,
+    tenant: TenantContext,
+    references: Sequence[tuple[str, uuid.UUID]],
+) -> dict[uuid.UUID, CostCentreFacts]:
+    """The batch form, for a document naming several: ``(field, id)`` pairs.
+
+    One statement for the whole set, never one per line. The first unknown id
+    raises :class:`NotFoundError`; every inactive one is reported at once,
+    each against its own field (``lines.2.cost_centre_id``).
+    """
+    if not references:
+        return {}
+    facts = await CostCentreRepository(session, tenant).facts(
+        (cost_centre_id for _, cost_centre_id in references), include_archived=False
+    )
+    for _, cost_centre_id in references:
+        if cost_centre_id not in facts:
+            raise NotFoundError(COST_CENTRE_ENTITY, cost_centre_id)
+
+    refused: dict[str, list[str]] = {}
+    for field, cost_centre_id in references:
+        found = facts[cost_centre_id]
+        if not found.is_assignable:
+            refused[field] = [inactive_record(COST_CENTRE_ENTITY, found.code, _NOT_ASSIGNABLE)]
+    if refused:
+        first = next(iter(refused.values()))[0]
+        raise ValidationError(first, details={"fields": refused})
+    return facts
+
+
+async def active_cost_centre_ids(
+    session: AsyncSession, tenant: TenantContext, cost_centre_ids: Iterable[uuid.UUID]
+) -> set[uuid.UUID]:
+    """Which of these ids name a live, active cost centre of this tenant."""
+    facts = await CostCentreRepository(session, tenant).facts(
+        cost_centre_ids, include_archived=False
+    )
+    return {cost_centre_id for cost_centre_id, found in facts.items() if found.is_assignable}
+
+
+async def cost_centre_facts(
+    session: AsyncSession,
+    tenant: TenantContext,
+    cost_centre_ids: Iterable[uuid.UUID],
+    *,
+    include_archived: bool = False,
+) -> dict[uuid.UUID, CostCentreFacts]:
+    """Tenant-scoped facts for these ids, in one statement.
+
+    ``include_archived`` is for history: a ledger reversal copies the centre of
+    the leg it undoes and must find it even after it was retired, because
+    retiring a centre must not make the journals posted to it irreversible.
+    """
+    return await CostCentreRepository(session, tenant).facts(
+        cost_centre_ids, include_archived=include_archived
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -1211,28 +1693,38 @@ def default_financial_year_code(on: date | None = None, start_month: int = 4) ->
 __all__ = [
     "AUDIT_ENTITY_BRANCH",
     "AUDIT_ENTITY_COMPANY",
+    "AUDIT_ENTITY_COST_CENTRE",
     "AUDIT_ENTITY_DEPARTMENT",
     "AUDIT_ENTITY_FINANCIAL_YEAR",
     "AUDIT_ENTITY_PLANT",
     "BRANCH_LIFECYCLE",
+    "COST_CENTRE_ENTITY",
+    "COST_CENTRE_LIFECYCLE",
     "DEPARTMENT_LIFECYCLE",
     "FINANCIAL_YEAR_LIFECYCLE",
     "FINANCIAL_YEAR_MACHINE",
+    "MAX_COST_CENTRE_DEPTH",
     "MAX_DEPARTMENT_DEPTH",
     "MAX_FINANCIAL_YEAR_DAYS",
     "PLANT_LIFECYCLE",
     "BranchService",
     "CompanyService",
+    "CostCentreFacts",
+    "CostCentreService",
     "DepartmentService",
     "FinancialYearService",
     "FinancialYearState",
     "MasterLifecycleState",
     "PlantService",
+    "active_cost_centre_ids",
     "assert_parent_allowed",
     "assert_period_valid",
+    "cost_centre_facts",
     "default_financial_year_code",
     "financial_year_state",
     "lifecycle_state",
     "ranges_overlap",
     "referenced_in_use",
+    "require_cost_centre",
+    "require_cost_centres",
 ]

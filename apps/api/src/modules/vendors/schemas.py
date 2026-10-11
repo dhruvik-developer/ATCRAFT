@@ -26,6 +26,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
+from src.common.banking import IFSC_PATTERN, validate_optional_ifsc
 from src.common.codes import clean_name, strip_optional, validate_code
 from src.common.tax_ids import (
     gstin_check_digit,
@@ -45,8 +46,8 @@ from src.modules.vendors.models import (
     VendorType,
 )
 
-# 4-letter bank code, a reserved '0', 6-character branch code.
-IFSC_PATTERN = r"^[A-Z]{4}0[A-Z0-9]{6}$"
+# ``IFSC_PATTERN`` lives in :mod:`src.common.banking`, shared with the company's
+# own bank details, and stays importable from here.
 SWIFT_PATTERN = r"^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$"
 
 
@@ -80,10 +81,7 @@ def _optional_pan(value: str | None) -> str | None:
 
 
 def _optional_ifsc(value: str | None) -> str | None:
-    stripped = _upper_optional(value)
-    if stripped and not re.match(IFSC_PATTERN, stripped):
-        raise ValueError("IFSC must be 4 letters, a '0', then 6 alphanumeric characters.")
-    return stripped
+    return validate_optional_ifsc(value)
 
 
 def _optional_swift(value: str | None) -> str | None:

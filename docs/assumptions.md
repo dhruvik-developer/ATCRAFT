@@ -883,6 +883,203 @@ denomination's balance rather than the company-currency cache.
 
 ---
 
+## §B1-1. A cost centre is optional everywhere, and NULL means unallocated
+
+**Assumed.** Every carrier of a cost centre - departments, work centres,
+production and job-work orders, stock adjustments, vendor invoices and their
+lines, ledger entries - holds it as a nullable column, and NULL means
+"unallocated". There is no default "general" centre a NULL silently stands for,
+and nothing existing was backfilled when the column arrived.
+
+**Why.** Nothing in the data says which centre an old document belonged to, so
+any backfill would put fiction on a cost-centre statement. And a mandatory
+centre would stop a company that has not set up its centres yet from raising a
+single order - the same day-one reasoning that has the finance module provision
+its control accounts on first use (`DEFAULT_CHART`).
+
+**Where.** The `cost_centre_id` columns (migration `3746fadd0b86`);
+`src/modules/finance/service.py` - `_post_invoice_journal`, where a line with no
+centre on an invoice with none posts the unallocated leg.
+
+**Impact if wrong.** If allocation must be complete, make the column NOT NULL on
+the documents that need it (a backfill decision per document first) and refuse
+approval of an invoice with an unallocated line. The statement already shows
+exactly what is allocated, so "unallocated" spend is the posted expense minus
+the statement's total.
+
+---
+
+## §B1-2. A document's cost centre is explicit, then its source document's, then none
+
+**Assumed.** Precedence is: the value named on the document, then the source
+document's, then NULL. A vendor invoice line resolves line, then invoice header,
+then none - at approval, so editing the header moves every line that names no
+centre of its own. Production orders and job-work orders take only an explicit
+value: an order raised from an MRP suggestion or a sales order carries none,
+and a job-work order does not inherit the centre of the production order it may
+cover (its `source_id` is a bare polymorphic id this module never reads).
+Material issues carry no centre; they reach one through `production_order_id`.
+A stock adjustment's movements reach its centre through the movement's
+`reference_type` / `reference_id`.
+
+**Why.** None of the source documents this release can read carries a centre,
+so inheriting would mean inventing one. Resolving the invoice line at approval
+rather than copying the header onto each line at entry is what makes a
+header-only edit behave the way a person expects.
+
+**Where.** `src/modules/finance/service.py` - `_post_invoice_journal`;
+`src/modules/production/service.py` - `create_order`;
+`src/modules/job_work/service.py` - `create_order`.
+
+**Impact if wrong.** WP B3 adds requisitions and purchase orders as carriers and
+extends the chain (requester's department default, PO line). A job-work order
+that must follow its production order needs a read of the production order at
+entry - job work and production are siblings, so through a port, not an import.
+
+---
+
+## §B1-3. Retiring a cost centre never touches posted history
+
+**Assumed.** Two levels. *Deactivating* stops a centre being offered for new
+allocations and is refused only while something would keep handing it out: an
+active child, a department naming it as its default, or a work centre charged to
+it. *Archiving* is refused while any row at all names it - a live child, a
+department, a work centre, or any production order, job-work order, stock
+adjustment, vendor invoice or invoice line *whatever that document's status* -
+except posted ledger entries. A document keeps its reference after
+deactivation, and re-saving it is not refused; a *new* allocation to an
+inactive centre is. A ledger reversal copies the centre of the leg it undoes and
+is exempt from the "active" check.
+
+**Why.** Retiring a centre must not make the journals posted to it
+irreversible, and must not strand a draft that names it - each is the next
+operation on a row that already exists. Probing every document regardless of
+status keeps the guard simple and conservative: deactivation, not archiving, is
+how a centre that history still names stops being used.
+
+**Where.** `src/modules/organization/service.py` - `CostCentreService.
+_assert_may_deactivate` and `delete_cost_centre`;
+`src/modules/organization/repository.py` - `COST_CENTRE_REFERENCE_PROBES`;
+`src/modules/finance/service.py` - `_assert_cost_centres_postable`.
+
+**Impact if wrong.** If a centre named only on closed documents should be
+archivable, give each `ReferenceProbe` a status predicate - the shape is already
+per table. A vendor invoice approved after its centre was deactivated is refused
+at approval until it is re-tagged (it is still editable then); if that should
+pass, exempt approval postings from the active check the way reversals are.
+
+---
+
+## §B1-4. Only income and expense ledger legs carry a cost centre
+
+**Assumed.** `post_journal` refuses a cost centre on any leg whose account is
+not INCOME or EXPENSE, naming the leg. The invoice journal tags only its
+purchase-expense legs: input tax and the payable are balance-sheet legs and are
+never tagged, and the round-off leg (an expense account) is left unallocated
+because a rupee of rounding belongs to no process.
+
+**Why.** A cost centre answers "where was this earned or spent". A payable, a
+bank balance or a tax credit has no answer to that, and tagging one would put
+balance-sheet movement on a cost-centre statement.
+
+**Where.** `src/modules/finance/models.py` - `COST_CENTRE_ACCOUNT_TYPES`;
+`src/modules/finance/service.py` - `assert_cost_centre_legs`.
+
+**Impact if wrong.** If capital spend should be tracked by centre (an asset leg
+on a capex project), widen `COST_CENTRE_ACCOUNT_TYPES` - the statement filters
+on the same constant, so the two cannot disagree.
+
+---
+
+## §B1-5. The cost-centre tree is as deep as the department tree, and active only under active
+
+**Assumed.** `MAX_COST_CENTRE_DEPTH` equals `MAX_DEPARTMENT_DEPTH` (six levels),
+and the depth checked is the deepest descendant's, so moving a centre cannot
+push its children past the limit. An active centre may not sit under an
+inactive one: creating, reparenting or activating into that state is refused.
+
+**Why.** A plant > production > process > cell breakdown is four levels, and
+the department tree it usually shadows has the same bound - defined as equal so
+the two cannot drift apart. An active child under an inactive parent would keep
+offering a branch the business switched off.
+
+**Where.** `src/modules/organization/service.py` - `MAX_COST_CENTRE_DEPTH`,
+`assert_parent_allowed(subtree_height=...)`, `_assert_parent_active`.
+
+**Impact if wrong.** Raise the constant; it is not a database constraint. The
+department rule does not yet count descendants on a reparent - a known gap in
+that older code, left unchanged here.
+
+---
+
+## §B1-6. The cost-centre statement reads posted history, with one sign
+
+**Assumed.** The statement (`COST_CENTRE_EXPENSE`) sums `ledger_entries` per
+(cost centre, account) over a required period, for INCOME and EXPENSE accounts.
+`net_amount` is debit minus credit on every row - positive is cost, negative is
+income. A retired centre's postings still appear. There is no roll-up of
+children into parents, and `search` matches the centre's code or name. It is
+never cached.
+
+**Why.** The ledger is the one place every route money takes - invoices, direct
+journals, reversals - is recorded, so a statement read from it agrees with the
+accounts by construction. One sign lets a reader add the column down a centre
+and get its net cost.
+
+**Where.** `src/modules/reports/repository.py` - `cost_centre_expense`;
+`src/modules/reports/service.py` - `REPORT_CATALOGUE[COST_CENTRE_EXPENSE]`.
+
+**Impact if wrong.** A roll-up needs the subtree walk (`ancestor_ids` already
+exists) folded into the query; a per-class sign is a change to `net_amount` and
+to its description, not to the grouping.
+
+---
+
+## §B1-7. The company's bank details are validated for shape and audited masked
+
+**Assumed.** The bank details printed on invoices are optional; the IFSC is
+checked for shape only (`^[A-Z]{4}0[A-Z0-9]{6}$`, upper-cased, spaces removed);
+the account number loses its spaces and is otherwise free text up to 34
+characters. Anyone who may read the company profile reads the full number - it
+is printed on every invoice the company sends - while the audit trail records
+it masked to its last four characters, with an explicit flag when it changed.
+
+**Why.** Only the RBI's register can say a branch exists. Redirecting where
+customers pay is how invoice-redirection fraud starts, so the change must be
+provable without the audit log becoming a second copy of the number - the rule
+the vendor master already applies. Two numbers ending alike mask alike, which
+is why the change is also flagged.
+
+**Where.** `src/common/banking.py` (shared with the vendor master);
+`src/modules/organization/schemas.py` - `CompanyUpdate`;
+`src/modules/organization/service.py` - `_company_snapshot`.
+
+**Impact if wrong.** If the full number must be hidden from some readers, mask
+it in `CompanyRead` for principals without `company.manage`, as the vendor read
+model does with `bank_account_number_masked`.
+
+---
+
+## §B1-8. Who may see and manage cost centres
+
+**Assumed.** `cost_centre.view` and `cost_centre.manage` are new permissions in
+the Organisation group. The ACCOUNTS preset holds both; the purchase and
+production presets and PLANNER hold view. A deployed system role (SUPER_ADMIN,
+ADMIN) gets both through migration `e1eed3775093`; a client-owned role on an
+existing deployment does not, and is granted from Settings -> Roles.
+
+**Why.** The centre is the analytic dimension of the ledger, so its master is
+the accounts team's to keep; buyers and the shop floor name centres on their
+documents and need to see them. Client-owned roles are never rewritten from a
+preset - the `2f5e08c7ba61` precedent.
+
+**Where.** `src/core/permissions.py`; migration `e1eed3775093`.
+
+**Impact if wrong.** Move the strings between presets; existing roles change
+only through Settings -> Roles.
+
+---
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant

@@ -137,6 +137,14 @@ DEBIT_NORMAL_TYPES: frozenset[LedgerAccountType] = frozenset(
     {LedgerAccountType.ASSET, LedgerAccountType.EXPENSE}
 )
 
+#: The account classes a ledger leg may carry a cost centre on. A cost centre
+#: answers "where was this earned or spent", which a payable, a bank balance or
+#: a tax credit has no answer to - allowing it there would put balance-sheet
+#: movements on a cost-centre statement. docs/assumptions.md §B1-4.
+COST_CENTRE_ACCOUNT_TYPES: frozenset[LedgerAccountType] = frozenset(
+    {LedgerAccountType.INCOME, LedgerAccountType.EXPENSE}
+)
+
 
 class PartyType(StrEnum):
     """Who a ledger entry or a payment is against."""
@@ -435,6 +443,15 @@ class LedgerEntry(ImmutableLedgerEntity):
         GUID, ForeignKey("ledger_entries.id", ondelete="RESTRICT"), nullable=True
     )
 
+    #: Where the money was spent or earned - the analytic dimension the
+    #: cost-centre statement reads. Set only at posting time (the row is
+    #: immutable), only on INCOME and EXPENSE legs, and NULL means
+    #: "unallocated". A reversal copies it from the leg it undoes, even after
+    #: the centre has been retired. RESTRICT: posted history keeps its centre.
+    cost_centre_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("cost_centres.id", ondelete="RESTRICT"), nullable=True
+    )
+
     __table_args__ = (
         UniqueConstraint("journal_id", "line_number", name="uq_ledger_entries_journal_line"),
         # THE statement index: one party's postings in date order, which is
@@ -455,6 +472,16 @@ class LedgerEntry(ImmutableLedgerEntity):
         Index("ix_ledger_entries_reference", "company_id", "reference_type", "reference_id"),
         # Keyset paging over the whole ledger, newest first.
         Index("ix_ledger_entries_company_date", "company_id", "entry_date", "id"),
+        # The cost-centre statement: one period's allocated legs. Partial,
+        # because most legs (payables, bank, tax) never carry a centre and the
+        # report never reads them.
+        Index(
+            "ix_ledger_entries_cost_centre",
+            "company_id",
+            "cost_centre_id",
+            "entry_date",
+            postgresql_where=text("cost_centre_id IS NOT NULL"),
+        ),
         # The correctness floor. A leg that is both a debit and a credit, or
         # neither, is not a bookkeeping entry - see the module docstring.
         CheckConstraint("debit_amount >= 0", name="debit_non_negative"),
@@ -519,6 +546,13 @@ class VendorInvoice(TenantEntity, OptimisticLockMixin):
     )
     goods_receipt_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("goods_receipts.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+
+    #: The cost centre the bill is charged to, and the default for every line
+    #: that names none of its own. Resolved line by line at approval, when the
+    #: purchase expense is split per centre. NULL is "unallocated".
+    cost_centre_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("cost_centres.id", ondelete="RESTRICT"), nullable=True, index=True
     )
 
     currency: Mapped[str] = mapped_column(
@@ -675,6 +709,12 @@ class VendorInvoiceLine(TenantEntity):
 
     item_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    #: This line's own cost centre. NULL means "the invoice's" - the header
+    #: value applies at approval - not "unallocated"; only a line on an
+    #: invoice with no header centre either posts unallocated.
+    cost_centre_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("cost_centres.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     #: Snapshot of what the vendor billed, not a pointer to the item name.
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -887,6 +927,7 @@ __all__ = [
     "AGEING_BUCKET_LABELS",
     "ALLOCATABLE_PAYMENT_STATUSES",
     "BANK_METHODS",
+    "COST_CENTRE_ACCOUNT_TYPES",
     "CURRENCY_CODE_LENGTH",
     "DEBIT_NORMAL_TYPES",
     "DEFAULT_CURRENCY",

@@ -88,6 +88,9 @@ class ReportKey(StrEnum):
     DISPATCH = "DISPATCH"
     COURIER_TRACKING = "COURIER_TRACKING"
     VENDOR_DISPATCH_HISTORY = "VENDOR_DISPATCH_HISTORY"
+    #: Income and expense per cost centre and account over a period, read from
+    #: the posted ledger - the "cost centre statement".
+    COST_CENTRE_EXPENSE = "COST_CENTRE_EXPENSE"
     #: A rendered document rather than a tabular report: the packing-list PDF
     #: for one packing order. It has a job row here - ``GET /reports/jobs/{id}``
     #: is what the client polls - but no ``ReportDefinition``, because there are

@@ -1120,6 +1120,9 @@ async def _seed_jobs(ctx: DemoContext, look: _Lookup, specs: Sequence[_JobSpec])
                         item_id=item.id,
                         planned_quantity=Decimal(spec.quantity),
                         warehouse_id=warehouse_id,
+                        # Charged to Production; the masters stage registers
+                        # it as DM-CC-PROD. Absent, the job is unallocated.
+                        cost_centre_id=ctx.maybe_id("cost_centre", ctx.code("CC", "PROD")),
                         planned_start_date=_anchor() + timedelta(days=spec.start_offset),
                         planned_end_date=_anchor() + timedelta(days=spec.end_offset),
                         priority=spec.priority,
@@ -1536,6 +1539,9 @@ async def _seed_job_work(ctx: DemoContext, look: _Lookup) -> None:
                         expected_return_date=_days_after(spec.return_offset),
                         warehouse_id=warehouse_id,
                         return_warehouse_id=warehouse_id,
+                        # Plating is job-worked: the vendor stands in for the
+                        # DM-CC-PROD-PLAT process the masters stage registers.
+                        cost_centre_id=ctx.maybe_id("cost_centre", ctx.code("CC", "PROD", "PLAT")),
                         rate_per_unit=Decimal(spec.rate),
                         rate_basis=RateBasis.PER_PIECE,
                         notes=_tagged(tag, spec.sentence),

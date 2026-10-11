@@ -181,6 +181,7 @@ from src.modules.inventory.schemas import (
     TransferFilters,
     WarehouseStockRowWithCost,
 )
+from src.modules.organization.service import require_cost_centre
 
 log = get_logger(__name__)
 
@@ -4452,6 +4453,8 @@ class StockAdjustmentService:
             missing = [line.item_id for line in payload.lines if line.item_id not in items]
             if missing:
                 raise NotFoundError("Item", missing[0])
+            if payload.cost_centre_id is not None:
+                await require_cost_centre(self.session, self.tenant, payload.cost_centre_id)
 
             grains = [
                 BalanceGrain(
@@ -4472,6 +4475,7 @@ class StockAdjustmentService:
                 status=AdjustmentStatus.DRAFT,
                 warehouse_id=payload.warehouse_id,
                 adjustment_date=payload.adjustment_date or today(),
+                cost_centre_id=payload.cost_centre_id,
                 reason_code=payload.reason_code,
                 reason=payload.reason,
                 notes=payload.notes,
@@ -4527,6 +4531,7 @@ class StockAdjustmentService:
                     [
                         "code",
                         "warehouse_id",
+                        "cost_centre_id",
                         "reason_code",
                         "reason",
                         "total_value",

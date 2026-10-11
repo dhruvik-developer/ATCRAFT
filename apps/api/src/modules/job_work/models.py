@@ -250,6 +250,12 @@ class JobWorkOrder(TenantEntity, OptimisticLockMixin):
     )
 
     # --- commercial ----------------------------------------------------------
+    #: The cost centre the processing charges belong to - typically the
+    #: job-worked process (plating, PVD) the vendor stands in for. Explicit only;
+    #: NULL is "unallocated".
+    cost_centre_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("cost_centres.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     rate_per_unit: Mapped[Decimal] = mapped_column(
         UnitPrice, nullable=False, default=Decimal("0"), server_default="0"
     )
