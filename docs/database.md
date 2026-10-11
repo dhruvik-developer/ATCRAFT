@@ -102,7 +102,7 @@ Carriers - each a nullable `cost_centre_id`, FK `RESTRICT`, indexed:
 | `vendor_invoice_lines` | the line's own centre; NULL means "the invoice's" |
 | `ledger_entries` | **the analytic source of truth**, set only by `post_journal` |
 
-Rules (`docs/assumptions.md` §B1-1 to §B1-6):
+Rules (`docs/assumptions.md` §41 to §46):
 
 * **NULL is "unallocated"**, never "the default centre". Nothing is backfilled.
 * **Precedence is explicit value -> source document -> NULL.** A vendor invoice
@@ -239,7 +239,7 @@ What the products service does enforce:
   committed, and the item lands carrying a value nothing offers
   (`tests/integration/test_brand_manufacturer_concurrency.py`).
 * **Codes are never reused**, retired rows included (`docs/assumptions.md`
-  §A1-1).
+  §39).
 
 Other required columns: `code`, `name`, `category_id`, `base_uom_id`,
 `purchase_uom_id`, `sale_uom_id`, `hsn_code`, `gst_rate`, `standard_cost`,
@@ -589,13 +589,13 @@ client**: the group's category when a requisition is split, and on a buyer's own
 order the single category every line resolves to against the order's vendor, or
 NULL when the lines differ. A line's procurement category is the nearest
 ancestor-or-self of its item's category that the vendor is qualified for in
-`vendor_categories`, else the item's own (docs/assumptions.md §C0-1).
+`vendor_categories`, else the item's own (docs/assumptions.md §50).
 
 The vendor portal reads it: `PurchaseOrderRepository._scoped` shows a vendor
 user only sent orders, and, when the user's `allowed_category_ids` is not empty,
 only orders whose category sits at or beneath one of them - matched on the
 materialised `item_categories.path` - plus orders assigned to that user by name
-(§C0-7). `users.allowed_category_ids` must name live categories of the tenant
+(§56). `users.allowed_category_ids` must name live categories of the tenant
 that the user's vendor is qualified for.
 
 Every path that adds to a requisition's `ordered_quantity` - a conversion, a

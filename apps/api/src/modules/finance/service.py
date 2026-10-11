@@ -1366,7 +1366,7 @@ async def _assert_cost_centres_postable(
     to a centre somebody switched off is exactly what switching it off is
     meant to stop. A *reversal* leg does not - it copies the centre of the leg
     it undoes, and refusing it would make every journal posted to a centre
-    irreversible the moment that centre was retired (docs/assumptions.md §B1-3).
+    irreversible the moment that centre was retired (docs/assumptions.md §43).
     Retired rows are therefore read too, and only tenant ownership is checked
     for a reversal.
     """
@@ -2442,14 +2442,14 @@ async def _post_invoice_journal(
     the lines first name them, summing to the subtotal exactly
     (:func:`split_by_cost_centre`). An invoice that names no centre anywhere
     posts the single unallocated leg it always did. The tax and payable legs
-    never carry one - they are balance-sheet accounts (§B1-4).
+    never carry one - they are balance-sheet accounts (§44).
     """
     accounts = await ensure_system_accounts(session, tenant)
     invoice_lines = await VendorInvoiceLineRepository(session, tenant).list_for_invoice(invoice.id)
     # ASSUMPTION: a line's centre is its own, else the invoice's, else none -
     # resolved here, at approval, so a header-only edit moves every line that
     # names no centre of its own; and none means unallocated, never a default
-    # centre. docs/assumptions.md §B1-1 and §B1-2.
+    # centre. docs/assumptions.md §41 and §42.
     expense = split_by_cost_centre(
         [
             (line.cost_centre_id or invoice.cost_centre_id, Decimal(line.taxable_amount))

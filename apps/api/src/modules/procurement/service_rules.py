@@ -1297,7 +1297,7 @@ def recommendation_reason(ranked: list[RankedOffer], *, vendor_names: dict[uuid.
 # order can be assigned to is ``purchase_order.update`` - the permission the
 # portal's acknowledge and shipment actions are gated on today. Held in one
 # constant so the dedicated portal right that replaces it is a one-line change
-# (docs/assumptions.md §C0-5).
+# (docs/assumptions.md §54).
 VENDOR_PO_RESPOND_PERMISSION: Permission = Permission.PURCHASE_ORDER_UPDATE
 
 #: One conversion raises at most this many purchase orders. Each order is a
@@ -1380,7 +1380,7 @@ def resolve_procurement_category(
     the vendor is engaged at, and it is the same set the vendor's managers are
     scoped to - so the order a manager is shown and the order they are assigned
     can never be drawn at two different levels of the tree
-    (docs/assumptions.md §C0-1). An item with no category has none.
+    (docs/assumptions.md §50). An item with no category has none.
     """
     for category_id in item_category_lineage:
         if category_id in vendor_category_ids:
@@ -1410,7 +1410,7 @@ def resolve_line_vendor(
 
     ASSUMPTION: the buyer's override, then the requester's suggestion, then the
     item's preferred vendor link, then the preferred vendor of the item's
-    category or its nearest ancestor (docs/assumptions.md §C0-2). The person
+    category or its nearest ancestor (docs/assumptions.md §51). The person
     closest to the decision wins: a buyer overriding at conversion time knows
     something the master data does not, and a requester who named a vendor did
     so on purpose. ``(None, None)`` is an unresolved line.
@@ -1439,7 +1439,7 @@ def resolve_line_price(
     ``standard_cost``: that is what the company *values* the item at, not a
     price any vendor offered, and a purchase order printed at it would put an
     internal costing figure on a document the vendor reads
-    (docs/assumptions.md §C0-3). A zero is a price; ``None`` is not.
+    (docs/assumptions.md §52). A zero is a price; ``None`` is not.
     ``(None, None)`` is an unresolved line.
     """
     for price, source in (
@@ -1458,7 +1458,7 @@ def conversion_delivery_date(need_date: date | None, po_date: date) -> date | No
     ASSUMPTION: the requisition's need date, but never earlier than the order
     date. A requirement that is already overdue is wanted as soon as possible,
     and a purchase order cannot promise a delivery before it was raised - the
-    database refuses that on the header (docs/assumptions.md §C0-8).
+    database refuses that on the header (docs/assumptions.md §57).
     """
     if need_date is None:
         return None
@@ -1633,7 +1633,7 @@ def choose_vendor_assignee(
 
     ASSUMPTION: an ambiguous match leaves the order unassigned rather than
     guessing; the buyer picks at Send, where the choice is visible
-    (docs/assumptions.md §C0-6). A category-less order matches unrestricted
+    (docs/assumptions.md §55). A category-less order matches unrestricted
     users only.
     """
     eligible = [c for c in candidates if is_eligible_assignee(c, vendor_id=vendor_id)]

@@ -71,7 +71,7 @@ CATEGORY_PATH_LENGTH = 512
 
 #: Where a manufacturer is assumed to be when nobody says otherwise - the same
 #: default the vendor and customer address columns carry. ASSUMPTION: a default,
-#: never a rule; docs/assumptions.md §A1-2.
+#: never a rule; docs/assumptions.md §40.
 DEFAULT_MANUFACTURER_COUNTRY = "India"
 
 #: Upper bound of a brand's presentation position, mirrored by a CHECK so a
@@ -403,7 +403,7 @@ class Brand(TenantMasterEntity):
     #: The brand owner. RESTRICT, so a maker cannot be removed from under the
     #: brands it owns - and the service refuses to even retire one while a live
     #: brand still names it. ASSUMPTION: at most one owner per brand, recorded
-    #: for reference only (docs/assumptions.md §A1-2).
+    #: for reference only (docs/assumptions.md §40).
     manufacturer_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("manufacturers.id", ondelete="RESTRICT"), nullable=True, index=True
     )
@@ -505,7 +505,7 @@ class Item(TenantMasterEntity):
     )
     #: The maker's own part number, as free text - every maker numbers parts its
     #: own way, so nothing here may parse it. ASSUMPTION: not unique and not
-    #: normalised beyond trimming (docs/assumptions.md §A1-2).
+    #: normalised beyond trimming (docs/assumptions.md §40).
     manufacturer_part_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # --- capability flags: master rules section 1 ----------------------------

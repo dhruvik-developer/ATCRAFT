@@ -229,7 +229,7 @@ class CompanyRead(BaseModel):
     bank_account_name: str | None
     # ASSUMPTION: in full - these are the details printed on every invoice the
     # company sends, so anyone allowed to read the company profile may read
-    # them. The audit trail is what is masked. docs/assumptions.md §B1-7.
+    # them. The audit trail is what is masked. docs/assumptions.md §47.
     bank_account_number: str | None
     bank_ifsc: str | None
     bank_branch: str | None

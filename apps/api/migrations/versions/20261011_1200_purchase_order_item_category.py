@@ -1,7 +1,7 @@
 """purchase order procurement category, backfilled from the line items
 
 Revision ID: 159ffb5b9cb4
-Revises: 2f5e08c7ba61
+Revises: b459767d92f5
 Created: 2026-10-11 12:00:00.000000+00:00
 
 A requisition now splits into one purchase order per (vendor, procurement
@@ -11,7 +11,7 @@ raised for, so ``purchase_orders`` gains ``item_category_id``.
 
 The column is derived, never typed: on create, update and conversion the
 service sets it to the one procurement category the lines share, or NULL when
-they span several (docs/assumptions.md §C0-1). Existing orders are backfilled
+they span several (docs/assumptions.md §50). Existing orders are backfilled
 here with the conservative half of that rule - the item's *own* category, where
 every line of the order is an item in one and the same category. An order with
 mixed categories, or with any line whose item has no category, is left NULL,
@@ -60,7 +60,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "159ffb5b9cb4"
-down_revision: str | None = "2f5e08c7ba61"
+down_revision: str | None = "b459767d92f5"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

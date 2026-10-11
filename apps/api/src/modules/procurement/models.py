@@ -304,7 +304,7 @@ OPEN_REQUISITION_STATUSES: tuple[RequisitionStatus, ...] = (
 # visible too, but only when the order had been sent first (``sent_at`` set) -
 # see ``PurchaseOrderRepository._scoped``. DRAFT, PENDING_APPROVAL, APPROVED and
 # REJECTED are the buyer's working state: an order the vendor has not been
-# given, with prices nobody has approved yet (docs/assumptions.md §C0-7).
+# given, with prices nobody has approved yet (docs/assumptions.md §56).
 VENDOR_VISIBLE_PO_STATUSES: tuple[PurchaseOrderStatus, ...] = (
     PurchaseOrderStatus.SENT,
     PurchaseOrderStatus.ACKNOWLEDGED,
@@ -921,7 +921,7 @@ class PurchaseOrder(TenantEntity, OptimisticLockMixin):
     #: lines span several. Derived by the service on create, update and
     #: requisition conversion - never accepted from the client - and read by the
     #: vendor-portal scope, which shows a category-restricted vendor manager only
-    #: the orders in their categories (docs/assumptions.md §C0-1).
+    #: the orders in their categories (docs/assumptions.md §50).
     item_category_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("item_categories.id", ondelete="RESTRICT"), nullable=True
     )

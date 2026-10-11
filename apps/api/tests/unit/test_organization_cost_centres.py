@@ -297,7 +297,7 @@ class TestReferenceProbes:
         cost centre then being archived out from under its documents, with no
         error anywhere. Three exemptions, each checked another way:
 
-        * ``ledger_entries`` - posted history keeps its centre (§B1-3);
+        * ``ledger_entries`` - posted history keeps its centre (§43);
         * ``departments`` - organisation's own table, checked through the ORM;
         * ``cost_centres`` - the parent link, checked as "live children".
         """

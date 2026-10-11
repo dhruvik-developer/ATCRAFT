@@ -4,7 +4,7 @@
  *
  * A cost centre is where money is charged - a die-casting shop, a sales zone -
  * and the centres nest, at most six levels deep (`MAX_COST_CENTRE_DEPTH`, the
- * department limit; docs/assumptions.md §B1-5). Everything here is derived from
+ * department limit; docs/assumptions.md §45). Everything here is derived from
  * the generated contract rather than restated, so a field the API drops stops
  * compiling instead of rendering as a blank.
  *
@@ -120,7 +120,7 @@ export function subtreeIds(rows: readonly CostCentreOption[], rootId: string): S
  *
  * Active centres, because a new allocation to an inactive one is refused - plus
  * the one the record already carries, active or not. A document keeps its
- * centre after deactivation (docs/assumptions.md §B1-3); leaving that centre
+ * centre after deactivation (docs/assumptions.md §43); leaving that centre
  * out of its own edit form would make the next save look like a deliberate
  * "unallocated".
  */

@@ -523,7 +523,7 @@ _ACCOUNTS = frozenset(
         # ASSUMPTION: Accounts owns the cost-centre master - it is the analytic
         # dimension of the ledger, and the cost-centre statement is theirs to
         # answer for. Purchase, production and PLANNER only view it.
-        # docs/assumptions.md §B1-8.
+        # docs/assumptions.md §48.
         Permission.COST_CENTRE_VIEW,
         Permission.COST_CENTRE_MANAGE,
     }

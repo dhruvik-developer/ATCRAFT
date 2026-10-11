@@ -592,7 +592,7 @@ async def _assert_suggested_vendors(
     """A vendor a requisition line suggests must be a live vendor of this tenant.
 
     The requisition split reads the suggestion as its second vendor source
-    (docs/assumptions.md §C0-2), and a foreign key to ``vendors.id`` is
+    (docs/assumptions.md §51), and a foreign key to ``vendors.id`` is
     satisfied by another company's vendor - so the tenant check is made here,
     once, in one statement. Approval is not required: a suggestion is the
     requester's hint, and the conversion checks the vendor can take orders when
@@ -815,7 +815,7 @@ async def _order_category(
     Each line resolves against the order's vendor exactly as a converted line
     does (:func:`resolve_procurement_category`); the order carries the result
     when every line agrees and NULL when they do not (docs/assumptions.md
-    §C0-1). Two statements whatever the line count.
+    §50). Two statements whatever the line count.
     """
     item_categories = [items[item_id].category_id for item_id in item_ids]
     known = sorted({c for c in item_categories if c is not None}, key=str)
@@ -3499,7 +3499,7 @@ def _unorderable_item_reasons(item: PurchasableItem | None, item_code: str) -> l
     per line: a requisition approved last month can name an item retired,
     deactivated or unflagged for purchase since. Refusing the whole proposal for
     it would leave the buyer nothing to act on; an unresolved line is shown,
-    with this reason, and can be left out (docs/assumptions.md §C0-2).
+    with this reason, and can be left out (docs/assumptions.md §51).
     """
     if item is None:
         return [f"Item {item_code} has been retired and can no longer be ordered."]
@@ -3807,7 +3807,7 @@ def _conversion_order_payload(
         priority=_group_priority(group, payload),
         # ASSUMPTION: a converted order is in the company's currency. Its prices
         # come from a requisition estimate or a last purchase price, and a
-        # requisition carries no currency of its own (docs/assumptions.md §C0-3).
+        # requisition carries no currency of its own (docs/assumptions.md §52).
         currency=DEFAULT_CURRENCY,
         delivery_address=payload.delivery_address,
         terms=payload.terms,
@@ -3992,9 +3992,9 @@ async def convert_requisitions_to_orders(
     APPROVED to CONVERTED.
 
     ASSUMPTION: a line that cannot be resolved refuses the whole conversion and
-    nothing is written (docs/assumptions.md §C0-2), and the orders are raised as
+    nothing is written (docs/assumptions.md §51), and the orders are raised as
     DRAFT, going through submit, approve and send like any other
-    (docs/assumptions.md §C0-4).
+    (docs/assumptions.md §53).
     """
     async with transaction(session):
         plan = await _plan_conversion(session, tenant, requisition_ids, payload, lock=True)

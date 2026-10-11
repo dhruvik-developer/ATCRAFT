@@ -140,7 +140,7 @@ DEBIT_NORMAL_TYPES: frozenset[LedgerAccountType] = frozenset(
 #: The account classes a ledger leg may carry a cost centre on. A cost centre
 #: answers "where was this earned or spent", which a payable, a bank balance or
 #: a tax credit has no answer to - allowing it there would put balance-sheet
-#: movements on a cost-centre statement. docs/assumptions.md §B1-4.
+#: movements on a cost-centre statement. docs/assumptions.md §44.
 COST_CENTRE_ACCOUNT_TYPES: frozenset[LedgerAccountType] = frozenset(
     {LedgerAccountType.INCOME, LedgerAccountType.EXPENSE}
 )

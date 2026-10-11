@@ -11,7 +11,7 @@ a handler runs, so they are tested at the HTTP boundary where they live:
 * a vendor sees only orders it has been sent - SENT and later, and a cancelled
   one only if it had been sent. Its own DRAFT is "not found" too: an order the
   buyer is still typing, with prices nobody has approved
-  (docs/assumptions.md §C0-7);
+  (docs/assumptions.md §56);
 * a vendor user restricted to item categories sees the orders raised for those
   categories (or beneath them), plus any order assigned to it by name;
 * the buyer-side edit and submit, the duplicate check and the requisition
@@ -231,7 +231,7 @@ class TestAnotherVendorsOrder:
 
 class TestTheVendorsOwnOrder:
     async def test_a_draft_is_not_found(self, api_client, principal: Principal, orders) -> None:
-        """Changed deliberately (§C0-7): before WP C0 a vendor could read its own
+        """Changed deliberately (§56): before WP C0 a vendor could read its own
         DRAFT and PENDING_APPROVAL orders, unapproved prices included."""
         ours, our_order, _ = orders
         _sign_in_as_vendor_owner(principal, ours)

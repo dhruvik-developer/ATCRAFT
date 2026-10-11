@@ -747,7 +747,7 @@ charge path.
 
 **Assumed.** A vendor principal's purchase-order reads and row locks are
 confined at `PurchaseOrderRepository._scoped` to that vendor's own orders -
-and, within those, to orders it has been sent and to its categories (§C0-7).
+and, within those, to orders it has been sent and to its categories (§56).
 `PATCH /purchase-orders/{id}` and `POST /purchase-orders/{id}/submit` are
 buyer-only (`forbid_vendor_users`), even for the order's own vendor;
 acknowledge and shipment recording stay vendor-reachable.
@@ -884,7 +884,7 @@ denomination's balance rather than the company-currency cache.
 
 ---
 
-## §A1-1. Brand and manufacturer codes are normalised, never reused, and a value in use cannot be retired
+## 39. Brand and manufacturer codes are normalised, never reused, and a value in use cannot be retired
 
 **Assumed.** A brand or manufacturer code passes through `normalise_code` - upper
 case, internal whitespace collapsed, no alphabet check - the same canonical form
@@ -924,7 +924,7 @@ item history and needs its own audit and confirmation design.
 
 ---
 
-## §A1-2. A brand has at most one owner, a part number is free text, and nothing branches on either master
+## 40. A brand has at most one owner, a part number is free text, and nothing branches on either master
 
 **Assumed.** A brand names at most one manufacturer as its owner
 (`brands.manufacturer_id`), recorded for reference only. A manufacturer's part
@@ -959,7 +959,7 @@ here.
 
 ---
 
-## §B1-1. A cost centre is optional everywhere, and NULL means unallocated
+## 41. A cost centre is optional everywhere, and NULL means unallocated
 
 **Assumed.** Every carrier of a cost centre - departments, work centres,
 production and job-work orders, stock adjustments, vendor invoices and their
@@ -985,7 +985,7 @@ the statement's total.
 
 ---
 
-## §B1-2. A document's cost centre is explicit, then its source document's, then none
+## 42. A document's cost centre is explicit, then its source document's, then none
 
 **Assumed.** Precedence is: the value named on the document, then the source
 document's, then NULL. A vendor invoice line resolves line, then invoice header,
@@ -1014,7 +1014,7 @@ entry - job work and production are siblings, so through a port, not an import.
 
 ---
 
-## §B1-3. Retiring a cost centre never touches posted history
+## 43. Retiring a cost centre never touches posted history
 
 **Assumed.** Two levels. *Deactivating* stops a centre being offered for new
 allocations and is refused only while something would keep handing it out: an
@@ -1046,7 +1046,7 @@ pass, exempt approval postings from the active check the way reversals are.
 
 ---
 
-## §B1-4. Only income and expense ledger legs carry a cost centre
+## 44. Only income and expense ledger legs carry a cost centre
 
 **Assumed.** `post_journal` refuses a cost centre on any leg whose account is
 not INCOME or EXPENSE, naming the leg. The invoice journal tags only its
@@ -1067,7 +1067,7 @@ on the same constant, so the two cannot disagree.
 
 ---
 
-## §B1-5. The cost-centre tree is as deep as the department tree, and active only under active
+## 45. The cost-centre tree is as deep as the department tree, and active only under active
 
 **Assumed.** `MAX_COST_CENTRE_DEPTH` equals `MAX_DEPARTMENT_DEPTH` (six levels),
 and the depth checked is the deepest descendant's, so moving a centre cannot
@@ -1088,7 +1088,7 @@ that older code, left unchanged here.
 
 ---
 
-## §B1-6. The cost-centre statement reads posted history, with one sign
+## 46. The cost-centre statement reads posted history, with one sign
 
 **Assumed.** The statement (`COST_CENTRE_EXPENSE`) sums `ledger_entries` per
 (cost centre, account) over a required period, for INCOME and EXPENSE accounts.
@@ -1111,7 +1111,7 @@ to its description, not to the grouping.
 
 ---
 
-## §B1-7. The company's bank details are validated for shape and audited masked
+## 47. The company's bank details are validated for shape and audited masked
 
 **Assumed.** The bank details printed on invoices are optional; the IFSC is
 checked for shape only (`^[A-Z]{4}0[A-Z0-9]{6}$`, upper-cased, spaces removed);
@@ -1136,7 +1136,7 @@ model does with `bank_account_number_masked`.
 
 ---
 
-## §B1-8. Who may see and manage cost centres
+## 48. Who may see and manage cost centres
 
 **Assumed.** `cost_centre.view` and `cost_centre.manage` are new permissions in
 the Organisation group. The ACCOUNTS preset holds both; the purchase and
@@ -1156,7 +1156,7 @@ only through Settings -> Roles.
 
 ---
 
-## §B1-9. Only someone who may see the cost centres names one on a document
+## 49. Only someone who may see the cost centres names one on a document
 
 **Assumed.** The cost-centre picker on a production order, job-work order,
 stock adjustment, vendor invoice (header and line), department and work centre
@@ -1182,11 +1182,11 @@ that renders it; the payload builders in `organisation-dialogs.tsx`,
 `cost_centre.view` to the STORE_KEEPER role (or the client's equivalent) - the
 storekeeper preset does not hold it today, so adjustments raised there are
 unallocated. Making a centre mandatory on a document is a backend rule, not a
-picker setting (§B1-1).
+picker setting (§41).
 
 ---
 
-## §C0-1. A line is bought under the nearest category its vendor is qualified for
+## 50. A line is bought under the nearest category its vendor is qualified for
 
 **Assumed.** When a requisition is split into purchase orders, each line's
 *procurement category* is the nearest ancestor-or-self of the item's category
@@ -1217,14 +1217,14 @@ that finer level.
 
 ---
 
-## §C0-2. Vendor resolution order, and an unresolved line refuses the conversion
+## 51. Vendor resolution order, and an unresolved line refuses the conversion
 
 **Assumed.** A converted line's vendor is the first of: the buyer's per-line
 override, the requisition line's `suggested_vendor_id`, the item's preferred
 `item_vendor_links` row, and the preferred `vendor_categories` row of the item's
 category or its nearest ancestor that has one. The vendor must also pass
 `can_receive_purchase_orders`. A line with no vendor, an archived vendor, a vendor
-not approved for orders, no price (§C0-3), or an item retired, deactivated or no
+not approved for orders, no price (§52), or an item retired, deactivated or no
 longer flagged purchasable since the requisition was approved is *unresolved*,
 and if any line is unresolved the whole conversion is refused - nothing is
 written - with every unresolved line and every reason listed. The preview reports
@@ -1249,7 +1249,7 @@ result reports them instead; the requisition then stays partly ordered.
 
 ---
 
-## §C0-3. A converted line is priced from the override, the estimate, or the last price paid
+## 52. A converted line is priced from the override, the estimate, or the last price paid
 
 **Assumed.** A converted line's unit price is the first of: the buyer's override,
 the requisition line's `estimated_unit_price`, and
@@ -1273,7 +1273,7 @@ need the currency question answered first.
 
 ---
 
-## §C0-4. Converted purchase orders are raised as DRAFT
+## 53. Converted purchase orders are raised as DRAFT
 
 **Assumed.** A conversion raises its purchase orders in DRAFT, with
 `source_type = PURCHASE_REQUISITION` (and `source_id` the requisition when all of
@@ -1295,7 +1295,7 @@ threshold (open question 2).
 
 ---
 
-## §C0-5. The right that makes a vendor user an order's assignee is `purchase_order.update`
+## 54. The right that makes a vendor user an order's assignee is `purchase_order.update`
 
 **Assumed.** A vendor user is eligible to be assigned a purchase order when they
 are active, live, bound to the order's vendor and - after their roles, direct
@@ -1316,7 +1316,7 @@ constant (planned for the vendor portal work package).
 
 ---
 
-## §C0-6. An ambiguous assignee leaves the order unassigned
+## 55. An ambiguous assignee leaves the order unassigned
 
 **Assumed.** The vendor user an order goes to is: the one eligible user scoped to
 the order's category or an ancestor of it; if several are, nobody (AMBIGUOUS); if
@@ -1347,7 +1347,7 @@ a change to `choose_vendor_assignee` alone.
 
 ---
 
-## §C0-7. A vendor sees a purchase order only once it has been sent
+## 56. A vendor sees a purchase order only once it has been sent
 
 **Assumed.** A vendor-portal principal sees its own vendor's orders in SENT and
 every later status, and a CANCELLED order only if it had been sent first
@@ -1372,7 +1372,7 @@ do to the orders it sees.
 
 ---
 
-## §C0-8. An overdue requirement is asked for on the order date
+## 57. An overdue requirement is asked for on the order date
 
 **Assumed.** A converted line asks for delivery on its requisition need date (the
 line's, else the requisition's), but never before the order date; the order's

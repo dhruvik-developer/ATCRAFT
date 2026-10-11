@@ -1149,7 +1149,7 @@ async def create_order(
         )
         # ASSUMPTION: the cost centre is explicit or absent - an order raised
         # from a planning suggestion or a sales order carries none, because
-        # neither source names one. See docs/assumptions.md §B1-2.
+        # neither source names one. See docs/assumptions.md §42.
         if payload.cost_centre_id is not None:
             await require_cost_centre(session, tenant, payload.cost_centre_id)
 

@@ -144,7 +144,7 @@ COST_CENTRE_DEFAULT_PROBES: tuple[ReferenceProbe, ...] = (
 #: Every carrier above organisation. Retirement is refused while any of these
 #: still names the centre. ``ledger_entries`` is deliberately absent: posted
 #: history keeps its cost centre after retirement, and a reversal copies it
-#: (docs/assumptions.md §B1-3). A module that adds a carrier adds it here.
+#: (docs/assumptions.md §43). A module that adds a carrier adds it here.
 COST_CENTRE_REFERENCE_PROBES: tuple[ReferenceProbe, ...] = (
     *COST_CENTRE_DEFAULT_PROBES,
     ReferenceProbe("production_orders", "cost_centre_id", "production orders"),

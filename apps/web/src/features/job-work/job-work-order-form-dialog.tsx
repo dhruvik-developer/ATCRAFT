@@ -292,7 +292,7 @@ function buildCreate(values: JobWorkFormValues): JobWorkOrderCreate {
     warehouse_id: values.warehouse_id,
     return_warehouse_id: returnWarehouse(values),
     // Explicit or absent: a job-work order inherits no centre from anything it
-    // was raised against (docs/assumptions.md §B1-2).
+    // was raised against (docs/assumptions.md §42).
     cost_centre_id: orNull(values.cost_centre_id),
     rate_per_unit: values.rate_per_unit.trim(),
     rate_basis: values.rate_basis,

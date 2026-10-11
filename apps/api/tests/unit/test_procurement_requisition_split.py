@@ -86,7 +86,7 @@ class TestCategoryLineage:
 
 
 # -----------------------------------------------------------------------------
-# Procurement category (docs/assumptions.md §C0-1)
+# Procurement category (docs/assumptions.md §50)
 # -----------------------------------------------------------------------------
 
 
@@ -121,7 +121,7 @@ class TestProcurementCategory:
 
 
 # -----------------------------------------------------------------------------
-# Vendor resolution (§C0-2) and price resolution (§C0-3)
+# Vendor resolution (§51) and price resolution (§52)
 # -----------------------------------------------------------------------------
 
 
@@ -202,7 +202,7 @@ class TestPriceResolution:
 
 class TestDeliveryDate:
     def test_an_overdue_need_is_asked_for_on_the_order_date(self) -> None:
-        """§C0-8: the header cannot promise a delivery before the order exists."""
+        """§57: the header cannot promise a delivery before the order exists."""
         assert conversion_delivery_date(date(2026, 9, 1), date(2026, 10, 11)) == date(2026, 10, 11)
 
     def test_a_future_need_is_kept(self) -> None:
@@ -343,7 +343,7 @@ class TestGrouping:
 
 
 # -----------------------------------------------------------------------------
-# Who the order goes to (§C0-6)
+# Who the order goes to (§55)
 # -----------------------------------------------------------------------------
 
 

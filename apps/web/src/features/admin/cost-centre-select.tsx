@@ -6,14 +6,14 @@
  * and job-work orders, stock adjustments and vendor invoices - and each one
  * needs the same three behaviours, which is why they live here once:
  *
- * 1. **Optional, and null means unallocated** (docs/assumptions.md §B1-1). The
+ * 1. **Optional, and null means unallocated** (docs/assumptions.md §41). The
  *    first option is always the empty one, and it is labelled for what it
  *    means on that form - "Unallocated" on a document, "As the invoice" on an
  *    invoice line, "Top level" for a parent.
  * 2. **Active centres only, plus the one already chosen.** A new allocation to
  *    an inactive centre is refused, but a document keeps the centre it was
  *    raised with after somebody deactivates it - so its own edit form must
- *    still be able to name it (§B1-3).
+ *    still be able to name it (§43).
  * 3. **The tree reads as a tree.** Children are indented under their parent,
  *    built from the full reference list rather than from whichever page of the
  *    register happens to be loaded.
@@ -43,7 +43,7 @@ import { costCentreLabel, pickableCostCentres } from './cost-centre-model'
 // ASSUMPTION: a picker is rendered only for `cost_centre.view`. Without it a new
 // document goes out unallocated and an edit carries the saved centre back
 // unchanged - every caller seeds its form from the record for exactly that
-// reason. docs/assumptions.md §B1-9.
+// reason. docs/assumptions.md §49.
 
 /** The item's own left padding (`pl-8`), which the check mark sits inside. */
 const ITEM_INSET_REM = 2

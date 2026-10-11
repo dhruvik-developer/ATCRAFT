@@ -1,7 +1,7 @@
 """cost centres: the master table, and the carriers that name one
 
 Revision ID: 3746fadd0b86
-Revises: 2f5e08c7ba61
+Revises: a683a56652a1
 Created: 2026-10-11 12:00:00.000000+00:00
 
 Adds ``cost_centres`` (organisation) and a nullable ``cost_centre_id`` on the
@@ -67,7 +67,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "3746fadd0b86"
-down_revision: str | None = "2f5e08c7ba61"
+down_revision: str | None = "a683a56652a1"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

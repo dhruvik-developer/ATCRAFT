@@ -126,7 +126,7 @@ MAX_DEPARTMENT_DEPTH = 6
 # usually shadows - a plant > production > process > cell breakdown is four,
 # leaving room for two more. Equal to MAX_DEPARTMENT_DEPTH by definition rather
 # than by coincidence, so the two hierarchies cannot drift apart unnoticed; see
-# docs/assumptions.md §B1-5. Unlike the department rule, the depth counted is
+# docs/assumptions.md §45. Unlike the department rule, the depth counted is
 # the deepest descendant's, so a subtree cannot be reparented past the limit.
 MAX_COST_CENTRE_DEPTH = MAX_DEPARTMENT_DEPTH
 
@@ -1249,7 +1249,7 @@ class CostCentreService:
             if carriers:
                 # ASSUMPTION: any row that names the centre blocks archiving,
                 # whatever that document's status - see docs/assumptions.md
-                # §B1-3. Deactivation is the way to stop using a centre that
+                # §43. Deactivation is the way to stop using a centre that
                 # documents still carry.
                 raise referenced_in_use(
                     f"Cost centre {centre.code} is still referenced by {', '.join(carriers)}. "
@@ -1279,7 +1279,7 @@ class CostCentreService:
         """Refuse to switch off a centre something would keep handing out."""
         # ASSUMPTION: deactivation is refused only by things that hand the
         # centre out - an active child, a department default, a work centre.
-        # Documents keep their reference. docs/assumptions.md §B1-3.
+        # Documents keep their reference. docs/assumptions.md §43.
         if await self.repo.has_active_children(centre.id):
             raise referenced_in_use(
                 f"Cost centre {centre.code} still has active sub-centres. "
@@ -1332,7 +1332,7 @@ class CostCentreService:
 def _assert_parent_active(parent: CostCentre) -> None:
     """An active centre under an inactive one would be offered while its parent is not."""
     # ASSUMPTION: active only under active, whichever edit would produce the
-    # opposite. docs/assumptions.md §B1-5.
+    # opposite. docs/assumptions.md §45.
     if not parent.is_active:
         raise BusinessRuleError(
             f"Parent cost centre {parent.code} is inactive; an active cost centre cannot sit "

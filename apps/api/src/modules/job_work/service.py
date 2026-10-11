@@ -1236,7 +1236,7 @@ async def create_order(
             )
         # ASSUMPTION: explicit or absent. A job-work order does not inherit the
         # cost centre of the production order it may cover - ``source_id`` is a
-        # bare polymorphic id this module never reads. docs/assumptions.md §B1-2.
+        # bare polymorphic id this module never reads. docs/assumptions.md §42.
         if payload.cost_centre_id is not None:
             await require_cost_centre(session, tenant, payload.cost_centre_id)
 

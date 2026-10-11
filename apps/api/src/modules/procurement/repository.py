@@ -1371,7 +1371,7 @@ class PurchaseOrderRepository(BaseRepository[PurchaseOrder]):
         * orders it has been given: SENT and every later status, and a
           CANCELLED order only if it had been sent. A draft is the buyer's
           working state, with prices nobody has approved
-          (docs/assumptions.md §C0-7);
+          (docs/assumptions.md §56);
         * when its ``allowed_category_ids`` is non-empty, orders raised for one
           of those categories or a category beneath one, plus any order assigned
           to it by name. An empty list is unrestricted - the documented contract

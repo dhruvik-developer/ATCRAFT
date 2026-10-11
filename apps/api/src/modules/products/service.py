@@ -283,7 +283,7 @@ def lifecycle_state(item: Item) -> ItemLifecycleState:
 # assigning `is_active` directly: ACTIVE <-> INACTIVE, and ARCHIVED (retired,
 # soft-deleted) terminal, with every move through `assert_transition` and onto
 # the audit trail as a status change. Retirement is refused while anything live
-# still names the record (docs/assumptions.md §A1-1).
+# still names the record (docs/assumptions.md §39).
 
 BRAND_LIFECYCLE: StateMachine[MasterLifecycleState] = master_lifecycle(
     BRAND_ENTITY, Permission.BRAND_MANAGE
@@ -1452,7 +1452,7 @@ async def update_item(
         # unchanged re-asserts a reference that was validated when it was set,
         # and the item form posts every field on every save. An item keeps the
         # brand it has; only a new assignment must be live and active
-        # (docs/assumptions.md §A1-1).
+        # (docs/assumptions.md §39).
         if "brand_id" in scalar_updates and scalar_updates["brand_id"] != item.brand_id:
             await _require_brand(session, tenant, scalar_updates["brand_id"])
         if (
@@ -1735,7 +1735,7 @@ async def list_item_attributes(
 # -----------------------------------------------------------------------------
 #
 # Nothing anywhere may branch on either (docs/database.md section 3; ASSUMPTION:
-# docs/assumptions.md §A1-2). What the service does enforce is the shape of the
+# docs/assumptions.md §40). What the service does enforce is the shape of the
 # lists themselves: codes are unique per company for ever, every activation and
 # retirement goes through the lifecycle machine, and a value that something live
 # still names cannot be deactivated or retired - otherwise an item would show a
@@ -1744,7 +1744,7 @@ async def list_item_attributes(
 #
 # ASSUMPTION: "live" means not soft-deleted, so an INACTIVE item, link or brand
 # still holds the value it names; deactivating and retiring are refused on the
-# same terms; and a retired code is never reissued. docs/assumptions.md §A1-1.
+# same terms; and a retired code is never reissued. docs/assumptions.md §39.
 
 
 def _duplicate_code(entity: str, code: str) -> DuplicateError:

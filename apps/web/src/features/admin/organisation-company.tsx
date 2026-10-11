@@ -13,7 +13,7 @@
  * Save. They are printed on every invoice the company sends, and redirecting
  * where customers pay is how invoice-redirection fraud starts - so a change to
  * them is a deliberate act with its own audit row, never a side effect of
- * correcting a phone number in the card above (docs/assumptions.md §B1-7).
+ * correcting a phone number in the card above (docs/assumptions.md §47).
  */
 
 import { zodResolver } from '@hookform/resolvers/zod'

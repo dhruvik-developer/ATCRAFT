@@ -59,6 +59,8 @@ const STATIC_ROUTES = [
   '/masters?tab=units',
   '/masters?tab=conversions',
   '/masters?tab=attributes',
+  '/masters?tab=brands',
+  '/masters?tab=manufacturers',
   '/masters?tab=prices',
   '/sales-orders',
   '/customers',
@@ -89,6 +91,7 @@ const STATIC_ROUTES = [
   '/audit',
   '/admin/users',
   '/admin/organisation',
+  '/admin/organisation?tab=cost-centres',
   '/notifications',
   '/profile',
 ]

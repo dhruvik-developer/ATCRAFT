@@ -106,7 +106,7 @@ export function useDepartmentOptions<T = OrganisationOption>(enabled = true) {
  *
  * The one list here that does not ask for active rows only, for the reason the
  * category reference list gives: a document keeps its cost centre after
- * somebody deactivates it (docs/assumptions.md §B1-3). Dropping that centre
+ * somebody deactivates it (docs/assumptions.md §43). Dropping that centre
  * from the list would leave the document's own edit form unable to name what
  * it already holds - so the next save would quietly look like "unallocated" -
  * and the label on its detail view blank. Pickers still offer only the active

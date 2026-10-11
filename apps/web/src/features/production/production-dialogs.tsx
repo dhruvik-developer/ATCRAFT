@@ -194,7 +194,7 @@ export function ProductionOrderFormDialog({
         priority: Number.parseInt(values.priority, 10),
         warehouse_id: values.warehouse_id,
         // Explicit or absent: an order inherits no centre from anywhere
-        // (docs/assumptions.md §B1-2), and material issued to it inherits this.
+        // (docs/assumptions.md §42), and material issued to it inherits this.
         cost_centre_id: orNull(values.cost_centre_id),
         notes: orNull(values.notes),
       }),

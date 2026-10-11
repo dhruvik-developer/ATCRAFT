@@ -2,10 +2,10 @@
 
 Master rules section 25. Four decisions carry this module.
 
-**A report is a definition, not a handler.** Nineteen reports sharing one runner
+**A report is a definition, not a handler.** Twenty reports sharing one runner
 means the rules that matter - the bounded period, the row ceiling, the cache
-policy, the audit entry - are applied nineteen times by construction rather than
-nineteen times by discipline. A new report is a :class:`ReportDefinition` and a
+policy, the audit entry - are applied twenty times by construction rather than
+twenty times by discipline. A new report is a :class:`ReportDefinition` and a
 route; it cannot forget to paginate, because it never gets the chance to.
 
 **Arithmetic lives in pure functions.** Every percentage, bucket and days-overdue
@@ -742,7 +742,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
     ),
     # ASSUMPTION: read from posted ledger legs, net = debit - credit on every row
     # whatever the account class, retired centres included, no roll-up of
-    # children into parents. docs/assumptions.md §B1-6.
+    # children into parents. docs/assumptions.md §46.
     ReportKey.COST_CENTRE_EXPENSE: ReportDefinition(
         key=ReportKey.COST_CENTRE_EXPENSE,
         title="Cost centre statement",
