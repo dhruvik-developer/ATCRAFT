@@ -481,6 +481,21 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
   `VITE_API_PROXY_TARGET` per stack. When a 500 has no matching line in the
   server log, suspect the thing between them.
 
+- **Smart App Control blocks unsigned launchers, and its verdict drifts.** On the
+  Windows development box Smart App Control runs in enforce mode and judges
+  native binaries by reputation. It refused `greenlet` 3.5.5's DLL - which
+  breaks every async database call, so integration tests error in setup and
+  the hybrid API cannot serve while unit tests stay green - and, an hour into
+  a session that had been committing normally, it began refusing the
+  `end-of-file-fixer.exe` and `check-json.exe` console launchers pip writes
+  into the pre-commit environment, so every commit failed with WinError 4551.
+  Neither was a file problem. The venv now carries greenlet 3.2.4 (the locks
+  still pin 3.5.5 for Linux), and `.pre-commit-config.yaml` runs every
+  pre-commit-hooks hook as `python -m pre_commit_hooks.<module>` through the
+  signed interpreter. When a tool fails with "An Application Control policy
+  has blocked this file", read `Microsoft-Windows-CodeIntegrity/Operational`
+  before suspecting the code, and route the tool through `python -m` rather
+  than skipping it.
 - **`shrink-0` on a group that is itself `flex-wrap` defeats the wrap.** The
   `PageHeader` actions box was `flex shrink-0 flex-wrap`; `shrink-0` pins the
   box at its single-line max-content width, so the inner wrap never fires and
