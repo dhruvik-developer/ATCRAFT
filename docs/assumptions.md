@@ -1020,12 +1020,17 @@ category matches unrestricted users only. The choice is made at conversion and,
 when an order reaches Send with no assignee, at Send; a named assignee is
 validated on create, update and Send (tenant, active, same vendor, the right, and
 category or unrestricted). An edit that moves an order out of its assignee's
-categories clears the assignee rather than refusing the edit.
+categories clears the assignee rather than refusing the edit. Likewise, an
+assignee already on the order who can no longer take it when it is sent -
+deactivated, re-scoped or stripped of the right since it was raised - is replaced
+by the rule's choice (possibly nobody) rather than refusing the send, unless the
+buyer names somebody, who is validated as usual.
 
 **Why.** Guessing between two equally scoped managers would put the order in one
 person's queue for a reason nobody chose. The buyer picks at Send, where the
 choice is visible and the picker (`GET /purchase-orders/{id}/vendor-assignees`)
-offers exactly the users Send accepts.
+offers exactly the users Send accepts. An APPROVED order cannot be edited, so
+refusing a stale assignee at Send would leave it with no way to the vendor.
 
 **Where.** `src/modules/procurement/service_rules.py` - `choose_vendor_assignee`,
 `may_take_order`; `src/modules/procurement/service.py` -

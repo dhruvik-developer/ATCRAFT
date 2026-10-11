@@ -743,6 +743,13 @@ class PurchaseOrderSummary(BaseModel):
     #: The procurement category the order was raised for, or ``None`` when its
     #: lines span several. Derived by the service, never accepted from a client.
     item_category_id: uuid.UUID | None
+    #: The label of ``item_category_id``, filled by the service from one batched
+    #: lookup - for the whole page on the list, for the one order on the detail -
+    #: because the buyers who read the order book hold ``purchase_order.view``
+    #: but not ``category.view``, and a category column they cannot read is a
+    #: column of dashes. ``None`` when the order has no category.
+    item_category_code: str | None = None
+    item_category_name: str | None = None
     version: int
     created_at: datetime
 
@@ -761,11 +768,9 @@ class PurchaseOrderDetail(PurchaseOrderSummary):
     courier_name: str | None
     tracking_reference: str | None
     shipped_at: datetime | None
-    #: Labels for ``item_category_id`` and ``assigned_vendor_user_id``, filled
-    #: by the service so a buyer without ``category.view`` or ``user.view`` can
-    #: still read who and what the order is for.
-    item_category_code: str | None = None
-    item_category_name: str | None = None
+    #: The label of ``assigned_vendor_user_id``, filled by the service so a
+    #: buyer without ``user.view`` can still read who the order is with (the
+    #: category's label is on the summary).
     assigned_vendor_user_name: str | None = None
     lines: list[PurchaseOrderLineRead] = Field(default_factory=list)
 

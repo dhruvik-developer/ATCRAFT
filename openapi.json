@@ -29635,6 +29635,17 @@
             "title": "Id",
             "type": "string"
           },
+          "item_category_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Category Code"
+          },
           "item_category_id": {
             "anyOf": [
               {
@@ -29646,6 +29657,17 @@
               }
             ],
             "title": "Item Category Id"
+          },
+          "item_category_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Category Name"
           },
           "payment_terms_days": {
             "title": "Payment Terms Days",

@@ -1291,6 +1291,49 @@ class TestOrderCategoryAndAssignee:
                 assigned_vendor_user_id=world["lever_manager"].id,
             )
 
+    async def test_send_replaces_an_assignee_who_can_no_longer_take_the_order(
+        self, db, tenant, buyer, approver, world
+    ) -> None:
+        """Deactivated between raising and Send: chosen again, never refused.
+
+        An APPROVED order cannot be edited, so refusing the stale assignee would
+        leave it with no way to the vendor. With the lock-body manager gone,
+        the rule falls back to the one unrestricted user.
+        """
+        order, _, _ = await service.create_purchase_order(
+            db,
+            tenant,
+            buyer,
+            _order_payload(
+                world, world["lock_body_item"], assigned_vendor_user_id=world["locks_manager"].id
+            ),
+        )
+        world["locks_manager"].is_active = False
+        await db.flush()
+
+        sent = await send(db, tenant, buyer, approver, order.id)
+        assert PurchaseOrderStatus(sent.status) is PurchaseOrderStatus.SENT
+        assert sent.assigned_vendor_user_id == world["owner"].id
+
+    async def test_send_still_refuses_a_named_assignee_who_cannot_take_the_order(
+        self, db, tenant, buyer, approver, world
+    ) -> None:
+        order, _, _ = await service.create_purchase_order(
+            db, tenant, buyer, _order_payload(world, world["lock_body_item"])
+        )
+        order_id = order.id
+        world["locks_manager"].is_active = False
+        await db.flush()
+        with pytest.raises(ValidationError):
+            await send(
+                db,
+                tenant,
+                buyer,
+                approver,
+                order_id,
+                assigned_vendor_user_id=world["locks_manager"].id,
+            )
+
     async def test_send_accepts_the_unrestricted_owner(
         self, db, tenant, buyer, approver, world
     ) -> None:
@@ -1384,6 +1427,59 @@ class TestOrderCategoryAndAssignee:
         assert next(row for row in rows if row.id == lever_order.id).item_category_id == (
             world["lever"].id
         )
+
+    async def test_the_order_list_names_each_rows_category(self, db, tenant, buyer, world) -> None:
+        """The book's Category column is read by buyers who hold no ``category.view``."""
+        lever_order, _, _ = await service.create_purchase_order(
+            db, tenant, buyer, _order_payload(world, world["lever_item"])
+        )
+        lock_order, _, _ = await service.create_purchase_order(
+            db, tenant, buyer, _order_payload(world, world["lock_body_item"])
+        )
+        mixed_order, _, _ = await service.create_purchase_order(
+            db,
+            tenant,
+            buyer,
+            PurchaseOrderCreate(
+                vendor_id=world["precision"].id,
+                warehouse_id=world["warehouse"].id,
+                expected_delivery_date=today() + timedelta(days=30),
+                lines=[
+                    PurchaseOrderLineIn(
+                        line_number=number,
+                        item_id=item.id,
+                        quantity=Decimal("5"),
+                        unit_price=Decimal("10"),
+                    )
+                    for number, item in enumerate(
+                        (world["lever_item"], world["lock_body_item"]), start=1
+                    )
+                ],
+                # The same items on the same vendor and warehouse as the two
+                # above - a duplicate by section 16, raised on purpose here.
+                acknowledge_duplicates=True,
+                duplicate_acknowledgement_reason="A third order spanning both categories",
+            ),
+        )
+        ids = (lever_order.id, lock_order.id, mixed_order.id)
+
+        rows, _ = await service.list_purchase_orders(
+            db, tenant, PurchaseOrderFilters(), PageParams(), SortParams()
+        )
+        by_id = {row.id: row for row in rows if row.id in ids}
+
+        assert (
+            by_id[lever_order.id].item_category_code,
+            by_id[lever_order.id].item_category_name,
+        ) == (
+            world["lever"].code,
+            world["lever"].name,
+        )
+        assert by_id[lock_order.id].item_category_code == world["locks"].code
+        # Lines in two categories: no category, so nothing to name.
+        assert by_id[mixed_order.id].item_category_id is None
+        assert by_id[mixed_order.id].item_category_code is None
+        assert by_id[mixed_order.id].item_category_name is None
 
 
 # =============================================================================

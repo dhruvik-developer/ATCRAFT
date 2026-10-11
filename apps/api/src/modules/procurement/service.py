@@ -3188,10 +3188,25 @@ async def list_purchase_orders(
     params: PageParams,
     sort: SortParams,
 ) -> tuple[list[PurchaseOrderSummary], OffsetPagination]:
+    """One page of the order book, each row's category named.
+
+    The labels come from one batched read over the page's distinct categories,
+    whatever the page size - the buyers reading this list hold no
+    ``category.view`` to name them themselves.
+    """
     rows, pagination = await PurchaseOrderRepository(session, tenant).list_page_filtered(
         filters, params, sort, today=today()
     )
-    return [PurchaseOrderSummary.model_validate(row) for row in rows], pagination
+    summaries = [PurchaseOrderSummary.model_validate(row) for row in rows]
+    categories = await ItemCategoryLookupRepository(session, tenant).load(
+        sorted({s.item_category_id for s in summaries if s.item_category_id is not None}, key=str)
+    )
+    for summary in summaries:
+        category = categories.get(summary.item_category_id) if summary.item_category_id else None
+        if category is not None:
+            summary.item_category_code = category.code
+            summary.item_category_name = category.name
+    return summaries, pagination
 
 
 async def get_purchase_order_detail(
@@ -3252,18 +3267,27 @@ async def _send_assignee(
 ) -> uuid.UUID | None:
     """Who an order goes to when it is sent.
 
-    The user the buyer names, validated; otherwise the one already on the
-    order, re-validated because an account can be deactivated or re-scoped
-    between conversion and Send; otherwise the assignee rule's choice, which
-    may be nobody (``choose_vendor_assignee``).
+    The user the buyer names, validated - an unfit name is refused. Otherwise
+    the one already on the order, if they can still take it; otherwise the
+    assignee rule's choice, which may be nobody (``choose_vendor_assignee``).
+
+    An account can be deactivated or re-scoped between conversion and Send. The
+    stale assignee is replaced rather than refused, for the reason an edit that
+    leaves the assignee's categories clears it: an APPROVED order cannot be
+    edited, so refusing here would leave it with no way to the vendor at all
+    unless somebody else happened to be eligible to name.
     """
     lineage = await _category_lineage_of(session, tenant, order.item_category_id)
-    named = requested or order.assigned_vendor_user_id
-    if named is not None:
+    if requested is not None:
         await _assert_vendor_assignee(
-            session, tenant, user_id=named, vendor_id=order.vendor_id, category_lineage_=lineage
+            session, tenant, user_id=requested, vendor_id=order.vendor_id, category_lineage_=lineage
         )
-        return named
+        return requested
+    stored = order.assigned_vendor_user_id
+    if stored is not None and await _assignee_still_fits(
+        session, tenant, user_id=stored, vendor_id=order.vendor_id, category_lineage_=lineage
+    ):
+        return stored
     users = await VendorAssigneeRepository(session, tenant).candidates([order.vendor_id])
     chosen, _ = choose_vendor_assignee(
         [_as_assignee_candidate(user) for user in users],

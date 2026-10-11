@@ -19110,8 +19110,12 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Item Category Code */
+            item_category_code?: string | null;
             /** Item Category Id */
             item_category_id: string | null;
+            /** Item Category Name */
+            item_category_name?: string | null;
             /** Payment Terms Days */
             payment_terms_days: number;
             /**
