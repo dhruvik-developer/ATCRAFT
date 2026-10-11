@@ -372,7 +372,14 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
   { path: '/audit', element: <AuditPage />, permissions: [P.AUDIT_LOG_VIEW] },
 
   { path: '/admin/users', element: <UsersPage />, permissions: [P.USER_VIEW, P.ROLE_VIEW] },
-  { path: '/admin/organisation', element: <OrganisationPage />, permissions: [P.COMPANY_VIEW] },
+  // `cost_centre.view` admits the accounts team, who keep the cost-centre
+  // master, without handing them the company profile. Each tab is gated on its
+  // own register's right inside the page.
+  {
+    path: '/admin/organisation',
+    element: <OrganisationPage />,
+    permissions: [P.COMPANY_VIEW, P.COST_CENTRE_VIEW],
+  },
 
   // Every notifications endpoint - list, unread count, mark-read, preferences -
   // is declared with require_permission(NOTIFICATION_VIEW), so an ungated route

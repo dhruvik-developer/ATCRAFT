@@ -107,3 +107,67 @@ describe('running the same report twice', () => {
     expect(screen.queryByText('The download was dismissed')).not.toBeInTheDocument()
   })
 })
+
+describe('the cost centre statement', () => {
+  /**
+   * Served at the kebab-case of its key like every report, over a period it
+   * cannot run without. Net is debit minus credit on every row - positive is
+   * cost, negative is income - so an income account shows a negative net.
+   */
+  const STATEMENT: ReportDescriptor = {
+    key: 'COST_CENTRE_EXPENSE',
+    title: 'Cost centre statement',
+    description: 'Posted income and expense per cost centre and account over the period.',
+    requires_period: true,
+    columns: [
+      { name: 'cost_centre_id', label: 'Cost centre id', kind: 'id' },
+      { name: 'cost_centre_code', label: 'Cost centre code', kind: 'text' },
+      { name: 'account_id', label: 'Account id', kind: 'id' },
+      { name: 'account_code', label: 'Account code', kind: 'text' },
+      { name: 'debit_amount', label: 'Debit amount', kind: 'number' },
+      { name: 'credit_amount', label: 'Credit amount', kind: 'number' },
+      { name: 'net_amount', label: 'Net amount', kind: 'number' },
+    ],
+  }
+
+  it('runs over its period and shows a net of cost and income as money', async () => {
+    const asked: URL[] = []
+    renderScreen(<ReportsPage />, {
+      permissions: [P.REPORT_VIEW],
+      route: '/reports?report=COST_CENTRE_EXPENSE&run=1&date_from=2026-04-01&date_to=2026-09-30',
+      routes: {
+        ...routes,
+        'GET /reports/catalogue': ok([STATEMENT]),
+        'GET /reports/cost-centre-expense': ({ url }) => {
+          asked.push(url)
+          return page([
+            {
+              cost_centre_id: 'cc-mach',
+              cost_centre_code: 'CC-MACH',
+              account_id: 'ac-purchase',
+              account_code: '5000',
+              debit_amount: '12500.00',
+              credit_amount: '0.00',
+              net_amount: '12500.00',
+            },
+            {
+              cost_centre_id: 'cc-mach',
+              cost_centre_code: 'CC-MACH',
+              account_id: 'ac-scrap-sales',
+              account_code: '4100',
+              debit_amount: '0.00',
+              credit_amount: '3000.00',
+              net_amount: '-3000.00',
+            },
+          ])
+        },
+      },
+    })
+
+    expect(await screen.findByText('5000')).toBeVisible()
+    expect(screen.getAllByText('₹12,500.00')).toHaveLength(2)
+    expect(screen.getByText('-₹3,000.00')).toBeVisible()
+    expect(asked[0]!.searchParams.get('date_from')).toBe('2026-04-01')
+    expect(asked[0]!.searchParams.get('date_to')).toBe('2026-09-30')
+  })
+})

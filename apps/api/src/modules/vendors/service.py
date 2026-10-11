@@ -41,6 +41,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.banking import ACCOUNT_NUMBER_VISIBLE_DIGITS, mask_account_number
 from src.core.clock import utcnow
 from src.core.database import affected_rows, transaction
 from src.core.deps import TenantContext
@@ -242,32 +243,14 @@ _TRANSPORTER_AUDITED_FIELDS = [
     "notes",
 ]
 
-#: How many trailing digits of a bank account number stay visible.
-ACCOUNT_NUMBER_VISIBLE_DIGITS = 4
+# ``mask_account_number`` and ``ACCOUNT_NUMBER_VISIBLE_DIGITS`` live in
+# :mod:`src.common.banking`, shared with the company's own bank details. They
+# are re-exported here because this module's callers and tests name them.
 
 
 # -----------------------------------------------------------------------------
 # Pure helpers - unit tested without a database
 # -----------------------------------------------------------------------------
-
-
-def mask_account_number(value: str | None) -> str | None:
-    """Reduce a bank account number to its last four characters.
-
-    Used for both the API response and the audit snapshot. The audit trail must
-    prove *that* the payee account changed - the detection signal for a diverted
-    payment - without becoming a second, more widely readable copy of the number
-    itself.
-    """
-    if not value:
-        return None
-    trimmed = value.strip()
-    if len(trimmed) <= ACCOUNT_NUMBER_VISIBLE_DIGITS:
-        return "*" * len(trimmed)
-    return (
-        "*" * (len(trimmed) - ACCOUNT_NUMBER_VISIBLE_DIGITS)
-        + trimmed[-ACCOUNT_NUMBER_VISIBLE_DIGITS:]
-    )
 
 
 def referenced_in_use(message: str, **details: Any) -> BusinessRuleError:
@@ -1825,6 +1808,7 @@ def template_has_placeholder(template: str) -> bool:
 
 
 __all__ = [
+    "ACCOUNT_NUMBER_VISIBLE_DIGITS",
     "DEFAULT_RATING_WINDOW_DAYS",
     "DELIVERY_WEIGHT",
     "MIN_RECEIPTS_FOR_RATING",

@@ -379,7 +379,8 @@ download. No endpoint holds a connection open for a calculation.
                       mfa/setup · mfa/confirm · mfa/disable · change-password
                       password-reset/request · password-reset/confirm
 /users  /roles        users, roles, permission catalogue
-/organization         company · branches · plants · departments · financial years
+/organization         company (incl. bank details) · branches · plants · departments
+                      cost centres · financial years
 /warehouses           warehouses · storage locations
 /products             items · categories · UoM · attributes · brands · manufacturers
                       prices · vendor links
@@ -398,7 +399,8 @@ download. No endpoint holds a connection open for a calculation.
 /packing              packing orders · cartons · packing list
 /dispatch             dispatches · tracking events · tracking board · delayed
 /finance              ledgers · vendor invoices · match · payments · ageing · GST · valuation
-/reports              catalogue · dashboard · background report jobs
+/reports              catalogue · dashboard · background report jobs · one route per
+                      report (e.g. /reports/cost-centre-expense, the cost-centre statement)
 /documents            upload · download · metadata
 /notifications        list · unread count · read · preferences
 /audit                logs · entity history · approvals

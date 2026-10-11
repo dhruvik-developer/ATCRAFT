@@ -40,6 +40,7 @@ export type ReportKey =
   | 'DISPATCH'
   | 'COURIER_TRACKING'
   | 'VENDOR_DISPATCH_HISTORY'
+  | 'COST_CENTRE_EXPENSE'
   | 'PACKING_LIST'
 
 /**

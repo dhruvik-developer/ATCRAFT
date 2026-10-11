@@ -58,6 +58,7 @@ import {
   Skeleton,
   Textarea,
 } from '@/components/ui/primitives'
+import { CostCentreSelect } from '@/features/admin/cost-centre-select'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
@@ -165,6 +166,8 @@ const schema = z.object({
   warehouse_id: z.string().min(1, 'Choose the store the material leaves'),
   /** Blank means "the store it left", resolved explicitly before posting. */
   return_warehouse_id: z.string(),
+  /** Blank means unallocated: the charges belong to no cost centre. */
+  cost_centre_id: z.string(),
   rate_per_unit: z.string().trim().regex(RATE, 'Enter a rate with up to 6 decimal places'),
   rate_basis: z.enum(RATE_BASES),
   requires_qc: z.boolean(),
@@ -204,6 +207,7 @@ function emptyValues(): JobWorkFormValues {
     expected_return_date: '',
     warehouse_id: '',
     return_warehouse_id: '',
+    cost_centre_id: '',
     rate_per_unit: '0',
     rate_basis: 'PER_PIECE',
     requires_qc: false,
@@ -228,6 +232,7 @@ function valuesFrom(detail: JobWorkOrderDetail): JobWorkFormValues {
     expected_return_date: toDateInput(detail.expected_return_date),
     warehouse_id: detail.warehouse_id,
     return_warehouse_id: detail.return_warehouse_id,
+    cost_centre_id: detail.cost_centre_id ?? '',
     rate_per_unit: detail.rate_per_unit,
     rate_basis: detail.rate_basis,
     requires_qc: detail.requires_qc,
@@ -286,6 +291,9 @@ function buildCreate(values: JobWorkFormValues): JobWorkOrderCreate {
     expected_return_date: values.expected_return_date,
     warehouse_id: values.warehouse_id,
     return_warehouse_id: returnWarehouse(values),
+    // Explicit or absent: a job-work order inherits no centre from anything it
+    // was raised against (docs/assumptions.md §B1-2).
+    cost_centre_id: orNull(values.cost_centre_id),
     rate_per_unit: values.rate_per_unit.trim(),
     rate_basis: values.rate_basis,
     requires_qc: values.requires_qc,
@@ -306,6 +314,10 @@ function buildUpdate(values: JobWorkFormValues): JobWorkOrderUpdate {
     expected_return_date: values.expected_return_date,
     warehouse_id: values.warehouse_id,
     return_warehouse_id: returnWarehouse(values),
+    // Always stated. `cost_centre_id` is one of the draft fields an explicit
+    // null clears, and the form holds the order's own value - so an account
+    // shown no picker sends back exactly what the order already carries.
+    cost_centre_id: orNull(values.cost_centre_id),
     rate_per_unit: values.rate_per_unit.trim(),
     rate_basis: values.rate_basis,
     requires_qc: values.requires_qc,
@@ -415,6 +427,9 @@ export function JobWorkOrderFormDialog({
   // 403 for a principal who cannot read the warehouse master - so the form says
   // so rather than failing on a field it never managed to show.
   const canPickWarehouse = can(P.WAREHOUSE_VIEW)
+  // The cost-centre list is its own right too. Without it the picker is not
+  // offered - an order is raised unallocated, an amendment keeps its centre.
+  const canPickCostCentre = can(P.COST_CENTRE_VIEW)
   const ready = !amending || Boolean(detail)
 
   // Only the three fields the estimate reads are watched. Watching the whole
@@ -588,6 +603,23 @@ export function JobWorkOrderFormDialog({
                         </p>
                       </div>
                     </>
+                  )}
+
+                  {canPickCostCentre && (
+                    <Controller
+                      control={control}
+                      name="cost_centre_id"
+                      render={({ field }) => (
+                        <CostCentreSelect
+                          id="job-work-cost-centre"
+                          value={field.value || null}
+                          onChange={(next) => field.onChange(next ?? '')}
+                          enabled={open}
+                          hint="Where the vendor's processing charges are booked."
+                          error={errors.cost_centre_id?.message}
+                        />
+                      )}
+                    />
                   )}
 
                   <div>

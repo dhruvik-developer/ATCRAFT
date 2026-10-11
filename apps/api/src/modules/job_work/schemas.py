@@ -95,6 +95,9 @@ class JobWorkOrderCreate(BaseModel):
     #: Where processed output is received. Defaults to ``warehouse_id``.
     return_warehouse_id: uuid.UUID | None = None
 
+    #: The cost centre the charges belong to. Optional; NULL is "unallocated".
+    cost_centre_id: uuid.UUID | None = None
+
     rate_per_unit: NonNegativeRate = Decimal("0")
     rate_basis: RateBasis = RateBasis.PER_PIECE
 
@@ -136,6 +139,8 @@ class JobWorkOrderUpdate(BaseModel):
     expected_return_date: date | None = None
     warehouse_id: uuid.UUID | None = None
     return_warehouse_id: uuid.UUID | None = None
+    #: An explicit null clears it.
+    cost_centre_id: uuid.UUID | None = None
     rate_per_unit: NonNegativeRate | None = None
     rate_basis: RateBasis | None = None
     requires_qc: bool | None = None
@@ -185,6 +190,7 @@ class JobWorkOrderSummary(BaseModel):
     expected_return_date: date
     warehouse_id: uuid.UUID
     return_warehouse_id: uuid.UUID
+    cost_centre_id: uuid.UUID | None
     rate_per_unit: Decimal
     rate_basis: RateBasis
     estimated_charges: Decimal

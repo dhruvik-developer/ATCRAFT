@@ -70,6 +70,7 @@ from src.modules.bom.repository import BomRepository
 from src.modules.inventory.models import InventoryTransaction, StockState, TransactionType
 from src.modules.inventory.repository import BalanceGrain
 from src.modules.inventory.service import MovementEngine, MovementRequest, post_movements
+from src.modules.organization.service import require_cost_centre
 from src.modules.production.models import (
     ISSUABLE_PRODUCTION_STATUSES,
     OVER_ISSUE_MULTIPLIER,
@@ -1146,6 +1147,11 @@ async def create_order(
             bom_id=payload.bom_id,
             routing_id=payload.routing_id,
         )
+        # ASSUMPTION: the cost centre is explicit or absent - an order raised
+        # from a planning suggestion or a sales order carries none, because
+        # neither source names one. See docs/assumptions.md §B1-2.
+        if payload.cost_centre_id is not None:
+            await require_cost_centre(session, tenant, payload.cost_centre_id)
 
         repo = ProductionOrderRepository(session, tenant)
         order = ProductionOrder(
@@ -1156,6 +1162,7 @@ async def create_order(
             planned_quantity=to_quantity(payload.planned_quantity),
             warehouse_id=payload.warehouse_id,
             plant_id=payload.plant_id,
+            cost_centre_id=payload.cost_centre_id,
             planned_start_date=payload.planned_start_date,
             planned_end_date=payload.planned_end_date,
             priority=payload.priority,
@@ -1182,6 +1189,7 @@ async def create_order(
                 "item_code": item.code,
                 "planned_quantity": order.planned_quantity,
                 "warehouse_id": order.warehouse_id,
+                "cost_centre_id": order.cost_centre_id,
                 "planned_start_date": order.planned_start_date,
                 "planned_end_date": order.planned_end_date,
                 "priority": order.priority,
@@ -1294,6 +1302,11 @@ async def update_order(
             bom_id=changes.get("bom_id", order.bom_id),
             routing_id=changes.get("routing_id", order.routing_id),
         )
+        # A new cost centre is validated; the one the draft already carries is
+        # not re-checked - a document keeps its reference after deactivation.
+        new_centre = changes.get("cost_centre_id")
+        if new_centre is not None and new_centre != order.cost_centre_id:
+            await require_cost_centre(session, tenant, new_centre)
 
         if "planned_quantity" in changes:
             changes["planned_quantity"] = to_quantity(changes["planned_quantity"])

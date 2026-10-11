@@ -57,7 +57,10 @@ def database_unreachable(exc: BaseException) -> bool:
     current: BaseException | None = exc
     while current is not None and id(current) not in seen:
         seen.add(id(current))
-        if isinstance(current, OSError | _ASYNCPG_UNREACHABLE):
+        # A tuple of classes, not ``OSError | <tuple>``: a union with a tuple
+        # raises TypeError, which replaced every real set-up failure with an
+        # error about this line.
+        if isinstance(current, (OSError, *_ASYNCPG_UNREACHABLE)):
             return True
         current = current.__cause__ or current.__context__
     return False

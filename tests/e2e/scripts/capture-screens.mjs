@@ -163,6 +163,7 @@ const SCREENS = [
   // --- administration -----------------------------------------------------
   { file: '90-users', route: '/admin/users', title: 'Users and roles' },
   { file: '91-organisation', route: '/admin/organisation', title: 'Branches, plants and departments' },
+  { file: '91b-cost-centres', route: '/admin/organisation?tab=cost-centres', title: 'Cost centres' },
   { file: '92-notifications', route: '/notifications', title: 'Notifications' },
   { file: '93-profile', route: '/profile', title: 'Your profile' },
 ]

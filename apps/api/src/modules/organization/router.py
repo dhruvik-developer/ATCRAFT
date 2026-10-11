@@ -28,6 +28,7 @@ from src.core.deps import DbSession, Tenant, require_permission, require_superus
 from src.core.pagination import PageParams, SortParams, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
+from src.modules.organization.models import CostCentreType
 from src.modules.organization.schemas import (
     BranchCreate,
     BranchFilters,
@@ -35,6 +36,10 @@ from src.modules.organization.schemas import (
     BranchUpdate,
     CompanyRead,
     CompanyUpdate,
+    CostCentreCreate,
+    CostCentreFilters,
+    CostCentreRead,
+    CostCentreUpdate,
     DepartmentCreate,
     DepartmentFilters,
     DepartmentRead,
@@ -52,6 +57,7 @@ from src.modules.organization.schemas import (
 from src.modules.organization.service import (
     BranchService,
     CompanyService,
+    CostCentreService,
     DepartmentService,
     FinancialYearService,
     PlantService,
@@ -123,6 +129,24 @@ def department_filters(
     )
 
 
+def cost_centre_filters(
+    search: Annotated[str | None, Query(max_length=120, description="Code or name")] = None,
+    parent_id: Annotated[uuid.UUID | None, Query(description="Direct children of")] = None,
+    plant_id: Annotated[uuid.UUID | None, Query()] = None,
+    cost_centre_type: Annotated[CostCentreType | None, Query()] = None,
+    is_active: Annotated[bool | None, Query()] = None,
+    include_deleted: Annotated[bool, Query(description="Include retired cost centres")] = False,
+) -> CostCentreFilters:
+    return CostCentreFilters(
+        search=search,
+        parent_id=parent_id,
+        plant_id=plant_id,
+        cost_centre_type=cost_centre_type,
+        is_active=is_active,
+        include_deleted=include_deleted,
+    )
+
+
 def financial_year_filters(
     search: Annotated[str | None, Query(max_length=32, description="Year code")] = None,
     is_active: Annotated[bool | None, Query()] = None,
@@ -144,6 +168,7 @@ def financial_year_filters(
 BranchFilterDep = Annotated[BranchFilters, Depends(branch_filters)]
 PlantFilterDep = Annotated[PlantFilters, Depends(plant_filters)]
 DepartmentFilterDep = Annotated[DepartmentFilters, Depends(department_filters)]
+CostCentreFilterDep = Annotated[CostCentreFilters, Depends(cost_centre_filters)]
 FinancialYearFilterDep = Annotated[FinancialYearFilters, Depends(financial_year_filters)]
 
 
@@ -419,6 +444,98 @@ async def delete_department(
 ) -> ApiResponse[None]:
     await DepartmentService(session, tenant).delete_department(department_id, reason=reason)
     return ApiResponse[None].ok(None, "Department retired")
+
+
+# -----------------------------------------------------------------------------
+# Cost centres
+# -----------------------------------------------------------------------------
+
+
+@router.get(
+    "/cost-centres",
+    response_model=PaginatedResponse[CostCentreRead],
+    summary="List cost centres",
+    dependencies=[require_permission(Permission.COST_CENTRE_VIEW)],
+)
+async def list_cost_centres(
+    session: DbSession,
+    tenant: Tenant,
+    filters: CostCentreFilterDep,
+    params: PageDep,
+    sort: SortDep,
+) -> PaginatedResponse[CostCentreRead]:
+    items, pagination = await CostCentreService(session, tenant).list_cost_centres(
+        filters, params, sort
+    )
+    return PaginatedResponse[CostCentreRead](data=items, pagination=pagination)
+
+
+@router.post(
+    "/cost-centres",
+    response_model=ApiResponse[CostCentreRead],
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a cost centre",
+    dependencies=[require_permission(Permission.COST_CENTRE_MANAGE)],
+)
+async def create_cost_centre(
+    payload: CostCentreCreate, session: DbSession, tenant: Tenant
+) -> ApiResponse[CostCentreRead]:
+    centre = await CostCentreService(session, tenant).create_cost_centre(payload)
+    return ApiResponse[CostCentreRead].ok(centre, "Cost centre created")
+
+
+@router.get(
+    "/cost-centres/{cost_centre_id}",
+    response_model=ApiResponse[CostCentreRead],
+    summary="Fetch one cost centre",
+    dependencies=[require_permission(Permission.COST_CENTRE_VIEW)],
+)
+async def get_cost_centre(
+    cost_centre_id: uuid.UUID, session: DbSession, tenant: Tenant
+) -> ApiResponse[CostCentreRead]:
+    centre = await CostCentreService(session, tenant).get_cost_centre(cost_centre_id)
+    return ApiResponse[CostCentreRead].ok(centre)
+
+
+@router.patch(
+    "/cost-centres/{cost_centre_id}",
+    response_model=ApiResponse[CostCentreRead],
+    summary="Update a cost centre",
+    description=(
+        "Deactivating (`is_active: false`) is refused while an active sub-centre, a "
+        "department default or a work centre still hands the centre out; documents "
+        "keep their reference."
+    ),
+    dependencies=[require_permission(Permission.COST_CENTRE_MANAGE)],
+)
+async def update_cost_centre(
+    cost_centre_id: uuid.UUID,
+    payload: CostCentreUpdate,
+    session: DbSession,
+    tenant: Tenant,
+) -> ApiResponse[CostCentreRead]:
+    centre = await CostCentreService(session, tenant).update_cost_centre(cost_centre_id, payload)
+    return ApiResponse[CostCentreRead].ok(centre, "Cost centre updated")
+
+
+@router.delete(
+    "/cost-centres/{cost_centre_id}",
+    response_model=ApiResponse[None],
+    summary="Retire a cost centre",
+    description=(
+        "Refused while a sub-centre, a department, a work centre or any document still "
+        "names the centre. Posted ledger history keeps it."
+    ),
+    dependencies=[require_permission(Permission.COST_CENTRE_MANAGE)],
+)
+async def delete_cost_centre(
+    cost_centre_id: uuid.UUID,
+    session: DbSession,
+    tenant: Tenant,
+    reason: ReasonQuery,
+) -> ApiResponse[None]:
+    await CostCentreService(session, tenant).delete_cost_centre(cost_centre_id, reason=reason)
+    return ApiResponse[None].ok(None, "Cost centre retired")
 
 
 # -----------------------------------------------------------------------------

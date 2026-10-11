@@ -46,9 +46,11 @@ from src.modules.dispatch.models import (
     Dispatch,
     DispatchTrackingEvent,
 )
+from src.modules.finance.models import COST_CENTRE_ACCOUNT_TYPES, LedgerAccount, LedgerEntry
 from src.modules.inventory.models import InventoryBalance, InventoryTransaction, TransactionType
 from src.modules.job_work.models import JobWorkOrder, JobWorkOrderLine, JobWorkOrderStatus
 from src.modules.mrp.models import MrpRequirement, MrpRun, MrpRunStatus
+from src.modules.organization.models import CostCentre
 from src.modules.procurement.models import (
     GoodsReceipt,
     GoodsReceiptLine,
@@ -1240,6 +1242,75 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
         if filters.search:
             pattern = f"%{filters.search.strip()}%"
             stmt = stmt.where(or_(Vendor.name.ilike(pattern), Dispatch.code.ilike(pattern)))
+        return stmt
+
+    # --- 20. cost centre statement -----------------------------------------
+
+    def cost_centre_expense(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
+        """Posted income and expense per (cost centre, account) over the period.
+
+        Read from ``ledger_entries`` - the posted, immutable history - rather
+        than from documents, so it agrees with the ledger by construction and
+        includes every route money took into it: invoices, direct journals and
+        their reversals. One grouped scan through the partial
+        ``(company_id, cost_centre_id, entry_date)`` index, bounded by the
+        validated period like every other period report.
+
+        A retired cost centre still appears: posted history keeps its centre.
+        Only INCOME and EXPENSE accounts are read, which is also the only place
+        ``post_journal`` lets a centre be carried.
+        """
+        debit = func.sum(LedgerEntry.debit_amount)
+        credit = func.sum(LedgerEntry.credit_amount)
+        stmt = (
+            select(
+                CostCentre.id.label("cost_centre_id"),
+                CostCentre.code.label("cost_centre_code"),
+                CostCentre.name.label("cost_centre_name"),
+                LedgerAccount.id.label("account_id"),
+                LedgerAccount.code.label("account_code"),
+                LedgerAccount.name.label("account_name"),
+                LedgerAccount.account_type.label("account_type"),
+                debit.label("debit_amount"),
+                credit.label("credit_amount"),
+                (debit - credit).label("net_amount"),
+            )
+            .select_from(LedgerEntry)
+            .join(
+                CostCentre,
+                and_(
+                    CostCentre.id == LedgerEntry.cost_centre_id,
+                    CostCentre.company_id == LedgerEntry.company_id,
+                ),
+            )
+            .join(
+                LedgerAccount,
+                and_(
+                    LedgerAccount.id == LedgerEntry.account_id,
+                    LedgerAccount.company_id == LedgerEntry.company_id,
+                ),
+            )
+            .where(
+                LedgerEntry.company_id == self._company,
+                LedgerEntry.cost_centre_id.is_not(None),
+                LedgerEntry.entry_date.between(period.date_from, period.date_to),
+                LedgerAccount.account_type.in_(sorted(COST_CENTRE_ACCOUNT_TYPES)),
+            )
+            .group_by(
+                CostCentre.id,
+                CostCentre.code,
+                CostCentre.name,
+                LedgerAccount.id,
+                LedgerAccount.code,
+                LedgerAccount.name,
+                LedgerAccount.account_type,
+            )
+            # Codes are unique per company, so this order is total.
+            .order_by(CostCentre.code.asc(), LedgerAccount.code.asc())
+        )
+        if filters.search:
+            pattern = f"%{filters.search.strip()}%"
+            stmt = stmt.where(or_(CostCentre.code.ilike(pattern), CostCentre.name.ilike(pattern)))
         return stmt
 
     # --- dashboard ----------------------------------------------------------

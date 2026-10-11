@@ -67,7 +67,7 @@ becomes a stored amount, never repeatedly on the way there.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
@@ -90,7 +90,7 @@ from src.core.errors import (
 )
 from src.core.ids import new_id
 from src.core.logging import get_logger
-from src.core.messages import date_before
+from src.core.messages import date_before, inactive_record
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -104,6 +104,7 @@ from src.modules.finance.models import (
     AGEING_BUCKET_BOUNDARIES,
     AGEING_BUCKET_LABELS,
     ALLOCATABLE_PAYMENT_STATUSES,
+    COST_CENTRE_ACCOUNT_TYPES,
     CURRENCY_CODE_LENGTH,
     EDITABLE_INVOICE_STATUSES,
     MAX_JOURNAL_LINES,
@@ -143,6 +144,7 @@ from src.modules.finance.repository import (
     PartyFacts,
     PaymentAllocationRepository,
     PaymentRepository,
+    PostingAccount,
     PurchaseOrderLineFacts,
     PurchaseOrderLineLookupRepository,
     PurchaseOrderLookupRepository,
@@ -192,6 +194,11 @@ from src.modules.finance.schemas import (
     VendorInvoiceLineRead,
     VendorInvoiceSummary,
     VendorInvoiceUpdate,
+)
+from src.modules.organization.service import (
+    COST_CENTRE_ENTITY,
+    cost_centre_facts,
+    require_cost_centres,
 )
 from src.modules.reports import service as reports_service
 from src.modules.reports.models import ReportKey
@@ -261,6 +268,7 @@ INVOICE_AUDITED_FIELDS = [
     "due_date",
     "purchase_order_id",
     "goods_receipt_id",
+    "cost_centre_id",
     "currency",
     "subtotal",
     "tax_amount",
@@ -512,6 +520,9 @@ class JournalLine:
     party_type: PartyType = PartyType.NONE
     party_id: uuid.UUID | None = None
     narration: str | None = None
+    #: Where the money was spent or earned. Only an INCOME or EXPENSE leg may
+    #: carry one, and a new posting needs it active - see :func:`post_journal`.
+    cost_centre_id: uuid.UUID | None = None
     #: Set only by :func:`reverse_journal`; makes the row a reversal.
     reverses_entry_id: uuid.UUID | None = None
 
@@ -588,6 +599,68 @@ def assert_balanced(lines: Sequence[JournalLine]) -> JournalTotals:
     if not totals.is_balanced:
         raise UnbalancedJournalError(total_debit, total_credit, len(lines))
     return totals
+
+
+def assert_cost_centre_legs(
+    lines: Sequence[JournalLine], accounts: Mapping[uuid.UUID, PostingAccount]
+) -> None:
+    """Refuse a cost centre on any leg whose account is not income or expense.
+
+    Pure, like :func:`assert_balanced`. ``accounts`` is the posting's own
+    account lookup, so the rule costs no query. Applied to reversal legs too:
+    an account's class cannot change (``LedgerAccountUpdate`` does not carry
+    it), so the mirror of a leg that passed always passes - and a leg that
+    names an account the lookup did not return is the caller's not-found
+    error to raise, not this rule's.
+    """
+    for index, line in enumerate(lines, start=1):
+        if line.cost_centre_id is None:
+            continue
+        account = accounts.get(line.account_id)
+        if account is None or account.account_type in COST_CENTRE_ACCOUNT_TYPES:
+            continue
+        raise ValidationError(
+            f"Leg {index} posts to account {account.code}, a {account.account_type.lower()} "
+            "account; only income and expense legs may carry a cost centre.",
+            details={
+                "line_number": index,
+                "account_code": account.code,
+                "account_type": str(account.account_type),
+                "cost_centre_id": str(line.cost_centre_id),
+            },
+        )
+
+
+def split_by_cost_centre(
+    amounts: Sequence[tuple[uuid.UUID | None, Decimal]], *, total: Decimal
+) -> list[tuple[uuid.UUID | None, Decimal]]:
+    """Group amounts by cost centre so the groups sum to ``total`` exactly.
+
+    Pure. ``amounts`` is one ``(cost centre, amount)`` per source line, in line
+    order; a group appears where its first line does, so the journal reads in
+    the order the document does. Each group is the money-rounded sum of its
+    lines. When the lines were the source of ``total`` - an invoice's subtotal
+    is the sum of its taxable amounts - that is already exact; if a header ever
+    disagrees with its own lines, the difference lands on the largest group
+    (the first, on a tie) so the posting still balances to the paisa rather
+    than failing approval over a figure nobody can see. A group that comes to
+    zero is dropped: a ledger leg must carry money.
+    """
+    grouped: dict[uuid.UUID | None, Decimal] = {}
+    for cost_centre_id, amount in amounts:
+        grouped[cost_centre_id] = grouped.get(cost_centre_id, ZERO) + amount
+
+    split = [(cost_centre_id, to_money(amount)) for cost_centre_id, amount in grouped.items()]
+    target = to_money(total)
+    residual = target - sum((amount for _, amount in split), start=ZERO)
+    if residual != ZERO:
+        if not split:
+            split = [(None, target)]
+        else:
+            largest = max(range(len(split)), key=lambda index: (split[index][1], -index))
+            cost_centre_id, amount = split[largest]
+            split[largest] = (cost_centre_id, amount + residual)
+    return [(cost_centre_id, amount) for cost_centre_id, amount in split if amount != ZERO]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1179,6 +1252,12 @@ async def post_journal(
     Returns the entries in the order they were given, so a caller that needs to
     reverse a specific leg later can identify it.
 
+    A leg may carry a cost centre only on an INCOME or EXPENSE account, and a
+    new leg only one that is live and active in this tenant; every centre in
+    the journal is checked in one statement, and a journal naming none costs no
+    query at all. A reversal leg is exempt from the "active" half - see
+    :func:`_assert_cost_centres_postable`.
+
     ASSUMPTION: ``currency`` left unset means the company's own - the same
     column an invoice and a payment default to. Every posting this module makes
     itself passes the source document's denomination explicitly; the default is
@@ -1192,12 +1271,14 @@ async def post_journal(
     year_repo = FinancialYearRepository(session, tenant)
 
     async with transaction(session):
-        known = await account_repo.existing_ids([line.account_id for line in lines])
+        known = await account_repo.posting_accounts([line.account_id for line in lines])
         unknown = {line.account_id for line in lines} - set(known)
         if unknown:
             raise NotFoundError(
                 "Ledger account", ", ".join(sorted(str(account) for account in unknown))
             )
+        assert_cost_centre_legs(lines, known)
+        await _assert_cost_centres_postable(session, tenant, lines)
 
         financial_year = await year_repo.containing(entry_date)
         if financial_year is not None and financial_year.is_closed:
@@ -1231,6 +1312,7 @@ async def post_journal(
                 financial_year_id=financial_year.id if financial_year is not None else None,
                 is_reversal=line.reverses_entry_id is not None,
                 reverses_entry_id=line.reverses_entry_id,
+                cost_centre_id=line.cost_centre_id,
                 created_by_id=tenant.user_id,
             )
             session.add(entry)
@@ -1271,6 +1353,45 @@ async def post_journal(
     return entries
 
 
+#: The verb phrase a retired or inactive centre's refusal on a posting ends with.
+_NO_NEW_POSTINGS = "cannot take new postings"
+
+
+async def _assert_cost_centres_postable(
+    session: AsyncSession, tenant: TenantContext, lines: Sequence[JournalLine]
+) -> None:
+    """Every cost centre a journal names must be this tenant's, in one statement.
+
+    A *new* leg also needs the centre live and active: allocating fresh spend
+    to a centre somebody switched off is exactly what switching it off is
+    meant to stop. A *reversal* leg does not - it copies the centre of the leg
+    it undoes, and refusing it would make every journal posted to a centre
+    irreversible the moment that centre was retired (docs/assumptions.md §B1-3).
+    Retired rows are therefore read too, and only tenant ownership is checked
+    for a reversal.
+    """
+    wanted = {line.cost_centre_id for line in lines if line.cost_centre_id is not None}
+    if not wanted:
+        return
+    found = await cost_centre_facts(session, tenant, wanted, include_archived=True)
+    for index, line in enumerate(lines, start=1):
+        if line.cost_centre_id is None:
+            continue
+        facts = found.get(line.cost_centre_id)
+        if facts is None:
+            # Another company's id answers exactly like one that never existed.
+            raise NotFoundError(COST_CENTRE_ENTITY, line.cost_centre_id)
+        if line.reverses_entry_id is None and not facts.is_assignable:
+            raise ValidationError(
+                inactive_record(COST_CENTRE_ENTITY, facts.code, _NO_NEW_POSTINGS),
+                details={
+                    "line_number": index,
+                    "cost_centre_id": str(facts.id),
+                    "cost_centre_code": facts.code,
+                },
+            )
+
+
 async def reverse_journal(
     session: AsyncSession,
     tenant: TenantContext,
@@ -1284,6 +1405,10 @@ async def reverse_journal(
     Nothing is edited or deleted - that is what ``ImmutableLedgerEntity`` means.
     Each new leg names the leg it reverses, so the pair is visible from either
     side, and the mirror of a balanced set is balanced by construction.
+
+    Each mirror leg keeps the cost centre of the leg it undoes, so a reversal
+    nets to zero on the cost-centre statement as well as on the account - and
+    it does so even after that centre was deactivated or retired.
     """
     entry_repo = LedgerEntryRepository(session, tenant)
 
@@ -1306,6 +1431,7 @@ async def reverse_journal(
                 party_type=PartyType(entry.party_type),
                 party_id=entry.party_id,
                 narration=f"Reversal: {reason}",
+                cost_centre_id=entry.cost_centre_id,
                 reverses_entry_id=entry.id,
             )
             for entry in original
@@ -1442,6 +1568,7 @@ def invoice_summary(invoice: VendorInvoice) -> VendorInvoiceSummary:
         outstanding_amount=to_money(invoice.total_amount - invoice.paid_amount),
         purchase_order_id=invoice.purchase_order_id,
         goods_receipt_id=invoice.goods_receipt_id,
+        cost_centre_id=invoice.cost_centre_id,
         created_at=invoice.created_at,
     )
 
@@ -1589,6 +1716,32 @@ def _invoice_totals(lines: Sequence[_ResolvedLine], round_off: Decimal) -> tuple
     return subtotal, tax, to_money(subtotal + tax + to_money(round_off))
 
 
+async def _assert_invoice_cost_centres(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    header: uuid.UUID | None,
+    lines: Sequence[VendorInvoiceLineIn] | None,
+    already_on_document: frozenset[uuid.UUID] = frozenset(),
+) -> None:
+    """Validate every cost centre an invoice write names, in one statement.
+
+    ``already_on_document`` is what the invoice carried before this write. A
+    centre it already held is not a new allocation and is not re-checked: a
+    document keeps its reference after the centre is deactivated, and saving an
+    unrelated edit must not be refused for it. Approval is where an inactive
+    centre is finally refused, because that is where money is allocated to it.
+    """
+    references: list[tuple[str, uuid.UUID]] = []
+    if header is not None and header not in already_on_document:
+        references.append(("cost_centre_id", header))
+    for index, line in enumerate(lines or ()):
+        if line.cost_centre_id is not None and line.cost_centre_id not in already_on_document:
+            references.append((f"lines.{index}.cost_centre_id", line.cost_centre_id))
+    if references:
+        await require_cost_centres(session, tenant, references)
+
+
 async def _assert_invoice_references(
     session: AsyncSession,
     tenant: TenantContext,
@@ -1709,6 +1862,9 @@ async def create_invoice(
         resolved = await _resolve_invoice_lines(
             session, tenant, payload.lines, purchase_order_id=payload.purchase_order_id
         )
+        await _assert_invoice_cost_centres(
+            session, tenant, header=payload.cost_centre_id, lines=payload.lines
+        )
         subtotal, tax, total = _invoice_totals(resolved, payload.round_off_amount)
 
         # ASSUMPTION: a bill that does not name a currency is denominated in the
@@ -1727,6 +1883,7 @@ async def create_invoice(
                 due_date=_resolve_due_date(payload.due_date, payload.invoice_date, vendor),
                 purchase_order_id=payload.purchase_order_id,
                 goods_receipt_id=payload.goods_receipt_id,
+                cost_centre_id=payload.cost_centre_id,
                 currency=denomination,
                 subtotal=subtotal,
                 tax_amount=tax,
@@ -1779,6 +1936,7 @@ def _persist_lines(
                 purchase_order_line_id=line.payload.purchase_order_line_id,
                 goods_receipt_line_id=line.payload.goods_receipt_line_id,
                 item_id=line.payload.item_id,
+                cost_centre_id=line.payload.cost_centre_id,
                 description=line.description,
                 hsn_code=line.hsn_code,
                 quantity=line.payload.quantity,
@@ -1860,6 +2018,29 @@ async def update_invoice(
 
         if invoice.due_date < invoice.invoice_date:
             raise ValidationError(date_before("due date", "invoice date"))
+
+        header_centre_changing = (
+            "cost_centre_id" in changes and changes["cost_centre_id"] != invoice.cost_centre_id
+        )
+        if header_centre_changing or payload.lines is not None:
+            # What the invoice already carries is not a new allocation - see
+            # _assert_invoice_cost_centres. Read before the lines are replaced.
+            held = {invoice.cost_centre_id}
+            if payload.lines is not None:
+                held |= {
+                    line.cost_centre_id for line in await line_repo.list_for_invoice(invoice.id)
+                }
+            await _assert_invoice_cost_centres(
+                session,
+                tenant,
+                header=changes["cost_centre_id"] if header_centre_changing else None,
+                lines=payload.lines,
+                already_on_document=frozenset(
+                    cost_centre_id for cost_centre_id in held if cost_centre_id is not None
+                ),
+            )
+            if header_centre_changing:
+                invoice.cost_centre_id = changes["cost_centre_id"]
 
         if payload.lines is not None:
             if not payload.lines:
@@ -2250,19 +2431,40 @@ async def approve_invoice(
 async def _post_invoice_journal(
     session: AsyncSession, tenant: TenantContext, invoice: VendorInvoice
 ) -> list[LedgerEntry]:
-    """Dr purchases, Dr input tax, Cr the vendor's payable.
+    """Dr purchases (one leg per cost centre), Dr input tax, Cr the vendor's payable.
 
     The round-off goes to its own account on whichever side it falls, so the
     journal balances against a total that the invoice's own CHECK already
     guarantees is ``subtotal + tax + round_off``.
+
+    The purchase expense is split by each line's *effective* cost centre: the
+    line's own, else the invoice's, else none. One leg per centre, in the order
+    the lines first name them, summing to the subtotal exactly
+    (:func:`split_by_cost_centre`). An invoice that names no centre anywhere
+    posts the single unallocated leg it always did. The tax and payable legs
+    never carry one - they are balance-sheet accounts (§B1-4).
     """
     accounts = await ensure_system_accounts(session, tenant)
+    invoice_lines = await VendorInvoiceLineRepository(session, tenant).list_for_invoice(invoice.id)
+    # ASSUMPTION: a line's centre is its own, else the invoice's, else none -
+    # resolved here, at approval, so a header-only edit moves every line that
+    # names no centre of its own; and none means unallocated, never a default
+    # centre. docs/assumptions.md §B1-1 and §B1-2.
+    expense = split_by_cost_centre(
+        [
+            (line.cost_centre_id or invoice.cost_centre_id, Decimal(line.taxable_amount))
+            for line in invoice_lines
+        ],
+        total=invoice.subtotal,
+    )
     lines = [
         JournalLine(
             account_id=accounts[str(SystemAccount.PURCHASE_EXPENSE)].id,
-            debit=invoice.subtotal,
+            debit=amount,
             narration=f"Purchases on {invoice.code}",
+            cost_centre_id=cost_centre_id,
         )
+        for cost_centre_id, amount in expense
     ]
     if to_money(invoice.tax_amount) > ZERO:
         lines.append(
@@ -3885,6 +4087,7 @@ __all__ = [
     "approve_invoice",
     "approve_payment",
     "assert_balanced",
+    "assert_cost_centre_legs",
     "assert_may_override_variance",
     "cancel_invoice",
     "cancel_payment",
@@ -3927,6 +4130,7 @@ __all__ = [
     "reporting_currency",
     "resolve_dispute",
     "reverse_journal",
+    "split_by_cost_centre",
     "statement_direction",
     "submit_invoice",
     "summarise_gst_rows",

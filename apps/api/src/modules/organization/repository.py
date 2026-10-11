@@ -21,14 +21,22 @@ Three points are worth reading twice:
   inclusive range overlap: two closed intervals overlap when each starts on or
   before the other ends. Written as two predicates rather than an OR chain so
   the composite ``(company_id, start_date, end_date)`` index can be used.
+* The retire guards for tables owned by *higher* modules - work centres,
+  production orders, requisitions, documents carrying a cost centre - are
+  :class:`ReferenceProbe` rows answered by :meth:`_OrgRepositoryMixin.
+  _carrier_references` in two round trips however many tables are probed: one
+  ``to_regclass`` sweep, one ``UNION ALL`` of ``EXISTS`` probes. A loop of one
+  query per table would be the N+1 the codebase treats as a defect.
 """
 
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import Select, literal, select, text
+from sqlalchemy import Select, func, literal, select, text
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.codes import DocumentSequence
@@ -37,12 +45,14 @@ from src.core.pagination import SortParams
 from src.modules.organization.models import (
     Branch,
     Company,
+    CostCentre,
     Department,
     FinancialYear,
     Plant,
 )
 from src.modules.organization.schemas import (
     BranchFilters,
+    CostCentreFilters,
     DepartmentFilters,
     FinancialYearFilters,
     PlantFilters,
@@ -83,11 +93,128 @@ async def _warehouses_table_exists(session: Any) -> bool:
     return found.scalar() is not None
 
 
+@dataclass(frozen=True, slots=True)
+class ReferenceProbe:
+    """A column in a table owned by a module above organisation.
+
+    Probed with raw SQL so organisation never imports the module that owns the
+    table - see the module docstring. ``soft_deleted`` decides what "still
+    referenced" means: a master table with ``deleted_at`` is referenced by its
+    live rows only, while a document table (no soft delete) is referenced by
+    every row it holds, whatever its status - a closed order is still history
+    that names the record. ``label`` is how the refusal names the table to a
+    person.
+    """
+
+    table: str
+    column: str
+    label: str
+    soft_deleted: bool = False
+
+    def exists_sql(self) -> str:
+        """``SELECT '<table>' WHERE EXISTS (...)`` for this one probe."""
+        live = " AND deleted_at IS NULL" if self.soft_deleted else ""
+        return (
+            f"SELECT '{self.table}' AS carrier WHERE EXISTS ("  # noqa: S608 - module constants only
+            f"SELECT 1 FROM {self.table} WHERE company_id = :company_id "
+            f"AND {self.column} = :entity_id{live})"
+        )
+
+
+#: Tables above organisation that may name a plant.
+PLANT_REFERENCE_PROBES: tuple[ReferenceProbe, ...] = (
+    ReferenceProbe("work_centers", "plant_id", "work centres", soft_deleted=True),
+    ReferenceProbe("production_orders", "plant_id", "production orders"),
+)
+
+#: Tables above organisation that may name a department.
+DEPARTMENT_REFERENCE_PROBES: tuple[ReferenceProbe, ...] = (
+    ReferenceProbe("work_centers", "department_id", "work centres", soft_deleted=True),
+    ReferenceProbe("purchase_requisitions", "department_id", "purchase requisitions"),
+)
+
+#: Tables above organisation where a cost centre is a *default* rather than a
+#: posted fact. Deactivation is refused while one of these still names it: a
+#: default pointing at a centre that may no longer be assigned would hand every
+#: new document a reference its own validation refuses.
+COST_CENTRE_DEFAULT_PROBES: tuple[ReferenceProbe, ...] = (
+    ReferenceProbe("work_centers", "cost_centre_id", "work centres", soft_deleted=True),
+)
+
+#: Every carrier above organisation. Retirement is refused while any of these
+#: still names the centre. ``ledger_entries`` is deliberately absent: posted
+#: history keeps its cost centre after retirement, and a reversal copies it
+#: (docs/assumptions.md §B1-3). A module that adds a carrier adds it here.
+COST_CENTRE_REFERENCE_PROBES: tuple[ReferenceProbe, ...] = (
+    *COST_CENTRE_DEFAULT_PROBES,
+    ReferenceProbe("production_orders", "cost_centre_id", "production orders"),
+    ReferenceProbe("job_work_orders", "cost_centre_id", "job-work orders"),
+    ReferenceProbe("stock_adjustments", "cost_centre_id", "stock adjustments"),
+    ReferenceProbe("vendor_invoices", "cost_centre_id", "vendor invoices"),
+    ReferenceProbe("vendor_invoice_lines", "cost_centre_id", "vendor invoice lines"),
+)
+
+
+async def _existing_tables(session: Any, tables: Iterable[str]) -> set[str]:
+    """Which of these tables exist, in one round trip.
+
+    The ``to_regclass`` sweep for every probe at once - see
+    :func:`_warehouses_table_exists` for why it cannot share a statement with
+    the probes it guards.
+    """
+    wanted = sorted(set(tables))
+    if not wanted:
+        return set()
+    found = await session.execute(
+        text(
+            "SELECT name FROM unnest(CAST(:names AS text[])) AS name "
+            "WHERE to_regclass('public.' || name) IS NOT NULL"
+        ),
+        {"names": wanted},
+    )
+    return {row[0] for row in found.all()}
+
+
+def reference_labels(probes: Sequence[ReferenceProbe], tables: Iterable[str]) -> list[str]:
+    """The human labels of the probes whose table was found, in probe order.
+
+    Deduplicated: two probes over the same table (a plant named on a work
+    centre twice over) read as one reason.
+    """
+    hit = set(tables)
+    labels: list[str] = []
+    for probe in probes:
+        if probe.table in hit and probe.label not in labels:
+            labels.append(probe.label)
+    return labels
+
+
 class _OrgRepositoryMixin:
     """Shared probes for the tenant-scoped organisation masters."""
 
     session: Any
     tenant: Any
+
+    async def _carrier_references(
+        self, probes: Sequence[ReferenceProbe], entity_id: uuid.UUID
+    ) -> list[str]:
+        """Labels of the probed tables that still name this record.
+
+        Two round trips whatever the number of probes: which tables exist, then
+        one ``UNION ALL`` of tenant-scoped ``EXISTS`` checks over those that do.
+        A table that has never been created holds no reference, so a partially
+        migrated database answers "none" rather than raising.
+        """
+        present = await _existing_tables(self.session, (probe.table for probe in probes))
+        live = [probe for probe in probes if probe.table in present]
+        if not live:
+            return []
+        statement = " UNION ALL ".join(probe.exists_sql() for probe in live)
+        found = await self.session.execute(
+            text(statement),
+            {"company_id": self.tenant.company_id, "entity_id": entity_id},
+        )
+        return reference_labels(live, (row[0] for row in found.all()))
 
     async def _user_references(
         self, column: InstrumentedAttribute[Any], entity_id: uuid.UUID
@@ -318,6 +445,23 @@ class PlantRepository(_OrgRepositoryMixin, BaseRepository[Plant]):
         )
         return (await self.session.execute(stmt)).first() is not None
 
+    async def referenced_by_cost_centres(self, plant_id: uuid.UUID) -> bool:
+        stmt = (
+            select(literal(1))
+            .select_from(CostCentre)
+            .where(
+                CostCentre.company_id == self.tenant.company_id,
+                CostCentre.plant_id == plant_id,
+                CostCentre.deleted_at.is_(None),
+            )
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).first() is not None
+
+    async def referenced_by_carriers(self, plant_id: uuid.UUID) -> list[str]:
+        """Work centres and production orders still naming this plant."""
+        return await self._carrier_references(PLANT_REFERENCE_PROBES, plant_id)
+
 
 # -----------------------------------------------------------------------------
 # Department
@@ -439,6 +583,255 @@ class DepartmentRepository(_OrgRepositoryMixin, BaseRepository[Department]):
     async def referenced_by_users(self, department_id: uuid.UUID) -> bool:
         return await self._user_references(User.department_id, department_id)
 
+    async def referenced_by_carriers(self, department_id: uuid.UUID) -> list[str]:
+        """Work centres and purchase requisitions still naming this department.
+
+        Raw SQL: both tables belong to modules above organisation, and
+        procurement in particular must not be imported from here.
+        """
+        return await self._carrier_references(DEPARTMENT_REFERENCE_PROBES, department_id)
+
+
+# -----------------------------------------------------------------------------
+# Cost centre
+# -----------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class CostCentreFacts:
+    """What another module needs to know about a cost centre it was handed.
+
+    A projection rather than the ORM row: the batch lookups behind a posting or
+    a multi-line document read four columns of many rows, and ``is_archived``
+    is the soft-delete flag already interpreted.
+    """
+
+    id: uuid.UUID
+    code: str
+    name: str
+    is_active: bool
+    is_archived: bool
+
+    @property
+    def is_assignable(self) -> bool:
+        """May a new document or a new posting name this centre?"""
+        return self.is_active and not self.is_archived
+
+
+class CostCentreRepository(_OrgRepositoryMixin, BaseRepository[CostCentre]):
+    model = CostCentre
+    sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
+        "code": CostCentre.code,
+        "name": CostCentre.name,
+        "cost_centre_type": CostCentre.cost_centre_type,
+        "is_active": CostCentre.is_active,
+        "created_at": CostCentre.created_at,
+        "updated_at": CostCentre.updated_at,
+    }
+    searchable_fields = ("code", "name")
+
+    def build_list_stmt(self, filters: CostCentreFilters, sort: SortParams) -> Select[Any]:
+        stmt = self._scoped(include_deleted=filters.include_deleted)
+        stmt = self._apply_search(stmt, filters.search)
+
+        if filters.parent_id is not None:
+            stmt = stmt.where(CostCentre.parent_id == filters.parent_id)
+        if filters.plant_id is not None:
+            stmt = stmt.where(CostCentre.plant_id == filters.plant_id)
+        if filters.cost_centre_type is not None:
+            stmt = stmt.where(CostCentre.cost_centre_type == filters.cost_centre_type)
+        if filters.is_active is not None:
+            stmt = stmt.where(CostCentre.is_active == filters.is_active)
+
+        # Code is the stable, unique, indexed ordering key; id breaks ties so a
+        # row cannot appear on two pages.
+        order = sort.resolve(self.sortable_fields, CostCentre.code.asc())
+        return stmt.order_by(order, CostCentre.id.asc())
+
+    async def code_taken(self, code: str, *, exclude_id: uuid.UUID | None = None) -> bool:
+        """Is this code used in the tenant, including by a retired centre?
+
+        Retired codes count: they are printed on posted ledger history, and a
+        second centre answering to the same code would merge two lines of a
+        cost-centre statement into one.
+        """
+        stmt = (
+            select(literal(1))
+            .select_from(CostCentre)
+            .where(CostCentre.company_id == self.tenant.company_id, CostCentre.code == code)
+        )
+        if exclude_id is not None:
+            stmt = stmt.where(CostCentre.id != exclude_id)
+        return (await self.session.execute(stmt.limit(1))).first() is not None
+
+    async def ancestor_ids(self, cost_centre_id: uuid.UUID) -> list[uuid.UUID]:
+        """Ids from ``cost_centre_id`` up to the root, nearest first.
+
+        The department walk, over this table: one bounded recursive CTE, retired
+        rows included because they still occupy their position in the tree.
+        """
+        base = (
+            select(
+                CostCentre.id.label("id"),
+                CostCentre.parent_id.label("parent_id"),
+                literal(1).label("depth"),
+            )
+            .where(
+                CostCentre.company_id == self.tenant.company_id,
+                CostCentre.id == cost_centre_id,
+            )
+            .cte("cost_centre_chain", recursive=True)
+        )
+        parent = base.alias("chain")
+        chain = base.union_all(
+            select(
+                CostCentre.id,
+                CostCentre.parent_id,
+                (parent.c.depth + 1).label("depth"),
+            ).where(
+                CostCentre.id == parent.c.parent_id,
+                CostCentre.company_id == self.tenant.company_id,
+                parent.c.depth < MAX_HIERARCHY_WALK,
+            )
+        )
+        rows = await self.session.execute(select(chain.c.id).order_by(chain.c.depth.asc()))
+        return [row[0] for row in rows.all()]
+
+    async def subtree_height(self, cost_centre_id: uuid.UUID) -> int:
+        """Levels *below* this centre: 0 for a leaf, 1 if it has children only.
+
+        Reparenting moves the whole subtree, so the depth rule has to count the
+        deepest descendant, not just the node being moved - otherwise a centre
+        with grandchildren could be dropped onto the bottom of the tree and
+        leave them below the limit nobody may create a row at. Live rows only:
+        a retired descendant can never gain a child.
+        """
+        base = (
+            select(CostCentre.id.label("id"), literal(0).label("depth"))
+            .where(
+                CostCentre.company_id == self.tenant.company_id,
+                CostCentre.id == cost_centre_id,
+            )
+            .cte("cost_centre_subtree", recursive=True)
+        )
+        child = base.alias("subtree")
+        tree = base.union_all(
+            select(CostCentre.id, (child.c.depth + 1).label("depth")).where(
+                CostCentre.parent_id == child.c.id,
+                CostCentre.company_id == self.tenant.company_id,
+                CostCentre.deleted_at.is_(None),
+                child.c.depth < MAX_HIERARCHY_WALK,
+            )
+        )
+        found = await self.session.execute(select(func.max(tree.c.depth)))
+        return int(found.scalar() or 0)
+
+    async def has_live_children(self, cost_centre_id: uuid.UUID) -> bool:
+        """Any non-retired child, active or not - the archive guard."""
+        return await self._child_exists(cost_centre_id, active_only=False)
+
+    async def has_active_children(self, cost_centre_id: uuid.UUID) -> bool:
+        """Any active child - the deactivation guard."""
+        return await self._child_exists(cost_centre_id, active_only=True)
+
+    async def _child_exists(self, cost_centre_id: uuid.UUID, *, active_only: bool) -> bool:
+        stmt = (
+            select(literal(1))
+            .select_from(CostCentre)
+            .where(
+                CostCentre.company_id == self.tenant.company_id,
+                CostCentre.parent_id == cost_centre_id,
+                CostCentre.deleted_at.is_(None),
+            )
+            .limit(1)
+        )
+        if active_only:
+            stmt = stmt.where(CostCentre.is_active.is_(True))
+        return (await self.session.execute(stmt)).first() is not None
+
+    async def plant_exists(self, plant_id: uuid.UUID) -> bool:
+        stmt = (
+            select(literal(1))
+            .select_from(Plant)
+            .where(
+                Plant.company_id == self.tenant.company_id,
+                Plant.id == plant_id,
+                Plant.deleted_at.is_(None),
+            )
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).first() is not None
+
+    async def user_exists(self, user_id: uuid.UUID) -> bool:
+        stmt = (
+            select(literal(1))
+            .select_from(User)
+            .where(
+                User.company_id == self.tenant.company_id,
+                User.id == user_id,
+                User.deleted_at.is_(None),
+            )
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).first() is not None
+
+    async def referenced_by_departments(self, cost_centre_id: uuid.UUID) -> bool:
+        """A live department names this centre as its default."""
+        stmt = (
+            select(literal(1))
+            .select_from(Department)
+            .where(
+                Department.company_id == self.tenant.company_id,
+                Department.cost_centre_id == cost_centre_id,
+                Department.deleted_at.is_(None),
+            )
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).first() is not None
+
+    async def referenced_as_default(self, cost_centre_id: uuid.UUID) -> list[str]:
+        """Carriers above organisation where this centre is a default."""
+        return await self._carrier_references(COST_CENTRE_DEFAULT_PROBES, cost_centre_id)
+
+    async def referenced_by_carriers(self, cost_centre_id: uuid.UUID) -> list[str]:
+        """Every carrier above organisation that still names this centre."""
+        return await self._carrier_references(COST_CENTRE_REFERENCE_PROBES, cost_centre_id)
+
+    async def facts(
+        self, cost_centre_ids: Iterable[uuid.UUID], *, include_archived: bool
+    ) -> dict[uuid.UUID, CostCentreFacts]:
+        """Tenant-scoped facts for a set of ids, in one statement.
+
+        An id from another company is simply absent from the answer, exactly as
+        an id that never existed is - the caller reports both as "not found",
+        because confirming that a row exists elsewhere is itself a disclosure.
+        """
+        wanted = {cost_centre_id for cost_centre_id in cost_centre_ids if cost_centre_id}
+        if not wanted:
+            return {}
+        stmt = select(
+            CostCentre.id,
+            CostCentre.code,
+            CostCentre.name,
+            CostCentre.is_active,
+            CostCentre.deleted_at,
+        ).where(
+            CostCentre.company_id == self.tenant.company_id,
+            CostCentre.id.in_(wanted),
+        )
+        if not include_archived:
+            stmt = stmt.where(CostCentre.deleted_at.is_(None))
+        return {
+            row.id: CostCentreFacts(
+                id=row.id,
+                code=row.code,
+                name=row.name,
+                is_active=bool(row.is_active),
+                is_archived=row.deleted_at is not None,
+            )
+            for row in (await self.session.execute(stmt)).all()
+        }
+
 
 # -----------------------------------------------------------------------------
 # Financial year
@@ -548,10 +941,18 @@ class FinancialYearRepository(BaseRepository[FinancialYear]):
 
 
 __all__ = [
+    "COST_CENTRE_DEFAULT_PROBES",
+    "COST_CENTRE_REFERENCE_PROBES",
+    "DEPARTMENT_REFERENCE_PROBES",
     "MAX_HIERARCHY_WALK",
+    "PLANT_REFERENCE_PROBES",
     "BranchRepository",
     "CompanyRepository",
+    "CostCentreFacts",
+    "CostCentreRepository",
     "DepartmentRepository",
     "FinancialYearRepository",
     "PlantRepository",
+    "ReferenceProbe",
+    "reference_labels",
 ]

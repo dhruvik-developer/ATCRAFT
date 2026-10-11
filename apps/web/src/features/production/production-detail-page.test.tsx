@@ -12,7 +12,7 @@ import { screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
-import { ok, renderScreen } from '@/test/harness'
+import { ok, page, renderScreen } from '@/test/harness'
 
 import ProductionDetailPage from './production-detail-page'
 import type { ProductionOrderDetail } from './production-model'
@@ -28,6 +28,7 @@ function detail(overrides: Partial<ProductionOrderDetail> = {}): ProductionOrder
     item_id: '01a00000-0000-7000-8000-0000000000i1',
     warehouse_id: '01a00000-0000-7000-8000-0000000000w1',
     plant_id: null,
+    cost_centre_id: null,
     planned_quantity: '100.0000',
     produced_quantity: '0.0000',
     rejected_quantity: '0.0000',
@@ -105,5 +106,43 @@ describe('cancelling an order', () => {
 
     expect(await screen.findByRole('heading', { name: 'PRD-0001' })).toBeVisible()
     expect(screen.queryByRole('button', { name: /^cancel$/i })).toBeNull()
+  })
+})
+
+describe('where the order is charged', () => {
+  const MACHINING = {
+    id: 'cc-mach',
+    code: 'CC-MACH',
+    name: 'Machining',
+    cost_centre_type: 'PRODUCTION',
+    parent_id: null,
+    plant_id: null,
+    head_user_id: null,
+    description: null,
+    // Switched off since the order was raised: the order keeps it, and says so.
+    is_active: false,
+    created_at: '2026-09-01T06:00:00Z',
+    updated_at: '2026-09-01T06:00:00Z',
+  }
+
+  it('names the cost centre, inactive or not, to an account that may read centres', async () => {
+    renderDetail([P.PRODUCTION_ORDER_VIEW, P.COST_CENTRE_VIEW], {
+      [`GET /production/${ORDER_ID}`]: ok(detail({ cost_centre_id: MACHINING.id })),
+      'GET /organization/cost-centres': page([MACHINING]),
+    })
+
+    expect(await screen.findByText('CC-MACH - Machining (inactive)')).toBeVisible()
+  })
+
+  it('shows no cost-centre row, and asks for no centre, without the right', async () => {
+    const { fetch } = renderDetail([P.PRODUCTION_ORDER_VIEW], {
+      [`GET /production/${ORDER_ID}`]: ok(detail({ cost_centre_id: MACHINING.id })),
+    })
+
+    expect(await screen.findByRole('heading', { name: 'PRD-0001' })).toBeVisible()
+    expect(screen.queryByText('Cost centre')).toBeNull()
+    expect(fetch.calls.some((call) => call.path.startsWith('/organization/cost-centres'))).toBe(
+      false,
+    )
   })
 })

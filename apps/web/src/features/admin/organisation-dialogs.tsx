@@ -1,15 +1,21 @@
 /**
  * Create and edit dialogs for the organisation structure.
  *
- * Four small forms in one file: each is a handful of fields, and splitting them
- * would mean four imports on the page for no benefit. `code` is absent from
+ * Five small forms in one file: each is a handful of fields, and splitting them
+ * would mean five imports on the page for no benefit. `code` is absent from
  * every update payload because the API refuses to change one - a branch code
- * appears on issued documents and in historical audit rows.
+ * appears on issued documents and in historical audit rows, and a cost-centre
+ * code on posted ledger history.
+ *
+ * A cost-centre field (a department's default, a centre's parent) is offered
+ * only to an account holding `cost_centre.view`. Without it the field is not
+ * shown, and the value the record already holds travels back unchanged on an
+ * edit - a hidden control must never be the reason a saved value is cleared.
  */
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -30,11 +36,12 @@ import {
   SelectValue,
 } from '@/components/ui/overlays'
 import { Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
+import { useCostCentreOptions } from '@/hooks/use-organisation-options'
 import { useUserOptions } from '@/hooks/use-user-options'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { toDateInput } from '@/lib/format'
+import { humanise, toDateInput } from '@/lib/format'
 import { success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 import { asId, asText } from '@/lib/utils'
@@ -48,6 +55,15 @@ import {
   type FinancialYearRow,
   type PlantRow,
 } from './admin-types'
+import {
+  COST_CENTRE_TYPES,
+  subtreeIds,
+  type CostCentreCreate,
+  type CostCentreRow,
+  type CostCentreType,
+  type CostCentreUpdate,
+} from './cost-centre-model'
+import { CostCentreSelect } from './cost-centre-select'
 
 const CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._\-/ ]*$/
 const CODE_MESSAGE =
@@ -559,6 +575,8 @@ const departmentSchema = z.object({
   plant_id: z.string(),
   parent_id: z.string(),
   head_user_id: z.string(),
+  /** Empty means no default. */
+  cost_centre_id: z.string(),
   is_active: z.boolean(),
 })
 
@@ -571,6 +589,7 @@ function emptyDepartment(): DepartmentValues {
     plant_id: SELECT_NONE,
     parent_id: SELECT_NONE,
     head_user_id: SELECT_NONE,
+    cost_centre_id: '',
     is_active: true,
   }
 }
@@ -581,6 +600,7 @@ export function DepartmentFormDialog({
   department,
   siblings,
   canSeeUsers = true,
+  canSeeCostCentres = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -593,6 +613,8 @@ export function DepartmentFormDialog({
    * "Unassigned", and the request behind it could only be refused.
    */
   canSeeUsers?: boolean
+  /** Whether the caller holds `cost_centre.view`; the default-centre picker needs it. */
+  canSeeCostCentres?: boolean
 }) {
   const queryClient = useQueryClient()
   const isEdit = Boolean(department)
@@ -622,6 +644,7 @@ export function DepartmentFormDialog({
             plant_id: department.plant_id ?? SELECT_NONE,
             parent_id: department.parent_id ?? SELECT_NONE,
             head_user_id: department.head_user_id ?? SELECT_NONE,
+            cost_centre_id: department.cost_centre_id ?? '',
             is_active: department.is_active,
           }
         : emptyDepartment(),
@@ -636,6 +659,10 @@ export function DepartmentFormDialog({
         plant_id: asId(values.plant_id),
         parent_id: asId(values.parent_id),
         head_user_id: asId(values.head_user_id),
+        // Always sent. Without `cost_centre.view` the picker is not shown and
+        // this is the value the department already had, so an edit by such an
+        // account leaves the default exactly where it was.
+        cost_centre_id: asId(values.cost_centre_id),
         is_active: values.is_active,
       }
       return department
@@ -775,6 +802,26 @@ export function DepartmentFormDialog({
               </div>
             )}
 
+            {canSeeCostCentres && (
+              <Controller
+                control={control}
+                name="cost_centre_id"
+                render={({ field }) => (
+                  <CostCentreSelect
+                    id="dept-cost-centre"
+                    label="Default cost centre"
+                    value={field.value || null}
+                    onChange={(next) => field.onChange(next ?? '')}
+                    enabled={open}
+                    noneLabel="No default"
+                    hint="Where this department's spending is charged unless a document names another."
+                    error={errors.cost_centre_id?.message}
+                    className="sm:col-span-2"
+                  />
+                )}
+              />
+            )}
+
             <label className="flex items-center gap-2.5 text-sm sm:col-span-2">
               <Controller
                 control={control}
@@ -793,6 +840,340 @@ export function DepartmentFormDialog({
             </Button>
             <Button type="submit" loading={mutation.isPending}>
               {isEdit ? 'Save changes' : 'Create department'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ----------------------------------------------------------- cost centre ----
+
+const costCentreSchema = z.object({
+  code: codeField,
+  name: nameField,
+  // Required and deliberately not defaulted, as on the API: the type is how a
+  // centre is grouped on every report, and a preselected one would misfile
+  // each centre whose creator did not notice it.
+  cost_centre_type: z
+    .string()
+    .refine(
+      (value): boolean => (COST_CENTRE_TYPES as readonly string[]).includes(value),
+      'Choose how this centre is grouped on reports',
+    ),
+  /** Empty means a top-level centre. */
+  parent_id: z.string(),
+  plant_id: z.string(),
+  head_user_id: z.string(),
+  description: z.string().trim().max(2000, 'At most 2000 characters'),
+  is_active: z.boolean(),
+})
+
+type CostCentreValues = z.infer<typeof costCentreSchema>
+
+function emptyCostCentre(): CostCentreValues {
+  return {
+    code: '',
+    name: '',
+    cost_centre_type: '',
+    parent_id: '',
+    plant_id: SELECT_NONE,
+    head_user_id: SELECT_NONE,
+    description: '',
+    is_active: true,
+  }
+}
+
+function costCentreValues(centre: CostCentreRow): CostCentreValues {
+  return {
+    code: centre.code,
+    name: centre.name,
+    cost_centre_type: centre.cost_centre_type,
+    parent_id: centre.parent_id ?? '',
+    plant_id: centre.plant_id ?? SELECT_NONE,
+    head_user_id: centre.head_user_id ?? SELECT_NONE,
+    description: centre.description ?? '',
+    is_active: centre.is_active,
+  }
+}
+
+/**
+ * The fields both payloads share; the code is the create's alone.
+ *
+ * Every field is sent on an edit too. An explicit null is how the API is told
+ * to clear one, and the form always holds the record's current value - so a
+ * field nobody touched, or one whose picker this account is not shown, travels
+ * back unchanged rather than being cleared.
+ */
+function costCentrePayload(values: CostCentreValues): Omit<CostCentreCreate, 'code'> {
+  return {
+    name: values.name.trim(),
+    cost_centre_type: values.cost_centre_type as CostCentreType,
+    parent_id: values.parent_id || null,
+    plant_id: asId(values.plant_id),
+    head_user_id: asId(values.head_user_id),
+    description: asText(values.description),
+    is_active: values.is_active,
+  }
+}
+
+export function CostCentreFormDialog({
+  open,
+  onOpenChange,
+  centre,
+  canSeePlants = true,
+  canSeeUsers = true,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** Present for an edit, absent for a create. */
+  centre?: CostCentreRow | null
+  /** Whether the caller holds `plant.view`; the plant picker needs it. */
+  canSeePlants?: boolean
+  /** Whether the caller holds `user.view`; the head picker needs it. */
+  canSeeUsers?: boolean
+}) {
+  const queryClient = useQueryClient()
+  const isEdit = Boolean(centre)
+  const plants = usePlantOptions(open && canSeePlants)
+  const users = useUserOptions({ enabled: open && canSeeUsers })
+
+  // The whole tree, not the page of the register on screen: a parent two pages
+  // away is still a parent. The same request the parent picker makes.
+  const reference = useCostCentreOptions(open)
+  const ownSubtree = useMemo(
+    () => (centre ? subtreeIds(reference.data ?? [], centre.id) : undefined),
+    [centre, reference.data],
+  )
+
+  const {
+    register,
+    control,
+    handleSubmit,
+    reset,
+    setError,
+    formState: { errors },
+  } = useForm<CostCentreValues>({
+    resolver: zodResolver(costCentreSchema),
+    defaultValues: emptyCostCentre(),
+  })
+
+  const editingId = centre?.id ?? null
+  useEffect(() => {
+    if (!open) return
+    reset(centre ? costCentreValues(centre) : emptyCostCentre())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editingId, reset])
+
+  const mutation = useMutation({
+    mutationFn: (values: CostCentreValues) => {
+      if (centre) {
+        const update: CostCentreUpdate = costCentrePayload(values)
+        return api.patch<CostCentreRow>(`/organization/cost-centres/${centre.id}`, update)
+      }
+      const create: CostCentreCreate = { ...costCentrePayload(values), code: values.code.trim() }
+      return api.post<CostCentreRow>('/organization/cost-centres', create)
+    },
+    onSuccess: (saved) => {
+      // `orgKeys.all` is also the root of every cost-centre picker, so the new
+      // centre is offered on the next document without a stale half hour.
+      void queryClient.invalidateQueries({ queryKey: orgKeys.all })
+      toast.success(
+        isEdit ? success.updated('Cost centre') : success.created('Cost centre'),
+        `${saved.code} - ${saved.name}`,
+      )
+      onOpenChange(false)
+    },
+    onError: (error) => applyFieldErrors(error, setError),
+  })
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="lg">
+        <DialogHeader>
+          <DialogTitle>{isEdit ? `Edit ${centre?.code}` : 'New cost centre'}</DialogTitle>
+          <DialogDescription>
+            A cost centre is where money is charged - a shop, a process, a sales zone. Centres nest,
+            and the code is printed on the cost centre statement, so it cannot be changed later.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form
+          onSubmit={handleSubmit((values) => mutation.mutate(values))}
+          className="flex min-h-0 flex-col gap-4"
+          noValidate
+        >
+          <DialogBody className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="cc-code" required>
+                Code
+              </Label>
+              <Input
+                id="cc-code"
+                {...register('code')}
+                disabled={isEdit}
+                autoComplete="off"
+                placeholder="CC-MACH"
+                aria-invalid={Boolean(errors.code)}
+                className="mt-1.5"
+              />
+              <FieldError message={errors.code?.message} />
+            </div>
+
+            <div>
+              <Label htmlFor="cc-name" required>
+                Name
+              </Label>
+              <Input
+                id="cc-name"
+                {...register('name')}
+                autoComplete="off"
+                aria-invalid={Boolean(errors.name)}
+                className="mt-1.5"
+              />
+              <FieldError message={errors.name?.message} />
+            </div>
+
+            <div>
+              <Label htmlFor="cc-type" required>
+                Type
+              </Label>
+              <Controller
+                control={control}
+                name="cost_centre_type"
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger
+                      id="cc-type"
+                      aria-label="Type"
+                      aria-invalid={Boolean(errors.cost_centre_type)}
+                      className="mt-1.5"
+                    >
+                      <SelectValue placeholder="How it is reported" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {COST_CENTRE_TYPES.map((type) => (
+                        <SelectItem key={type} value={type}>
+                          {humanise(type)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <FieldError message={errors.cost_centre_type?.message} />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Groups the centre on reports. Nothing else depends on it.
+              </p>
+            </div>
+
+            <Controller
+              control={control}
+              name="parent_id"
+              render={({ field }) => (
+                <CostCentreSelect
+                  id="cc-parent"
+                  label="Parent cost centre"
+                  value={field.value || null}
+                  onChange={(next) => field.onChange(next ?? '')}
+                  enabled={open}
+                  noneLabel="Top level"
+                  exclude={ownSubtree}
+                  hint={
+                    isEdit
+                      ? 'A centre cannot move beneath one of its own sub-centres, so those are not offered.'
+                      : undefined
+                  }
+                  error={errors.parent_id?.message}
+                />
+              )}
+            />
+
+            {canSeePlants && (
+              <div>
+                <Label htmlFor="cc-plant">Plant</Label>
+                <Controller
+                  control={control}
+                  name="plant_id"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger id="cc-plant" className="mt-1.5">
+                        <SelectValue placeholder="No plant" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={SELECT_NONE}>No plant</SelectItem>
+                        {(plants.data ?? []).map((plant) => (
+                          <SelectItem key={plant.id} value={plant.id}>
+                            {plant.code} - {plant.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                <FieldError message={errors.plant_id?.message} />
+              </div>
+            )}
+
+            {canSeeUsers && (
+              <div>
+                <Label htmlFor="cc-head">Head</Label>
+                <Controller
+                  control={control}
+                  name="head_user_id"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger id="cc-head" className="mt-1.5">
+                        <SelectValue placeholder="Unassigned" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={SELECT_NONE}>Unassigned</SelectItem>
+                        {(users.data ?? []).map((option) => (
+                          <SelectItem key={option.id} value={option.id}>
+                            {option.full_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                <FieldError message={errors.head_user_id?.message} />
+              </div>
+            )}
+
+            <div className="sm:col-span-2">
+              <Label htmlFor="cc-description">Description</Label>
+              <Textarea id="cc-description" {...register('description')} className="mt-1.5" />
+              <FieldError message={errors.description?.message} />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="flex items-center gap-2.5 text-sm">
+                <Controller
+                  control={control}
+                  name="is_active"
+                  render={({ field }) => (
+                    <Checkbox checked={field.value} onCheckedChange={field.onChange} />
+                  )}
+                />
+                Active
+              </label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                An inactive centre is no longer offered on new documents; documents that already
+                name it keep it. It cannot be switched off while an active sub-centre, a department
+                default or a work centre still hands it out.
+              </p>
+              <FieldError message={errors.is_active?.message} />
+            </div>
+          </DialogBody>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={mutation.isPending}>
+              {isEdit ? 'Save changes' : 'Create cost centre'}
             </Button>
           </DialogFooter>
         </form>

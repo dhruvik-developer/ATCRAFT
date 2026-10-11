@@ -101,6 +101,24 @@ from tests.schema_support import prepare_metadata, report_database_setup_failure
 ADMIN_DSN = f"postgresql+asyncpg://{_pg_user}:{_pg_password}@{_pg_host}:{_pg_port}/postgres"
 TEST_DSN = os.environ["DATABASE_URL"]
 
+#: Empties ``public`` of every table it holds, whatever schema built them.
+#:
+#: Not ``Base.metadata.drop_all``. That plans the drop from the *current* models,
+#: and where they form a foreign-key cycle (users -> departments -> cost_centres
+#: -> users) it first drops the cycle's constraints by name - which fails on a
+#: test database built before one of them existed, and a developer's test
+#: database always is. ``DROP TABLE ... CASCADE`` over what is actually there
+#: needs no plan, and also clears tables a removed model left behind.
+_DROP_EVERY_PUBLIC_TABLE = """
+DO $$
+DECLARE stale record;
+BEGIN
+    FOR stale IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP
+        EXECUTE format('DROP TABLE IF EXISTS public.%I CASCADE', stale.tablename);
+    END LOOP;
+END $$
+"""
+
 
 # -----------------------------------------------------------------------------
 # Database
@@ -146,7 +164,7 @@ def _database() -> None:
             async with engine.begin() as conn:
                 for extension in ("pgcrypto", "pg_trgm", "btree_gist"):
                     await conn.execute(text(f'CREATE EXTENSION IF NOT EXISTS "{extension}"'))
-                await conn.run_sync(Base.metadata.drop_all)
+                await conn.execute(text(_DROP_EVERY_PUBLIC_TABLE))
                 await conn.run_sync(Base.metadata.create_all)
         finally:
             await engine.dispose()

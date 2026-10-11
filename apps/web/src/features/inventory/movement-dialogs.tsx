@@ -43,6 +43,8 @@ import {
   Label,
   Textarea,
 } from '@/components/ui/primitives'
+import { CostCentreSelect } from '@/features/admin/cost-centre-select'
+import { useAuth } from '@/features/auth/auth-context'
 import { api, ApiError } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE, LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -55,6 +57,7 @@ import {
   toDecimal,
 } from '@/lib/format'
 import { success } from '@/lib/messages'
+import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
@@ -411,6 +414,8 @@ const adjustmentSchema = z.object({
   // Master rules 83: no stock change without a recorded reason. The code says
   // what kind of loss it was; this says what actually happened.
   reason: z.string().trim().min(10, 'Describe what happened in enough detail to audit later.'),
+  /** Empty means unallocated: the write-off is charged to no cost centre. */
+  cost_centre_id: z.string(),
   lines: z
     .array(
       z.object({
@@ -435,7 +440,11 @@ export function CreateAdjustmentDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const { can } = useAuth()
   const queryClient = useQueryClient()
+  // A storekeeper raising a write-off usually holds no `cost_centre.view`; the
+  // adjustment is then raised unallocated rather than behind a refused picker.
+  const canPickCostCentre = can(P.COST_CENTRE_VIEW)
   const form = useForm<AdjustmentForm>({
     resolver: zodResolver(adjustmentSchema),
     defaultValues: {
@@ -443,6 +452,7 @@ export function CreateAdjustmentDialog({
       adjustment_date: today(),
       reason_code: '',
       reason: '',
+      cost_centre_id: '',
       lines: [{ item_id: '', quantity: '' }],
     },
   })
@@ -454,6 +464,9 @@ export function CreateAdjustmentDialog({
         adjustment_date: values.adjustment_date,
         reason_code: values.reason_code,
         reason: values.reason.trim(),
+        // Who bears the write-off or the write-on. The movements it posts reach
+        // the centre through the adjustment they reference.
+        cost_centre_id: values.cost_centre_id || null,
         lines: values.lines.map((line) => ({
           item_id: line.item_id,
           quantity: line.quantity.trim(),
@@ -543,6 +556,23 @@ export function CreateAdjustmentDialog({
               />
               <FieldError message={errors.reason_code?.message} />
             </div>
+
+            {canPickCostCentre && (
+              <Controller
+                control={form.control}
+                name="cost_centre_id"
+                render={({ field }) => (
+                  <CostCentreSelect
+                    id="adjustment-cost-centre"
+                    value={field.value || null}
+                    onChange={(next) => field.onChange(next ?? '')}
+                    enabled={open}
+                    hint="Who bears the loss, or the gain."
+                    error={errors.cost_centre_id?.message}
+                  />
+                )}
+              />
+            )}
           </div>
 
           <div className="space-y-1.5">

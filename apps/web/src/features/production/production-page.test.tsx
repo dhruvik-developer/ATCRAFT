@@ -16,13 +16,17 @@
  * looks identical on screen.
  */
 
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen } from '@/test/harness'
 
-import { IssueMaterialDialog, ReturnMaterialDialog } from './production-dialogs'
+import {
+  IssueMaterialDialog,
+  ProductionOrderFormDialog,
+  ReturnMaterialDialog,
+} from './production-dialogs'
 import type { ProductionComponent, ProductionOrderRow } from './production-model'
 import ProductionPage from './production-page'
 
@@ -36,6 +40,7 @@ function order(overrides: Partial<ProductionOrderRow> = {}): ProductionOrderRow 
     item_id: 'item-1',
     warehouse_id: 'wh-1',
     plant_id: null,
+    cost_centre_id: null,
     planned_quantity: '100.0000',
     produced_quantity: '25.0000',
     rejected_quantity: '0.0000',
@@ -184,6 +189,90 @@ describe('the production register', () => {
     expect(screen.getByText('Production orders are not yours to see')).toBeVisible()
     // The empty state would be a lie here: there may well be orders.
     expect(screen.queryByText('No production orders found')).toBeNull()
+  })
+})
+
+// ------------------------------------------------------- raising an order ----
+
+describe('raising an order', () => {
+  /**
+   * The cost centre is explicit or absent - an order inherits none - and the
+   * material issued to it is charged there through the order. The picker is
+   * its own right (`cost_centre.view`); without it the order is raised
+   * unallocated rather than behind a list that could only be refused.
+   */
+  const ITEM = { id: 'item-hdl', code: 'HDL-200', name: 'Pull handle 200mm', is_active: true }
+  const CENTRES = [
+    {
+      id: 'cc-mach',
+      code: 'CC-MACH',
+      name: 'Machining',
+      cost_centre_type: 'PRODUCTION',
+      parent_id: null,
+      plant_id: null,
+      head_user_id: null,
+      description: null,
+      is_active: true,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    },
+  ]
+  const routes = {
+    'GET /products/items': page([ITEM]),
+    'GET /bom': page([]),
+    ...WAREHOUSES,
+    'POST /production': ok(order({ id: 'po-9', code: 'PRD-0009', status: 'DRAFT' })),
+  }
+
+  async function fillTheMinimum(
+    user: ReturnType<typeof renderScreen>['user'],
+    dialog: HTMLElement,
+  ) {
+    await user.click(within(dialog).getByRole('combobox', { name: 'Item to make' }))
+    await user.click(await screen.findByRole('option', { name: /HDL-200/ }))
+    await user.click(within(dialog).getByRole('combobox', { name: 'Receive output into' }))
+    await user.click(await screen.findByRole('option', { name: /MAIN/ }))
+  }
+
+  it('charges the order to the centre chosen, for an account that may read centres', async () => {
+    const { user, fetch } = renderScreen(
+      <ProductionOrderFormDialog open onOpenChange={() => {}} />,
+      {
+        permissions: [P.PRODUCTION_ORDER_CREATE, P.COST_CENTRE_VIEW],
+        routes: { ...routes, 'GET /organization/cost-centres': page(CENTRES) },
+      },
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    await fillTheMinimum(user, dialog)
+    await user.click(within(dialog).getByRole('combobox', { name: 'Cost centre' }))
+    await user.click(await screen.findByRole('option', { name: 'CC-MACH - Machining' }))
+    await user.click(within(dialog).getByRole('button', { name: /raise order/i }))
+
+    const body = sentBody(await waitFor(() => fetch.requestFor('POST', '/production')))
+    expect(body.cost_centre_id).toBe('cc-mach')
+    expect(body.item_id).toBe(ITEM.id)
+  })
+
+  it('raises it unallocated, asking for no centre, without cost_centre.view', async () => {
+    const { user, fetch } = renderScreen(
+      <ProductionOrderFormDialog open onOpenChange={() => {}} />,
+      {
+        permissions: [P.PRODUCTION_ORDER_CREATE],
+        routes,
+      },
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).queryByRole('combobox', { name: 'Cost centre' })).not.toBeInTheDocument()
+    await fillTheMinimum(user, dialog)
+    await user.click(within(dialog).getByRole('button', { name: /raise order/i }))
+
+    const body = sentBody(await waitFor(() => fetch.requestFor('POST', '/production')))
+    expect(body.cost_centre_id).toBeNull()
+    expect(fetch.calls.some((call) => call.path.startsWith('/organization/cost-centres'))).toBe(
+      false,
+    )
   })
 })
 

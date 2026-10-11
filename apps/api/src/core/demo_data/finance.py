@@ -11,7 +11,7 @@ populated.
 
 What it builds, and why each document is in the state it is
 -----------------------------------------------------------
-**Vendor invoices - eight of them, five statuses.** A payables screen showing one
+**Vendor invoices - nine of them, five statuses.** A payables screen showing one
 row in one status teaches nobody what the statuses mean.
 
 * ``DM-VI-PACK`` sits in DRAFT, still being keyed.
@@ -24,11 +24,18 @@ row in one status teaches nobody what the statuses mean.
   purchase order's own net price, read out of the same two tables the matcher
   reads. They approve with no override because there is genuinely nothing out of
   tolerance to override.
-* Four service bills - plating, slitting, tooling - carry no purchase order and
-  are approved over a recorded override reason. That is not a shortcut:
-  ``evaluate_match`` reports non-order spend as unmatched deliberately, so
-  approving it is a named decision with a justification stored against it. It is
-  also what real payables ageing is mostly made of.
+* Five service bills - plating, slitting, tooling, maintenance - carry no
+  purchase order and are approved over a recorded override reason. That is not a
+  shortcut: ``evaluate_match`` reports non-order spend as unmatched deliberately,
+  so approving it is a named decision with a justification stored against it. It
+  is also what real payables ageing is mostly made of.
+
+**Cost centres on the bills.** Each service bill names the cost centre it is
+charged to (plating to ``DM-CC-PROD-PLAT``, tooling to ``DM-CC-MAINT`` ...), and
+``DM-VI-SPARES`` also has a line naming a centre of its own, so its approval
+posts one purchase-expense leg per centre. Those legs are what the cost-centre
+statement reads. The bills billed against purchase orders carry none: nothing on
+the order says where the goods were charged, and that is WP B3's to add.
 
 **Ageing that means something.** The boundaries live in
 ``AGEING_BUCKET_BOUNDARIES`` and the SQL compares *due dates* against edges
@@ -38,7 +45,8 @@ else. Every bucket therefore has a row, on both sides of the ledger:
 ======================  ==========================  ==============================
 bucket                  payable                     receivable
 ======================  ==========================  ==============================
-``not due``             the two matched PO bills    -
+``not due``             the two matched PO bills,   -
+                        ``DM-VI-SPARES``
 ``0-30``                ``DM-VI-TOOL``              ``DM-SC-WEST``, ``DM-SC-VASTU``
 ``31-60``               ``DM-VI-SLIT``              ``DM-SC-ARCH-2``, ``DM-SC-METRO``
 ``61-90``               ``DM-VI-PLATE-B``           ``DM-SC-SKYLINE``
@@ -103,7 +111,7 @@ kind                    codes
                         ``DM-ACC-SALES`` and ``DM-ACC-FREIGHT``
 ``vendor_invoice``      ``DM-VI-METALS``, ``DM-VI-COMP``, ``DM-VI-PACK``,
                         ``DM-VI-RFQ``, ``DM-VI-PLATE-A``, ``DM-VI-PLATE-B``,
-                        ``DM-VI-SLIT``, ``DM-VI-TOOL``
+                        ``DM-VI-SLIT``, ``DM-VI-TOOL``, ``DM-VI-SPARES``
 ``payment``             ``DM-PAY-BRASS``, ``DM-PAY-PLATE``, ``DM-PAY-FAST``,
                         ``DM-PAY-PACK``, ``DM-RCPT-ARCH``, ``DM-RCPT-VASTU``
 ``ledger_journal``      ``DM-SC-ARCH-1``, ``DM-SC-ARCH-2``, ``DM-SC-SKYLINE``,
@@ -275,6 +283,15 @@ def _vendor(ctx: DemoContext, code: str) -> uuid.UUID:
 
 def _customer(ctx: DemoContext, code: str) -> uuid.UUID:
     return ctx.id_of("customer", ctx.code(*code.split("-")))
+
+
+def _cost_centre(ctx: DemoContext, suffix: tuple[str, ...] | None) -> uuid.UUID | None:
+    """A cost centre the masters stage registered as ``DM-CC-<suffix>``.
+
+    Soft: a stage run on its own (``--only finance``) has no register of them,
+    and the bill is then recorded unallocated rather than refused.
+    """
+    return ctx.maybe_id("cost_centre", ctx.code("CC", *suffix)) if suffix else None
 
 
 # -----------------------------------------------------------------------------
@@ -461,6 +478,9 @@ class _ServiceLine:
     hsn_code: str
     quantity: str
     unit_price: str
+    #: This line's own cost centre, as a ``DM-CC-*`` suffix. None takes the
+    #: invoice's - which is what a line with no centre of its own means.
+    cost_centre: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -480,6 +500,11 @@ class _ServiceInvoice:
     override_reason: str
     notes: str
     lines: tuple[_ServiceLine, ...]
+    #: The cost centre the bill is charged to, as a ``DM-CC-*`` suffix - the
+    #: masters stage registers ``DM-CC-PROD-PLAT`` and the rest. Approval splits
+    #: the purchase expense by each line's effective centre, which is what puts
+    #: rows on the cost-centre statement.
+    cost_centre: tuple[str, ...] | None = None
 
 
 SERVICE_INVOICES: tuple[_ServiceInvoice, ...] = (
@@ -511,6 +536,7 @@ SERVICE_INVOICES: tuple[_ServiceInvoice, ...] = (
                 unit_price="21.350000",
             ),
         ),
+        cost_centre=("PROD", "PLAT"),
     ),
     # 61-90 bucket, part-paid by the same transfer. Two open items against one
     # vendor is what makes the allocation screen worth looking at.
@@ -533,6 +559,7 @@ SERVICE_INVOICES: tuple[_ServiceInvoice, ...] = (
                 unit_price="18.500000",
             ),
         ),
+        cost_centre=("PROD", "PLAT"),
     ),
     # 31-60 bucket. Deepak Steel is in Maharashtra, so this one is IGST while the
     # plating bills are CGST+SGST - which gives the GST summary both halves of the
@@ -557,6 +584,9 @@ SERVICE_INVOICES: tuple[_ServiceInvoice, ...] = (
                 unit_price="4.200000",
             ),
         ),
+        # Conversion of raw strip serves every process downstream, so it sits
+        # on the production parent rather than on one child.
+        cost_centre=("PROD",),
     ),
     # 0-30 bucket, and the bill the unallocated payment below was sent against
     # without anybody telling the ledger which invoice it settled.
@@ -580,6 +610,42 @@ SERVICE_INVOICES: tuple[_ServiceInvoice, ...] = (
                 unit_price="8750.000000",
             ),
         ),
+        cost_centre=("MAINT",),
+    ),
+    # Not due yet. The one bill whose lines land on two different cost centres:
+    # the header charges maintenance, and the die refurbishment line names the
+    # die-casting cell itself. Approval posts one purchase-expense leg per centre,
+    # which is the split the cost-centre statement then shows. New in the cost
+    # centre release, so a database populated before it gains statement rows on
+    # the next run rather than only a freshly built one.
+    _ServiceInvoice(
+        marker=("VI", "SPARES"),
+        vendor="VEN-FAST",
+        vendor_invoice_number="PF/SVC/2290",
+        invoiced_in=-12,
+        due_in=18,
+        round_off="0.00",
+        override_reason=(
+            "Maintenance work raised on works orders, not a purchase order. Approved against "
+            "the maintenance log; the die refurbishment is charged to the die-casting cell."
+        ),
+        notes="Trim-die refurbishment and a hydraulic power-pack overhaul.",
+        lines=(
+            _ServiceLine(
+                description="Refurbishment of trim dies - die-casting cell",
+                hsn_code="998719",
+                quantity="2",
+                unit_price="12500.000000",
+                cost_centre=("PROD", "DIE"),
+            ),
+            _ServiceLine(
+                description="Overhaul of hydraulic power pack - press shop",
+                hsn_code="998719",
+                quantity="1",
+                unit_price="18400.000000",
+            ),
+        ),
+        cost_centre=("MAINT",),
     ),
 )
 
@@ -1121,6 +1187,7 @@ async def _seed_service_invoice(
             invoice_date=_on(spec.invoiced_in),
             due_date=_on(spec.due_in),
             round_off_amount=Decimal(spec.round_off),
+            cost_centre_id=_cost_centre(ctx, spec.cost_centre),
             notes=_tagged(marker, spec.notes),
             lines=[
                 VendorInvoiceLineIn(
@@ -1130,6 +1197,7 @@ async def _seed_service_invoice(
                     unit_price=Decimal(line.unit_price),
                     tax_rate=Decimal(STANDARD_GST_RATE),
                     is_interstate=is_interstate,
+                    cost_centre_id=_cost_centre(ctx, line.cost_centre),
                 )
                 for line in spec.lines
             ],

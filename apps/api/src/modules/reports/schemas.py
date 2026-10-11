@@ -413,6 +413,27 @@ class VendorDispatchHistoryRow(ReportRowBase):
     delay_days: int = 0
 
 
+class CostCentreExpenseRow(ReportRowBase):
+    """One (cost centre, account) pair's postings over the period.
+
+    ``net_amount`` is debit minus credit for every row, whatever the account
+    class: positive is cost, negative is income. One sign throughout is what
+    lets a reader add the column down a cost centre and get its net cost; a
+    sign flipped per account class would make that sum meaningless.
+    """
+
+    cost_centre_id: uuid.UUID
+    cost_centre_code: str
+    cost_centre_name: str
+    account_id: uuid.UUID
+    account_code: str
+    account_name: str
+    account_type: str
+    debit_amount: Decimal
+    credit_amount: Decimal
+    net_amount: Decimal
+
+
 # -----------------------------------------------------------------------------
 # Dashboard and jobs
 # -----------------------------------------------------------------------------
@@ -483,6 +504,7 @@ class ReportDescriptorRead(BaseModel):
 
 __all__ = [
     "REPORT_MAX_RANGE_DAYS",
+    "CostCentreExpenseRow",
     "CourierTrackingRow",
     "DashboardRead",
     "DeadStockRow",

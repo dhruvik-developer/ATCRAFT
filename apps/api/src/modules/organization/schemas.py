@@ -30,8 +30,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from src.common.banking import validate_optional_ifsc
 from src.common.codes import clean_name, strip_optional, validate_code
 from src.common.tax_ids import validate_optional_gstin, validate_optional_pan
+from src.modules.organization.models import CostCentreType
 
 # ASSUMPTION: the IANA timezone name is validated semantically only when a tz
 # database is actually present. A container built without `tzdata` would
@@ -123,6 +125,14 @@ class CompanyUpdate(BaseModel):
     timezone: str | None = Field(default=None, min_length=1, max_length=64)
     logo_document_id: uuid.UUID | None = None
 
+    # Printed on outgoing invoices. An explicit null (or blank) clears a field.
+    bank_name: str | None = Field(default=None, max_length=120)
+    bank_account_name: str | None = Field(default=None, max_length=255)
+    bank_account_number: str | None = Field(default=None, max_length=34)
+    bank_ifsc: str | None = Field(default=None, max_length=11)
+    bank_branch: str | None = Field(default=None, max_length=120)
+    invoice_terms: str | None = Field(default=None, max_length=4000)
+
     _name = field_validator("name")(_clean_optional_name)
     _gstin = field_validator("gstin")(validate_optional_gstin)
     _pan = field_validator("pan")(validate_optional_pan)
@@ -137,7 +147,31 @@ class CompanyUpdate(BaseModel):
         "state",
         "state_code",
         "postal_code",
+        "bank_name",
+        "bank_account_name",
+        "bank_branch",
+        "invoice_terms",
     )(strip_optional)
+
+    # The two bank identifiers are normalised BEFORE the length check: an IFSC
+    # copied off a cheque leaf as "HDFC 0001204" is twelve characters until its
+    # space goes, and refusing it for length would blame the user for spacing.
+
+    @field_validator("bank_ifsc", mode="before")
+    @classmethod
+    def _ifsc(cls, value: object) -> object:
+        return validate_optional_ifsc(value) if isinstance(value, str) else value
+
+    @field_validator("bank_account_number", mode="before")
+    @classmethod
+    def _account_number(cls, value: object) -> object:
+        # Spaces are how a number is read aloud, not part of it; the bank's
+        # copy has none, and a customer keying it from the invoice must not
+        # be handed a different string from the one on the cheque leaf.
+        if not isinstance(value, str):
+            return value
+        stripped = strip_optional(value)
+        return stripped.replace(" ", "").upper() if stripped else None
 
     @field_validator("cin")
     @classmethod
@@ -190,6 +224,16 @@ class CompanyRead(BaseModel):
     timezone: str
     is_active: bool
     logo_document_id: uuid.UUID | None
+
+    bank_name: str | None
+    bank_account_name: str | None
+    # ASSUMPTION: in full - these are the details printed on every invoice the
+    # company sends, so anyone allowed to read the company profile may read
+    # them. The audit trail is what is masked. docs/assumptions.md §B1-7.
+    bank_account_number: str | None
+    bank_ifsc: str | None
+    bank_branch: str | None
+    invoice_terms: str | None
 
     created_at: datetime
     updated_at: datetime
@@ -331,6 +375,8 @@ class DepartmentCreate(BaseModel):
     plant_id: uuid.UUID | None = None
     parent_id: uuid.UUID | None = None
     head_user_id: uuid.UUID | None = None
+    #: The cost centre documents raised by this department default to.
+    cost_centre_id: uuid.UUID | None = None
     is_active: bool = True
 
     _code = field_validator("code")(validate_code)
@@ -344,6 +390,8 @@ class DepartmentUpdate(BaseModel):
     plant_id: uuid.UUID | None = None
     parent_id: uuid.UUID | None = None
     head_user_id: uuid.UUID | None = None
+    #: An explicit null clears the default.
+    cost_centre_id: uuid.UUID | None = None
     is_active: bool | None = None
 
     _name = field_validator("name")(_clean_optional_name)
@@ -358,6 +406,75 @@ class DepartmentRead(BaseModel):
     plant_id: uuid.UUID | None
     parent_id: uuid.UUID | None
     head_user_id: uuid.UUID | None
+    cost_centre_id: uuid.UUID | None
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: datetime | None = None
+
+
+# -----------------------------------------------------------------------------
+# Cost centre
+# -----------------------------------------------------------------------------
+
+
+class CostCentreCreate(BaseModel):
+    """Payload for opening a cost centre.
+
+    ``cost_centre_type`` is required rather than defaulted: it is how the centre
+    is grouped on every report, and a silent default would misclassify each one
+    nobody remembered to change.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: Code
+    name: Name
+    cost_centre_type: CostCentreType
+    parent_id: uuid.UUID | None = None
+    plant_id: uuid.UUID | None = None
+    head_user_id: uuid.UUID | None = None
+    description: str | None = Field(default=None, max_length=2000)
+    is_active: bool = True
+
+    _code = field_validator("code")(validate_code)
+    _name = field_validator("name")(clean_name)
+    _description = field_validator("description")(strip_optional)
+
+
+class CostCentreUpdate(BaseModel):
+    """Partial update. ``code`` is immutable: it is quoted on posted history.
+
+    An explicit null clears ``parent_id`` (the centre becomes a root),
+    ``plant_id``, ``head_user_id`` or ``description``; an omitted key is left
+    alone.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: Name | None = None
+    cost_centre_type: CostCentreType | None = None
+    parent_id: uuid.UUID | None = None
+    plant_id: uuid.UUID | None = None
+    head_user_id: uuid.UUID | None = None
+    description: str | None = Field(default=None, max_length=2000)
+    is_active: bool | None = None
+
+    _name = field_validator("name")(_clean_optional_name)
+    _description = field_validator("description")(strip_optional)
+
+
+class CostCentreRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    code: str
+    name: str
+    cost_centre_type: CostCentreType
+    parent_id: uuid.UUID | None
+    plant_id: uuid.UUID | None
+    head_user_id: uuid.UUID | None
+    description: str | None
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -448,6 +565,15 @@ class DepartmentFilters(BaseModel):
     include_deleted: bool = False
 
 
+class CostCentreFilters(BaseModel):
+    search: str | None = None
+    parent_id: uuid.UUID | None = None
+    plant_id: uuid.UUID | None = None
+    cost_centre_type: CostCentreType | None = None
+    is_active: bool | None = None
+    include_deleted: bool = False
+
+
 class FinancialYearFilters(BaseModel):
     search: str | None = None
     is_active: bool | None = None
@@ -476,6 +602,10 @@ __all__ = [
     "BranchUpdate",
     "CompanyRead",
     "CompanyUpdate",
+    "CostCentreCreate",
+    "CostCentreFilters",
+    "CostCentreRead",
+    "CostCentreUpdate",
     "DepartmentCreate",
     "DepartmentFilters",
     "DepartmentRead",

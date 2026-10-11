@@ -169,6 +169,13 @@ structurally, so forgetting it is not something an individual query can do.
 Cross-tenant access returns `NOT_FOUND`, never `FORBIDDEN`. Confirming that a
 record exists in another tenant is itself a disclosure.
 
+A foreign key to a UUID is **not** a tenant check: it is satisfied by another
+company's row. Every reference a write names is therefore read through the
+tenant-scoped repository before the row is written. Cost centres are the
+widest-reaching case - eight tables carry one - so every carrier goes through
+one seam, `organization.service.require_cost_centre` / `require_cost_centres`,
+which answers another company's id exactly as it answers an unknown one (404).
+
 The application is single-company today. Nothing in the schema prevents adding
 another.
 
@@ -312,6 +319,14 @@ the request id, IP address and user agent. Audit writes happen in the same
 transaction as the change they describe — if the business write rolls back the
 audit rolls back with it, and if the audit write fails the business change is not
 committed.
+
+Bank account numbers - a vendor's, and the company's own that is printed on its
+invoices - are audited masked to their last four characters
+(`src/common/banking.py`). Redirecting a payee account is how diverted-payment
+and invoice-redirection fraud start, so the change must be provable without the
+audit log becoming a second copy of the number. Two numbers ending in the same
+digits mask alike, so a change to the company's account is also flagged
+explicitly in the entry's context.
 
 Reading requires `audit_log.view` and a bounded date range (default 30 days, max
 366). An unbounded query against the largest table in the system is a denial of

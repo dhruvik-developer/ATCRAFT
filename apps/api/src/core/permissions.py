@@ -25,6 +25,8 @@ class Permission(StrEnum):
     PLANT_MANAGE = "plant.manage"
     DEPARTMENT_VIEW = "department.view"
     DEPARTMENT_MANAGE = "department.manage"
+    COST_CENTRE_VIEW = "cost_centre.view"
+    COST_CENTRE_MANAGE = "cost_centre.manage"
     SETTINGS_VIEW = "settings.view"
     SETTINGS_MANAGE = "settings.manage"
 
@@ -212,7 +214,7 @@ class Permission(StrEnum):
 # --- Groupings used by the seed and by the permission-matrix UI ---------------
 
 PERMISSION_GROUPS: dict[str, tuple[str, ...]] = {
-    "Organisation": ("company", "branch", "plant", "department", "settings"),
+    "Organisation": ("company", "branch", "plant", "department", "cost_centre", "settings"),
     "Identity & Access": ("user", "role", "permission"),
     "Business Partners": ("customer", "dealer", "vendor", "transporter"),
     "Item Master": (
@@ -336,6 +338,8 @@ _PURCHASE = frozenset(
         Permission.DOCUMENT_UPLOAD,
         Permission.NOTIFICATION_VIEW,
         Permission.JOB_VIEW,
+        # Requisitions and orders name the cost centre they are charged to.
+        Permission.COST_CENTRE_VIEW,
     }
 )
 
@@ -372,6 +376,8 @@ _PRODUCTION = frozenset(
         Permission.DASHBOARD_VIEW,
         Permission.DOCUMENT_VIEW,
         Permission.NOTIFICATION_VIEW,
+        # Production and job-work orders name the cost centre they are charged to.
+        Permission.COST_CENTRE_VIEW,
     }
 )
 
@@ -460,6 +466,12 @@ _ACCOUNTS = frozenset(
         Permission.DASHBOARD_VIEW,
         Permission.DOCUMENT_VIEW,
         Permission.NOTIFICATION_VIEW,
+        # ASSUMPTION: Accounts owns the cost-centre master - it is the analytic
+        # dimension of the ledger, and the cost-centre statement is theirs to
+        # answer for. Purchase, production and PLANNER only view it.
+        # docs/assumptions.md §B1-8.
+        Permission.COST_CENTRE_VIEW,
+        Permission.COST_CENTRE_MANAGE,
     }
 )
 
@@ -588,6 +600,7 @@ ROLE_PRESETS: dict[str, dict[str, object]] = {
                 Permission.DASHBOARD_VIEW,
                 Permission.JOB_VIEW,
                 Permission.NOTIFICATION_VIEW,
+                Permission.COST_CENTRE_VIEW,
             }
         ),
     },

@@ -656,13 +656,18 @@
         {
           "route": "/admin/organisation",
           "title": "Organisation",
-          "purpose": "Who the company legally is, where it operates from, and how it is divided. The company record carries the name, GST and PAN numbers and the registered address that appear on documents. Branches are GST registrations and billing addresses. Plants are the manufacturing sites that warehouses, production orders and people belong to. Departments group people and cost, and nest inside one another. This is set up once at the start and then touched rarely - usually when a new site opens or a registration changes.",
+          "purpose": "Who the company legally is, where it operates from, how it is divided, and where its costs are charged. The company record carries the name, GST and PAN numbers and the registered address that appear on documents, and the bank details and terms printed on every invoice. Branches are GST registrations and billing addresses. Plants are the manufacturing sites that warehouses, production orders and people belong to. Departments group people and nest inside one another, and each may name a default cost centre. Cost centres - where money is charged - have their own tab and their own page in this handbook. This is set up once at the start and then touched rarely - usually when a new site opens, a registration changes or the bank account does.",
           "whoUses": "The owner and whoever administers the system. Nobody else needs to open it.",
           "keyActions": [
             {
               "action": "Correct the company's own details",
               "how": "The Company tab. Change the name, legal name, GSTIN, PAN, CIN, contact details, address, currency, financial-year start month or time zone, then Save.",
               "note": "Without the right to change it, the same details are shown as a plain list rather than a form nobody can submit."
+            },
+            {
+              "action": "Record the bank details printed on invoices",
+              "how": "The Company tab, the Bank & invoice card below the company details. Bank, branch, IFSC, account name, account number and the invoice terms, then Save bank details.",
+              "note": "Saved on its own, never as a side effect of correcting the address above, and every change is kept in the audit trail with the account number masked. The IFSC is checked for its shape - four letters, a zero, then six letters or digits - and spaces in it or in the account number are dropped, so both can be typed as they are printed on a cheque leaf."
             },
             {
               "action": "Add a branch",
@@ -676,11 +681,11 @@
             },
             {
               "action": "Add a department",
-              "how": "The Departments tab, then New department. Code, name, the plant it sits at, the department it sits under, and the head of department.",
+              "how": "The Departments tab, then New department. Code, name, the plant it sits at, the department it sits under, the head of department and its default cost centre.",
               "note": "Departments nest, so a shop-floor section can sit under Production without being a plant of its own."
             },
             {
-              "action": "Retire a branch, plant or department",
+              "action": "Retire a branch, plant, department or cost centre",
               "how": "The three-dot menu at the end of the row, then Retire. Type a reason and confirm.",
               "note": "The reason is required, and it is kept. A record that vanished for no stated reason is exactly what makes an audit trail useless six months later."
             }
@@ -698,10 +703,64 @@
             "A branch cannot be retired while people are still assigned to it, or while it still has plants or warehouses. Reassign those first.",
             "A plant cannot be retired while people are assigned to it, or while it still has departments or warehouses.",
             "A department cannot be retired while it still has sub-departments, or while people are assigned to it.",
-            "Retiring never deletes history: the record stops being offered on new documents, and everything that already refers to it keeps its history and stays readable."
+            "A department's default cost centre is offered only to people who may see cost centres, and while a department names it that cost centre cannot be switched off. Someone who edits the department without that right leaves the default exactly as it was.",
+            "Retiring never deletes history: the record stops being offered on new documents, and everything that already refers to it keeps its history and stays readable.",
+            "The bank details are optional. Anyone who may read the company record sees them in full - they are printed on every invoice the company sends - and only someone who may change the company record can change them."
           ],
-          "permission": "Each tab has its own read right - company, branches, plants, departments - and its own change right. A tab the account may not read is not shown at all; a tab it may read but not change is fully readable with no New, Edit or Retire.",
-          "notes": "One thing to flag to whoever administers the system: opening this screen at all requires the right to view the company record. An account given only the branch or plant right will not reach the screen, so grant the company view right alongside. The Financial years tab is on this same screen but is described separately, because it is a different job with an irreversible step in it."
+          "permission": "Each tab has its own read right - company, branches, plants, departments, cost centres - and its own change right. A tab the account may not read is not shown at all; a tab it may read but not change is fully readable with no New, Edit or Retire. The bank card follows the company rights.",
+          "notes": "One thing to flag to whoever administers the system: opening this screen at all requires the right to view the company record or the right to view cost centres. An account given only the branch or plant right will not reach the screen, so grant the company view right alongside. The accounts team, who keep the cost centres, reach the screen on that right alone. The Financial years and Cost centres tabs are on this same screen but are described separately, because each is a different job."
+        },
+        {
+          "route": "/admin/organisation?tab=cost-centres",
+          "title": "Cost centres",
+          "purpose": "Where money is charged. A cost centre is a shop, a process or a sales zone - die-casting, machining, plating, the West zone - and centres nest, so Machining can sit under Production. Production orders, job-work orders, stock adjustments and vendor invoices can each name one, a department names one as its default and a work centre names the one its machine hours are charged to. When a vendor invoice is approved its purchase cost reaches the ledger split by cost centre, and the Cost centre statement reads the ledger back per centre and account.",
+          "whoUses": "The accountant, who keeps the list. Buyers, planners and the production team, who name a cost centre on the documents they raise.",
+          "keyActions": [
+            {
+              "action": "Add a cost centre",
+              "how": "Organisation, the Cost centres tab, then New cost centre. Code, name, type (Production, Service, Administration or Selling), the parent it sits under, and optionally the plant, the head and a description.",
+              "note": "The type only groups the centre on reports - nothing else depends on it. The code is printed on the statement and cannot be changed later."
+            },
+            {
+              "action": "Charge a document to a cost centre",
+              "how": "The Cost centre box on the production order, job-work order, stock adjustment and vendor invoice forms. A vendor invoice line has its own box, which defaults to the invoice's.",
+              "note": "Optional: left empty, the document is unallocated. The box is shown only to people who may see cost centres; for everyone else a new document is raised unallocated and an amended one keeps the centre it had."
+            },
+            {
+              "action": "Stop offering a cost centre",
+              "how": "The three-dot menu at the end of the row, Edit, clear Active and save.",
+              "note": "Refused while an active sub-centre, a department default or a work centre still uses it. Documents that already name it keep it."
+            },
+            {
+              "action": "Retire a cost centre for good",
+              "how": "The three-dot menu, then Retire. Type a reason and confirm.",
+              "note": "Refused while anything at all names it - a sub-centre, a department, a work centre or any document - so stopping it being offered is usually the right step instead. Posted ledger history keeps its centre either way."
+            },
+            {
+              "action": "See the spending by cost centre",
+              "how": "Reports, then Cost centre statement, with a date range.",
+              "note": "Each row is one cost centre and one ledger account over the period."
+            }
+          ],
+          "flow": [
+            "Open Organisation from Administration in the left-hand menu, then the Cost centres tab.",
+            "Add the top-level centres first - Production, the service functions, Administration, Sales.",
+            "Add the centres beneath them - one per process under Production, one per zone under Sales.",
+            "Give each department its default cost centre on the Departments tab, and each work centre its own on the Routing screen.",
+            "From then on, name the cost centre on each production order, job-work order, adjustment and vendor bill as it is raised."
+          ],
+          "rules": [
+            "A cost centre is optional everywhere. A document without one is unallocated; nothing is ever charged to a default centre behind anybody's back.",
+            "The statement reads the posted ledger, and today the postings that carry a cost centre are approved vendor invoices - and their reversals. A production order, job-work order or stock adjustment records its cost centre on the document, where it is kept for reporting, but posts nothing to the ledger by itself.",
+            "Only income and expense postings carry a cost centre. Tax, payables, stock and bank balances never do.",
+            "A vendor invoice line is charged to its own cost centre, else to the invoice's, else nowhere - decided when the invoice is approved, so changing the invoice's centre moves every line that names none of its own.",
+            "A new posting needs an active cost centre. An invoice whose centre was switched off after it was entered is refused at approval until it is changed.",
+            "Centres nest at most six levels deep, the same limit as departments, and an active centre cannot sit under an inactive one.",
+            "Reversing a posted journal keeps its cost centre - even one retired since - so a reversal cancels out on the statement as well as on the account.",
+            "The code cannot be changed once created, and a retired centre's code cannot be reused."
+          ],
+          "permission": "Reading the list needs the right to view cost centres, which on its own also opens the Organisation screen. Adding, changing, switching off and retiring need the right to manage them. The accounts role holds both; the purchase, production and planning roles can view, so they can name a centre on their documents.",
+          "notes": "The demonstration data carries an example tree for an architectural-hardware works: Production with die-casting, machining, buffing and polishing, plating/PVD (job-worked), assembly and packing beneath it; Quality Control, Stores, Maintenance and Administration; and Sales with a North and a West zone. Every one of them says it is an example - the breakdown is to be confirmed with Atcraft, not taken as a rule."
         },
         {
           "route": "/admin/organisation?tab=financial-years",
@@ -1190,7 +1249,8 @@
             },
             {
               "action": "Maintain work centres",
-              "how": "Work centres tab \u2014 code, name, capacity per hour, rate per hour, setup charge, hours per day and status. New work centre to add one, pencil to edit."
+              "how": "Work centres tab \u2014 code, name, capacity per hour, rate per hour, setup charge, hours per day and status, and the cost centre the centre's hours are charged to. New work centre to add one, pencil to edit.",
+              "note": "The cost centre box and column are shown only to someone who may see cost centres; anyone else who edits the work centre leaves its cost centre as it was. While a work centre names a cost centre, that cost centre cannot be switched off."
             },
             {
               "action": "Maintain machines",
@@ -2324,7 +2384,7 @@
             {
               "action": "Raise a new production order",
               "how": "New order, at the top right of the screen",
-              "note": "The order is saved as a draft. Nothing is reserved and no material moves. The screen then takes you straight to the new order's own page."
+              "note": "The order is saved as a draft. Nothing is reserved and no material moves. The screen then takes you straight to the new order's own page. Someone who may see cost centres can name the cost centre the job is charged to - material issued to it is charged there too - and the order's page shows it; for anyone else the order is raised unallocated."
             },
             {
               "action": "Open a job",
@@ -2621,7 +2681,7 @@
             {
               "action": "Raise a job work order",
               "how": "New job work order, top right, on the Orders tab",
-              "note": "It is saved as a draft. Nothing is reserved and no material moves."
+              "note": "It is saved as a draft. Nothing is reserved and no material moves. Someone who may see cost centres can name the cost centre the processing charges belong to - typically the job-worked process, such as plating; an amendment by anyone else keeps it as it was."
             },
             {
               "action": "Amend a draft",
@@ -3309,7 +3369,7 @@
             {
               "action": "Raise an adjustment",
               "how": "Adjustments tab, \"New adjustment\": choose the warehouse and date, classify the cause (damage, theft, count variance, expiry, correction, opening), describe in at least ten characters what actually happened, then key one line per item with a signed quantity \u2014 minus writes stock off, plus writes it on.",
-              "note": "The reason code says what kind of loss it was; the description says what happened. Both are kept on the ledger forever."
+              "note": "The reason code says what kind of loss it was; the description says what happened. Both are kept on the ledger forever. Someone who may see cost centres can also name the cost centre that bears the write-off; for anyone else the adjustment is raised unallocated."
             },
             {
               "action": "Move an adjustment along",
@@ -3587,6 +3647,11 @@
               "action": "Copy the lines from the purchase order or goods receipt instead of retyping them",
               "how": "Vendor invoices \u2192 Record invoice \u2192 name the goods receipt or purchase order \u2192 \"Copy lines\"",
               "note": "From a goods receipt the quantity copied is what was accepted at the gate; from an order alone it is what was ordered. The unit price copied is the agreed price after discount, which is exactly what the match compares against."
+            },
+            {
+              "action": "Charge a bill, or one of its lines, to a cost centre",
+              "how": "Vendor invoices → Record invoice (or Amend) → the Cost centre box under the bill's details, and the cost centre box on any line that belongs somewhere else",
+              "note": "Shown only to someone who may see cost centres. A line left on \"As the invoice\" follows the bill's cost centre, decided when the bill is approved; approval then posts the purchase cost to the ledger split by cost centre, which is what the Cost centre statement reads. A bill whose cost centre was switched off after it was keyed is refused at approval until it is changed."
             },
             {
               "action": "Send a bill for approval",
@@ -3917,6 +3982,11 @@
               "action": "Run Vendor dispatch history",
               "how": "Reports \u2192 Vendor dispatch history",
               "note": "Everything you sent out to vendors in the period, listed by vendor."
+            },
+            {
+              "action": "Run Cost centre statement",
+              "how": "Reports \u2192 Cost centre statement",
+              "note": "What each cost centre was charged and earned over the period, account by account, read from the posted ledger - today, approved vendor invoices. Net is cost minus income, so a negative net is income. The search box finds a centre by code or name."
             }
           ],
           "flow": [
@@ -3928,7 +3998,7 @@
             "Read the table, page through it, or use the search box to find a row.",
             "If the result was too large to show, wait for the download strip and press Download to open the spreadsheet."
           ],
-          "notes": "Nineteen reports exist and every one of them is listed above \u2014 this list is worth its own page in the deck. Two things to be accurate about. First, the six filters are the same on every report, so the screen offers a Customer filter on a machine-utilisation report where it does nothing; that is a known simplification, not a fault. Second, the filter set has no category picker even though the system would accept one, and the Status filter expects the exact status word rather than offering a dropdown. The management dashboard tiles (open orders, stock value, QC pending and so on) are a separate screen, not part of this one. The packing list PDF is produced from the Packing screen, not from here.",
+          "notes": "Twenty reports exist and every one of them is listed above \u2014 this list is worth its own page in the deck. Two things to be accurate about. First, the six filters are the same on every report, so the screen offers a Customer filter on a machine-utilisation report where it does nothing; that is a known simplification, not a fault. Second, the filter set has no category picker even though the system would accept one, and the Status filter expects the exact status word rather than offering a dropdown. The management dashboard tiles (open orders, stock value, QC pending and so on) are a separate screen, not part of this one. The packing list PDF is produced from the Packing screen, not from here.",
           "permission": "Needs the right to view reports \u2014 that one right opens every report in the catalogue. Producing a large report as a downloadable file additionally needs the right to export reports; without it, a report that returns too many rows is refused with a message asking you to narrow the dates or filters instead.",
           "rules": [
             "A report period may cover at most 366 days. An unbounded query over years of history is how a reporting screen takes the whole system down, so the limit is enforced rather than suggested.",

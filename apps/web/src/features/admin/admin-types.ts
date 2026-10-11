@@ -19,6 +19,7 @@ import {
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { queryKeys, staleTimes } from '@/lib/query-client'
+import type { SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------- identity -----
 
@@ -126,32 +127,15 @@ export function isRoleImmutable(role: Pick<RoleRow, 'code'>): boolean {
 
 // --------------------------------------------------------- organisation -----
 
-export interface CompanyRecord {
-  id: string
-  code: string
-  name: string
-  legal_name: string | null
-  gstin: string | null
-  pan: string | null
-  cin: string | null
-  email: string | null
-  phone: string | null
-  website: string | null
-  address_line1: string | null
-  address_line2: string | null
-  city: string | null
-  state: string | null
-  state_code: string | null
-  postal_code: string | null
-  country: string
-  currency: string
-  financial_year_start_month: number
-  timezone: string
-  is_active: boolean
-  logo_document_id: string | null
-  created_at: string
-  updated_at: string
-}
+/**
+ * `GET /organization/company`, bank details and invoice terms included.
+ *
+ * Derived from the contract rather than written out: the hand-written copy this
+ * replaced had no way to learn that the bank fields arrived, and a mirror that
+ * cannot learn is how a screen ends up drawing labelled rows with nothing in
+ * them.
+ */
+export type CompanyRecord = SchemaOf<'CompanyRead'>
 
 export interface BranchRow {
   id: string
@@ -188,19 +172,8 @@ export interface PlantRow {
   deleted_at?: string | null
 }
 
-export interface DepartmentRow {
-  id: string
-  code: string
-  name: string
-  plant_id: string | null
-  parent_id: string | null
-  head_user_id: string | null
-  is_active: boolean
-  created_at: string
-  updated_at: string
-  /** Omitted rather than nulled on a live row. */
-  deleted_at?: string | null
-}
+/** One row of `GET /organization/departments`, its default cost centre included. */
+export type DepartmentRow = SchemaOf<'DepartmentRead'>
 
 export interface FinancialYearRow {
   id: string
@@ -222,7 +195,9 @@ export interface FinancialYearRow {
  * The shared registry in `lib/query-client.ts` has no organisation entry, so
  * these live with the feature that owns them. They share the `organization`
  * root used by the option hooks elsewhere in the app, so one invalidation of
- * `orgKeys.all` clears every branch and plant picker too.
+ * `orgKeys.all` clears every branch, plant and cost-centre picker too - a
+ * centre added on the Cost centres tab is offered on the next production
+ * order without waiting out the reference-data stale window.
  */
 export const orgKeys = {
   all: ['organization'] as const,
@@ -230,6 +205,7 @@ export const orgKeys = {
   branches: (params: unknown) => ['organization', 'branches', params] as const,
   plants: (params: unknown) => ['organization', 'plants', params] as const,
   departments: (params: unknown) => ['organization', 'departments', params] as const,
+  costCentres: (params: unknown) => ['organization', 'cost-centres', params] as const,
   financialYears: (params: unknown) => ['organization', 'financial-years', params] as const,
 } as const
 

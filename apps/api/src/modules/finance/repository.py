@@ -106,6 +106,7 @@ from src.modules.finance.models import (
     INPUT_TAX_STATUSES,
     OPEN_INVOICE_STATUSES,
     LedgerAccount,
+    LedgerAccountType,
     LedgerEntry,
     PartyType,
     Payment,
@@ -227,6 +228,16 @@ class GoodsReceiptLineFacts:
     unit_cost: Decimal
 
 
+@dataclass(frozen=True, slots=True)
+class PostingAccount:
+    """What a journal needs to know about each account it posts to."""
+
+    id: uuid.UUID
+    code: str
+    #: Decides whether a leg on this account may carry a cost centre.
+    account_type: LedgerAccountType
+
+
 # -----------------------------------------------------------------------------
 # Chart of accounts
 # -----------------------------------------------------------------------------
@@ -289,21 +300,30 @@ class LedgerAccountRepository(BaseRepository[LedgerAccount]):
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
-    async def existing_ids(self, account_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
-        """Which of these accounts exist, are active, and what they are called.
+    async def posting_accounts(
+        self, account_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, PostingAccount]:
+        """Which of these accounts exist and are active, with their code and class.
 
         A journal validates every leg's account in one statement rather than one
-        per leg - a twelve-leg posting would otherwise be twelve round trips.
+        per leg - a twelve-leg posting would otherwise be twelve round trips. The
+        class comes back with it because the cost-centre rule needs it, and a
+        second lookup for the same rows would be the round trip this avoids.
         """
         if not account_ids:
             return {}
-        stmt = select(LedgerAccount.id, LedgerAccount.code).where(
+        stmt = select(LedgerAccount.id, LedgerAccount.code, LedgerAccount.account_type).where(
             LedgerAccount.company_id == self.tenant.company_id,
             LedgerAccount.deleted_at.is_(None),
             LedgerAccount.is_active.is_(True),
             LedgerAccount.id.in_(set(account_ids)),
         )
-        return {row.id: row.code for row in (await self.session.execute(stmt)).all()}
+        return {
+            row.id: PostingAccount(
+                id=row.id, code=row.code, account_type=LedgerAccountType(row.account_type)
+            )
+            for row in (await self.session.execute(stmt)).all()
+        }
 
     async def ancestor_ids(self, account_id: uuid.UUID) -> set[uuid.UUID]:
         """Every account above this one in the chart, in one recursive query.
@@ -1865,6 +1885,7 @@ __all__ = [
     "PartyFacts",
     "PaymentAllocationRepository",
     "PaymentRepository",
+    "PostingAccount",
     "PurchaseOrderFacts",
     "PurchaseOrderLineFacts",
     "PurchaseOrderLineLookupRepository",

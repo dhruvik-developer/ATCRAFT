@@ -1229,6 +1229,14 @@ class StockAdjustment(TenantEntity):
         GUID, ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=False
     )
     adjustment_date: Mapped[date] = mapped_column(Date, nullable=False)
+    #: Who bears a write-off. On the document rather than on the ledger rows it
+    #: posts: ``inventory_transactions`` stays free of a cost centre so the
+    #: ``post_movement`` contract is untouched, and a movement reaches its
+    #: centre through ``reference_type`` / ``reference_id``. NULL is
+    #: "unallocated".
+    cost_centre_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("cost_centres.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
 
     reason_code: Mapped[AdjustmentReason] = mapped_column(
         StatusEnum(AdjustmentReason), nullable=False

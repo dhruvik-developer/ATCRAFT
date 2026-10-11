@@ -62,6 +62,7 @@ from src.modules.routing.schemas import (
     RoutingCreate,
     RoutingOperationIn,
     WorkCenterCreate,
+    WorkCenterUpdate,
 )
 from src.modules.routing.service import MachineService, RoutingService, WorkCenterService
 
@@ -116,6 +117,9 @@ class _Centre:
     cost_per_hour: str
     #: Charged once per changeover, on top of the setup minutes.
     setup_cost: str
+    #: The cost pool the cell's hours are charged to - a suffix of
+    #: :data:`src.core.demo_data.masters.COST_CENTRES`.
+    cost_centre: tuple[str, ...]
 
 
 WORK_CENTRES: tuple[_Centre, ...] = (
@@ -126,6 +130,7 @@ WORK_CENTRES: tuple[_Centre, ...] = (
         capacity_per_hour="55",
         cost_per_hour="850.0000",
         setup_cost="350.0000",
+        cost_centre=("PROD", "MACH"),
     ),
     _Centre(
         suffix="WC-POLISH",
@@ -134,6 +139,7 @@ WORK_CENTRES: tuple[_Centre, ...] = (
         capacity_per_hour="120",
         cost_per_hour="420.0000",
         setup_cost="150.0000",
+        cost_centre=("PROD", "BUFF"),
     ),
     _Centre(
         suffix="WC-ASSEMBLY",
@@ -142,6 +148,7 @@ WORK_CENTRES: tuple[_Centre, ...] = (
         capacity_per_hour="90",
         cost_per_hour="380.0000",
         setup_cost="100.0000",
+        cost_centre=("PROD", "ASSY"),
     ),
     _Centre(
         suffix="WC-PACKING",
@@ -150,6 +157,7 @@ WORK_CENTRES: tuple[_Centre, ...] = (
         capacity_per_hour="200",
         cost_per_hour="260.0000",
         setup_cost="60.0000",
+        cost_centre=("PROD", "PACK"),
     ),
 )
 
@@ -582,16 +590,27 @@ async def _resolve_parts(ctx: DemoContext) -> _Parts:
 
 
 async def _seed_work_centres(ctx: DemoContext) -> dict[str, uuid.UUID]:
-    """Create the four cells. Returns ``suffix -> id`` for whatever now exists."""
+    """Create the four cells. Returns ``suffix -> id`` for whatever now exists.
+
+    A cell this tool made before cost centres existed is given its cost pool on
+    the next run, through the service so the change is audited; one a person has
+    since pointed elsewhere is left alone.
+    """
     service = WorkCenterService(ctx.session, ctx.tenant)
     resolved: dict[str, uuid.UUID] = {}
 
     for centre in WORK_CENTRES:
         code = ctx.code(centre.suffix)
+        # The masters stage registers cost centres under ``DM-CC-<suffix>``.
+        cost_centre_id = ctx.maybe_id("cost_centre", ctx.code("CC", *centre.cost_centre))
         existing = await find_by_code(ctx.session, WorkCenter, ctx.company_id, code)
         if existing is not None:
             resolved[centre.suffix] = ctx.remember("work_centre", code, existing.id)
             ctx.note(STAGE, existing=1)
+            if existing.cost_centre_id is None and cost_centre_id is not None:
+                await service.update_work_center(
+                    existing.id, WorkCenterUpdate(cost_centre_id=cost_centre_id)
+                )
             continue
 
         created = await service.create_work_center(
@@ -605,6 +624,7 @@ async def _seed_work_centres(ctx: DemoContext) -> dict[str, uuid.UUID]:
                 # One eight-hour shift throughout, so the lead time a routing
                 # reports divides into readable whole days.
                 working_hours_per_day=Decimal("8"),
+                cost_centre_id=cost_centre_id,
             )
         )
         resolved[centre.suffix] = ctx.remember("work_centre", code, created.id)

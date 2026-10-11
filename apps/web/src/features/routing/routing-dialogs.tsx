@@ -50,6 +50,8 @@ import {
   Skeleton,
   Textarea,
 } from '@/components/ui/primitives'
+import { CostCentreSelect } from '@/features/admin/cost-centre-select'
+import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
@@ -63,6 +65,7 @@ import {
   toDecimal,
 } from '@/lib/format'
 import { success } from '@/lib/messages'
+import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -1096,6 +1099,8 @@ const workCenterSchema = z.object({
       (value) => toDecimal(value).lessThanOrEqualTo(24),
       'A working day cannot exceed 24 hours',
     ),
+  /** Empty means the centre's hours are pooled into no cost centre. */
+  cost_centre_id: z.string(),
 })
 
 type WorkCenterValues = z.infer<typeof workCenterSchema>
@@ -1109,6 +1114,7 @@ function workCenterDefaults(workCenter?: WorkCenter | null): WorkCenterValues {
     cost_per_hour: workCenter?.cost_per_hour ?? '0',
     setup_cost: workCenter?.setup_cost ?? '0',
     working_hours_per_day: workCenter?.working_hours_per_day ?? '8',
+    cost_centre_id: workCenter?.cost_centre_id ?? '',
   }
 }
 
@@ -1121,11 +1127,16 @@ export function WorkCenterFormDialog({
   onOpenChange: (open: boolean) => void
   workCenter?: WorkCenter | null
 }) {
+  const { can } = useAuth()
   const queryClient = useQueryClient()
   const isEdit = Boolean(workCenter)
+  // `GET /organization/cost-centres` is its own right. Without it the picker is
+  // not offered and the centre's current pool travels back unchanged.
+  const canPickCostCentre = can(P.COST_CENTRE_VIEW)
 
   const {
     register,
+    control,
     handleSubmit,
     reset,
     setError,
@@ -1151,6 +1162,7 @@ export function WorkCenterFormDialog({
         cost_per_hour: values.cost_per_hour.trim(),
         setup_cost: values.setup_cost.trim(),
         working_hours_per_day: values.working_hours_per_day.trim(),
+        cost_centre_id: values.cost_centre_id || null,
       }
       return workCenter
         ? api.patch<WorkCenter>(`/routing/work-centers/${workCenter.id}`, payload)
@@ -1267,6 +1279,23 @@ export function WorkCenterFormDialog({
                 <FieldError message={errors.working_hours_per_day?.message} />
               </div>
             </div>
+
+            {canPickCostCentre && (
+              <Controller
+                control={control}
+                name="cost_centre_id"
+                render={({ field }) => (
+                  <CostCentreSelect
+                    id="wc-cost-centre"
+                    value={field.value || null}
+                    onChange={(next) => field.onChange(next ?? '')}
+                    enabled={open}
+                    hint="The cost pool this centre's machine hours are charged to."
+                    error={errors.cost_centre_id?.message}
+                  />
+                )}
+              />
+            )}
 
             <div>
               <Label htmlFor="wc-description">Description</Label>

@@ -473,6 +473,8 @@ class StockAdjustmentCreate(BaseModel):
     reason: Reason
     adjustment_date: date | None = None
     notes: str | None = None
+    #: Who bears the write-off or the write-up. Optional; NULL is "unallocated".
+    cost_centre_id: uuid.UUID | None = None
     lines: Annotated[list[StockAdjustmentLineCreate], Field(min_length=1)]
 
     @model_validator(mode="after")
@@ -511,6 +513,7 @@ class StockAdjustmentRead(BaseModel):
     warehouse_id: uuid.UUID
     warehouse_code: str | None = None
     adjustment_date: date
+    cost_centre_id: uuid.UUID | None
     reason_code: AdjustmentReason
     reason: str
     notes: str | None

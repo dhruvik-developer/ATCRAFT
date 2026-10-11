@@ -197,6 +197,7 @@ from src.modules.job_work.schemas import (
     ReconciliationReport,
     VendorChargeRow,
 )
+from src.modules.organization.service import require_cost_centre
 
 log = get_logger(__name__)
 
@@ -236,6 +237,7 @@ ORDER_AUDITED_FIELDS = [
     "expected_return_date",
     "warehouse_id",
     "return_warehouse_id",
+    "cost_centre_id",
     "rate_per_unit",
     "rate_basis",
     "estimated_charges",
@@ -255,7 +257,7 @@ ORDER_AUDITED_FIELDS = [
 #: Draft fields an explicit ``null`` in a PATCH body legitimately clears. Every
 #: other column on the update payload backs a NOT NULL column, where a null is a
 #: client mistake rather than an instruction - see :func:`update_order`.
-CLEARABLE_UPDATE_FIELDS = frozenset({"process_description", "notes"})
+CLEARABLE_UPDATE_FIELDS = frozenset({"process_description", "notes", "cost_centre_id"})
 
 
 # -----------------------------------------------------------------------------
@@ -1232,6 +1234,11 @@ async def create_order(
                 "The expected return date is in the past.",
                 details={"expected_return_date": payload.expected_return_date.isoformat()},
             )
+        # ASSUMPTION: explicit or absent. A job-work order does not inherit the
+        # cost centre of the production order it may cover - ``source_id`` is a
+        # bare polymorphic id this module never reads. docs/assumptions.md §B1-2.
+        if payload.cost_centre_id is not None:
+            await require_cost_centre(session, tenant, payload.cost_centre_id)
 
         code = await next_document_number(session, tenant.company_id, DocTypes.JOB_WORK_ORDER)
         order = repo.add(
@@ -1243,6 +1250,7 @@ async def create_order(
                 expected_return_date=payload.expected_return_date,
                 warehouse_id=payload.warehouse_id,
                 return_warehouse_id=return_warehouse_id,
+                cost_centre_id=payload.cost_centre_id,
                 rate_per_unit=Decimal(payload.rate_per_unit),
                 rate_basis=payload.rate_basis,
                 estimated_charges=estimate_charges(
@@ -1315,6 +1323,11 @@ async def update_order(
         return_warehouse_id = fields.get("return_warehouse_id", order.return_warehouse_id)
         if {"warehouse_id", "return_warehouse_id"} & fields.keys():
             await _assert_warehouses(session, tenant, warehouse_id, return_warehouse_id)
+        # Only a new cost centre is validated: a draft re-saving the one it
+        # already carries keeps its reference even after deactivation.
+        new_centre = fields.get("cost_centre_id")
+        if new_centre is not None and new_centre != order.cost_centre_id:
+            await require_cost_centre(session, tenant, new_centre)
 
         for field, value in fields.items():
             # An explicit null clears a column that is nullable and is ignored

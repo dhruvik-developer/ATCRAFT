@@ -66,6 +66,8 @@ class ProductionOrderCreate(BaseModel):
     planned_quantity: PositiveQuantity
     warehouse_id: uuid.UUID
     plant_id: uuid.UUID | None = None
+    #: The cost centre the job is charged to. Optional; NULL is "unallocated".
+    cost_centre_id: uuid.UUID | None = None
     #: Left unset to take the item's default approved structure at release.
     bom_id: uuid.UUID | None = None
     routing_id: uuid.UUID | None = None
@@ -91,6 +93,8 @@ class ProductionOrderUpdate(BaseModel):
     planned_quantity: PositiveQuantity | None = None
     warehouse_id: uuid.UUID | None = None
     plant_id: uuid.UUID | None = None
+    #: An explicit null clears it.
+    cost_centre_id: uuid.UUID | None = None
     bom_id: uuid.UUID | None = None
     routing_id: uuid.UUID | None = None
     planned_start_date: date | None = None
@@ -129,6 +133,7 @@ class ProductionOrderSummary(BaseModel):
     item_id: uuid.UUID
     warehouse_id: uuid.UUID
     plant_id: uuid.UUID | None
+    cost_centre_id: uuid.UUID | None
     planned_quantity: Decimal
     produced_quantity: Decimal
     rejected_quantity: Decimal

@@ -24,6 +24,13 @@ kind                    codes
 ``vendor``              ``DM-VEN-BRASS``, ``DM-VEN-SS``, ``DM-VEN-FAST`` ...
 ``transporter``         ``DM-TRN-VRL``, ``DM-TRN-GATI``, ``DM-TRN-CITY``
 ``user``                ``DM-USER-BUYER``, ``DM-USER-SALES``
+``cost_centre``         ``DM-CC-PROD`` and its process children
+                        (``DM-CC-PROD-DIE`` ... ``DM-CC-PROD-PACK``),
+                        ``DM-CC-QC``, ``DM-CC-STORES``, ``DM-CC-MAINT``,
+                        ``DM-CC-ADMIN``, ``DM-CC-SALES`` (+ ``-NORTH``,
+                        ``-WEST``)
+``department``          ``DM-DEPT-PROD``, ``DM-DEPT-QC`` ... each with its
+                        default cost centre
 ======================  =====================================================
 
 Units, warehouses and the baseline categories keep the codes
@@ -70,7 +77,9 @@ from src.modules.customers.models import (
 )
 from src.modules.customers.schemas import AddressCreate, ContactCreate, CustomerCreate
 from src.modules.customers.service import CustomerService
-from src.modules.organization.models import Branch
+from src.modules.organization.models import Branch, CostCentre, CostCentreType, Department
+from src.modules.organization.schemas import CostCentreCreate, DepartmentCreate, DepartmentUpdate
+from src.modules.organization.service import CostCentreService, DepartmentService
 from src.modules.products.models import (
     Brand,
     Item,
@@ -1074,6 +1083,80 @@ STAFF: tuple[tuple[tuple[str, ...], str, str, str, str], ...] = (
 BUYER = ("USER", "BUYER")
 
 
+# --- cost centres and departments --------------------------------------------
+# A typical breakdown for an architectural-hardware works, offered as an
+# EXAMPLE to be confirmed with Atcraft - not a rule anything reads. Production is
+# a parent with one child per process the hardware passes through, plating is
+# its own centre because it is job-worked (the vendor stands in for the
+# process), and sales is split by zone so the selling cost of each region can be
+# read on its own. Every centre's description says it is demonstration data.
+
+#: Said on every demonstration centre, so nobody mistakes the example for a rule.
+COST_CENTRE_NOTE = "Demonstration example - confirm the breakdown with Atcraft before use."
+
+
+@dataclass(frozen=True)
+class _CostCentreSpec:
+    #: Code parts after ``DM-CC``: ``("PROD", "DIE")`` is ``DM-CC-PROD-DIE``.
+    suffix: tuple[str, ...]
+    name: str
+    cost_centre_type: CostCentreType
+    #: The parent's suffix. Parents are listed before their children.
+    parent: tuple[str, ...] | None = None
+
+
+COST_CENTRES: tuple[_CostCentreSpec, ...] = (
+    _CostCentreSpec(("PROD",), "Production", CostCentreType.PRODUCTION),
+    _CostCentreSpec(("PROD", "DIE"), "Die-casting", CostCentreType.PRODUCTION, ("PROD",)),
+    _CostCentreSpec(
+        ("PROD", "MACH"), "Machining (CNC / VMC)", CostCentreType.PRODUCTION, ("PROD",)
+    ),
+    _CostCentreSpec(
+        ("PROD", "BUFF"), "Buffing and Polishing", CostCentreType.PRODUCTION, ("PROD",)
+    ),
+    _CostCentreSpec(
+        ("PROD", "PLAT"), "Plating / PVD (job-worked)", CostCentreType.PRODUCTION, ("PROD",)
+    ),
+    _CostCentreSpec(("PROD", "ASSY"), "Assembly", CostCentreType.PRODUCTION, ("PROD",)),
+    _CostCentreSpec(("PROD", "PACK"), "Packing", CostCentreType.PRODUCTION, ("PROD",)),
+    _CostCentreSpec(("QC",), "Quality Control", CostCentreType.SERVICE),
+    _CostCentreSpec(("STORES",), "Stores", CostCentreType.SERVICE),
+    _CostCentreSpec(("MAINT",), "Maintenance and Utilities", CostCentreType.SERVICE),
+    _CostCentreSpec(("ADMIN",), "Administration", CostCentreType.ADMINISTRATION),
+    _CostCentreSpec(("SALES",), "Sales and Marketing", CostCentreType.SELLING),
+    _CostCentreSpec(("SALES", "NORTH"), "Sales - North Zone", CostCentreType.SELLING, ("SALES",)),
+    _CostCentreSpec(("SALES", "WEST"), "Sales - West Zone", CostCentreType.SELLING, ("SALES",)),
+)
+
+
+@dataclass(frozen=True)
+class _DepartmentSpec:
+    suffix: tuple[str, ...]
+    name: str
+    #: The cost centre the department's documents default to.
+    cost_centre: tuple[str, ...]
+
+
+DEPARTMENTS: tuple[_DepartmentSpec, ...] = (
+    _DepartmentSpec(("DEPT", "PROD"), "Production", ("PROD",)),
+    _DepartmentSpec(("DEPT", "QC"), "Quality Assurance", ("QC",)),
+    _DepartmentSpec(("DEPT", "STORES"), "Stores", ("STORES",)),
+    _DepartmentSpec(("DEPT", "MAINT"), "Maintenance", ("MAINT",)),
+    _DepartmentSpec(("DEPT", "ADMIN"), "Administration and Accounts", ("ADMIN",)),
+    _DepartmentSpec(("DEPT", "SALES"), "Sales", ("SALES",)),
+)
+
+
+def cost_centre_code(ctx: DemoContext, *suffix: str) -> str:
+    """``DM-CC-PROD-DIE``: the code a cost centre is created and registered under.
+
+    The later stages that tag work centres, orders and bills spell the same
+    ``ctx.code("CC", ...)`` themselves rather than importing this stage, which
+    the loader keeps independently importable.
+    """
+    return ctx.code("CC", *suffix)
+
+
 # --- helpers ------------------------------------------------------------------
 
 
@@ -1266,6 +1349,69 @@ def _attribute_id(ctx: DemoContext, kind: ItemAttributeType, value: str | None) 
     return (
         ctx.maybe_id("item_attribute", f"{kind.value}:{_attribute_code(value)}") if value else None
     )
+
+
+async def _seed_cost_centres(ctx: DemoContext) -> None:
+    """Create the example cost-centre tree through the organisation service.
+
+    Keyed on code, which identifies the row - never on anything derived from
+    the clock. Parents come before children in :data:`COST_CENTRES`, so a
+    child's parent is always registered by the time the child is created.
+    """
+    service = CostCentreService(ctx.session, ctx.tenant)
+
+    for spec in COST_CENTRES:
+        code = cost_centre_code(ctx, *spec.suffix)
+        existing = await find_by_code(ctx.session, CostCentre, ctx.company_id, code)
+        if existing is not None:
+            _seen(ctx, "cost_centre", code, existing.id, created=False)
+            continue
+
+        parent_id = (
+            ctx.maybe_id("cost_centre", cost_centre_code(ctx, *spec.parent))
+            if spec.parent
+            else None
+        )
+        created = await service.create_cost_centre(
+            CostCentreCreate(
+                code=code,
+                name=spec.name,
+                cost_centre_type=spec.cost_centre_type,
+                parent_id=parent_id,
+                description=COST_CENTRE_NOTE,
+            )
+        )
+        _seen(ctx, "cost_centre", code, created.id, created=True)
+
+
+async def _seed_departments(ctx: DemoContext) -> None:
+    """Departments, each naming the cost centre its documents default to.
+
+    A department this tool made earlier but that has no default yet - one from
+    before cost centres existed - is given its default, through the service so
+    the change is audited. One a person has since pointed elsewhere is left
+    alone: the tool fills in what is missing and never overrides a decision.
+    """
+    service = DepartmentService(ctx.session, ctx.tenant)
+
+    for spec in DEPARTMENTS:
+        code = ctx.code(*spec.suffix)
+        centre_id = ctx.maybe_id("cost_centre", cost_centre_code(ctx, *spec.cost_centre))
+        existing = await find_by_code(ctx.session, Department, ctx.company_id, code)
+        if existing is not None:
+            department_id = existing.id
+            missing_default = existing.cost_centre_id is None and existing.deleted_at is None
+            _seen(ctx, "department", code, department_id, created=False)
+            if missing_default and centre_id is not None:
+                await service.update_department(
+                    department_id, DepartmentUpdate(cost_centre_id=centre_id)
+                )
+            continue
+
+        created = await service.create_department(
+            DepartmentCreate(code=code, name=spec.name, cost_centre_id=centre_id)
+        )
+        _seen(ctx, "department", code, created.id, created=True)
 
 
 async def _seed_warehouses(ctx: DemoContext) -> None:
@@ -1912,6 +2058,10 @@ async def seed(ctx: DemoContext) -> None:
     anchor = today()
 
     await _seed_units(ctx)
+    # Organisation first: departments name a default cost centre, and later
+    # stages tag work centres, orders and bills with these codes.
+    await _seed_cost_centres(ctx)
+    await _seed_departments(ctx)
     await _seed_item_attributes(ctx)
     await _seed_manufacturers(ctx)
     await _seed_brands(ctx)

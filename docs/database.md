@@ -50,7 +50,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 
 | Module | Tables |
 |---|---|
-| `organization` | `companies`, `branches`, `plants`, `departments`, `financial_years` |
+| `organization` | `companies`, `branches`, `plants`, `departments`, `cost_centres`, `financial_years` |
 | `users` | `users`, `roles`, `user_roles`, `user_sessions`, `password_reset_tokens`, `login_attempts` |
 | `audit` | `audit_logs`, `approval_requests` |
 | `warehouses` | `warehouses`, `storage_locations` |
@@ -75,6 +75,67 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `documents` | `documents` |
 | `notifications` | `notifications`, `notification_preferences` |
 | `common` | `document_sequences` |
+
+### Cost centres
+
+`cost_centres` (organisation, `TenantMasterEntity`) is where money is charged
+for management reporting: `code` (unique per company, retired codes included),
+`name`, `parent_id` (a tree, at most `MAX_COST_CENTRE_DEPTH` = 6 levels counted
+to the deepest descendant), `cost_centre_type`, `plant_id`, `head_user_id`,
+`description`, `is_active`. It sits at the bottom of the dependency order, so
+every module may reference it.
+
+`cost_centre_type` (`PRODUCTION | SERVICE | ADMINISTRATION | SELLING`) is a
+**reporting classification only**, the same rule as `items.item_group`: no rule
+may branch on it.
+
+Carriers - each a nullable `cost_centre_id`, FK `RESTRICT`, indexed:
+
+| Table | What the centre means there |
+|---|---|
+| `departments` | the default for documents the department's people raise (used from WP B3) |
+| `work_centers` | the cost pool the centre's machine and labour hours belong to |
+| `production_orders` | the job's centre; **material issues carry none** - they reach it through `production_order_id` |
+| `job_work_orders` | the centre the processing charges belong to |
+| `stock_adjustments` | who bears the write-off; its `inventory_transactions` reach it through `reference_type` / `reference_id` (the movement table and `post_movement` carry no centre) |
+| `vendor_invoices` | the bill's centre, and the default for its lines |
+| `vendor_invoice_lines` | the line's own centre; NULL means "the invoice's" |
+| `ledger_entries` | **the analytic source of truth**, set only by `post_journal` |
+
+Rules (`docs/assumptions.md` §B1-1 to §B1-6):
+
+* **NULL is "unallocated"**, never "the default centre". Nothing is backfilled.
+* **Precedence is explicit value -> source document -> NULL.** A vendor invoice
+  line resolves line -> header -> NULL at approval. Production and job-work
+  orders take only an explicit value: their sources (MRP, a sales order, a
+  production order behind a job-work order) carry none this release.
+* **Every write validates through the organisation seam** -
+  `require_cost_centre` / `require_cost_centres` (tenant, live, active) - because
+  a foreign key to a UUID is satisfied by another company's row. A foreign id is
+  404. Only a *new* assignment is checked: a document re-saving the centre it
+  already holds keeps its reference after deactivation.
+* **Only INCOME and EXPENSE ledger legs may carry a centre** (`post_journal`
+  refuses any other, naming the leg). A new leg needs the centre active; all of
+  a journal's centres are validated in one statement.
+* **A reversal copies each leg's centre** and is exempt from the "active" check,
+  so retiring a centre never makes its journals irreversible.
+* **Approving a vendor invoice splits `PURCHASE_EXPENSE` per effective line
+  centre** - one leg per centre, in line order, summing exactly to the subtotal
+  (`split_by_cost_centre`). An invoice naming no centre posts the single
+  unallocated leg it always did.
+* **Two retirement levels.** Deactivating is refused while an active child, a
+  department default or a work centre still hands the centre out. Archiving is
+  refused while anything at all names it - a live child, a department, a work
+  centre or any document row whatever its status - except `ledger_entries`:
+  posted history keeps its centre. The archive guard probes tables above
+  organisation with raw SQL (`COST_CENTRE_REFERENCE_PROBES`); a module adding a
+  carrier adds it there, and `test_every_table_that_carries_a_cost_centre_is_probed`
+  fails until it does.
+
+The cost-centre statement (`/reports/cost-centre-expense`, report key
+`COST_CENTRE_EXPENSE`) sums posted legs per (centre, account) over a period from
+`ledger_entries`, through the partial index
+`(company_id, cost_centre_id, entry_date) WHERE cost_centre_id IS NOT NULL`.
 
 ---
 
@@ -484,11 +545,14 @@ Dispatch          NOT_DISPATCHED -> READY_FOR_DISPATCH -> DISPATCHED -> IN_TRANS
                         -> DELIVERED -> QC_PENDING -> RECEIVED -> QC_COMPLETED -> GRN_COMPLETED
 ```
 
-Master records with no status column project `is_active` / `deleted_at` onto a
-lifecycle of their own, through the same kind of machine:
+Master records with no status column - branch, plant, department, cost centre,
+financial year, brand and manufacturer - project `is_active` / `deleted_at` onto
+one derived lifecycle of their own (`organization.service.master_lifecycle`),
+through the same kind of machine. There is no status column to disagree with
+them:
 
 ```
-Branch, plant, department, financial year, brand, manufacturer
+Branch, plant, department, cost centre, financial year, brand, manufacturer
                   ACTIVE <-> INACTIVE;  ACTIVE | INACTIVE -> ARCHIVED (terminal; retire = soft delete)
 ```
 
@@ -507,6 +571,8 @@ Every transition writes an audit row via `record_status_change`.
 | QC rejection | `change_stock_state` to `DAMAGED`/`SCRAP`, raise return/rework |
 | Dispatch | `allocation.consume`, then `post_movements` (`DISPATCH`) |
 | Sales order confirmed | `allocation.reserve` per line against available stock |
+| Vendor invoice approved | `finance.post_journal`: one `PURCHASE_EXPENSE` debit per effective line cost centre (line -> header -> none), input tax, payable |
+| Any write naming a cost centre | `organization.service.require_cost_centre` / `require_cost_centres` (tenant, live, active) before the row is written |
 | Any status change | `audit.record_status_change` in the same transaction |
 
 ---

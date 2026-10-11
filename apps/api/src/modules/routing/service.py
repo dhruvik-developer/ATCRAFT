@@ -57,6 +57,7 @@ from src.core.state_machine import StateMachine, Transition
 from src.core.types import to_money, to_quantity
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
+from src.modules.organization.service import require_cost_centre
 from src.modules.routing.models import (
     DEFAULT_WORKING_HOURS_PER_DAY,
     Machine,
@@ -121,6 +122,7 @@ _WORK_CENTER_AUDITED_FIELDS = [
     "description",
     "plant_id",
     "department_id",
+    "cost_centre_id",
     "capacity_per_hour",
     "cost_per_hour",
     "setup_cost",
@@ -599,6 +601,8 @@ class WorkCenterService:
         async with transaction(self.session):
             await self._assert_code_free(payload.code)
             await self._assert_organisation_refs(payload.plant_id, payload.department_id)
+            if payload.cost_centre_id is not None:
+                await require_cost_centre(self.session, self.tenant, payload.cost_centre_id)
 
             work_center = WorkCenter(**payload.model_dump())
             self.repo.add(work_center)
@@ -634,6 +638,11 @@ class WorkCenterService:
             await self._assert_organisation_refs(
                 changes.get("plant_id"), changes.get("department_id")
             )
+            # Only a new assignment is validated; re-sending the centre already
+            # held is not one (and the deactivation guard keeps it active).
+            new_centre = changes.get("cost_centre_id")
+            if new_centre is not None and new_centre != work_center.cost_centre_id:
+                await require_cost_centre(self.session, self.tenant, new_centre)
 
             # A rate change moves the cost of every approved routing that uses
             # this centre, which is the intended standard-costing behaviour but

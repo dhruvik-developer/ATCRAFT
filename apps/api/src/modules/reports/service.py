@@ -67,6 +67,7 @@ from src.modules.reports.repository import (
     paginate_rows,
 )
 from src.modules.reports.schemas import (
+    CostCentreExpenseRow,
     CourierTrackingRow,
     DashboardRead,
     DeadStockRow,
@@ -738,6 +739,24 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         requires_period=True,
         cacheable=True,
         derive=_derive_dispatch,
+    ),
+    # ASSUMPTION: read from posted ledger legs, net = debit - credit on every row
+    # whatever the account class, retired centres included, no roll-up of
+    # children into parents. docs/assumptions.md §B1-6.
+    ReportKey.COST_CENTRE_EXPENSE: ReportDefinition(
+        key=ReportKey.COST_CENTRE_EXPENSE,
+        title="Cost centre statement",
+        description=(
+            "Posted income and expense per cost centre and account over the period. Net is "
+            "debit minus credit: positive is cost, negative is income."
+        ),
+        row_model=CostCentreExpenseRow,
+        build=lambda repo, ctx: repo.cost_centre_expense(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        # Not cached: a period still open takes postings - an approved bill, a
+        # reversal - and a statement that lags the ledger it is read from would
+        # disagree with the account statement for the same day.
+        cacheable=False,
     ),
 }
 
