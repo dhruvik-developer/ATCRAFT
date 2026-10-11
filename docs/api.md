@@ -25,7 +25,7 @@ CI and the pre-push hook run the same three checks `contract-check` runs.
 
 ### Using the Postman collection
 
-Import `postman_collection.json` (Postman v2.1 format, 494 requests in 27
+Import `postman_collection.json` (Postman v2.1 format, 500 requests in 27
 folders, one per tag). Then:
 
 1. Set the `base_url` variable if it is not `http://127.0.0.1:8000/api/v1`.
@@ -389,7 +389,8 @@ download. No endpoint holds a connection open for a calculation.
 /routing              routings · operations · work centres · machines
 /sales                sales orders · confirm · allocation status · demand summary
 /mrp                  runs · suggestions · convert · shortage report
-/procurement          requisitions · RFQs · quotations · POs · GRNs · returns · tracking
+/procurement          requisitions · close · convert to POs by category · RFQs · quotations
+                      POs · vendor assignees · GRNs · returns · tracking
 /production           orders · components · work orders · issues · entries · cost
 /assembly             assembly orders · components · complete
 /job-work             orders · challans · issue · receive · pending-at-vendor

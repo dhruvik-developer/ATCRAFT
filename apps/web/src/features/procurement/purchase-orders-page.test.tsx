@@ -98,6 +98,7 @@ function order(overrides: Partial<PurchaseOrderRow> = {}): PurchaseOrderRow {
     acknowledged_at: null,
     sent_at: null,
     assigned_vendor_user_id: null,
+    item_category_id: null,
     version: 1,
     created_at: '2026-09-01T09:00:00Z',
     ...overrides,
