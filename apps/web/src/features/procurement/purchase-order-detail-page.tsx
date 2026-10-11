@@ -16,6 +16,12 @@
  * module publishes. The one exception is the item, which has no bulk lookup -
  * one request per line would be the N+1 master rules forbid - so a line is
  * labelled by the description carried on the order and links out to the item.
+ * The item category and the vendor user the order is assigned to are named by
+ * the API itself, because the buyer reading this page usually holds neither
+ * `category.view` nor `user.view`.
+ *
+ * Send is its own dialog rather than a confirmation: it names the person at the
+ * vendor who owns the order, from the users the send endpoint will accept.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -95,6 +101,7 @@ import {
   type PurchaseOrderRow,
   type PurchaseOrderTracking,
 } from './procurement-types'
+import { PurchaseOrderSendDialog } from './purchase-order-send-dialog'
 import { serverFieldMessage } from './server-field-errors'
 
 // -------------------------------------------------------------- stepper -----
@@ -387,8 +394,11 @@ function TotalsCard({ order }: { order: PurchaseOrderDetail }) {
 
 // ----------------------------------------------------------------- page -----
 
-/** The commands this screen can send, and how each one is presented. */
-type Command = 'submit' | 'approve' | 'reject' | 'send' | 'acknowledge' | 'cancel'
+/**
+ * The commands this screen confirms with a note, and how each one is presented.
+ * Send is not among them: it chooses the vendor's assignee, in its own dialog.
+ */
+type Command = 'submit' | 'approve' | 'reject' | 'acknowledge' | 'cancel'
 
 const COMMAND_COPY: Record<
   Command,
@@ -427,15 +437,6 @@ const COMMAND_COPY: Record<
     reasonRequired: true,
     success: success.rejected('Purchase order'),
   },
-  send: {
-    title: 'Send to the vendor?',
-    description:
-      'The order is issued to the vendor and the delivery clock starts against the expected date.',
-    confirmLabel: 'Send order',
-    destructive: false,
-    reasonRequired: false,
-    success: success.sent('Purchase order'),
-  },
   acknowledge: {
     title: 'Record the vendor acknowledgement?',
     description: 'Confirms the vendor has accepted the order as issued.',
@@ -461,6 +462,7 @@ export default function PurchaseOrderDetailPage() {
   const queryClient = useQueryClient()
 
   const [command, setCommand] = useState<Command | null>(null)
+  const [sending, setSending] = useState(false)
   const [reason, setReason] = useState('')
   const [reasonTouched, setReasonTouched] = useState(false)
   // What the API said about the reason, if it refused it. Cleared the moment
@@ -790,7 +792,7 @@ export default function PurchaseOrderDetailPage() {
               </Button>
             )}
             {isPoSendable(order.status) && can(P.PURCHASE_ORDER_SEND) && (
-              <Button onClick={() => setCommand('send')}>
+              <Button onClick={() => setSending(true)}>
                 <Send />
                 Send to vendor
               </Button>
@@ -858,6 +860,36 @@ export default function PurchaseOrderDetailPage() {
                     ),
                   },
                   { label: 'Vendor reference', value: order.vendor_reference ?? '-' },
+                  {
+                    label: 'Item category',
+                    // Derived from the lines by the API: one category when every
+                    // line shares it, none when they span several.
+                    value: order.item_category_name ? (
+                      <span>
+                        {order.item_category_name}
+                        {order.item_category_code && (
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            {order.item_category_code}
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Several or none</span>
+                    ),
+                  },
+                  {
+                    label: 'Vendor assignee',
+                    value: order.assigned_vendor_user_id ? (
+                      (order.assigned_vendor_user_name ?? 'Assigned')
+                    ) : (
+                      <span className="text-muted-foreground">
+                        {order.sent_at ||
+                        (PO_TERMINAL_BAD as readonly string[]).includes(order.status)
+                          ? 'Nobody'
+                          : 'Chosen when the order is sent'}
+                      </span>
+                    ),
+                  },
                   { label: 'PO date', value: formatDate(order.po_date) },
                   {
                     label: 'Expected delivery',
@@ -943,6 +975,16 @@ export default function PurchaseOrderDetailPage() {
 
         <TrackingPanel orderId={order.id} />
       </div>
+
+      {sending && (
+        <PurchaseOrderSendDialog
+          order={order}
+          open
+          onOpenChange={(open) => {
+            if (!open) setSending(false)
+          }}
+        />
+      )}
 
       <ConfirmDialog
         open={Boolean(command)}

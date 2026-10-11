@@ -332,6 +332,121 @@ describe('what the dialogs do when the record behind them cannot be loaded', () 
   })
 })
 
+describe('a vendor manager’s item categories', () => {
+  // The category-wise purchase order split hands each order to the vendor user
+  // who manages its category. The scope is limited to what the vendor is
+  // qualified for, because the API refuses anything else.
+  const VENDOR_ID = '01a00000-0000-7000-8000-00000000vfst'
+  const LOCKS = '01a00000-0000-7000-8000-00000000clck'
+  const HANDLES = '01a00000-0000-7000-8000-00000000chnd'
+
+  const vendorUser = {
+    ...userRow({
+      id: 'u-ven',
+      full_name: 'Sandeep Patil',
+      email: 'lockbody.manager@precisionfasteners.example',
+      vendor_id: VENDOR_ID,
+    }),
+    phone: null,
+    mfa_enabled: false,
+    failed_login_attempts: 0,
+    password_changed_at: null,
+    updated_at: '2026-10-01T09:15:00Z',
+    allowed_category_ids: [LOCKS],
+    roles: [STORES_ROLE],
+  }
+
+  function scopeRoutes(): RouteTable {
+    return {
+      ...baseRoutes([userRow({ id: 'u-ven', full_name: 'Sandeep Patil', vendor_id: VENDOR_ID })]),
+      'GET /organization/departments': page([]),
+      'GET /users/u-ven': ok(vendorUser),
+      'PATCH /users/u-ven': ok(vendorUser),
+      // The vendor picker names the bound vendor by id.
+      [`GET /vendors/${VENDOR_ID}`]: ok({
+        id: VENDOR_ID,
+        code: 'VEN-FAST',
+        name: 'Precision Fasteners',
+        is_approved: true,
+        lead_time_days: 0,
+      }),
+      [`GET /vendors/${VENDOR_ID}/categories`]: page([
+        {
+          id: 'vc-1',
+          vendor_id: VENDOR_ID,
+          item_category_id: LOCKS,
+          item_category_code: 'LOCK-MORT',
+          item_category_name: 'Mortise Locks',
+          is_preferred: false,
+          notes: null,
+          created_at: '2026-09-01T00:00:00Z',
+        },
+        {
+          id: 'vc-2',
+          vendor_id: VENDOR_ID,
+          item_category_id: HANDLES,
+          item_category_code: 'HANDLES',
+          item_category_name: 'Handles',
+          is_preferred: true,
+          notes: null,
+          created_at: '2026-09-01T00:00:00Z',
+        },
+      ]),
+    }
+  }
+
+  async function openEdit(user: ReturnType<typeof renderUsers>['user']): Promise<HTMLElement> {
+    await openActions(user, 'Sandeep Patil')
+    await user.click(screen.getByRole('menuitem', { name: /edit details/i }))
+    return await screen.findByRole('group', { name: 'Item categories' })
+  }
+
+  it('offers exactly the vendor’s categories, with the saved scope ticked', async () => {
+    const { user } = renderUsers([...READ_ONLY, P.USER_UPDATE, P.VENDOR_VIEW], scopeRoutes())
+
+    const scope = await openEdit(user)
+    expect(await within(scope).findByRole('checkbox', { name: /Mortise Locks/ })).toBeChecked()
+    expect(within(scope).getByRole('checkbox', { name: /Handles/ })).not.toBeChecked()
+    expect(within(scope).getAllByRole('checkbox')).toHaveLength(2)
+  })
+
+  it('sends the new scope when a category is ticked', async () => {
+    const { user, fetch } = renderUsers([...READ_ONLY, P.USER_UPDATE, P.VENDOR_VIEW], scopeRoutes())
+
+    const scope = await openEdit(user)
+    await user.click(await within(scope).findByRole('checkbox', { name: /Handles/ }))
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => fetch.requestFor('PATCH', '/users/u-ven'))
+    expect(fetch.requestFor('PATCH', '/users/u-ven')).toMatchObject({
+      vendor_id: VENDOR_ID,
+      allowed_category_ids: [LOCKS, HANDLES],
+    })
+  })
+
+  it('leaves the scope out of an edit that did not touch it', async () => {
+    // The API re-checks a scope against the vendor's qualifications whenever it
+    // arrives; one revoked since must not block a change to a phone number.
+    const { user, fetch } = renderUsers([...READ_ONLY, P.USER_UPDATE, P.VENDOR_VIEW], scopeRoutes())
+
+    const scope = await openEdit(user)
+    await within(scope).findByRole('checkbox', { name: /Mortise Locks/ })
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => fetch.requestFor('PATCH', '/users/u-ven'))
+    expect(fetch.requestFor('PATCH', '/users/u-ven')).not.toHaveProperty('allowed_category_ids')
+  })
+
+  it('says why the scope cannot be changed without the vendor view right', async () => {
+    const { user, fetch } = renderUsers([...READ_ONLY, P.USER_UPDATE], scopeRoutes())
+
+    const scope = await openEdit(user)
+    expect(within(scope).getByText(/needs the vendor view right/i)).toBeVisible()
+    expect(within(scope).queryByRole('checkbox')).toBeNull()
+    expect(fetch.calls.some((call) => call.path.endsWith('/categories'))).toBe(false)
+  })
+})
+
 describe('what the password reset actually sends', () => {
   /**
    * The edit right is granted only so the actions column exists.

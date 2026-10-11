@@ -44,8 +44,8 @@ import { messages } from '@/lib/messages'
 
 import {
   DUPLICATE_ACTION_COPY,
+  DUPLICATE_CONFIDENCE_COPY,
   type DuplicateActionCode,
-  type DuplicateConfidence,
   type DuplicateConflict,
 } from './procurement-types'
 
@@ -61,14 +61,23 @@ import {
 const MIN_ACKNOWLEDGEMENT_REASON = 3
 const MAX_ACKNOWLEDGEMENT_REASON = 1000
 
-/** How loudly to object, by how sure the matcher is. */
-const CONFIDENCE_COPY: Record<
-  DuplicateConfidence,
-  { label: string; variant: 'destructive' | 'warning' | 'muted' }
-> = {
-  EXACT: { label: 'Same demand', variant: 'destructive' },
-  STRONG: { label: 'Strong match', variant: 'warning' },
-  POSSIBLE: { label: 'Possible match', variant: 'muted' },
+/**
+ * What the dialog says about the document that was refused.
+ *
+ * One order raised by hand by default. A requisition conversion raises several
+ * orders in one transaction and is refused as a whole, so it says so in the
+ * plural rather than telling the buyer "the order" was not created.
+ */
+export interface DuplicateDialogCopy {
+  notCreated: string
+  dismissLabel: string
+  confirmLabel: string
+}
+
+const SINGLE_ORDER_COPY: DuplicateDialogCopy = {
+  notCreated: 'The order was not created.',
+  dismissLabel: 'Cancel, do not raise this order',
+  confirmLabel: 'Raise it anyway',
 }
 
 export function PurchaseOrderDuplicateDialog({
@@ -78,6 +87,7 @@ export function PurchaseOrderDuplicateDialog({
   onAcknowledge,
   isResolving,
   canAcknowledge,
+  copy = SINGLE_ORDER_COPY,
 }: {
   conflict: DuplicateConflict
   open: boolean
@@ -87,6 +97,7 @@ export function PurchaseOrderDuplicateDialog({
   isResolving: boolean
   /** The API refuses an acknowledgement without purchase order approval. */
   canAcknowledge: boolean
+  copy?: DuplicateDialogCopy
 }) {
   const [reason, setReason] = useState('')
   const [reasonTouched, setReasonTouched] = useState(false)
@@ -107,7 +118,7 @@ export function PurchaseOrderDuplicateDialog({
         <DialogHeader>
           <DialogTitle>This requirement may already be on order</DialogTitle>
           <DialogDescription>
-            The order was not created. {conflict.candidate_count}{' '}
+            {copy.notCreated} {conflict.candidate_count}{' '}
             {conflict.candidate_count === 1 ? 'open order line' : 'open order lines'} already cover
             what you are raising.
           </DialogDescription>
@@ -124,7 +135,7 @@ export function PurchaseOrderDuplicateDialog({
             <h3 className="text-sm font-medium">Lines that already cover this</h3>
             <ul className="mt-2 divide-y rounded-lg border">
               {conflict.candidates.map((candidate) => {
-                const confidence = CONFIDENCE_COPY[candidate.confidence]
+                const confidence = DUPLICATE_CONFIDENCE_COPY[candidate.confidence]
                 return (
                   <li key={candidate.purchase_order_line_id} className="space-y-2 p-3">
                     <div className="flex flex-wrap items-center gap-2">
@@ -254,7 +265,7 @@ export function PurchaseOrderDuplicateDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isResolving}>
-            Cancel, do not raise this order
+            {copy.dismissLabel}
           </Button>
           {canAcknowledge && (
             <Button
@@ -267,7 +278,7 @@ export function PurchaseOrderDuplicateDialog({
                 onAcknowledge(reason.trim())
               }}
             >
-              Raise it anyway
+              {copy.confirmLabel}
             </Button>
           )}
         </DialogFooter>

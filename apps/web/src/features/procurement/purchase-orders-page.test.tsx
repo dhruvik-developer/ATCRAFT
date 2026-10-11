@@ -298,6 +298,76 @@ describe('the order book', () => {
   })
 })
 
+describe('the book by item category', () => {
+  const LOCKS = '01a00000-0000-7000-8000-00000000clck'
+  const lockOrder = order({
+    item_category_id: LOCKS,
+    item_category_code: 'LOCK-MORT',
+    item_category_name: 'Mortise Locks',
+  })
+
+  it('names each order’s category from the row, without the category master', async () => {
+    // Buyers hold no `category.view`; the API names the category on the row,
+    // so the column reads for them rather than as a column of dashes.
+    const { fetch } = renderScreen(<PurchaseOrdersPage />, {
+      permissions: [P.PURCHASE_ORDER_VIEW, P.VENDOR_VIEW],
+      routes: bookRoutes([lockOrder, order({ id: 'b', code: 'PO-MIXED', item_category_id: null })]),
+    })
+
+    expect(
+      await stable(() => screen.getByRole('button', { name: 'Show only Mortise Locks orders' })),
+    ).toBeVisible()
+    const mixed = screen.getByText('PO-MIXED').closest('tr')!
+    expect(within(mixed).queryByRole('button', { name: /^Show only/ })).not.toBeInTheDocument()
+    // No category master was asked for: the right to read it is not held.
+    expect(fetch.calls.some((call) => call.path === '/products/categories')).toBe(false)
+  })
+
+  it('narrows the book to a category clicked on a row, and lets it go again', async () => {
+    const asked: (string | null)[] = []
+    const { user, fetch } = renderScreen(<PurchaseOrdersPage />, {
+      permissions: [P.PURCHASE_ORDER_VIEW, P.VENDOR_VIEW],
+      routes: bookRoutes([], {
+        [`GET ${ORDERS_PATH}`]: ({ url }) => {
+          asked.push(url.searchParams.get('item_category_id'))
+          return page([lockOrder])
+        },
+      }),
+    })
+
+    await settled(fetch)
+    await user.click(screen.getByRole('button', { name: 'Show only Mortise Locks orders' }))
+
+    // The API takes the category and everything beneath it.
+    await waitFor(() => expect(asked.at(-1)).toBe(LOCKS))
+    expect(await stable(() => screen.getByText('Category: Mortise Locks'))).toBeVisible()
+
+    await user.click(screen.getByRole('button', { name: 'Remove the category filter' }))
+    await waitFor(() => expect(asked.at(-1)).toBeNull())
+  })
+
+  it('offers the category master as a filter to whoever may read it', async () => {
+    const { fetch } = renderScreen(<PurchaseOrdersPage />, {
+      permissions: [P.PURCHASE_ORDER_VIEW, P.VENDOR_VIEW, P.CATEGORY_VIEW],
+      routes: bookRoutes([lockOrder], {
+        'GET /products/categories': page([
+          {
+            id: LOCKS,
+            code: 'LOCK-MORT',
+            name: 'Mortise Locks',
+            path: `/${LOCKS}/`,
+            depth: 0,
+            is_active: true,
+          },
+        ]),
+      }),
+    })
+
+    await settled(fetch)
+    expect(screen.getByRole('combobox', { name: 'Filter by item category' })).toBeVisible()
+  })
+})
+
 describe('what the order form sends', () => {
   const formPermissions = [
     P.PURCHASE_ORDER_VIEW,
@@ -680,6 +750,13 @@ describe('the lifecycle on the order’s own screen', () => {
     expect(reasonBox).toHaveAttribute('maxlength', '255')
   })
 
+  it('does not offer Send without the send right', async () => {
+    renderDetail('APPROVED', [P.PURCHASE_ORDER_VIEW, P.PURCHASE_ORDER_UPDATE])
+
+    await stable(() => screen.getByRole('heading', { name: 'PO-0001' }))
+    expect(screen.queryByRole('button', { name: /send to vendor/i })).not.toBeInTheDocument()
+  })
+
   it('says the vendor is not available when tracking fails, rather than loading forever', async () => {
     // The vendor's name comes from the tracking request alone. Its failure is
     // reported by the panel; the header must not keep promising a name that
@@ -692,5 +769,131 @@ describe('the lifecycle on the order’s own screen', () => {
     await stable(() => screen.getByText('Could not load tracking'))
     expect(screen.getByRole('link', { name: 'Not available' })).toBeVisible()
     expect(screen.queryByText('Loading...')).not.toBeInTheDocument()
+  })
+})
+
+describe('sending an order names who owns it at the vendor', () => {
+  const SEND_PATH = `${ORDERS_PATH}/${PO_ID}/send`
+  const ASSIGNEES_PATH = `${ORDERS_PATH}/${PO_ID}/vendor-assignees`
+  const senderRights = [P.PURCHASE_ORDER_VIEW, P.PURCHASE_ORDER_SEND]
+
+  const MANAGER = {
+    id: '01a00000-0000-7000-8000-00000000mgr1',
+    full_name: 'Sandeep Patil',
+    email: 'lockbody.manager@precisionfasteners.example',
+    allowed_category_ids: ['01a00000-0000-7000-8000-00000000clck'],
+    allowed_category_codes: ['LOCK-MORT'],
+    is_suggested: true,
+  }
+  const OWNER = {
+    id: '01a00000-0000-7000-8000-00000000own1',
+    full_name: 'Precision Owner',
+    email: 'owner@precisionfasteners.example',
+    allowed_category_ids: [],
+    allowed_category_codes: [],
+    is_suggested: false,
+  }
+
+  /** Open the Send dialog on an approved order and wait for the picker. */
+  async function openSend(user: User, fetch: FetchRecorder): Promise<HTMLElement> {
+    await settled(fetch)
+    await user.click(screen.getByRole('button', { name: /send to vendor/i }))
+    const dialog = await stable(() => screen.getByRole('dialog'))
+    await stable(() => within(dialog).getByRole('combobox', { name: 'Vendor user responsible' }))
+    return dialog
+  }
+
+  it('preselects the manager the rule suggests, and sends them as the assignee', async () => {
+    const { user, fetch } = renderDetail('APPROVED', senderRights, {
+      [`GET ${ASSIGNEES_PATH}`]: ok([MANAGER, OWNER]),
+      [`POST ${SEND_PATH}`]: ok(order({ status: 'SENT' })),
+    })
+
+    const dialog = await openSend(user, fetch)
+    expect(
+      within(dialog).getByRole('combobox', { name: 'Vendor user responsible' }),
+    ).toHaveTextContent('Sandeep Patil (suggested)')
+    // Their scope is shown, so the buyer can see why they were chosen.
+    expect(within(dialog).getByText(/LOCK-MORT/)).toBeVisible()
+    await user.click(within(dialog).getByRole('button', { name: 'Send order' }))
+
+    await waitFor(() => fetch.requestFor('POST', SEND_PATH))
+    expect(fetch.requestFor('POST', SEND_PATH)).toEqual({
+      assigned_vendor_user_id: MANAGER.id,
+      reason: null,
+    })
+  })
+
+  it('sends the person the buyer picks instead, with the note', async () => {
+    const { user, fetch } = renderDetail('APPROVED', senderRights, {
+      [`GET ${ASSIGNEES_PATH}`]: ok([MANAGER, OWNER]),
+      [`POST ${SEND_PATH}`]: ok(order({ status: 'SENT' })),
+    })
+
+    const dialog = await openSend(user, fetch)
+    await user.click(within(dialog).getByRole('combobox', { name: 'Vendor user responsible' }))
+    await user.click(await stable(() => screen.getByRole('option', { name: 'Precision Owner' })))
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Note' }),
+      'Owner handles rush jobs',
+    )
+    await user.click(within(dialog).getByRole('button', { name: 'Send order' }))
+
+    await waitFor(() => fetch.requestFor('POST', SEND_PATH))
+    expect(fetch.requestFor('POST', SEND_PATH)).toEqual({
+      assigned_vendor_user_id: OWNER.id,
+      reason: 'Owner handles rush jobs',
+    })
+  })
+
+  it('leaves an ambiguous order unassigned unless somebody is chosen', async () => {
+    // Two managers cover the category and the rule will not guess between them;
+    // sending `null` is exactly "nobody", and the dialog says why.
+    const { user, fetch } = renderDetail('APPROVED', senderRights, {
+      [`GET ${ASSIGNEES_PATH}`]: ok([
+        { ...MANAGER, is_suggested: false },
+        { ...OWNER, allowed_category_codes: ['LOCK-MORT'], is_suggested: false },
+      ]),
+      [`POST ${SEND_PATH}`]: ok(order({ status: 'SENT' })),
+    })
+
+    const dialog = await openSend(user, fetch)
+    expect(
+      within(dialog).getByRole('combobox', { name: 'Vendor user responsible' }),
+    ).toHaveTextContent('Leave it unassigned')
+    expect(
+      within(dialog).getByText(/several people at the vendor cover this category/i),
+    ).toBeVisible()
+    await user.click(within(dialog).getByRole('button', { name: 'Send order' }))
+
+    await waitFor(() => fetch.requestFor('POST', SEND_PATH))
+    expect(fetch.requestFor('POST', SEND_PATH)).toEqual({
+      assigned_vendor_user_id: null,
+      reason: null,
+    })
+  })
+
+  it('names the order’s category and its vendor assignee', async () => {
+    renderDetail('SENT', [P.PURCHASE_ORDER_VIEW], {
+      [`GET ${ORDERS_PATH}`]: ok({
+        ...(detail('SENT').data as Record<string, unknown>),
+        item_category_id: '01a00000-0000-7000-8000-00000000clck',
+        item_category_code: 'LOCK-MORT',
+        item_category_name: 'Mortise Locks',
+        assigned_vendor_user_id: MANAGER.id,
+        assigned_vendor_user_name: 'Sandeep Patil',
+      }),
+    })
+
+    await stable(() => screen.getByText('Mortise Locks'))
+    expect(screen.getByText('LOCK-MORT')).toBeVisible()
+    expect(screen.getByText('Sandeep Patil')).toBeVisible()
+  })
+
+  it('says an unsent order’s assignee is chosen when it is sent', async () => {
+    renderDetail('APPROVED', [P.PURCHASE_ORDER_VIEW])
+
+    await stable(() => screen.getByText('Chosen when the order is sent'))
+    expect(screen.getByText('Several or none')).toBeVisible()
   })
 })

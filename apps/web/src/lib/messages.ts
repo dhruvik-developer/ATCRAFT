@@ -41,6 +41,7 @@ export const success = {
   posted: (noun: string) => `${noun} posted`,
   uploaded: (noun: string) => `${noun} uploaded`,
   sent: (noun: string) => `${noun} sent`,
+  raised: (noun: string) => `${noun} raised`,
   activated: (noun: string) => `${noun} activated`,
   deactivated: (noun: string) => `${noun} deactivated`,
   reset: (noun: string) => `${noun} reset`,
@@ -49,6 +50,24 @@ export const success = {
   /** A status change that has no better verb than the target state itself. */
   statusChanged: (noun: string, status: string) => `${noun} marked ${status.toLowerCase()}`,
 } as const
+
+/**
+ * The toast for one action that raised several documents at once - a
+ * requisition split into one purchase order per vendor and category.
+ *
+ * The title counts them ("3 purchase orders raised", or "Purchase order raised"
+ * for one) and the description names every code, because the buyer's next step
+ * is to open each of them and a toast that only counts sends them hunting.
+ */
+export function raisedDocuments(
+  codes: readonly string[],
+  noun: { one: string; many: string },
+): { title: string; description: string } {
+  return {
+    title: codes.length === 1 ? success.raised(noun.one) : `${codes.length} ${noun.many} raised`,
+    description: codes.join(', '),
+  }
+}
 
 // -------------------------------------------------------------- errors -----
 
@@ -141,4 +160,12 @@ export const prompts = {
   reasonRequired: `Give a reason of at least ${REASON_MIN_LENGTH} characters - it is kept in the audit trail.`,
 } as const
 
-export const messages = { success, errors, empty, prompts, errorTitle, errorDescription } as const
+export const messages = {
+  success,
+  errors,
+  empty,
+  prompts,
+  errorTitle,
+  errorDescription,
+  raisedDocuments,
+} as const

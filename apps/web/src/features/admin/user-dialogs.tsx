@@ -10,12 +10,18 @@
  *   sessions, so it is not a checkbox either - the page owns that dialog.
  * * A PATCH that omits a placement must not unassign it, so clearing one is an
  *   explicit `clear_*` flag rather than a null.
+ *
+ * A vendor-portal account may also be limited to some of the item categories
+ * its vendor supplies - the managers the category-wise purchase order split
+ * hands each order to. The API refuses a scope outside the vendor's own
+ * qualifications, so the choices are exactly those; an empty scope is every
+ * category the vendor supplies.
  */
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { KeyRound, ShieldCheck } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -45,6 +51,7 @@ import {
   Label,
   Skeleton,
 } from '@/components/ui/primitives'
+import { useAuth } from '@/features/auth/auth-context'
 import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_RULES,
@@ -52,10 +59,12 @@ import {
   unmetRules,
 } from '@/features/auth/password-policy'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
+import { useVendorCategoryOptions } from '@/features/vendors/vendor-types'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { success } from '@/lib/messages'
+import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { asId, asText } from '@/lib/utils'
@@ -95,6 +104,9 @@ function userSchema(isEdit: boolean) {
     plant_id: z.string(),
     department_id: z.string(),
     vendor_id: z.string().nullable(),
+    // Item categories a vendor account is limited to; empty is every one the
+    // vendor supplies. Meaningless, and never sent, without a vendor.
+    allowed_category_ids: z.array(z.string()),
     must_change_password: z.boolean(),
     role_ids: z.array(z.string()),
   })
@@ -113,6 +125,7 @@ function emptyUser(): UserFormValues {
     plant_id: SELECT_NONE,
     department_id: SELECT_NONE,
     vendor_id: null,
+    allowed_category_ids: [],
     must_change_password: true,
     role_ids: [],
   }
@@ -129,9 +142,17 @@ function userValues(user: UserDetail): UserFormValues {
     plant_id: user.plant_id ?? SELECT_NONE,
     department_id: user.department_id ?? SELECT_NONE,
     vendor_id: user.vendor_id,
+    allowed_category_ids: user.allowed_category_ids ?? [],
     must_change_password: user.must_change_password,
     role_ids: (user.roles ?? []).map((role) => role.id),
   }
+}
+
+/** The same set of ids, whatever the order. */
+function sameIds(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false
+  const set = new Set(left)
+  return right.every((id) => set.has(id))
 }
 
 /**
@@ -152,6 +173,7 @@ export function UserFormDialog({
   userId: string | null
 }) {
   const queryClient = useQueryClient()
+  const { can } = useAuth()
   const isEdit = Boolean(userId)
 
   const detail = useQuery({
@@ -210,6 +232,20 @@ export function UserFormDialog({
       // branching on it turned "Save changes" into a POST that created a second
       // account under an "Edit" heading.
       if (userId) {
+        const storedScope = user?.allowed_category_ids ?? []
+        // The scope is sent only when it, or the vendor behind it, changed:
+        // the API re-checks it against the vendor's qualifications whenever it
+        // arrives, and a qualification revoked since must not block an edit to
+        // somebody's telephone number. Detaching the account from its vendor
+        // empties it, because a scope is refused on an internal account.
+        const scope = values.vendor_id
+          ? values.vendor_id !== user?.vendor_id ||
+            !sameIds(values.allowed_category_ids, storedScope)
+            ? { allowed_category_ids: values.allowed_category_ids }
+            : {}
+          : storedScope.length > 0
+            ? { allowed_category_ids: [] }
+            : {}
         // "Absent" and "null" both arrive as None on the server, so an
         // unassignment is a flag rather than a null id.
         return api.patch<UserDetail>(`/users/${userId}`, {
@@ -222,6 +258,7 @@ export function UserFormDialog({
             ? { department_id: asId(values.department_id) }
             : { clear_department: true }),
           ...(values.vendor_id ? { vendor_id: values.vendor_id } : { clear_vendor: true }),
+          ...scope,
           ...(values.password ? { password: values.password } : {}),
           must_change_password: values.must_change_password,
         })
@@ -234,6 +271,7 @@ export function UserFormDialog({
         plant_id: asId(values.plant_id),
         department_id: asId(values.department_id),
         vendor_id: values.vendor_id,
+        allowed_category_ids: values.vendor_id ? values.allowed_category_ids : [],
         role_ids: values.role_ids,
         is_active: true,
         must_change_password: values.must_change_password,
@@ -461,6 +499,9 @@ export function UserFormDialog({
                             // a selection made before the binding changed is no
                             // longer legal and the API would refuse the whole save.
                             setValue('role_ids', [])
+                            // Categories are the old vendor's qualifications, and
+                            // the API refuses any the new vendor does not hold.
+                            setValue('allowed_category_ids', [])
                           }}
                           placeholder="Internal staff account"
                         />
@@ -472,6 +513,22 @@ export function UserFormDialog({
                     </p>
                   </div>
                 </div>
+
+                {vendorId && (
+                  <Controller
+                    control={control}
+                    name="allowed_category_ids"
+                    render={({ field }) => (
+                      <VendorCategoryScope
+                        vendorId={vendorId}
+                        // The same right the vendor picker above needs.
+                        readable={can(P.VENDOR_VIEW)}
+                        value={field.value}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                )}
 
                 {!isEdit && (
                   <fieldset className="rounded-lg border p-4">
@@ -558,6 +615,104 @@ export function UserFormDialog({
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// ------------------------------------------------ vendor category scope -----
+
+/**
+ * Which of its vendor's item categories a vendor-portal account is limited to.
+ *
+ * Offers exactly the vendor's qualifications (`vendor_categories`), because the
+ * API refuses anything else. A category covers the ones beneath it, so a
+ * manager scoped to Handles sees the lever-handle orders too - the same subtree
+ * rule the order assignment and the portal's visibility use. A scope saved
+ * before a qualification was revoked keeps the stale id; it is shown, ticked,
+ * so it can be unticked rather than silently resent and refused.
+ */
+function VendorCategoryScope({
+  vendorId,
+  readable,
+  value,
+  onChange,
+}: {
+  vendorId: string
+  readable: boolean
+  value: string[]
+  onChange: (ids: string[]) => void
+}) {
+  const categories = useVendorCategoryOptions(vendorId, readable)
+  const rows = useMemo(
+    () =>
+      [...(categories.data ?? [])].sort((a, b) =>
+        (a.item_category_code ?? '').localeCompare(b.item_category_code ?? ''),
+      ),
+    [categories.data],
+  )
+  const offered = new Set(rows.map((row) => row.item_category_id))
+  const stale = categories.data ? value.filter((id) => !offered.has(id)) : []
+
+  const toggle = (id: string, on: boolean) =>
+    onChange(on ? [...value, id] : value.filter((existing) => existing !== id))
+
+  return (
+    <fieldset className="rounded-lg border p-4">
+      <legend className="px-1.5 text-sm font-medium">Item categories</legend>
+      <p className="text-xs text-muted-foreground">
+        Tick none and the account works with every category this vendor supplies. A category also
+        covers the categories beneath it. Purchase orders are handed to the manager whose categories
+        they fall in.
+      </p>
+
+      {!readable ? (
+        <p className="mt-3 text-sm text-muted-foreground">
+          Reading a vendor&apos;s categories needs the vendor view right, so the scope cannot be
+          changed from this account.
+        </p>
+      ) : categories.isLoading ? (
+        <p className="mt-3 text-sm text-muted-foreground">
+          Loading the vendor&apos;s categories...
+        </p>
+      ) : categories.error ? (
+        <p className="mt-3 text-sm text-destructive">{categories.error.message}</p>
+      ) : rows.length === 0 && stale.length === 0 ? (
+        <p className="mt-3 text-sm text-muted-foreground">
+          This vendor is not qualified for any item category yet. Qualify it on the Vendors screen
+          first, or leave the account unrestricted.
+        </p>
+      ) : (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {rows.map((row) => (
+            <label
+              key={row.item_category_id}
+              className="flex cursor-pointer items-start gap-2.5 text-sm"
+            >
+              <Checkbox
+                checked={value.includes(row.item_category_id)}
+                onCheckedChange={(next) => toggle(row.item_category_id, next === true)}
+              />
+              <span className="min-w-0">
+                <span className="font-medium">
+                  {row.item_category_name ?? row.item_category_code ?? 'Category'}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  {row.item_category_code}
+                  {row.is_preferred ? ' - preferred vendor' : ''}
+                </span>
+              </span>
+            </label>
+          ))}
+          {stale.map((id) => (
+            <label key={id} className="flex cursor-pointer items-start gap-2.5 text-sm">
+              <Checkbox checked onCheckedChange={() => toggle(id, false)} />
+              <span className="min-w-0 text-warning">
+                A category this vendor is no longer qualified for - untick it to save a new scope
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+    </fieldset>
   )
 }
 

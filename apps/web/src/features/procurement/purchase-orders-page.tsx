@@ -17,11 +17,19 @@
  * The supplier's name is not on the row either: the summary carries `vendor_id`
  * alone, so it is resolved through the bounded `/vendors/options` projection
  * the API publishes for this purpose.
+ *
+ * The item category is, though. A requisition is split into one order per
+ * vendor and category, so the category is how a buyer tells those orders apart,
+ * and buyers do not hold `category.view` to name it themselves - the API labels
+ * each row. Filtering by category is the `item_category_id` parameter, which
+ * takes in the categories beneath the one chosen; it is offered as a select to
+ * whoever may read the category master, and to everybody else by clicking a
+ * category on a row.
  */
 
 import { type ColumnDef } from '@tanstack/react-table'
 import { Plus, TriangleAlert, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
@@ -36,6 +44,7 @@ import {
 } from '@/components/ui/overlays'
 import { Badge, Checkbox, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { useCategoryOptions } from '@/features/items/item-model'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useListQuery } from '@/hooks/use-list-query'
@@ -54,10 +63,11 @@ import {
   type PurchaseOrderRow,
 } from './procurement-types'
 
-/** Every filter this screen owns, cleared as one write rather than six. */
+/** Every filter this screen owns, cleared as one write rather than seven. */
 const FILTER_KEYS = [
   'status',
   'vendor_id',
+  'item_category_id',
   'expected_from',
   'expected_to',
   'open_only',
@@ -75,6 +85,7 @@ export default function PurchaseOrdersPage() {
 
   const status = searchParams.get('status') ?? ''
   const vendorId = searchParams.get('vendor_id') ?? ''
+  const categoryId = searchParams.get('item_category_id') ?? ''
   const expectedFrom = searchParams.get('expected_from') ?? ''
   const expectedTo = searchParams.get('expected_to') ?? ''
   const openOnly = searchParams.get('open_only') === 'true'
@@ -91,6 +102,7 @@ export default function PurchaseOrdersPage() {
     filters: {
       ...(status ? { status } : {}),
       ...(vendorId ? { vendor_id: vendorId } : {}),
+      ...(categoryId ? { item_category_id: categoryId } : {}),
       ...(expectedFrom ? { expected_from: expectedFrom } : {}),
       ...(expectedTo ? { expected_to: expectedTo } : {}),
       ...(openOnly ? { open_only: true } : {}),
@@ -103,10 +115,43 @@ export default function PurchaseOrdersPage() {
   const vendors = useVendorOptions(can(P.VENDOR_VIEW))
   const vendorById = useMemo(() => indexById(vendors.data), [vendors.data])
 
+  // The filter's choices. `/products/categories` enforces `category.view`,
+  // which buyers usually lack - the rows name their own category, and those
+  // buyers filter by clicking one.
+  const canReadCategories = can(P.CATEGORY_VIEW)
+  const categories = useCategoryOptions(canReadCategories)
+  const categoryById = useMemo(() => indexById(categories.data), [categories.data])
+  // What to call the active category filter: the category master when it is
+  // readable, otherwise any row on the page raised for exactly that category.
+  const categoryFilterName = categoryId
+    ? (categoryById.get(categoryId)?.name ??
+      list.data.find((row) => row.item_category_id === categoryId)?.item_category_name ??
+      'the chosen category')
+    : null
+
+  // A row's category narrows the book to it - and to the categories beneath it,
+  // which is how the API reads `item_category_id`. Written against the setter
+  // rather than `setParam`, whose identity changes every render and would
+  // rebuild every cell with it.
+  const filterByCategory = useCallback(
+    (id: string) =>
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current)
+          next.set('item_category_id', id)
+          next.delete('page')
+          return next
+        },
+        { replace: true },
+      ),
+    [setSearchParams],
+  )
+
   const { setParam } = list
   const filterCount =
     (status ? 1 : 0) +
     (vendorId ? 1 : 0) +
+    (categoryId ? 1 : 0) +
     (expectedFrom ? 1 : 0) +
     (expectedTo ? 1 : 0) +
     (openOnly ? 1 : 0) +
@@ -145,6 +190,38 @@ export default function PurchaseOrdersPage() {
               <span className="block truncate">{vendor.name}</span>
               <span className="block truncate text-xs text-muted-foreground">{vendor.code}</span>
             </div>
+          )
+        },
+      },
+      {
+        id: 'category',
+        header: 'Category',
+        // Not in the API's sortable fields: offering the sort would empty the
+        // table with a 422.
+        enableSorting: false,
+        cell: ({ row }) => {
+          const id = row.original.item_category_id
+          const name = id
+            ? (row.original.item_category_name ?? categoryById.get(id)?.name ?? null)
+            : null
+          if (!id || !name) {
+            // No category: the order's lines span several, or have none.
+            return <span className="text-muted-foreground">-</span>
+          }
+          return (
+            <button
+              type="button"
+              className="block max-w-[12rem] truncate text-left hover:underline"
+              title={`Show only ${name} orders`}
+              aria-label={`Show only ${name} orders`}
+              onClick={(event) => {
+                // The row itself opens the order.
+                event.stopPropagation()
+                filterByCategory(id)
+              }}
+            >
+              {name}
+            </button>
           )
         },
       },
@@ -226,7 +303,7 @@ export default function PurchaseOrdersPage() {
         ),
       },
     ],
-    [vendorById],
+    [categoryById, filterByCategory, vendorById],
   )
 
   const newOrderButton = can(P.PURCHASE_ORDER_CREATE) ? (
@@ -296,6 +373,41 @@ export default function PurchaseOrdersPage() {
                 onChange={(value) => setParam('vendor_id', value ?? undefined)}
                 placeholder="All vendors"
               />
+            )}
+
+            {canReadCategories ? (
+              <Select
+                value={categoryId || SELECT_ALL}
+                onValueChange={(value) =>
+                  setParam('item_category_id', value === SELECT_ALL ? undefined : value)
+                }
+              >
+                <SelectTrigger className="w-full sm:w-[210px]" aria-label="Filter by item category">
+                  <SelectValue placeholder="All categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SELECT_ALL}>All categories</SelectItem>
+                  {(categories.data ?? []).map((category) => (
+                    <SelectItem key={category.id} value={category.id}>
+                      {category.code} - {category.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              categoryFilterName && (
+                <Badge variant="secondary" className="gap-1.5 py-1">
+                  Category: {categoryFilterName}
+                  <button
+                    type="button"
+                    className="rounded-sm hover:text-foreground"
+                    aria-label="Remove the category filter"
+                    onClick={() => setParam('item_category_id', undefined)}
+                  >
+                    <X className="h-3 w-3" aria-hidden />
+                  </button>
+                </Badge>
+              )
             )}
 
             {/* The window is on the expected delivery date, which is what the

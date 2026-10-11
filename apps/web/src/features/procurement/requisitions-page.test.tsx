@@ -92,6 +92,7 @@ function requisition(overrides: Partial<RequisitionRow> = {}): RequisitionRow {
     approved_by_id: null,
     approved_at: null,
     created_at: '2026-09-01T09:00:00Z',
+    open_line_count: 0,
     ...overrides,
   }
 }
@@ -238,17 +239,39 @@ describe('the state machine decides which commands exist', () => {
     expect(within(menu).queryByRole('menuitem', { name: 'Reject' })).not.toBeInTheDocument()
   })
 
-  it('offers nothing at all on a converted requisition', async () => {
-    // CONVERTED has an RFQ or an order against it: it cannot be amended,
-    // decided, or cancelled without saying nothing about the commitment already
-    // made to a vendor. An empty menu would be worse than no menu.
+  it('offers only Close on a converted requisition with nothing left to order', async () => {
+    // CONVERTED has orders against it: it cannot be amended, decided or
+    // cancelled - cancelling would say nothing about the commitment already made
+    // to a vendor. The one way out is CLOSED, the approver's command; and with
+    // every line ordered there is nothing to convert.
+    const { user, fetch } = renderScreen(screenUnderTest, {
+      permissions: [
+        P.PURCHASE_REQUISITION_VIEW,
+        P.PURCHASE_REQUISITION_CREATE,
+        P.PURCHASE_REQUISITION_APPROVE,
+        P.PURCHASE_ORDER_CREATE,
+      ],
+      routes: queueRoutes([requisition({ status: 'CONVERTED', open_line_count: 0 })]),
+    })
+
+    const menu = await openActions(user, fetch, 'PR-0001')
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['Close requisition'])
+  })
+
+  it('offers nothing at all on a closed requisition', async () => {
+    // CLOSED is terminal. An empty menu would be worse than no menu.
     renderScreen(screenUnderTest, {
       permissions: [
         P.PURCHASE_REQUISITION_VIEW,
         P.PURCHASE_REQUISITION_CREATE,
         P.PURCHASE_REQUISITION_APPROVE,
+        P.PURCHASE_ORDER_CREATE,
       ],
-      routes: queueRoutes([requisition({ status: 'CONVERTED' })]),
+      routes: queueRoutes([requisition({ status: 'CLOSED', open_line_count: 2 })]),
     })
 
     await stable(() => screen.getByText('PR-0001'))
@@ -268,6 +291,166 @@ describe('the state machine decides which commands exist', () => {
     expect(within(menu).getByRole('menuitem', { name: 'Cancel requisition' })).toBeVisible()
     expect(within(menu).queryByRole('menuitem', { name: 'Edit draft' })).not.toBeInTheDocument()
     expect(within(menu).queryByRole('menuitem', { name: 'Delete draft' })).not.toBeInTheDocument()
+  })
+})
+
+describe('turning approved demand into purchase orders', () => {
+  const PREVIEW_PATH = `/procurement/purchase-requisitions/${REQUISITION_ID}/conversion-preview`
+  const CLOSE_PATH = `/procurement/purchase-requisitions/${REQUISITION_ID}/close`
+
+  const emptyProposal = ok({
+    requisitions: [],
+    groups: [],
+    unresolved_lines: [],
+    skipped_line_count: 0,
+    max_orders: 20,
+    requires_acknowledgement: false,
+    converted: false,
+  })
+
+  it('offers Raise purchase orders to whoever may create purchase orders', async () => {
+    // Both conversion endpoints enforce `purchase_order.create`: converting is
+    // raising orders, whoever raised the requisition.
+    const { user, fetch } = renderScreen(screenUnderTest, {
+      permissions: [P.PURCHASE_REQUISITION_VIEW, P.PURCHASE_ORDER_CREATE],
+      routes: queueRoutes([requisition({ status: 'APPROVED', open_line_count: 2 })]),
+    })
+
+    const menu = await openActions(user, fetch, 'PR-0001')
+    expect(within(menu).getByRole('menuitem', { name: 'Raise purchase orders' })).toBeVisible()
+    // Closing is the approver's command, and this principal is not one.
+    expect(
+      within(menu).queryByRole('menuitem', { name: 'Close requisition' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('withholds it from a requester and an approver who cannot raise orders', async () => {
+    const { user, fetch } = renderScreen(screenUnderTest, {
+      permissions: [
+        P.PURCHASE_REQUISITION_VIEW,
+        P.PURCHASE_REQUISITION_CREATE,
+        P.PURCHASE_REQUISITION_APPROVE,
+      ],
+      routes: queueRoutes([requisition({ status: 'APPROVED', open_line_count: 2 })]),
+    })
+
+    const menu = await openActions(user, fetch, 'PR-0001')
+    expect(within(menu).getByRole('menuitem', { name: 'Close requisition' })).toBeVisible()
+    expect(
+      within(menu).queryByRole('menuitem', { name: 'Raise purchase orders' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /raise pos from approved requisitions/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('still offers it on a converted requisition with a line left to order', async () => {
+    const { user, fetch } = renderScreen(screenUnderTest, {
+      permissions: [P.PURCHASE_REQUISITION_VIEW, P.PURCHASE_ORDER_CREATE],
+      routes: queueRoutes([requisition({ status: 'CONVERTED', open_line_count: 1 })]),
+    })
+
+    const menu = await openActions(user, fetch, 'PR-0001')
+    expect(within(menu).getByRole('menuitem', { name: 'Raise purchase orders' })).toBeVisible()
+    expect(screen.getByText('1 line')).toBeVisible()
+  })
+
+  it('never offers it before approval, however many lines there are', async () => {
+    renderScreen(screenUnderTest, {
+      permissions: [P.PURCHASE_REQUISITION_VIEW, P.PURCHASE_ORDER_CREATE],
+      routes: queueRoutes([requisition({ status: 'PENDING_APPROVAL', open_line_count: 4 })]),
+    })
+
+    await stable(() => screen.getByText('PR-0001'))
+    expect(screen.queryByRole('button', { name: /^Actions for/ })).not.toBeInTheDocument()
+  })
+
+  it('opens the proposal for the requisition it was chosen on', async () => {
+    const { user, fetch } = renderScreen(screenUnderTest, {
+      permissions: [P.PURCHASE_REQUISITION_VIEW, P.PURCHASE_ORDER_CREATE],
+      routes: queueRoutes([requisition({ status: 'APPROVED', open_line_count: 2 })], {
+        [`POST ${PREVIEW_PATH}`]: emptyProposal,
+      }),
+    })
+
+    const menu = await openActions(user, fetch, 'PR-0001')
+    await user.click(within(menu).getByRole('menuitem', { name: 'Raise purchase orders' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'Raise purchase orders from PR-0001' }),
+    ).toBeVisible()
+    await waitFor(() => fetch.requestFor('POST', PREVIEW_PATH))
+  })
+
+  it('offers the batch form from the header, and previews the ticked requisitions together', async () => {
+    const OTHER_ID = '01a00000-0000-7000-8000-0000000000r2'
+    const { user, fetch } = renderScreen(screenUnderTest, {
+      permissions: [P.PURCHASE_REQUISITION_VIEW, P.PURCHASE_ORDER_CREATE],
+      routes: queueRoutes([requisition({ status: 'APPROVED', open_line_count: 2 })], {
+        'GET /procurement/purchase-requisitions': ({ url }) =>
+          page(
+            url.searchParams.get('convertible_only') === 'true'
+              ? [
+                  requisition({ status: 'APPROVED', open_line_count: 2 }),
+                  requisition({
+                    id: OTHER_ID,
+                    code: 'PR-0002',
+                    status: 'APPROVED',
+                    open_line_count: 1,
+                  }),
+                ]
+              : [requisition({ status: 'APPROVED', open_line_count: 2 })],
+          ),
+        'POST /procurement/purchase-requisitions/conversion-preview': emptyProposal,
+      }),
+    })
+
+    await settled(fetch)
+    await user.click(screen.getByRole('button', { name: /raise pos from approved requisitions/i }))
+    await user.click(await stable(() => screen.getByRole('checkbox', { name: 'Select PR-0001' })))
+    await user.click(screen.getByRole('checkbox', { name: 'Select PR-0002' }))
+    await user.click(screen.getByRole('button', { name: 'Review purchase orders' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'Raise purchase orders from 2 requisitions' }),
+    ).toBeVisible()
+    await waitFor(() =>
+      fetch.requestFor('POST', '/procurement/purchase-requisitions/conversion-preview'),
+    )
+    expect(
+      fetch.requestFor('POST', '/procurement/purchase-requisitions/conversion-preview'),
+    ).toEqual({
+      lines: [],
+      acknowledge_duplicates: false,
+      requisition_ids: [REQUISITION_ID, OTHER_ID],
+    })
+  })
+
+  it('closes approved demand with the reason the API records', async () => {
+    const { user, fetch } = renderScreen(screenUnderTest, {
+      permissions: [P.PURCHASE_REQUISITION_VIEW, P.PURCHASE_REQUISITION_APPROVE],
+      routes: queueRoutes([requisition({ status: 'APPROVED', open_line_count: 2 })], {
+        [`POST ${CLOSE_PATH}`]: ok(requisition({ status: 'CLOSED' })),
+      }),
+    })
+
+    const menu = await openActions(user, fetch, 'PR-0001')
+    await user.click(within(menu).getByRole('menuitem', { name: 'Close requisition' }))
+    await user.click(await stable(() => screen.getByRole('button', { name: 'Close requisition' })))
+    // `ReasonRequest` refuses an empty reason; it must not reach the API.
+    expect(await stable(() => screen.getByRole('alert'))).toHaveTextContent(/at least 3 characters/)
+    expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+
+    await user.type(
+      screen.getByRole('textbox', { name: 'Reason' }),
+      '  Design changed, rest not needed  ',
+    )
+    await user.click(screen.getByRole('button', { name: 'Close requisition' }))
+
+    await waitFor(() => fetch.requestFor('POST', CLOSE_PATH))
+    expect(fetch.requestFor('POST', CLOSE_PATH)).toEqual({
+      reason: 'Design changed, rest not needed',
+    })
   })
 })
 
