@@ -58,6 +58,7 @@ import {
   Label,
   Skeleton,
 } from '@/components/ui/primitives'
+import { CostCentreName } from '@/features/admin/cost-centre-select'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { ApiError, api } from '@/lib/api-client'
@@ -744,6 +745,7 @@ export default function ProductionDetailPage() {
   const [recordOpen, setRecordOpen] = useState(false)
 
   const canViewCost = can(P.PRODUCTION_COST_VIEW)
+  const canViewCostCentres = can(P.COST_CENTRE_VIEW)
 
   const orderQuery = useQuery({
     queryKey: queryKeys.production.detail(orderId),
@@ -1101,6 +1103,17 @@ export default function ProductionDetailPage() {
                     label: 'Raised from',
                     value: `${humanise(order.source_type)}${order.source_id ? '' : ' (no source document)'}`,
                   },
+                  // Named only to an account that may read the cost-centre
+                  // list - the label is looked up there, and a row that could
+                  // only ever say "-" is not information.
+                  ...(canViewCostCentres
+                    ? [
+                        {
+                          label: 'Cost centre',
+                          value: <CostCentreName id={order.cost_centre_id} />,
+                        },
+                      ]
+                    : []),
                   { label: 'Components', value: formatNumber(order.component_count ?? 0) },
                   { label: 'Planned start', value: formatDate(order.planned_start_date) },
                   { label: 'Planned end', value: formatDate(order.planned_end_date) },

@@ -303,7 +303,7 @@ export const navigation: NavSection[] = [
         label: 'Organisation',
         to: '/admin/organisation',
         icon: Building2,
-        permissions: [P.COMPANY_VIEW],
+        permissions: [P.COMPANY_VIEW, P.COST_CENTRE_VIEW],
       },
     ],
   },

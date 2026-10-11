@@ -8,12 +8,18 @@
  * Without `company.manage` the same data is rendered as a description list
  * rather than a disabled form: a form nobody can submit is a worse way of
  * saying "read only" than simply not being a form.
+ *
+ * The bank details and invoice terms are a card of their own with their own
+ * Save. They are printed on every invoice the company sends, and redirecting
+ * where customers pay is how invoice-redirection fraud starts - so a change to
+ * them is a deliberate act with its own audit row, never a side effect of
+ * correcting a phone number in the card above (docs/assumptions.md §B1-7).
  */
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Save } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -32,16 +38,19 @@ import {
   AlertTitle,
   Card,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
   Input,
   Label,
   Skeleton,
+  Textarea,
 } from '@/components/ui/primitives'
 import { api } from '@/lib/api-client'
 import { DEFAULT_CURRENCY } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { success } from '@/lib/messages'
+import { IFSC_PATTERN } from '@/lib/statutory'
 import { toast } from '@/lib/toast'
 import { asText } from '@/lib/utils'
 
@@ -211,8 +220,17 @@ export function CompanyTab({ canManage }: { canManage: boolean }) {
 
   const record = company.data
 
+  // The bank card sits under the company card for both kinds of reader; it
+  // saves on its own, for the reason given on `CompanyBankCard`.
+  const withBankCard = (card: ReactNode) => (
+    <div className="space-y-4">
+      {card}
+      <CompanyBankCard record={record} canManage={canManage} />
+    </div>
+  )
+
   if (!canManage) {
-    return (
+    return withBankCard(
       <Card>
         <CardHeader>
           <CardTitle>
@@ -253,11 +271,11 @@ export function CompanyTab({ canManage }: { canManage: boolean }) {
             ]}
           />
         </CardContent>
-      </Card>
+      </Card>,
     )
   }
 
-  return (
+  return withBankCard(
     <form onSubmit={handleSubmit((values) => mutation.mutate(values))} noValidate>
       <Card>
         <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
@@ -433,6 +451,239 @@ export function CompanyTab({ canManage }: { canManage: boolean }) {
             <p className="mt-1 text-xs text-muted-foreground">
               An IANA name such as Asia/Kolkata. Timestamps are stored in UTC regardless.
             </p>
+          </div>
+        </CardContent>
+      </Card>
+    </form>,
+  )
+}
+
+// ------------------------------------------------------- bank and invoice ---
+
+/** Spaces are how an identifier is read aloud, never part of it. */
+const withoutSpaces = (value: string): string => value.replace(/\s+/g, '').toUpperCase()
+
+const bankSchema = z.object({
+  bank_name: z.string().trim().max(120, 'At most 120 characters'),
+  bank_account_name: z.string().trim().max(255, 'At most 255 characters'),
+  // Measured without its spaces, as the API measures it: a number keyed in the
+  // groups it is printed in must not be refused for the gaps.
+  bank_account_number: z
+    .string()
+    .trim()
+    .refine(
+      (value): boolean => withoutSpaces(value).length <= 34,
+      'At most 34 characters, not counting spaces',
+    ),
+  bank_ifsc: z
+    .string()
+    .trim()
+    .refine(
+      (value): boolean => value === '' || IFSC_PATTERN.test(withoutSpaces(value)),
+      'Not a valid IFSC - four letters, a zero, then six letters or digits',
+    ),
+  bank_branch: z.string().trim().max(120, 'At most 120 characters'),
+  invoice_terms: z.string().trim().max(4000, 'At most 4000 characters'),
+})
+
+type BankValues = z.infer<typeof bankSchema>
+
+function bankValues(company: CompanyRecord): BankValues {
+  return {
+    bank_name: company.bank_name ?? '',
+    bank_account_name: company.bank_account_name ?? '',
+    bank_account_number: company.bank_account_number ?? '',
+    bank_ifsc: company.bank_ifsc ?? '',
+    bank_branch: company.bank_branch ?? '',
+    invoice_terms: company.invoice_terms ?? '',
+  }
+}
+
+/**
+ * Where customers pay, and the terms printed beneath every invoice.
+ *
+ * Every field is optional and a blank one is sent as null, which the API reads
+ * as "clear it". The identifiers go out the way the bank writes them - no
+ * spaces, upper case - which is also what the API stores, so the value read
+ * back is the value that was sent.
+ */
+function CompanyBankCard({ record, canManage }: { record: CompanyRecord; canManage: boolean }) {
+  const queryClient = useQueryClient()
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setError,
+    formState: { errors, isDirty },
+  } = useForm<BankValues>({
+    resolver: zodResolver(bankSchema),
+    defaultValues: bankValues(record),
+  })
+
+  const loadedId = record.id
+  useEffect(() => {
+    reset(bankValues(record))
+    // Keyed on the record's identity, not its contents: a background refetch
+    // must not wipe a half-typed account number.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadedId, reset])
+
+  const mutation = useMutation({
+    mutationFn: (values: BankValues) =>
+      api.patch<CompanyRecord>('/organization/company', {
+        bank_name: asText(values.bank_name),
+        bank_account_name: asText(values.bank_account_name),
+        bank_account_number: asText(withoutSpaces(values.bank_account_number)),
+        bank_ifsc: asText(withoutSpaces(values.bank_ifsc)),
+        bank_branch: asText(values.bank_branch),
+        invoice_terms: asText(values.invoice_terms),
+      }),
+    onSuccess: (saved) => {
+      void queryClient.invalidateQueries({ queryKey: orgKeys.all })
+      reset(bankValues(saved))
+      toast.success(success.updated('Bank details'), saved.name)
+    },
+    onError: (error) => applyFieldErrors(error, setError),
+  })
+
+  if (!canManage) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Bank &amp; invoice</CardTitle>
+          <CardDescription>Where customers pay, as printed on every invoice.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <DescriptionList
+            columns={3}
+            items={[
+              { label: 'Bank', value: record.bank_name ?? '-' },
+              { label: 'Branch', value: record.bank_branch ?? '-' },
+              { label: 'Account name', value: record.bank_account_name ?? '-' },
+              {
+                label: 'Account number',
+                value: <span className="font-mono">{record.bank_account_number ?? '-'}</span>,
+              },
+              {
+                label: 'IFSC',
+                value: <span className="font-mono">{record.bank_ifsc ?? '-'}</span>,
+              },
+            ]}
+          />
+          <DescriptionList
+            columns={1}
+            items={[
+              {
+                label: 'Invoice terms',
+                value: <span className="whitespace-pre-line">{record.invoice_terms ?? '-'}</span>,
+              },
+            ]}
+          />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <form onSubmit={handleSubmit((values) => mutation.mutate(values))} noValidate>
+      <Card>
+        <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+          <div className="min-w-0 space-y-1.5">
+            <CardTitle>Bank &amp; invoice</CardTitle>
+            <CardDescription>
+              Where customers pay, and the terms printed beneath every invoice. Every change here is
+              recorded in the audit trail.
+            </CardDescription>
+          </div>
+          <Button
+            type="submit"
+            className="ml-auto"
+            disabled={!isDirty}
+            loading={mutation.isPending}
+          >
+            <Save />
+            Save bank details
+          </Button>
+        </CardHeader>
+
+        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div>
+            <Label htmlFor="company-bank-name">Bank</Label>
+            <Input
+              id="company-bank-name"
+              {...register('bank_name')}
+              autoComplete="off"
+              aria-invalid={Boolean(errors.bank_name)}
+              className="mt-1.5"
+            />
+            <FieldError message={errors.bank_name?.message} />
+          </div>
+
+          <div>
+            <Label htmlFor="company-bank-branch">Branch</Label>
+            <Input
+              id="company-bank-branch"
+              {...register('bank_branch')}
+              autoComplete="off"
+              aria-invalid={Boolean(errors.bank_branch)}
+              className="mt-1.5"
+            />
+            <FieldError message={errors.bank_branch?.message} />
+          </div>
+
+          <div>
+            <Label htmlFor="company-bank-ifsc">IFSC</Label>
+            <Input
+              id="company-bank-ifsc"
+              {...register('bank_ifsc')}
+              autoComplete="off"
+              placeholder="HDFC0001234"
+              aria-invalid={Boolean(errors.bank_ifsc)}
+              className="mt-1.5 uppercase"
+            />
+            <FieldError message={errors.bank_ifsc?.message} />
+          </div>
+
+          <div className="sm:col-span-2 lg:col-span-1">
+            <Label htmlFor="company-bank-account-name">Account name</Label>
+            <Input
+              id="company-bank-account-name"
+              {...register('bank_account_name')}
+              autoComplete="off"
+              aria-invalid={Boolean(errors.bank_account_name)}
+              className="mt-1.5"
+            />
+            <FieldError message={errors.bank_account_name?.message} />
+          </div>
+
+          <div className="sm:col-span-2">
+            <Label htmlFor="company-bank-account-number">Account number</Label>
+            <Input
+              id="company-bank-account-number"
+              {...register('bank_account_number')}
+              autoComplete="off"
+              aria-invalid={Boolean(errors.bank_account_number)}
+              className="mt-1.5 font-mono"
+            />
+            <FieldError message={errors.bank_account_number?.message} />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Spaces are dropped when it is saved, so it can be typed in the groups printed on the
+              cheque leaf.
+            </p>
+          </div>
+
+          <div className="sm:col-span-2 lg:col-span-3">
+            <Label htmlFor="company-invoice-terms">Invoice terms</Label>
+            <Textarea
+              id="company-invoice-terms"
+              {...register('invoice_terms')}
+              rows={4}
+              placeholder="Payment within 30 days of the invoice date. Interest at 18% a year on overdue amounts."
+              aria-invalid={Boolean(errors.invoice_terms)}
+              className="mt-1.5"
+            />
+            <FieldError message={errors.invoice_terms?.message} />
           </div>
         </CardContent>
       </Card>

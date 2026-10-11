@@ -1080,6 +1080,36 @@ only through Settings -> Roles.
 
 ---
 
+## §B1-9. Only someone who may see the cost centres names one on a document
+
+**Assumed.** The cost-centre picker on a production order, job-work order,
+stock adjustment, vendor invoice (header and line), department and work centre
+is shown only to an account holding `cost_centre.view`. Without it a new
+document is raised unallocated, and an edit sends back exactly the centre the
+record already carries - never the null that would clear it. A vendor invoice
+line's picker starts on "As the invoice", which is the null that makes the line
+follow the header at approval.
+
+**Why.** `GET /organization/cost-centres` enforces `cost_centre.view`, so a
+picker shown without it could only ever be empty, and an empty picker on an edit
+reads as "unallocated" and saves that way. Hiding the control while carrying
+the value through keeps an edit by, say, a storekeeper from quietly releasing a
+work centre's cost pool or a bill's allocation.
+
+**Where.** `apps/web/src/features/admin/cost-centre-select.tsx` and each form
+that renders it; the payload builders in `organisation-dialogs.tsx`,
+`routing-dialogs.tsx`, `production-dialogs.tsx`,
+`job-work-order-form-dialog.tsx`, `movement-dialogs.tsx` and
+`vendor-invoice-form-dialog.tsx`.
+
+**Impact if wrong.** If every write-off must carry a centre, grant
+`cost_centre.view` to the STORE_KEEPER role (or the client's equivalent) - the
+storekeeper preset does not hold it today, so adjustments raised there are
+unallocated. Making a centre mandatory on a document is a backend rule, not a
+picker setting (§B1-1).
+
+---
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant

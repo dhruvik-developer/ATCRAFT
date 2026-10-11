@@ -38,6 +38,13 @@
  * and each one is checked before its picker is offered, because a picker that
  * 403s on every search looks like an empty master.
  *
+ * **Cost centres.** The header names where the bill is charged and a line may
+ * name a centre of its own; approval posts one purchase-expense leg per
+ * effective centre (line, else header, else unallocated). Both pickers need
+ * `cost_centre.view`. Without it neither is shown, and because an amendment
+ * replaces the whole line set, every line still carries the centre it was
+ * saved with - a field the form did not hold would be erased on the next save.
+ *
  * **Money.** Every figure on this screen is a decimal string computed through
  * decimal.js. The running totals mirror `service.price_invoice_line` and
  * `_invoice_totals` step for step - see `priceInvoiceLine` in `finance-types.ts`
@@ -91,6 +98,7 @@ import {
   Label,
   Textarea,
 } from '@/components/ui/primitives'
+import { CostCentreSelect } from '@/features/admin/cost-centre-select'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useUomOptions } from '@/features/items/item-model'
@@ -184,6 +192,12 @@ const lineSchema = z.object({
   // ties the line to the order line the match reads its expected price from.
   purchase_order_line_id: z.string(),
   goods_receipt_line_id: z.string(),
+  /**
+   * The line's own cost centre; empty means "the invoice's". Held through an
+   * amendment whether or not this account is shown the picker: the line set is
+   * replaced wholesale, so a value the form did not carry would be erased.
+   */
+  cost_centre_id: z.string(),
   notes: z
     .string()
     .trim()
@@ -208,6 +222,8 @@ const schema = z
     currency: z.string().trim().regex(CURRENCY_OR_BLANK, 'Three letters, such as INR'),
     purchase_order_id: z.string(),
     goods_receipt_id: z.string(),
+    /** Empty means unallocated: the bill is charged to no cost centre. */
+    cost_centre_id: z.string(),
     round_off_amount: z.string().trim().regex(SIGNED_MONEY_OR_BLANK, 'Up to 4 decimal places'),
     notes: z
       .string()
@@ -263,6 +279,9 @@ function emptyLine(previous?: LineValues): LineValues {
     is_interstate: previous?.is_interstate ?? false,
     purchase_order_line_id: '',
     goods_receipt_line_id: '',
+    // Not copied from the line above: "as the invoice" is the ordinary case,
+    // and a line charged elsewhere is a decision made about that line.
+    cost_centre_id: '',
     notes: '',
   }
 }
@@ -283,6 +302,7 @@ function emptyValues(): InvoiceFormValues {
     currency: '',
     purchase_order_id: '',
     goods_receipt_id: '',
+    cost_centre_id: '',
     round_off_amount: '',
     notes: '',
     lines: [],
@@ -299,6 +319,7 @@ function valuesFrom(invoice: VendorInvoiceDetail): InvoiceFormValues {
     currency: invoice.currency,
     purchase_order_id: invoice.purchase_order_id ?? '',
     goods_receipt_id: invoice.goods_receipt_id ?? '',
+    cost_centre_id: invoice.cost_centre_id ?? '',
     round_off_amount: toDecimal(invoice.round_off_amount).toFixed(),
     notes: invoice.notes ?? '',
     // Optional on the wire even though the detail always sends it.
@@ -315,6 +336,7 @@ function valuesFrom(invoice: VendorInvoiceDetail): InvoiceFormValues {
       is_interstate: wasInterstate(line),
       purchase_order_line_id: line.purchase_order_line_id ?? '',
       goods_receipt_line_id: line.goods_receipt_line_id ?? '',
+      cost_centre_id: line.cost_centre_id ?? '',
       notes: line.notes ?? '',
     })),
   }
@@ -336,6 +358,9 @@ function lineFromOrderLine(line: PurchaseOrderLine, quantity: string): LineValue
     is_interstate: false,
     purchase_order_line_id: line.id,
     goods_receipt_line_id: '',
+    // A purchase order line names no cost centre of its own, so a copied line
+    // is charged wherever the invoice is.
+    cost_centre_id: '',
     notes: '',
   }
 }
@@ -763,6 +788,9 @@ export function VendorInvoiceFormDialog({
   const canReadOrders = can(P.PURCHASE_ORDER_VIEW)
   const canReadReceipts = can(P.GRN_VIEW)
   const canReadItems = can(P.ITEM_VIEW)
+  // Without it no cost-centre picker is shown - on the header or a line - and
+  // whatever centres the bill already carries travel back untouched.
+  const canPickCostCentre = can(P.COST_CENTRE_VIEW)
 
   const {
     register,
@@ -879,6 +907,9 @@ export function VendorInvoiceFormDialog({
           ...(values.due_date ? { due_date: values.due_date } : {}),
           purchase_order_id: orNull(values.purchase_order_id),
           goods_receipt_id: orNull(values.goods_receipt_id),
+          // Null clears the header centre, and the form holds the bill's own
+          // value - so an account shown no picker sends back what it found.
+          cost_centre_id: orNull(values.cost_centre_id),
           round_off_amount: zeroIfBlank(values.round_off_amount),
           // An empty string, not null. The service writes whatever is not null,
           // so this is the one spelling that can actually clear a note.
@@ -899,6 +930,7 @@ export function VendorInvoiceFormDialog({
         ...(values.currency.trim() ? { currency: values.currency.trim().toUpperCase() } : {}),
         purchase_order_id: orNull(values.purchase_order_id),
         goods_receipt_id: orNull(values.goods_receipt_id),
+        cost_centre_id: orNull(values.cost_centre_id),
         round_off_amount: zeroIfBlank(values.round_off_amount),
         notes: orNull(values.notes),
         lines: payload,
@@ -1119,6 +1151,23 @@ export function VendorInvoiceFormDialog({
                   accepted at the gate.
                 </p>
               </div>
+
+              {canPickCostCentre && (
+                <Controller
+                  control={control}
+                  name="cost_centre_id"
+                  render={({ field }) => (
+                    <CostCentreSelect
+                      id="invoice-cost-centre"
+                      value={field.value || null}
+                      onChange={(next) => field.onChange(next ?? '')}
+                      enabled={open}
+                      hint="Every line is charged here unless it names a cost centre of its own."
+                      error={errors.cost_centre_id?.message}
+                    />
+                  )}
+                />
+              )}
             </div>
 
             {/* --------------------------------------------------- lines -- */}
@@ -1391,6 +1440,25 @@ export function VendorInvoiceFormDialog({
                             </Label>
                           </div>
                         </div>
+
+                        {canPickCostCentre && (
+                          <Controller
+                            control={control}
+                            name={`lines.${index}.cost_centre_id`}
+                            render={({ field: centreField }) => (
+                              <CostCentreSelect
+                                id={`invoice-line-cost-centre-${index}`}
+                                label={`Line ${index + 1} cost centre`}
+                                value={centreField.value || null}
+                                onChange={(next) => centreField.onChange(next ?? '')}
+                                enabled={open}
+                                noneLabel="As the invoice"
+                                error={errors.lines?.[index]?.cost_centre_id?.message}
+                                className="sm:col-span-2"
+                              />
+                            )}
+                          />
+                        )}
                       </div>
 
                       {linePricing && (
@@ -1505,6 +1573,9 @@ function buildLines(values: InvoiceFormValues): VendorInvoiceLinePayload[] {
     is_interstate: line.is_interstate,
     purchase_order_line_id: orNull(line.purchase_order_line_id),
     goods_receipt_line_id: orNull(line.goods_receipt_line_id),
+    // Null is "as the invoice": the expense is split by each line's effective
+    // centre at approval - its own, else the header's, else none.
+    cost_centre_id: orNull(line.cost_centre_id),
     notes: orNull(line.notes),
   }))
 }

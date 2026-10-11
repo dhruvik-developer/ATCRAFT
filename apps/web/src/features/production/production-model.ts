@@ -168,7 +168,13 @@ export const isCancellable = (status: ProductionStatus): boolean =>
 
 // ----------------------------------------------------------- wire shapes ----
 
-/** One row of `GET /production` (`ProductionOrderSummary`). */
+/**
+ * One row of `GET /production` (`ProductionOrderSummary`).
+ *
+ * Hand-written, so it is registered in `MIRRORS` in
+ * `apps/api/tests/unit/test_frontend_contract_types.py`, which fails if a field
+ * here is one the API no longer sends.
+ */
 export interface ProductionOrderRow {
   id: string
   code: string
@@ -176,6 +182,8 @@ export interface ProductionOrderRow {
   item_id: string
   warehouse_id: string
   plant_id: string | null
+  /** Where the job is charged; null is unallocated. Material issues inherit it. */
+  cost_centre_id: string | null
   planned_quantity: DecimalString
   produced_quantity: DecimalString
   rejected_quantity: DecimalString
@@ -191,7 +199,7 @@ export interface ProductionOrderRow {
   created_at: string
 }
 
-/** `GET /production/{id}` (`ProductionOrderDetail`). */
+/** `GET /production/{id}` (`ProductionOrderDetail`). Registered in `MIRRORS` too. */
 export interface ProductionOrderDetail extends ProductionOrderRow {
   bom_id: string | null
   routing_id: string | null

@@ -505,6 +505,92 @@ describe('adjustments', () => {
       await screen.findByText('Item BRASS-ROD-12 has only 4 on hand at MAIN.'),
     ).toBeInTheDocument()
   })
+
+  describe('who bears a write-off', () => {
+    const STORES = {
+      id: 'cc-stores',
+      code: 'CC-STORES',
+      name: 'Stores',
+      cost_centre_type: 'SERVICE',
+      parent_id: null,
+      plant_id: null,
+      head_user_id: null,
+      description: null,
+      is_active: true,
+      created_at: '2026-09-01T09:00:00Z',
+      updated_at: '2026-09-01T09:00:00Z',
+    }
+
+    async function raise(
+      user: ReturnType<typeof renderScreen>['user'],
+      dialog: HTMLElement,
+    ): Promise<void> {
+      await user.click(within(dialog).getByRole('combobox', { name: 'Warehouse' }))
+      await user.click(await screen.findByRole('option', { name: /MAIN/ }))
+      await user.click(within(dialog).getByRole('combobox', { name: 'Reason code' }))
+      await user.click(await screen.findByRole('option', { name: 'Damage' }))
+      await user.type(
+        within(dialog).getByRole('textbox', { name: /^reason/i }),
+        'Pallet damaged by a forklift in aisle B on 28 Aug',
+      )
+      await user.click(within(dialog).getByRole('combobox', { name: /item, line 1/i }))
+      await user.click(await screen.findByRole('option', { name: /BRASS-ROD-12/ }))
+      await user.type(within(dialog).getByRole('textbox', { name: /^quantity$/i }), '-12')
+    }
+
+    it('charges it to the cost centre chosen, for an account that may read centres', async () => {
+      const { user, fetch } = renderScreen(<MovementsPage />, {
+        route: ADJUSTMENTS_TAB,
+        permissions: [P.INVENTORY_VIEW, P.INVENTORY_ADJUST, P.COST_CENTRE_VIEW],
+        routes: {
+          'GET /inventory/adjustments': page([]),
+          'GET /warehouses': page([FROM]),
+          'GET /products/items': page([ITEM]),
+          'GET /organization/cost-centres': page([STORES]),
+          'POST /inventory/adjustments': ok({ code: 'ADJ/2026-27/00008' }),
+        },
+      })
+
+      await user.click(await screen.findByRole('button', { name: /new adjustment/i }))
+      const dialog = await screen.findByRole('dialog')
+      await raise(user, dialog)
+      await user.click(within(dialog).getByRole('combobox', { name: 'Cost centre' }))
+      await user.click(await screen.findByRole('option', { name: 'CC-STORES - Stores' }))
+      await user.click(within(dialog).getByRole('button', { name: /raise adjustment/i }))
+
+      await expect.poll(() => fetch.calls.some((call) => call.method === 'POST')).toBe(true)
+      const body = fetch.requestFor('POST', '/inventory/adjustments') as Record<string, unknown>
+      expect(body.cost_centre_id).toBe(STORES.id)
+    })
+
+    it('raises it unallocated for a storekeeper, who is shown no picker', async () => {
+      const { user, fetch } = renderScreen(<MovementsPage />, {
+        route: ADJUSTMENTS_TAB,
+        permissions: [P.INVENTORY_VIEW, P.INVENTORY_ADJUST],
+        routes: {
+          'GET /inventory/adjustments': page([]),
+          'GET /warehouses': page([FROM]),
+          'GET /products/items': page([ITEM]),
+          'POST /inventory/adjustments': ok({ code: 'ADJ/2026-27/00008' }),
+        },
+      })
+
+      await user.click(await screen.findByRole('button', { name: /new adjustment/i }))
+      const dialog = await screen.findByRole('dialog')
+      expect(
+        within(dialog).queryByRole('combobox', { name: 'Cost centre' }),
+      ).not.toBeInTheDocument()
+      await raise(user, dialog)
+      await user.click(within(dialog).getByRole('button', { name: /raise adjustment/i }))
+
+      await expect.poll(() => fetch.calls.some((call) => call.method === 'POST')).toBe(true)
+      const body = fetch.requestFor('POST', '/inventory/adjustments') as Record<string, unknown>
+      expect(body.cost_centre_id).toBeNull()
+      expect(fetch.calls.some((call) => call.path.startsWith('/organization/cost-centres'))).toBe(
+        false,
+      )
+    })
+  })
 })
 
 // ----------------------------------------------------- physical counts -----

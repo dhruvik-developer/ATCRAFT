@@ -38,6 +38,7 @@ import {
   SelectValue,
 } from '@/components/ui/overlays'
 import { Alert, AlertDescription, Input, Label, Textarea } from '@/components/ui/primitives'
+import { CostCentreSelect } from '@/features/admin/cost-centre-select'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { useUserOptions } from '@/hooks/use-user-options'
@@ -97,6 +98,8 @@ const orderSchema = z
     // A plain integer, lower being more urgent. There is no priority enum.
     priority: z.string().trim().regex(WHOLE, 'Priority is a whole number'),
     warehouse_id: z.string().min(1, 'Choose the warehouse the output is received into'),
+    /** Empty means unallocated - the order carries no cost centre. */
+    cost_centre_id: z.string(),
     notes: z.string().trim().max(500, 'At most 500 characters'),
   })
   // ISO dates compare correctly as strings, so no Date object is needed here.
@@ -123,6 +126,7 @@ function emptyOrder(): OrderFormValues {
     planned_end_date: today(),
     priority: String(PRIORITY_DEFAULT),
     warehouse_id: '',
+    cost_centre_id: '',
     notes: '',
   }
 }
@@ -134,8 +138,12 @@ export function ProductionOrderFormDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const { can } = useAuth()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  // The cost-centre list is its own right; a planner without it raises the
+  // order unallocated rather than facing a picker that can only be refused.
+  const canPickCostCentre = can(P.COST_CENTRE_VIEW)
 
   const {
     register,
@@ -185,6 +193,9 @@ export function ProductionOrderFormDialog({
         planned_end_date: values.planned_end_date,
         priority: Number.parseInt(values.priority, 10),
         warehouse_id: values.warehouse_id,
+        // Explicit or absent: an order inherits no centre from anywhere
+        // (docs/assumptions.md §B1-2), and material issued to it inherits this.
+        cost_centre_id: orNull(values.cost_centre_id),
         notes: orNull(values.notes),
       }),
     onSuccess: (order) => {
@@ -369,6 +380,24 @@ export function ProductionOrderFormDialog({
                 />
                 <FieldError message={errors.warehouse_id?.message} />
               </div>
+
+              {canPickCostCentre && (
+                <Controller
+                  control={control}
+                  name="cost_centre_id"
+                  render={({ field }) => (
+                    <CostCentreSelect
+                      id="production-cost-centre"
+                      value={field.value || null}
+                      onChange={(next) => field.onChange(next ?? '')}
+                      enabled={open}
+                      hint="Where the job is charged. Material issued to it is charged there too."
+                      error={errors.cost_centre_id?.message}
+                      className="sm:col-span-2"
+                    />
+                  )}
+                />
+              )}
 
               <div className="sm:col-span-2">
                 <Label htmlFor="production-notes">Notes</Label>

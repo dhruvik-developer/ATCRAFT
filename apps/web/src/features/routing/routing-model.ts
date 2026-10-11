@@ -20,7 +20,7 @@
  * is the only thing that computes on them.
  */
 
-import type { DecimalString } from '@/types/api'
+import type { DecimalString, SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------ vocabulary ----
 
@@ -157,25 +157,16 @@ export interface RoutingOperationCost {
   is_outsourced: boolean
 }
 
-/** One row of `GET /routing/work-centers` (`WorkCenterRead`). */
-export interface WorkCenter {
-  id: string
-  code: string
-  name: string
-  description: string | null
-  department_id: string | null
-  plant_id: string | null
-  /** Units the centre can put through in an hour. */
-  capacity_per_hour: DecimalString
-  cost_per_hour: DecimalString
-  /** A flat charge per batch, on top of the setup time. */
-  setup_cost: DecimalString
-  /** How the centre's minutes convert into lead-time days. */
-  working_hours_per_day: DecimalString
-  is_active: boolean
-  created_at: string
-  updated_at: string
-}
+/**
+ * One row of `GET /routing/work-centers` (`WorkCenterRead`).
+ *
+ * Derived rather than written out, so the cost centre a work centre's hours are
+ * pooled into arrived with the contract instead of waiting to be copied here.
+ * `capacity_per_hour` is units an hour; `setup_cost` is a flat charge per batch
+ * on top of the setup time; `working_hours_per_day` is how the centre's minutes
+ * convert into lead-time days.
+ */
+export type WorkCenter = SchemaOf<'WorkCenterRead'>
 
 /** One row of `GET /routing/machines` (`MachineRead`). */
 export interface Machine {

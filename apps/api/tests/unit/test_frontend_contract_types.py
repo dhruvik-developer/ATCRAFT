@@ -46,6 +46,7 @@ from pydantic import BaseModel
 
 from src.modules.auth.schemas import MeResponse
 from src.modules.inventory.schemas import ItemStockSummaryWithCost, WarehouseStockRowWithCost
+from src.modules.production.schemas import ProductionOrderDetail, ProductionOrderSummary
 from src.modules.products.schemas import (
     CategoryOut,
     ItemDetail,
@@ -75,6 +76,12 @@ MIRRORS: tuple[tuple[str, str, type[BaseModel]], ...] = (
     ("features/items/item-model.ts", "ItemStockSummary", ItemStockSummaryWithCost),
     ("features/items/item-model.ts", "CategoryOption", CategoryOut),
     ("features/items/item-model.ts", "UomOption", UomOut),
+    # Registered when the cost centre was added to both: a field typed by hand
+    # into a shape the contract does not check is exactly how valuation_method
+    # outlived its column. The detail interface extends the row; only its own
+    # body is read here, and the row's fields are checked through the row.
+    ("features/production/production-model.ts", "ProductionOrderRow", ProductionOrderSummary),
+    ("features/production/production-model.ts", "ProductionOrderDetail", ProductionOrderDetail),
 )
 
 #: Fields a mirror may declare that the model does not carry, with the reason.

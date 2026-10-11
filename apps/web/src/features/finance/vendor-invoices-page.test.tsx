@@ -513,6 +513,9 @@ describe('recording a multi-line bill', () => {
         is_interstate: false,
         purchase_order_line_id: null,
         goods_receipt_line_id: null,
+        // "As the invoice": no account here may read cost centres, so none is
+        // offered and none is named.
+        cost_centre_id: null,
         notes: null,
       },
       {
@@ -527,6 +530,7 @@ describe('recording a multi-line bill', () => {
         is_interstate: true,
         purchase_order_line_id: null,
         goods_receipt_line_id: null,
+        cost_centre_id: null,
         notes: null,
       },
     ])
@@ -760,6 +764,132 @@ describe('amending a bill', () => {
       discount_amount: '0',
       is_interstate: false,
     })
+  })
+})
+
+// ---------------------------------------------------------- cost centres -----
+
+describe('where a bill is charged', () => {
+  /**
+   * Approval posts one purchase-expense leg per effective centre - a line's
+   * own, else the header's, else none - so both levels have to reach the wire,
+   * and an amendment has to carry both back even for an account that is shown
+   * neither picker: the line set is replaced wholesale on every save.
+   */
+  const STAMP = '2026-09-01T09:00:00Z'
+  const centre = (id: string, code: string, name: string, parent_id: string | null = null) => ({
+    id,
+    code,
+    name,
+    cost_centre_type: 'PRODUCTION',
+    parent_id,
+    plant_id: null,
+    head_user_id: null,
+    description: null,
+    is_active: true,
+    created_at: STAMP,
+    updated_at: STAMP,
+  })
+  const CENTRES = [
+    centre('cc-prod', 'CC-PROD', 'Production'),
+    centre('cc-mach', 'CC-MACH', 'Machining', 'cc-prod'),
+    centre('cc-pack', 'CC-PACK', 'Packing', 'cc-prod'),
+  ]
+
+  it('sends the header centre and a line of its own, to an account that may read centres', async () => {
+    const { user, fetch } = renderScreen(<VendorInvoicesPage />, {
+      permissions: [
+        P.VENDOR_INVOICE_VIEW,
+        P.VENDOR_INVOICE_CREATE,
+        P.VENDOR_VIEW,
+        P.COST_CENTRE_VIEW,
+      ],
+      routes: {
+        'GET /finance/vendor-invoices': page([summary()]),
+        'GET /vendors': page([VENDOR]),
+        'GET /organization/cost-centres': page(CENTRES),
+        'POST /finance/vendor-invoices': ok(invoice()),
+      },
+    })
+
+    await screen.findByText('VINV/2026-27/00031')
+    await user.click(screen.getByRole('button', { name: /record invoice/i }))
+    const dialog = await screen.findByRole('dialog')
+
+    await user.click(within(dialog).getByRole('combobox', { name: 'Vendor' }))
+    await user.click(await screen.findByRole('option', { name: /VEN-0007/ }))
+    await user.type(within(dialog).getByRole('textbox', { name: /invoice number/i }), NUMBER)
+
+    await user.click(within(dialog).getByRole('combobox', { name: 'Cost centre' }))
+    await user.click(await screen.findByRole('option', { name: 'CC-MACH - Machining' }))
+
+    await user.click(within(dialog).getByRole('button', { name: /add line/i }))
+    await user.type(lineInput(dialog, 'Quantity', 0), '2')
+    await user.type(lineInput(dialog, 'Unit price', 0), '125.03')
+    await user.click(within(dialog).getByRole('combobox', { name: 'Line 1 cost centre' }))
+    await user.click(await screen.findByRole('option', { name: 'CC-PACK - Packing' }))
+
+    await user.click(within(dialog).getByRole('button', { name: /record the invoice/i }))
+
+    await expect.poll(() => fetch.calls.some((call) => call.method === 'POST')).toBe(true)
+    const body = fetch.requestFor('POST', '/finance/vendor-invoices') as {
+      cost_centre_id: string | null
+      lines: { cost_centre_id: string | null }[]
+    }
+    expect(body.cost_centre_id).toBe('cc-mach')
+    expect(body.lines[0]!.cost_centre_id).toBe('cc-pack')
+  })
+
+  it('carries every centre an amended bill holds, from an account shown no picker', async () => {
+    const { user, fetch } = renderScreen(<VendorInvoicesPage />, {
+      permissions: [P.VENDOR_INVOICE_VIEW, P.VENDOR_INVOICE_CREATE],
+      routes: {
+        'GET /finance/vendor-invoices': page([summary({ cost_centre_id: 'cc-mach' })]),
+        [`GET ${INVOICE_PATH}`]: ok(
+          invoice({ cost_centre_id: 'cc-mach', lines: [line({ cost_centre_id: 'cc-pack' })] }),
+        ),
+        [`GET ${INVOICE_PATH}/match`]: ok(matchResult()),
+        [`PATCH ${INVOICE_PATH}`]: ok(invoice()),
+      },
+    })
+
+    const matchDialog = await openMatchDialog(user)
+    // Without the right the detail does not try to name the centre either.
+    expect(within(matchDialog).queryByText('Cost centre')).not.toBeInTheDocument()
+    await user.click(await within(matchDialog).findByRole('button', { name: /amend/i }))
+
+    const form = await screen.findByRole('dialog', { name: /amend VINV/i })
+    expect(await within(form).findByDisplayValue('125.03')).toBeInTheDocument()
+    expect(within(form).queryByRole('combobox', { name: /cost centre/i })).not.toBeInTheDocument()
+    await user.click(within(form).getByRole('button', { name: /save the amendment/i }))
+
+    await expect.poll(() => fetch.calls.some((call) => call.method === 'PATCH')).toBe(true)
+    const body = fetch.requestFor('PATCH', INVOICE_PATH) as {
+      cost_centre_id: string | null
+      lines: { cost_centre_id: string | null }[]
+    }
+    // Not null: on the header null clears the centre, and a line sent without
+    // its own would silently fall back to the header's at approval.
+    expect(body.cost_centre_id).toBe('cc-mach')
+    expect(body.lines[0]!.cost_centre_id).toBe('cc-pack')
+    expect(fetch.calls.some((call) => call.path.startsWith('/organization/cost-centres'))).toBe(
+      false,
+    )
+  })
+
+  it("names the bill's centre on its detail, to an account that may read centres", async () => {
+    const { user } = renderScreen(<VendorInvoicesPage />, {
+      permissions: [P.VENDOR_INVOICE_VIEW, P.COST_CENTRE_VIEW],
+      routes: {
+        'GET /finance/vendor-invoices': page([summary({ cost_centre_id: 'cc-mach' })]),
+        [`GET ${INVOICE_PATH}`]: ok(invoice({ cost_centre_id: 'cc-mach' })),
+        [`GET ${INVOICE_PATH}/match`]: ok(matchResult()),
+        'GET /organization/cost-centres': page(CENTRES),
+      },
+    })
+
+    const matchDialog = await openMatchDialog(user)
+    expect(await within(matchDialog).findByText('CC-MACH - Machining')).toBeVisible()
   })
 })
 

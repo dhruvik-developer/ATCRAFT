@@ -33,10 +33,12 @@ import {
 import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
+import { useCostCentreOptions } from '@/hooks/use-organisation-options'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatMoney, formatQuantity, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
+import { indexById } from '@/lib/utils'
 
 import {
   MachineFormDialog,
@@ -269,7 +271,13 @@ function RoutingsPanel({ canManage }: { canManage: boolean }) {
 
 // -------------------------------------------------------- work centres ------
 
-function WorkCentresPanel({ canManage }: { canManage: boolean }) {
+function WorkCentresPanel({
+  canManage,
+  canSeeCostCentres,
+}: {
+  canManage: boolean
+  canSeeCostCentres: boolean
+}) {
   const [createOpen, setCreateOpen] = useState(false)
   const [editing, setEditing] = useState<WorkCenter | null>(null)
 
@@ -279,6 +287,11 @@ function WorkCentresPanel({ canManage }: { canManage: boolean }) {
     defaultSortBy: 'code',
     staleTime: staleTimes.master,
   })
+
+  // One bounded reference list names every row's cost pool; it is its own
+  // right (`cost_centre.view`), so it is not asked for without it.
+  const costCentres = useCostCentreOptions(canSeeCostCentres)
+  const costCentreById = useMemo(() => indexById(costCentres.data), [costCentres.data])
 
   const columns = useMemo<ColumnDef<WorkCenter, unknown>[]>(() => {
     const defs: ColumnDef<WorkCenter, unknown>[] = [
@@ -324,6 +337,21 @@ function WorkCentresPanel({ canManage }: { canManage: boolean }) {
         // What turns an operation's minutes into lead-time days.
         cell: ({ row }) => formatQuantity(row.original.working_hours_per_day),
       },
+      ...(canSeeCostCentres
+        ? [
+            {
+              id: 'cost_centre',
+              header: 'Cost centre',
+              enableSorting: false,
+              cell: ({ row }) => {
+                const centre = row.original.cost_centre_id
+                  ? costCentreById.get(row.original.cost_centre_id)
+                  : undefined
+                return <span className="text-muted-foreground">{centre?.code ?? '-'}</span>
+              },
+            } satisfies ColumnDef<WorkCenter, unknown>,
+          ]
+        : []),
       {
         id: 'is_active',
         header: 'Status',
@@ -355,7 +383,7 @@ function WorkCentresPanel({ canManage }: { canManage: boolean }) {
     }
 
     return defs
-  }, [canManage])
+  }, [canManage, canSeeCostCentres, costCentreById])
 
   const newButton = canManage ? (
     <Button size="sm" onClick={() => setCreateOpen(true)}>
@@ -695,7 +723,10 @@ export default function RoutingPage() {
 
           {canViewWorkCentres && (
             <TabsContent value="work-centres">
-              <WorkCentresPanel canManage={canManageWorkCentres} />
+              <WorkCentresPanel
+                canManage={canManageWorkCentres}
+                canSeeCostCentres={can(P.COST_CENTRE_VIEW)}
+              />
             </TabsContent>
           )}
 

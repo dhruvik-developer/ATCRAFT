@@ -69,6 +69,7 @@ import {
   Skeleton,
   Textarea,
 } from '@/components/ui/primitives'
+import { CostCentreName } from '@/features/admin/cost-centre-select'
 import { useAuth } from '@/features/auth/auth-context'
 import { api } from '@/lib/api-client'
 import {
@@ -171,6 +172,8 @@ export function VendorInvoiceMatchDialog({
    * different person's job by design.
    */
   const canRecord = can(P.VENDOR_INVOICE_CREATE)
+  /** The header's cost centre is named from a list that is its own right. */
+  const canViewCostCentres = can(P.COST_CENTRE_VIEW)
 
   const invoiceQuery = useQuery({
     queryKey: financeKeys.vendorInvoice(invoiceId ?? ''),
@@ -506,6 +509,20 @@ export function VendorInvoiceMatchDialog({
                       label: 'Goods receipt',
                       value: invoice.goods_receipt_id ? 'Receipted' : '-',
                     },
+                    // Lines may name their own; this is where the rest go.
+                    ...(canViewCostCentres
+                      ? [
+                          {
+                            label: 'Cost centre',
+                            value: (
+                              <CostCentreName
+                                id={invoice.cost_centre_id}
+                                enabled={Boolean(invoiceId)}
+                              />
+                            ),
+                          },
+                        ]
+                      : []),
                     {
                       label: 'Taxable',
                       value: formatMoney(invoice.subtotal, { currency: invoice.currency }),
