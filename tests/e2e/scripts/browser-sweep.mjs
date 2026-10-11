@@ -52,10 +52,75 @@ await readyAdminToken()
 await signInThroughForm(page)
 console.log(`logged in, landed on ${new URL(page.url()).pathname}`)
 
+// ------------------------------------------------------------ navigation ----
+// Routes are opened client-side, as a person clicking through the app opens
+// them: one full page load for the sign-in, then routing. A `page.goto` per
+// route reloads the SPA, which drops the in-memory access token, so every
+// route began with two 401s on GET /auth/me before the refresh cookie restored
+// the session. That marked all of them 'HTTP' and buried any real failure in
+// the one column meant to show it - and it rotated the refresh cookie once per
+// route. A route the push cannot render still gets a full load as a fallback.
+
+const SETTLE_TYPES = new Set(['fetch', 'xhr', 'script', 'stylesheet'])
+let inflight = 0
+const counted = (r) => SETTLE_TYPES.has(r.resourceType())
+page.on('request', (r) => {
+  if (counted(r)) inflight += 1
+})
+const finished = (r) => {
+  if (counted(r)) inflight = Math.max(0, inflight - 1)
+}
+page.on('requestfinished', finished)
+page.on('requestfailed', finished)
+
+/**
+ * Wait until no data or code request has been in flight for half a second.
+ * `waitForLoadState('networkidle')` cannot do this after a push: the document
+ * reached that state long ago, so it resolves at once.
+ */
+async function settle(limitMs = 15_000) {
+  const started = Date.now()
+  let quietSince = null
+  while (Date.now() - started < limitMs) {
+    if (inflight === 0) {
+      quietSince ??= Date.now()
+      if (Date.now() - quietSince >= 500) return
+    } else {
+      quietSince = null
+    }
+    await page.waitForTimeout(100)
+  }
+}
+
+async function push(target) {
+  await page.evaluate((p) => {
+    window.history.pushState({}, '', p)
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  }, target)
+}
+
+/** A push to the route already showing renders nothing new, so step off it first. */
+async function leave(route) {
+  if (new URL(page.url()).pathname !== route) return
+  await push(route === '/' ? '/profile' : '/')
+  await settle()
+}
+
+async function navigate(route) {
+  await push(route)
+  try {
+    await page.locator('main').waitFor({ timeout: 25_000 })
+  } catch {
+    await page.goto(`${BASE}${route}`, { waitUntil: 'domcontentloaded', timeout: 25_000 })
+  }
+  await settle()
+}
+
 // ------------------------------------------------------------- the sweep ----
 const results = []
 
 for (const route of STATIC_ROUTES) {
+  await leave(route)
   const errors = []
   const consoleErrors = []
   const httpFailures = []
@@ -77,9 +142,8 @@ for (const route of STATIC_ROUTES) {
 
   let nav = 'ok'
   try {
-    await page.goto(`${BASE}${route}`, { waitUntil: 'domcontentloaded', timeout: 25000 })
-    // Let lazy chunks resolve and the first data round-trip settle.
-    await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {})
+    // Lets lazy chunks resolve and the first data round-trip settle.
+    await navigate(route)
   } catch (e) {
     nav = `NAV FAILED: ${String(e).slice(0, 200)}`
   }

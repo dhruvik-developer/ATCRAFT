@@ -106,7 +106,11 @@ const DETAIL_LISTS = {
   '/mrp': '/mrp/runs',
 }
 
-const OPENER = /^(new|add|create|raise|record|run|post|invite|upload|register)\b/i
+// Verbs that open a form. Not "run" or "post": those label actions that act at
+// once - "Run MRP" started a real MRP run on every sweep, three per pass, and
+// "Post receipt" or "Post adjustment" would move stock - and none of them
+// opens a dialog, so the sweep only ever reported them as dialog errors.
+const OPENER = /^(new|add|create|raise|record|invite|upload|register)\b/i
 const OUT = process.env.SWEEP_OUT ?? 'responsive-sweep.json'
 const SHOTS = process.env.SWEEP_SHOTS ?? null
 

@@ -503,6 +503,26 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
   Likewise a `max-h-[90vh]` dialog with no `overflow-y-auto` of its own clips
   its footer the moment its body outgrows a phone - put the scroll on the
   primitive (`DialogContent`), not on each consumer.
+- **A Radix Select inside a form clears a value whose option has not loaded.**
+  Radix keeps a hidden native `<select>` in a form and re-dispatches every change
+  of the controlled value through it. Reset a form to a saved record while the
+  picker's list is still loading and that `<option>` does not exist yet, so the
+  native element can only hold `""` - which arrived as `onValueChange('')`. An
+  amended job-work order lost its warehouse whenever the warehouse list was not
+  cached, the select showed its placeholder once the list came back, and the
+  next save wrote the loss. `""` is never a choice a person can make (Radix
+  refuses an item whose value is empty), so `components/ui/select.tsx` drops it
+  once for every select. An optional select offers "none" as the `SELECT_NONE`
+  sentinel and maps it to `null`; never design one whose "none" is `""`.
+- **A sweep that flags every route flags nothing.** The browser sweep opened
+  each route with `page.goto`. A full load drops the in-memory access token,
+  and the first `GET /auth/me` answers 401 twice before the refresh cookie
+  restores the session - so all 42 routes were flagged `HTTP`, and a real
+  failure in that column looked like the rest. Its sibling, the responsive
+  sweep, matched dialog openers with `run|post`, so it pressed "Run MRP" on
+  every pass and wrote three real MRP runs into the database it was measuring.
+  A sweep opens routes client-side after one sign-in and clicks only verbs
+  that open a form.
 
 ## Things not to do
 
