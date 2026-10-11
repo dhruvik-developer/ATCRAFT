@@ -60,7 +60,11 @@ from src.modules.inventory.schemas import StockAdjustmentCreate, StockAdjustment
 from src.modules.inventory.service import StockAdjustmentService
 from src.modules.job_work import service as job_work_service
 from src.modules.job_work.models import JobWorkProcess
-from src.modules.job_work.schemas import JobWorkOrderCreate, JobWorkOrderLineCreate
+from src.modules.job_work.schemas import (
+    JobWorkOrderCreate,
+    JobWorkOrderLineCreate,
+    JobWorkOrderUpdate,
+)
 from src.modules.organization.models import CostCentreType, Plant
 from src.modules.organization.schemas import (
     CompanyUpdate,
@@ -90,7 +94,7 @@ from src.modules.production.schemas import ProductionOrderCreate, ProductionOrde
 from src.modules.reports import service as reports_service
 from src.modules.reports.models import ReportKey
 from src.modules.reports.schemas import ReportFilters, ReportPeriod
-from src.modules.routing.schemas import WorkCenterCreate
+from src.modules.routing.schemas import WorkCenterCreate, WorkCenterUpdate
 from src.modules.routing.service import WorkCenterService
 from src.modules.vendors.models import VendorType
 from tests import seed_support
@@ -402,6 +406,42 @@ class TestMaster:
         assert updated.name == "Assembly"
         assert updated.description == "Bench"
 
+    async def test_a_head_retired_since_does_not_freeze_the_centre(
+        self, session: AsyncSession, tenant: TenantContext
+    ) -> None:
+        """Follow the row: retiring a person must not lock the centre they ran.
+
+        The edit form sends back the head it found. Re-checking that unchanged
+        reference answered "User not found" to every later edit of the centre,
+        and an editor without ``user.view`` - shown no head picker - could not
+        even clear it. Only a changed reference is checked; naming a retired
+        person as a *new* head is still refused.
+        """
+        head = await seed_support.seed_user(session, company_id=tenant.company_id)
+        head_id = head.id
+        service = CostCentreService(session, tenant)
+        centre = await service.create_cost_centre(
+            CostCentreCreate(
+                code=_code("CC"),
+                name="Tool room",
+                cost_centre_type=CostCentreType.SERVICE,
+                head_user_id=head_id,
+            )
+        )
+        head.deleted_at = utcnow()
+        await session.flush()
+
+        renamed = await service.update_cost_centre(
+            centre.id,
+            CostCentreUpdate(name="Tool room and dies", head_user_id=head_id, plant_id=None),
+        )
+        assert renamed.name == "Tool room and dies"
+        assert renamed.head_user_id == head_id
+
+        other = await _centre(session, tenant)
+        with pytest.raises(NotFoundError, match="User"):
+            await service.update_cost_centre(other.id, CostCentreUpdate(head_user_id=head_id))
+
     async def test_deactivation_is_a_recorded_status_change(
         self, session: AsyncSession, tenant: TenantContext
     ) -> None:
@@ -453,6 +493,42 @@ class TestDeactivation:
         await _work_centre(session, tenant, cost_centre_id=centre.id)
         with pytest.raises(BusinessRuleError, match="assigned to work centres"):
             await _deactivate(session, tenant, centre.id)
+
+    async def test_a_department_whose_head_was_retired_can_still_release_it(
+        self, session: AsyncSession, tenant: TenantContext
+    ) -> None:
+        """Follow the row: the guard says "clear it there first", so that edit
+        must not be refused over a head retired since, which it did not touch.
+
+        The department dialog sends every field back, the head included; the
+        unchanged head used to be re-checked and answered "User not found".
+        """
+        centre = await _centre(session, tenant)
+        head = await seed_support.seed_user(session, company_id=tenant.company_id)
+        head_id = head.id
+        departments = DepartmentService(session, tenant)
+        department = await departments.create_department(
+            DepartmentCreate(
+                code=_code("D"),
+                name="Assembly",
+                head_user_id=head_id,
+                cost_centre_id=centre.id,
+            )
+        )
+        head.deleted_at = utcnow()
+        await session.flush()
+
+        cleared = await departments.update_department(
+            department.id, DepartmentUpdate(head_user_id=head_id, cost_centre_id=None)
+        )
+        assert cleared.cost_centre_id is None
+        assert cleared.head_user_id == head_id
+
+        await _deactivate(session, tenant, centre.id)
+        # A retired person is still refused as a *new* head.
+        other = await departments.create_department(DepartmentCreate(code=_code("D"), name="QC"))
+        with pytest.raises(NotFoundError, match="User"):
+            await departments.update_department(other.id, DepartmentUpdate(head_user_id=head_id))
 
     async def test_a_document_keeps_its_reference_but_a_new_one_is_refused(
         self, session: AsyncSession, tenant: TenantContext
@@ -631,11 +707,23 @@ class TestCarriersRefuseAnotherTenantsCentre:
         with pytest.raises(NotFoundError):
             await _work_centre(session, tenant, cost_centre_id=foreign_centre)
 
+        work_centre_id = await _work_centre(session, tenant)
+        with pytest.raises(NotFoundError):
+            await WorkCenterService(session, tenant).update_work_center(
+                work_centre_id, WorkCenterUpdate(cost_centre_id=foreign_centre)
+            )
+
     async def test_production_order(
         self, session: AsyncSession, tenant: TenantContext, foreign_centre: uuid.UUID
     ) -> None:
         with pytest.raises(NotFoundError):
             await _production_order(session, tenant, cost_centre_id=foreign_centre)
+
+        order_id = await _production_order(session, tenant, cost_centre_id=None)
+        with pytest.raises(NotFoundError):
+            await production_service.update_order(
+                session, tenant, order_id, ProductionOrderUpdate(cost_centre_id=foreign_centre)
+            )
 
     async def test_job_work_order(
         self, session: AsyncSession, tenant: TenantContext, foreign_centre: uuid.UUID
@@ -664,6 +752,12 @@ class TestCarriersRefuseAnotherTenantsCentre:
             session, tenant, payload.model_copy(update={"cost_centre_id": mine.id})
         )
         assert order.cost_centre_id == mine.id
+
+        order_id = order.id
+        with pytest.raises(NotFoundError):
+            await job_work_service.update_order(
+                session, tenant, order_id, JobWorkOrderUpdate(cost_centre_id=foreign_centre)
+            )
 
     async def test_stock_adjustment(
         self, session: AsyncSession, tenant: TenantContext, foreign_centre: uuid.UUID
@@ -699,6 +793,20 @@ class TestCarriersRefuseAnotherTenantsCentre:
         with pytest.raises(NotFoundError):
             await _invoice(
                 session, tenant, lines=[_service_line("10", cost_centre_id=foreign_centre)]
+            )
+
+        # And on an amendment: the header, then a line.
+        invoice_id = await _invoice(session, tenant, lines=[_service_line("10")])
+        with pytest.raises(NotFoundError):
+            await finance.update_invoice(
+                session, tenant, invoice_id, VendorInvoiceUpdate(cost_centre_id=foreign_centre)
+            )
+        with pytest.raises(NotFoundError):
+            await finance.update_invoice(
+                session,
+                tenant,
+                invoice_id,
+                VendorInvoiceUpdate(lines=[_service_line("10", cost_centre_id=foreign_centre)]),
             )
 
 

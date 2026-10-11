@@ -1146,7 +1146,8 @@
             },
             {
               "action": "Maintain work centres",
-              "how": "Work centres tab \u2014 code, name, capacity per hour, rate per hour, setup charge, hours per day and status. New work centre to add one, pencil to edit."
+              "how": "Work centres tab \u2014 code, name, capacity per hour, rate per hour, setup charge, hours per day and status, and the cost centre the centre's hours are charged to. New work centre to add one, pencil to edit.",
+              "note": "The cost centre box and column are shown only to someone who may see cost centres; anyone else who edits the work centre leaves its cost centre as it was. While a work centre names a cost centre, that cost centre cannot be switched off."
             },
             {
               "action": "Maintain machines",
@@ -2280,7 +2281,7 @@
             {
               "action": "Raise a new production order",
               "how": "New order, at the top right of the screen",
-              "note": "The order is saved as a draft. Nothing is reserved and no material moves. The screen then takes you straight to the new order's own page."
+              "note": "The order is saved as a draft. Nothing is reserved and no material moves. The screen then takes you straight to the new order's own page. Someone who may see cost centres can name the cost centre the job is charged to - material issued to it is charged there too - and the order's page shows it; for anyone else the order is raised unallocated."
             },
             {
               "action": "Open a job",
@@ -2577,7 +2578,7 @@
             {
               "action": "Raise a job work order",
               "how": "New job work order, top right, on the Orders tab",
-              "note": "It is saved as a draft. Nothing is reserved and no material moves."
+              "note": "It is saved as a draft. Nothing is reserved and no material moves. Someone who may see cost centres can name the cost centre the processing charges belong to - typically the job-worked process, such as plating; an amendment by anyone else keeps it as it was."
             },
             {
               "action": "Amend a draft",
@@ -3265,7 +3266,7 @@
             {
               "action": "Raise an adjustment",
               "how": "Adjustments tab, \"New adjustment\": choose the warehouse and date, classify the cause (damage, theft, count variance, expiry, correction, opening), describe in at least ten characters what actually happened, then key one line per item with a signed quantity \u2014 minus writes stock off, plus writes it on.",
-              "note": "The reason code says what kind of loss it was; the description says what happened. Both are kept on the ledger forever."
+              "note": "The reason code says what kind of loss it was; the description says what happened. Both are kept on the ledger forever. Someone who may see cost centres can also name the cost centre that bears the write-off; for anyone else the adjustment is raised unallocated."
             },
             {
               "action": "Move an adjustment along",
@@ -3543,6 +3544,11 @@
               "action": "Copy the lines from the purchase order or goods receipt instead of retyping them",
               "how": "Vendor invoices \u2192 Record invoice \u2192 name the goods receipt or purchase order \u2192 \"Copy lines\"",
               "note": "From a goods receipt the quantity copied is what was accepted at the gate; from an order alone it is what was ordered. The unit price copied is the agreed price after discount, which is exactly what the match compares against."
+            },
+            {
+              "action": "Charge a bill, or one of its lines, to a cost centre",
+              "how": "Vendor invoices → Record invoice (or Amend) → the Cost centre box under the bill's details, and the cost centre box on any line that belongs somewhere else",
+              "note": "Shown only to someone who may see cost centres. A line left on \"As the invoice\" follows the bill's cost centre, decided when the bill is approved; approval then posts the purchase cost to the ledger split by cost centre, which is what the Cost centre statement reads. A bill whose cost centre was switched off after it was keyed is refused at approval until it is changed."
             },
             {
               "action": "Send a bill for approval",

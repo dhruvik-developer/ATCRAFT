@@ -929,7 +929,17 @@ class DepartmentService:
             before = snapshot(department, _DEPARTMENT_AUDITED_FIELDS)
             current_state = lifecycle_state(department)
 
-            await self._assert_references(changes.get("plant_id"), changes.get("head_user_id"))
+            # Only a *changed* plant or head is checked. The edit form sends back
+            # the head it found, and a head retired since otherwise answered
+            # "User not found" to every later edit - including the one that
+            # clears this department's default cost centre, which the cost-centre
+            # deactivation guard asks for.
+            new_plant = changes.get("plant_id")
+            new_head = changes.get("head_user_id")
+            await self._assert_references(
+                new_plant if new_plant != department.plant_id else None,
+                new_head if new_head != department.head_user_id else None,
+            )
 
             new_parent = changes.get("parent_id")
             if new_parent is not None and new_parent != department.parent_id:
@@ -1132,7 +1142,17 @@ class CostCentreService:
             before = snapshot(centre, _COST_CENTRE_AUDITED_FIELDS)
             current_state = lifecycle_state(centre)
 
-            await self._assert_references(changes.get("plant_id"), changes.get("head_user_id"))
+            # Only a *changed* plant or head is checked, the rule every carrier
+            # applies to a cost centre. The edit form sends back the plant and
+            # head it found; re-checking them made a centre whose head had
+            # since been retired answer "User not found" to every later edit,
+            # and an editor shown no head picker had no way to clear it.
+            new_plant = changes.get("plant_id")
+            new_head = changes.get("head_user_id")
+            await self._assert_references(
+                new_plant if new_plant != centre.plant_id else None,
+                new_head if new_head != centre.head_user_id else None,
+            )
 
             parent_changing = "parent_id" in changes and changes["parent_id"] != centre.parent_id
             parent_id = changes.get("parent_id", centre.parent_id)
