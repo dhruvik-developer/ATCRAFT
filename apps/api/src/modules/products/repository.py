@@ -373,7 +373,8 @@ async def _code_taken(repo: BaseRepository[Any], model: Any, code: str) -> bool:
     The unique constraint covers soft-deleted rows too, so a probe that skipped
     them would report "available" for a retired code and then lose to an
     IntegrityError on INSERT. A retired brand's code also still sits on the
-    audit trail, which is the business reason it is never reissued.
+    audit trail, which is the business reason it is never reissued
+    (ASSUMPTION: docs/assumptions.md §A1-1).
     """
     stmt = (
         select(model.id)

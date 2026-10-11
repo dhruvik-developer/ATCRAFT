@@ -1440,10 +1440,12 @@ async def update_item(
             if field in scalar_updates:
                 await _require_attribute(session, tenant, scalar_updates[field], kind)
 
-        # The brand and the maker, for the same reason. Checked only when the
-        # value actually changes: re-saving an item whose brand is unchanged
-        # re-asserts a reference that was validated when it was set, and the
-        # item form posts every field on every save.
+        # The brand and the maker, for the same reason. ASSUMPTION: checked only
+        # when the value actually changes - re-saving an item whose brand is
+        # unchanged re-asserts a reference that was validated when it was set,
+        # and the item form posts every field on every save. An item keeps the
+        # brand it has; only a new assignment must be live and active
+        # (docs/assumptions.md §A1-1).
         if "brand_id" in scalar_updates and scalar_updates["brand_id"] != item.brand_id:
             await _require_brand(session, tenant, scalar_updates["brand_id"])
         if (
@@ -1725,12 +1727,17 @@ async def list_item_attributes(
 # Manufacturers and brands - classification the client maintains
 # -----------------------------------------------------------------------------
 #
-# Nothing anywhere may branch on either (docs/database.md section 3). What the
-# service does enforce is the shape of the lists themselves: codes are unique
-# per company for ever, every activation and retirement goes through the
-# lifecycle machine, and a value that something live still names cannot be
-# deactivated or retired - otherwise an item would show a brand its own edit
-# form could no longer offer, and saving that form would silently drop it.
+# Nothing anywhere may branch on either (docs/database.md section 3; ASSUMPTION:
+# docs/assumptions.md §A1-2). What the service does enforce is the shape of the
+# lists themselves: codes are unique per company for ever, every activation and
+# retirement goes through the lifecycle machine, and a value that something live
+# still names cannot be deactivated or retired - otherwise an item would show a
+# brand its own edit form could no longer offer, and saving that form would
+# silently drop it.
+#
+# ASSUMPTION: "live" means not soft-deleted, so an INACTIVE item, link or brand
+# still holds the value it names; deactivating and retiring are refused on the
+# same terms; and a retired code is never reissued. docs/assumptions.md §A1-1.
 
 
 def _duplicate_code(entity: str, code: str) -> DuplicateError:

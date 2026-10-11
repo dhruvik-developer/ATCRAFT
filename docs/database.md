@@ -54,7 +54,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `users` | `users`, `roles`, `user_roles`, `user_sessions`, `password_reset_tokens`, `login_attempts` |
 | `audit` | `audit_logs`, `approval_requests` |
 | `warehouses` | `warehouses`, `storage_locations` |
-| `products` | `item_categories`, `units_of_measure`, `uom_conversions`, `item_attributes`, `items`, `item_variants`, `item_prices`, `item_vendor_links` |
+| `products` | `item_categories`, `units_of_measure`, `uom_conversions`, `item_attributes`, `manufacturers`, `brands`, `items`, `item_variants`, `item_prices`, `item_vendor_links` |
 | `vendors` | `vendors`, `vendor_contacts`, `vendor_categories`, `transporters` |
 | `customers` | `customers`, `customer_addresses`, `customer_contacts` |
 | `inventory` | `inventory_transactions`, `inventory_balances`, `inventory_cost_layers`, `inventory_cost_consumptions`, `stock_batches`, `stock_serials`, `stock_transfers`, `stock_transfer_lines`, `stock_adjustments`, `stock_adjustment_lines`, `physical_counts`, `physical_count_lines` |
@@ -130,9 +130,51 @@ still carries the value — otherwise an item would display a value its own edit
 form could no longer offer, and saving that form would silently drop it. There
 is no delete.
 
+### Brands and manufacturers
+
+`manufacturers` records who makes a part (`code`, `name`, `legal_name`,
+`country`, `website`, `notes`); `brands` records the name a product is sold
+under (`code`, `name`, `description`, `sort_order`) and, optionally, the one
+manufacturer that owns it (`brands.manufacturer_id`). Both are
+`TenantMasterEntity` tables, unique per `(company_id, code)`, with a partial
+picker index over live, active rows. An item carries `brand_id`,
+`manufacturer_id` and a free-text `manufacturer_part_number`; an
+`item_vendor_links` row carries `manufacturer_id` and `manufacturer_part_number`
+for the maker whose part that source supplies. A manufacturer is deliberately
+**not** a vendor: a maker's part is routinely bought through a distributor, and
+a vendor carries payables, approval and a portal login that a maker does not.
+
+**The rule: nothing may branch on a brand or a manufacturer value.** They are
+client-editable classification and traceability masters. A screen or a report
+may *filter* or *group* by them — `ix_items_company_brand` exists for the item
+list's brand filter and a future dealer catalogue — but no price, discount,
+permission, posting, approval or stock rule may read one to decide anything. A
+rule that needs a brand belongs in code, and the brand then belongs in an enum.
+
+What the products service does enforce:
+
+* **Assignment is validated for tenant and status.** `_require_brand` and
+  `_require_manufacturer` read through the tenant-scoped repositories on item
+  create and update, on a brand's owner and on a vendor link, so another
+  company's id is "not found" and an inactive or retired value is refused on the
+  way in. (Item creation now validates `finish_id` / `size_id` / `colour_id` the
+  same way; before this it did not.)
+* **Lifecycle.** `BRAND_LIFECYCLE` and `MANUFACTURER_LIFECYCLE` are the
+  organisation masters' machine — ACTIVE ↔ INACTIVE, ARCHIVED (soft-deleted)
+  terminal. Every `is_active` change goes through `assert_transition` and
+  `record_status_change`; retirement (`DELETE`, with a reason) is audited as a
+  DELETE status change.
+* **Refused while in use** (`REFERENCED_RECORD_IN_USE`). A brand cannot be
+  deactivated or retired while a live item carries it; a manufacturer, while a
+  live item, a live item-vendor link or a live brand names it. "Live" is
+  `deleted_at IS NULL` — an inactive item still shows its brand.
+* **Codes are never reused**, retired rows included (`docs/assumptions.md`
+  §A1-1).
+
 Other required columns: `code`, `name`, `category_id`, `base_uom_id`,
 `purchase_uom_id`, `sale_uom_id`, `hsn_code`, `gst_rate`, `standard_cost`,
-`sale_price`, `dealer_price`, `finish_id`, `size_id`, `colour_id`, `production_type`
+`sale_price`, `dealer_price`, `finish_id`, `size_id`, `colour_id`, `brand_id`,
+`manufacturer_id`, `manufacturer_part_number`, `production_type`
 (`MAKE | BUY | MAKE_OR_BUY | JOB_WORK`), `lead_time_days`, `reorder_level`,
 `reorder_quantity`, `min_order_quantity`, `safety_stock`, `shelf_life_days`,
 `is_batch_tracked`, `is_serial_tracked`, `default_warehouse_id`, `is_active`.
@@ -431,6 +473,14 @@ Job work order    DRAFT -> APPROVED -> ISSUED -> PARTIALLY_RECEIVED -> RECEIVED
 
 Dispatch          NOT_DISPATCHED -> READY_FOR_DISPATCH -> DISPATCHED -> IN_TRANSIT
                         -> DELIVERED -> QC_PENDING -> RECEIVED -> QC_COMPLETED -> GRN_COMPLETED
+```
+
+Master records with no status column project `is_active` / `deleted_at` onto a
+lifecycle of their own, through the same kind of machine:
+
+```
+Branch, plant, department, financial year, brand, manufacturer
+                  ACTIVE <-> INACTIVE;  ACTIVE | INACTIVE -> ARCHIVED (terminal; retire = soft delete)
 ```
 
 Every transition writes an audit row via `record_status_change`.

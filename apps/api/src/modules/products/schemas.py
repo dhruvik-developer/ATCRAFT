@@ -186,8 +186,10 @@ class ItemAttributeOut(_Base):
 # Brands and manufacturers
 # -----------------------------------------------------------------------------
 #
-# Codes pass through `normalise_code` - the same canonical form every products
-# master uses (ASSUMPTION: docs/assumptions.md §A1-1) - so "atcraft pro" and
+# ASSUMPTION: brand and manufacturer codes pass through `normalise_code` - the
+# canonical form every products master uses (upper case, whitespace collapsed,
+# no alphabet check) - rather than the organisation masters' stricter
+# `validate_code`. See docs/assumptions.md §A1-1. So "atcraft pro" and
 # "ATCRAFT  PRO" cannot become two brands. The updates are `extra="forbid"` and
 # carry no `code`: the code identifies the row on every document that quotes it,
 # so it is fixed once created, and a PATCH that tries to move it is refused
