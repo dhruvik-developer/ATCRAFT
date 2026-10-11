@@ -384,6 +384,34 @@ async def _code_taken(repo: BaseRepository[Any], model: Any, code: str) -> bool:
     return (await repo.session.execute(stmt)).first() is not None
 
 
+# Assigning a brand or maker and deactivating or retiring it are both
+# check-then-act, and they check each other's writes: the deactivation asks
+# "does anything live still name this?", the assignment asks "is this still
+# offered?". Unserialised, each check can pass against a world the other is
+# about to change - the deactivation's probe cannot see an item whose INSERT has
+# not committed, and the assignment reads the last committed version of a row
+# an uncommitted deactivation is rewriting. The foreign key does not help: its
+# check takes FOR KEY SHARE, which an UPDATE that changes no key column does not
+# conflict with. So an assignment reads the row FOR SHARE and a lifecycle change
+# reads it FOR NO KEY UPDATE. Those two conflict, so whichever comes second
+# waits and then - under READ COMMITTED, re-reading the row once the lock is
+# granted - decides on the first one's committed result. Neither lock blocks the
+# foreign-key checks of unrelated writes, nor a plain read.
+# tests/integration/test_brand_manufacturer_concurrency.py proves both orders.
+
+
+def _locked_read(stmt: Select[Any], *, share: bool) -> Select[Any]:
+    """``stmt`` as a locked re-read: ``FOR SHARE``, or ``FOR NO KEY UPDATE``.
+
+    ``populate_existing`` is not optional, for the reason the inventory and
+    allocation repositories give: without it SQLAlchemy hands back the identity
+    map's copy of a row the session already holds, so the lock is taken, the
+    row is re-read under it, and the answer is thrown away.
+    """
+    locked = stmt.with_for_update(read=True) if share else stmt.with_for_update(key_share=True)
+    return locked.execution_options(populate_existing=True)
+
+
 @dataclass(frozen=True, slots=True)
 class ManufacturerUsage:
     """Which live rows still name a manufacturer - one probe, three answers.
@@ -421,6 +449,24 @@ class ManufacturerRepository(BaseRepository[Manufacturer]):
 
     async def code_taken(self, code: str) -> bool:
         return await _code_taken(self, Manufacturer, code)
+
+    async def get_for_assignment(self, manufacturer_id: uuid.UUID) -> Manufacturer | None:
+        """Read a live maker about to be named somewhere, ``FOR SHARE``.
+
+        See the note above ``ManufacturerUsage``: a deactivation or retirement in
+        flight makes this wait, and the row it then returns is the committed one.
+        """
+        stmt = _locked_read(self._scoped().where(Manufacturer.id == manufacturer_id), share=True)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def lock_for_update(self, manufacturer_id: uuid.UUID) -> Manufacturer | None:
+        """Read a live maker about to change, ``FOR NO KEY UPDATE``.
+
+        Waits for any assignment of it in flight, so the "still in use?" probe
+        that follows sees that assignment's committed rows.
+        """
+        stmt = _locked_read(self._scoped().where(Manufacturer.id == manufacturer_id), share=False)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
     def build_list_stmt(
         self, *, search: str | None, is_active: bool | None, sort: SortParams
@@ -491,6 +537,24 @@ class BrandRepository(BaseRepository[Brand]):
 
     async def code_taken(self, code: str) -> bool:
         return await _code_taken(self, Brand, code)
+
+    async def get_for_assignment(self, brand_id: uuid.UUID) -> Brand | None:
+        """Read a live brand about to be given to an item, ``FOR SHARE``.
+
+        See the note above ``ManufacturerUsage``: a deactivation or retirement in
+        flight makes this wait, and the row it then returns is the committed one.
+        """
+        stmt = _locked_read(self._scoped().where(Brand.id == brand_id), share=True)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def lock_for_update(self, brand_id: uuid.UUID) -> Brand | None:
+        """Read a live brand about to change, ``FOR NO KEY UPDATE``.
+
+        Waits for any assignment of it in flight, so the "still in use?" probe
+        that follows sees that assignment's committed item.
+        """
+        stmt = _locked_read(self._scoped().where(Brand.id == brand_id), share=False)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
     def build_list_stmt(
         self,

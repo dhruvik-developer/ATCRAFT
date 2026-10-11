@@ -168,6 +168,15 @@ What the products service does enforce:
   deactivated or retired while a live item carries it; a manufacturer, while a
   live item, a live item-vendor link or a live brand names it. "Live" is
   `deleted_at IS NULL` — an inactive item still shows its brand.
+* **Assignment and retirement are serialised on the master row.** Both are
+  check-then-act, and the foreign key cannot referee them: its check takes
+  `FOR KEY SHARE`, which an `UPDATE` of `is_active` or `deleted_at` does not
+  conflict with. So an assignment reads the brand or maker `FOR SHARE` and a
+  deactivation or retirement reads it `FOR NO KEY UPDATE`; whichever arrives
+  second waits, then decides on the first one's committed result. Without that,
+  a deactivation's "still in use?" probe cannot see an item whose INSERT has not
+  committed, and the item lands carrying a value nothing offers
+  (`tests/integration/test_brand_manufacturer_concurrency.py`).
 * **Codes are never reused**, retired rows included (`docs/assumptions.md`
   §A1-1).
 

@@ -1199,10 +1199,14 @@ async def _require_brand(
     simply not found, and is reported exactly as a missing one is. An inactive
     or archived brand is refused on the way in; an item that already carries a
     brand keeps it (the brand cannot be retired while it does).
+
+    Read ``FOR SHARE``, so a deactivation or retirement of the same brand that
+    is still in flight is waited for rather than read around - see
+    ``BrandRepository.get_for_assignment``.
     """
     if brand_id is None:
         return
-    brand = await BrandRepository(session, tenant).get(brand_id)
+    brand = await BrandRepository(session, tenant).get_for_assignment(brand_id)
     if brand is None:
         raise NotFoundError(BRAND_ENTITY, brand_id)
     if not brand.is_active:
@@ -1215,10 +1219,13 @@ async def _require_brand(
 async def _require_manufacturer(
     session: AsyncSession, tenant: TenantContext, manufacturer_id: uuid.UUID | None
 ) -> None:
-    """Refuse a manufacturer that is not this tenant's, or that has been retired."""
+    """Refuse a manufacturer that is not this tenant's, or that has been retired.
+
+    Read ``FOR SHARE`` for the reason ``_require_brand`` gives.
+    """
     if manufacturer_id is None:
         return
-    manufacturer = await ManufacturerRepository(session, tenant).get(manufacturer_id)
+    manufacturer = await ManufacturerRepository(session, tenant).get_for_assignment(manufacturer_id)
     if manufacturer is None:
         raise NotFoundError(MANUFACTURER_ENTITY, manufacturer_id)
     if not manufacturer.is_active:
@@ -1793,6 +1800,29 @@ async def _record_lifecycle_move(
     )
 
 
+async def _locked_manufacturer(
+    repo: ManufacturerRepository, manufacturer_id: uuid.UUID
+) -> Manufacturer:
+    """The live maker, row-locked for a change, or "not found".
+
+    Locked before anything is decided, so an assignment of it still in flight is
+    waited for and the "still in use?" probe below sees its committed rows -
+    see ``ManufacturerRepository.lock_for_update``.
+    """
+    manufacturer = await repo.lock_for_update(manufacturer_id)
+    if manufacturer is None:
+        raise NotFoundError(MANUFACTURER_ENTITY, manufacturer_id)
+    return manufacturer
+
+
+async def _locked_brand(repo: BrandRepository, brand_id: uuid.UUID) -> Brand:
+    """The live brand, row-locked for a change, or "not found" - as above."""
+    brand = await repo.lock_for_update(brand_id)
+    if brand is None:
+        raise NotFoundError(BRAND_ENTITY, brand_id)
+    return brand
+
+
 async def _refuse_if_manufacturer_in_use(
     repo: ManufacturerRepository, manufacturer: Manufacturer, *, doing: str
 ) -> None:
@@ -1859,7 +1889,7 @@ async def update_manufacturer(
     repo = ManufacturerRepository(session, tenant)
 
     async with transaction(session):
-        manufacturer = await repo.get_or_404(manufacturer_id)
+        manufacturer = await _locked_manufacturer(repo, manufacturer_id)
         before = snapshot(manufacturer, MANUFACTURER_AUDITED_FIELDS)
         current, target = _target_state(MANUFACTURER_LIFECYCLE, manufacturer, changes)
         if target is MasterLifecycleState.INACTIVE:
@@ -1903,7 +1933,7 @@ async def delete_manufacturer(
     repo = ManufacturerRepository(session, tenant)
 
     async with transaction(session):
-        manufacturer = await repo.get_or_404(manufacturer_id)
+        manufacturer = await _locked_manufacturer(repo, manufacturer_id)
         current = master_state(manufacturer)
         MANUFACTURER_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
         await _refuse_if_manufacturer_in_use(repo, manufacturer, doing="retired")
@@ -1983,7 +2013,7 @@ async def update_brand(
     repo = BrandRepository(session, tenant)
 
     async with transaction(session):
-        brand = await repo.get_or_404(brand_id)
+        brand = await _locked_brand(repo, brand_id)
         before = snapshot(brand, BRAND_AUDITED_FIELDS)
         current, target = _target_state(BRAND_LIFECYCLE, brand, changes)
         if target is MasterLifecycleState.INACTIVE:
@@ -2032,7 +2062,7 @@ async def delete_brand(
     repo = BrandRepository(session, tenant)
 
     async with transaction(session):
-        brand = await repo.get_or_404(brand_id)
+        brand = await _locked_brand(repo, brand_id)
         current = master_state(brand)
         BRAND_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
         await _refuse_if_brand_in_use(repo, brand, doing="retired")

@@ -246,6 +246,9 @@ class _Result:
     def scalar(self) -> Any:
         return self.row
 
+    def scalar_one_or_none(self) -> Any:
+        return self.row
+
     def one(self) -> Any:
         return self.row
 
@@ -308,6 +311,38 @@ class TestInUseProbes:
         params = session.statements[0].compile(dialect=postgresql.dialect()).params
         assert tenant.company_id in params.values()
         assert brand_id in params.values()
+
+    @pytest.mark.parametrize("repository", [BrandRepository, ManufacturerRepository])
+    async def test_an_assignment_and_a_lifecycle_change_take_conflicting_row_locks(
+        self, tenant: TenantContext, repository: Any
+    ) -> None:
+        """The two locks that serialise "assign it" against "retire it".
+
+        An assignment reads FOR SHARE and a deactivation or retirement reads FOR
+        NO KEY UPDATE; PostgreSQL makes those two wait for each other. Neither
+        may be FOR KEY SHARE - that is what the foreign-key check already takes,
+        and an UPDATE of a non-key column does not conflict with it, which is the
+        race. The behaviour itself is proven against two real backends in
+        tests/integration/test_brand_manufacturer_concurrency.py.
+        """
+        session = _Session(row=None)
+        repo = repository(session, tenant)
+        record_id = uuid.uuid4()
+
+        assert await repo.get_for_assignment(record_id) is None
+        assert await repo.lock_for_update(record_id) is None
+
+        assigning, changing = (_sql(statement) for statement in session.statements)
+        assert assigning.endswith("FOR SHARE")
+        assert changing.endswith("FOR NO KEY UPDATE")
+        for sql in (assigning, changing):
+            # Tenant-scoped and live-only, like every other read of the master.
+            assert ".company_id = " in sql
+            assert ".deleted_at IS NULL" in sql
+        for statement in session.statements:
+            # A real re-read: without it a session that already holds the row
+            # gets its stale copy back and the lock's answer is discarded.
+            assert statement.get_execution_options().get("populate_existing") is True
 
     def test_a_refusal_can_say_what_still_names_the_maker(self) -> None:
         nothing = ManufacturerUsage(items=False, vendor_links=False, brands=False)
