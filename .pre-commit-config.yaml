@@ -32,24 +32,44 @@ exclude: |
 
 repos:
   # --- file hygiene ---------------------------------------------------------
+  # Every hook here runs as `python -m pre_commit_hooks.<module>`, not through
+  # the console-script launcher pip writes into the hook environment
+  # (end-of-file-fixer.exe and friends). Windows Smart App Control refuses those
+  # unsigned launchers by reputation, and the verdict drifts: check-json.exe and
+  # end-of-file-fixer.exe were allowed one hour and blocked the next, so commits
+  # failed with WinError 4551 for a reason that had nothing to do with the files.
+  # The interpreter is signed and always allowed. Same package, same version,
+  # same arguments, same result - only the launcher differs. Linux and CI are
+  # unaffected either way.
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
+        entry: python -m pre_commit_hooks.trailing_whitespace_fixer
         args: [--markdown-linebreak-ext=md]
       - id: end-of-file-fixer
+        entry: python -m pre_commit_hooks.end_of_file_fixer
       - id: mixed-line-ending
+        entry: python -m pre_commit_hooks.mixed_line_ending
         args: [--fix=lf]
         exclude: \.(ps1|bat|cmd)$
       - id: check-yaml
+        entry: python -m pre_commit_hooks.check_yaml
       - id: check-json
+        entry: python -m pre_commit_hooks.check_json
       - id: check-toml
+        entry: python -m pre_commit_hooks.check_toml
       - id: check-merge-conflict
+        entry: python -m pre_commit_hooks.check_merge_conflict
       - id: check-case-conflict
+        entry: python -m pre_commit_hooks.check_case_conflict
       - id: check-added-large-files
+        entry: python -m pre_commit_hooks.check_added_large_files
         args: [--maxkb=1024]
       - id: detect-private-key
+        entry: python -m pre_commit_hooks.detect_private_key
       - id: forbid-new-submodules
+        entry: python -m pre_commit_hooks.forbid_new_submodules
 
   - repo: local
     hooks:
