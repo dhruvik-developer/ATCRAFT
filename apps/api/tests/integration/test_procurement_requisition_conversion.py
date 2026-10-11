@@ -61,6 +61,7 @@ from src.modules.procurement.schemas import (
     RequisitionCreate,
     RequisitionFilters,
     RequisitionLineIn,
+    RequisitionUpdate,
 )
 from src.modules.procurement.service_rules import (
     RequisitionPriceSource,
@@ -806,6 +807,78 @@ class TestRefusals:
         )
         assert preview.unresolved_lines[0].vendor_id == pending.id
         assert "not approved" in preview.unresolved_lines[0].reasons[0]
+
+    async def test_an_item_deactivated_since_approval_is_a_line_to_leave_out(
+        self, db, tenant, buyer, approver, world
+    ) -> None:
+        # Approved while the lever handle was still bought in, deactivated since.
+        # The proposal must still render - the other orders, plus this one line
+        # with its reason - or the buyer has nothing on screen to leave out, and
+        # the requisition can never be converted at all.
+        requisition, lines = await three_category_requisition(db, tenant, buyer, approver, world)
+        requisition_id = requisition.id
+        lever_line_id = lines[1].id
+        lever_code = world["lever_item"].code
+        world["lever_item"].is_active = False
+        await db.flush()
+
+        preview = await service.preview_requisition_conversion(
+            db, tenant, [requisition_id], RequisitionConversionRequest()
+        )
+        assert len(preview.groups) == 2
+        (unresolved,) = preview.unresolved_lines
+        assert unresolved.requisition_line_id == lever_line_id
+        assert unresolved.item_code == lever_code
+        assert any("inactive" in reason for reason in unresolved.reasons)
+
+        with pytest.raises(BusinessRuleError) as refused:
+            await service.convert_requisitions_to_orders(
+                db, tenant, buyer, [requisition_id], RequisitionConversionRequest()
+            )
+        # Plain ids from here on: the refusal rolled its savepoint back.
+        assert refused.value.details["unresolved_lines"][0]["requisition_line_id"] == str(
+            lever_line_id
+        )
+
+        result = await service.convert_requisitions_to_orders(
+            db,
+            tenant,
+            buyer,
+            [requisition_id],
+            RequisitionConversionRequest(
+                lines=[
+                    RequisitionConversionLineOverride(
+                        requisition_line_id=lever_line_id, exclude=True
+                    )
+                ]
+            ),
+        )
+        assert len(result.groups) == 2
+        assert result.unresolved_lines == []
+        detail = await service.get_requisition_detail(db, tenant, requisition_id)
+        assert detail.status is RequisitionStatus.CONVERTED
+        left_open = next(row for row in detail.lines if row.id == lever_line_id)
+        assert left_open.ordered_quantity == 0
+
+    async def test_an_item_retired_since_approval_is_still_named(
+        self, db, tenant, buyer, approver, world
+    ) -> None:
+        # A retired item is absent from the purchasable-item read; the line must
+        # still say which item it was, not fail the proposal with a bare 404.
+        requisition, lines = await three_category_requisition(db, tenant, buyer, approver, world)
+        box_line_id = lines[2].id
+        box_code = world["box_item"].code
+        world["box_item"].deleted_at = utcnow()
+        await db.flush()
+
+        preview = await service.preview_requisition_conversion(
+            db, tenant, [requisition.id], RequisitionConversionRequest()
+        )
+        assert len(preview.groups) == 2
+        (unresolved,) = preview.unresolved_lines
+        assert unresolved.requisition_line_id == box_line_id
+        assert unresolved.item_code == box_code
+        assert any("retired" in reason for reason in unresolved.reasons)
 
     async def test_a_requisition_that_is_not_approved_is_refused(
         self, db, tenant, buyer, world
@@ -1601,6 +1674,53 @@ class TestSourceLinks:
                     department_id=foreign.id,
                     lines=[line(1, world["box_item"], "5", "15")],
                 ),
+            )
+
+    async def test_a_suggested_vendor_must_be_one_of_this_tenants(
+        self, db, tenant, other_tenant, buyer, world
+    ) -> None:
+        # The split reads the suggestion as a vendor source, so a foreign id is
+        # refused where it is typed - on raising and on amending the draft.
+        foreign_id = (await _approved_vendor(db, other_tenant, "Elsewhere Supplies")).id
+        warehouse_id = world["warehouse"].id
+        box_id = world["box_item"].id
+        kraft_id = world["kraft"].id
+
+        def suggesting(vendor_id: uuid.UUID) -> RequisitionLineIn:
+            return RequisitionLineIn(
+                line_number=1,
+                item_id=box_id,
+                quantity=Decimal("5"),
+                estimated_unit_price=Decimal("15"),
+                suggested_vendor_id=vendor_id,
+            )
+
+        with pytest.raises(NotFoundError):
+            await service.create_requisition(
+                db,
+                tenant,
+                buyer,
+                RequisitionCreate(
+                    required_date=today() + timedelta(days=7),
+                    warehouse_id=warehouse_id,
+                    lines=[suggesting(foreign_id)],
+                ),
+            )
+
+        draft, _ = await service.create_requisition(
+            db,
+            tenant,
+            buyer,
+            RequisitionCreate(
+                required_date=today() + timedelta(days=7),
+                warehouse_id=warehouse_id,
+                lines=[suggesting(kraft_id)],
+            ),
+        )
+        draft_id = draft.id
+        with pytest.raises(NotFoundError):
+            await service.update_requisition(
+                db, tenant, draft_id, RequisitionUpdate(lines=[suggesting(foreign_id)])
             )
 
     async def test_a_foreign_branch_on_an_order_is_not_found(

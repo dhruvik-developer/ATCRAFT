@@ -355,6 +355,22 @@ class PurchasableItemRepository(BaseRepository[Item]):
             for row in rows
         }
 
+    async def codes(self, item_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+        """Item id -> code, retired items included. One statement.
+
+        :meth:`load` leaves a retired item out, which is right for anything that
+        orders it. A document that already names one - an approved requisition
+        whose item was retired since - still has to be able to say which item
+        that was, so the buyer can see the line and leave it out.
+        """
+        if not item_ids:
+            return {}
+        stmt = select(Item.id, Item.code).where(
+            Item.company_id == self.tenant.company_id,
+            Item.id.in_(list(dict.fromkeys(item_ids))),
+        )
+        return {row.id: row.code for row in (await self.session.execute(stmt)).all()}
+
 
 class ItemCategoryLookupRepository(BaseRepository[ItemCategory]):
     """Batched reads of the item category tree: labels and materialised paths.

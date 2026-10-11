@@ -586,6 +586,34 @@ async def _assert_organisation(
         raise NotFoundError("Department", department_id)
 
 
+async def _assert_suggested_vendors(
+    session: AsyncSession, tenant: TenantContext, lines: Sequence[RequisitionLineIn]
+) -> None:
+    """A vendor a requisition line suggests must be a live vendor of this tenant.
+
+    The requisition split reads the suggestion as its second vendor source
+    (docs/assumptions.md §C0-2), and a foreign key to ``vendors.id`` is
+    satisfied by another company's vendor - so the tenant check is made here,
+    once, in one statement. Approval is not required: a suggestion is the
+    requester's hint, and the conversion checks the vendor can take orders when
+    it acts on it.
+    """
+    named = sorted(
+        {line.suggested_vendor_id for line in lines if line.suggested_vendor_id is not None},
+        key=str,
+    )
+    if not named:
+        return
+    known = await VendorLookupRepository(session, tenant).load(named)
+    missing = [
+        str(vendor_id)
+        for vendor_id in named
+        if vendor_id not in known or known[vendor_id].is_archived
+    ]
+    if missing:
+        raise NotFoundError("Vendor", ", ".join(missing))
+
+
 async def _lock_requisition_sources(
     session: AsyncSession, tenant: TenantContext, requisition_line_ids: Iterable[uuid.UUID]
 ) -> tuple[dict[uuid.UUID, PurchaseRequisition], dict[uuid.UUID, PurchaseRequisitionLine]]:
@@ -1017,6 +1045,7 @@ async def _create_requisition(
         )
         items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
         _assert_purchasable(items)
+        await _assert_suggested_vendors(session, tenant, payload.lines)
 
         requisition_date = payload.requisition_date or today()
         if payload.required_date < requisition_date:
@@ -1119,6 +1148,7 @@ async def update_requisition(
         if payload.lines is not None:
             items = await _load_items(session, tenant, [line.item_id for line in payload.lines])
             _assert_purchasable(items)
+            await _assert_suggested_vendors(session, tenant, payload.lines)
             await line_repo.delete_for_requisition(requisition.id)
             lines = [
                 _apply_requisition_line(
@@ -3462,6 +3492,25 @@ _UNRESOLVED_NO_VENDOR = (
 )
 
 
+def _unorderable_item_reasons(item: PurchasableItem | None, item_code: str) -> list[str]:
+    """Why the item on an approved requisition line can no longer be ordered, if so.
+
+    The rules a buyer's own order applies (:func:`_assert_purchasable`), stated
+    per line: a requisition approved last month can name an item retired,
+    deactivated or unflagged for purchase since. Refusing the whole proposal for
+    it would leave the buyer nothing to act on; an unresolved line is shown,
+    with this reason, and can be left out (docs/assumptions.md §C0-2).
+    """
+    if item is None:
+        return [f"Item {item_code} has been retired and can no longer be ordered."]
+    reasons: list[str] = []
+    if not item.can_purchase:
+        reasons.append(f"Item {item_code} is not flagged as purchasable.")
+    if not item.is_active:
+        reasons.append(f"Item {item_code} is inactive and cannot be ordered.")
+    return reasons
+
+
 async def _plan_conversion(
     session: AsyncSession,
     tenant: TenantContext,
@@ -3546,11 +3595,18 @@ async def _plan_conversion(
             user_names={},
         )
 
-    # Everything the rules read, one statement per entity type.
+    # Everything the rules read, one statement per entity type. The item master
+    # is read as it stands now, not as it stood at approval: an item retired,
+    # deactivated or unflagged for purchase since then makes its own line
+    # unresolved - listed with the reason, so the buyer can leave it out -
+    # instead of failing the whole proposal with no line on screen to act on.
     item_ids = [line.item_id for line, _, _ in open_lines]
-    items = await _load_items(session, tenant, item_ids)
-    _assert_purchasable(items)
-    item_category_ids = {items[i].category_id for i in item_ids}
+    item_repo = PurchasableItemRepository(session, tenant)
+    items = await item_repo.load(item_ids)
+    retired_codes = await item_repo.codes(
+        [item_id for item_id in dict.fromkeys(item_ids) if item_id not in items]
+    )
+    item_category_ids = {item.category_id for item in items.values()}
     categories = await ItemCategoryLookupRepository(session, tenant).load(
         sorted((c for c in item_category_ids if c is not None), key=str)
     )
@@ -3563,8 +3619,10 @@ async def _plan_conversion(
     )
 
     def item_lineage(item_id: uuid.UUID) -> tuple[uuid.UUID, ...]:
-        category_id = items[item_id].category_id
-        return lineages.get(category_id, ()) if category_id is not None else ()
+        item = items.get(item_id)
+        if item is None or item.category_id is None:
+            return ()
+        return lineages.get(item.category_id, ())
 
     choices = [
         resolve_line_vendor(
@@ -3599,9 +3657,12 @@ async def _plan_conversion(
         open_lines, choices, strict=True
     ):
         requisition = by_id[line.requisition_id]
-        item = items[line.item_id]
+        item = items.get(line.item_id)
+        item_code = (
+            item.code if item is not None else retired_codes.get(line.item_id, str(line.item_id))
+        )
         vendor = vendors.get(vendor_id) if vendor_id is not None else None
-        reasons: list[str] = []
+        reasons = _unorderable_item_reasons(item, item_code)
         if vendor_id is None:
             reasons.append(_UNRESOLVED_NO_VENDOR)
         elif vendor is None:
@@ -3617,7 +3678,7 @@ async def _plan_conversion(
             reasons.append(
                 "No price: none was named, the requisition line has no estimate, and "
                 + (
-                    f"vendor {vendor.code} has no last purchase price for {item.code}."
+                    f"vendor {vendor.code} has no last purchase price for {item_code}."
                     if vendor is not None
                     else "there is no vendor to take a last purchase price from."
                 )
@@ -3635,8 +3696,8 @@ async def _plan_conversion(
                     requisition_code=requisition.code,
                     requisition_line_id=line.id,
                     line_number=line.line_number,
-                    item_id=item.id,
-                    item_code=item.code,
+                    item_id=line.item_id,
+                    item_code=item_code,
                     vendor_id=vendor_id,
                     reasons=reasons,
                 )

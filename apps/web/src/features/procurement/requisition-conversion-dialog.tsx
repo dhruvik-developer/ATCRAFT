@@ -851,9 +851,11 @@ function ProposedLine({
 /**
  * Lines the API cannot convert, each with every reason and a way to fix it here.
  *
- * Both causes are things the buyer can supply on the spot - a vendor, or a
- * price - or the line can be left out for later. Until each one is dealt with
- * the API refuses the whole conversion, so Raise stays disabled.
+ * A missing vendor or price is something the buyer can supply on the spot. An
+ * item retired, deactivated or no longer purchasable since the requisition was
+ * approved is not, and that line can only be left out - it stays open on the
+ * requisition. Until each one is dealt with the API refuses the whole
+ * conversion, so Raise stays disabled.
  */
 function UnresolvedLines({
   lines,
@@ -880,8 +882,8 @@ function UnresolvedLines({
             : `${lines.length} lines cannot be converted yet`}
         </h3>
         <p className="text-xs text-muted-foreground">
-          Name a vendor or a price, or leave the line out. Nothing is raised while any line is
-          unresolved.
+          Name a vendor or a price where that is what is missing, or leave the line out - it stays
+          open on the requisition. Nothing is raised while any line is unresolved.
         </p>
       </header>
       <ul className="divide-y divide-destructive/20">

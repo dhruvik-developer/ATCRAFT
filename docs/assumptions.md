@@ -922,10 +922,13 @@ override, the requisition line's `suggested_vendor_id`, the item's preferred
 `item_vendor_links` row, and the preferred `vendor_categories` row of the item's
 category or its nearest ancestor that has one. The vendor must also pass
 `can_receive_purchase_orders`. A line with no vendor, an archived vendor, a vendor
-not approved for orders, or no price (§C0-3) is *unresolved*, and if any line is
-unresolved the whole conversion is refused - nothing is written - with every
-unresolved line and every reason listed. The preview reports the same lines
-without refusing.
+not approved for orders, no price (§C0-3), or an item retired, deactivated or no
+longer flagged purchasable since the requisition was approved is *unresolved*,
+and if any line is unresolved the whole conversion is refused - nothing is
+written - with every unresolved line and every reason listed. The preview reports
+the same lines without refusing, so each can be fixed or left out on screen. A
+vendor a requisition line suggests must be a live vendor of the tenant when the
+line is typed; the foreign key alone would accept another company's.
 
 **Why.** The person closest to the decision wins: a buyer overriding at
 conversion time knows something the master data does not, and a requester who
@@ -935,7 +938,8 @@ accident - the buyer can exclude a line deliberately, which leaves it open.
 
 **Where.** `src/modules/procurement/service_rules.py` - `resolve_line_vendor`,
 `preferred_category_vendor`; `src/modules/procurement/service.py` -
-`_plan_conversion`, `convert_requisitions_to_orders`.
+`_plan_conversion`, `_unorderable_item_reasons`, `convert_requisitions_to_orders`,
+`_assert_suggested_vendors`.
 
 **Impact if wrong.** If the resolvable lines should be raised and the rest left
 open, `convert_requisitions_to_orders` stops refusing on `plan.unresolved` and the
