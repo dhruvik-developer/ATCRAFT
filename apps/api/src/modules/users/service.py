@@ -5,10 +5,11 @@ What this module is responsible for, and why each rule exists:
 * **Permission resolution has one definition.**
   :func:`resolve_effective_permissions` computes role permissions plus direct
   grants minus direct denials, skipping inactive and retired roles. It is a pure
-  function over already-loaded data and it deliberately mirrors
-  ``src.core.deps._resolve_permissions`` exactly: the permission set an
-  administrator is shown must be the same set the request path will enforce a
-  moment later, or the screen is lying. Both are unit-tested against each other.
+  function over already-loaded data, and it and ``src.core.deps._resolve_permissions``
+  both call :func:`src.core.permissions.resolve_role_grants`: the permission set
+  an administrator is shown must be the same set the request path will enforce a
+  moment later, or the screen is lying. Both are still unit-tested against each
+  other.
 * **Privilege escalation is structurally impossible.**
   :func:`assert_can_grant` refuses to let anybody hand out authority they do not
   themselves hold. It guards role creation, role permission edits, per-user
@@ -60,7 +61,13 @@ from src.core.errors import (
 from src.core.logging import get_logger
 from src.core.messages import NO_FIELDS_TO_UPDATE
 from src.core.pagination import PageParams, SortParams
-from src.core.permissions import ALL_PERMISSIONS, PERMISSION_GROUPS, Permission, group_for
+from src.core.permissions import (
+    ALL_PERMISSIONS,
+    PERMISSION_GROUPS,
+    Permission,
+    group_for,
+    resolve_role_grants,
+)
 from src.core.responses import OffsetPagination
 from src.core.security import hash_password, validate_password_policy
 from src.core.state_machine import StateMachine, Transition
@@ -355,13 +362,14 @@ def resolve_effective_permissions(
     the check (``Principal.has``), not a stored permission set, and pretending
     otherwise would make this function disagree with the request path for the
     one account where being wrong matters most.
+
+    The fold is :func:`~src.core.permissions.resolve_role_grants` - the same
+    function ``src.core.deps._resolve_permissions`` calls - so the screen and the
+    request path share one definition rather than two that are tested against
+    each other.
     """
-    granted: set[str] = set()
-    for role in usable_roles(roles):
-        granted.update(role.permissions or [])
-    granted.update(extra_permissions or [])
-    granted.difference_update(denied_permissions or [])
-    return frozenset(granted)
+    granted, _ = resolve_role_grants(roles, extra_permissions, denied_permissions)
+    return granted
 
 
 def holds_super_admin(is_superuser: bool, roles: Iterable[RoleView]) -> bool:
@@ -791,6 +799,7 @@ class UserService:
                 vendor_id=payload.vendor_id,
             )
             self._assert_scope_is_meaningful(payload.vendor_id, payload.allowed_category_ids)
+            await self._assert_category_scope(payload.vendor_id, payload.allowed_category_ids)
 
             roles = await self._load_assignable_roles(payload.role_ids)
             assert_vendor_role_consistency(payload.vendor_id, roles)
@@ -933,6 +942,11 @@ class UserService:
             # legal - in both directions.
             assert_vendor_role_consistency(user.vendor_id, roles)
             self._assert_scope_is_meaningful(user.vendor_id, user.allowed_category_ids)
+            # Only when this edit touches the scope or the vendor: a stored scope
+            # that has since drifted (a qualification revoked) must not block an
+            # unrelated edit to the person's phone number.
+            if "allowed_category_ids" in changes or "vendor_id" in changes:
+                await self._assert_category_scope(user.vendor_id, user.allowed_category_ids)
 
             # An empty list means "no restriction" and is stored as NULL, so the
             # two encodings never coexist.
@@ -1346,6 +1360,33 @@ class UserService:
                 "Category restrictions apply to vendor-portal accounts only. "
                 "Set a vendor on this account, or clear the category list.",
                 details={"allowed_category_ids": [str(c) for c in allowed_category_ids]},
+            )
+
+    async def _assert_category_scope(
+        self, vendor_id: uuid.UUID | None, allowed_category_ids: Sequence[uuid.UUID] | None
+    ) -> None:
+        """A vendor user's categories: live categories of this tenant the vendor supplies.
+
+        A UUID foreign key is not a tenant check (an array column carries no
+        foreign key at all), and a scope naming a category the vendor is not
+        qualified for promises the manager orders that will never be raised on
+        that vendor. ``vendor_categories`` is the scoping table its own model
+        describes; this is where that subset rule is enforced.
+        """
+        if not allowed_category_ids or vendor_id is None:
+            return
+        requested = list(dict.fromkeys(allowed_category_ids))
+        live = await self.repo.live_category_ids(requested)
+        missing = [str(c) for c in requested if c not in live]
+        if missing:
+            raise NotFoundError("Item category", ", ".join(missing))
+        qualified = await self.repo.vendor_category_ids(vendor_id)
+        outside = [str(c) for c in requested if c not in qualified]
+        if outside:
+            raise BusinessRuleError(
+                "A vendor user can only be limited to item categories the vendor is qualified to "
+                "supply. Qualify the vendor for these categories first, or leave them out.",
+                details={"allowed_category_ids": outside},
             )
 
     def _assert_not_self(self, user: User, action: str) -> None:

@@ -161,3 +161,98 @@ def test_editing_and_submitting_an_order_are_buyer_only(method: str, path: str) 
 def test_the_vendor_side_actions_stay_reachable_from_the_portal(method: str, path: str) -> None:
     """These are protected by the repository scope, not by shutting the door."""
     assert forbid_vendor_users not in _dependency_callables(_route(method, path))
+
+
+# -----------------------------------------------------------------------------
+# What a vendor sees of its own orders: sent ones, in its categories
+# -----------------------------------------------------------------------------
+
+
+def _scoped_sql(tenant: TenantContext) -> str:
+    repo = PurchaseOrderRepository(_Session(), tenant)  # type: ignore[arg-type]
+    return _sql(repo._scoped())
+
+
+def test_a_vendor_sees_only_orders_it_has_been_sent() -> None:
+    """A draft is the buyer's working state, with prices nobody has approved."""
+    sql = _scoped_sql(_tenant(uuid.uuid4()))
+    assert "purchase_orders.status IN" in sql
+    # CANCELLED only once it had been sent.
+    assert "purchase_orders.sent_at IS NOT NULL" in sql
+
+
+def test_the_visible_statuses_are_sent_and_everything_after_it() -> None:
+    from src.modules.procurement.models import VENDOR_VISIBLE_PO_STATUSES, PurchaseOrderStatus
+
+    assert set(VENDOR_VISIBLE_PO_STATUSES) == {
+        PurchaseOrderStatus.SENT,
+        PurchaseOrderStatus.ACKNOWLEDGED,
+        PurchaseOrderStatus.PARTIALLY_RECEIVED,
+        PurchaseOrderStatus.RECEIVED,
+        PurchaseOrderStatus.QC_PENDING,
+        PurchaseOrderStatus.QC_COMPLETED,
+        PurchaseOrderStatus.GRN_COMPLETED,
+        PurchaseOrderStatus.INVOICED,
+        PurchaseOrderStatus.PAID,
+        PurchaseOrderStatus.CLOSED,
+    }
+    hidden = set(PurchaseOrderStatus) - set(VENDOR_VISIBLE_PO_STATUSES)
+    assert hidden == {
+        PurchaseOrderStatus.DRAFT,
+        PurchaseOrderStatus.PENDING_APPROVAL,
+        PurchaseOrderStatus.APPROVED,
+        PurchaseOrderStatus.REJECTED,
+        PurchaseOrderStatus.CANCELLED,
+    }
+
+
+def test_a_category_scoped_vendor_user_sees_its_subtrees_or_what_is_assigned_to_it() -> None:
+    lock_body = uuid.uuid4()
+    tenant = TenantContext(
+        company_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        vendor_id=uuid.uuid4(),
+        allowed_category_ids=(lock_body,),
+    )
+    sql = _scoped_sql(tenant)
+    assert "item_categories.path LIKE" in sql
+    assert "purchase_orders.assigned_vendor_user_id = " in sql
+    compiled = (
+        PurchaseOrderRepository(_Session(), tenant)
+        ._scoped()
+        .compile(  # type: ignore[arg-type]
+            dialect=postgresql.dialect()
+        )
+    )
+    assert f"%/{lock_body}/%" in compiled.params.values()
+
+
+def test_an_unrestricted_vendor_user_has_no_category_clause() -> None:
+    """Empty means every category of the vendor - the documented contract."""
+    where = _scoped_sql(_tenant(uuid.uuid4())).split("WHERE", 1)[1]
+    assert "item_categories" not in where
+    assert "assigned_vendor_user_id" not in where
+
+
+def test_an_internal_user_has_neither_the_status_nor_the_category_clause() -> None:
+    where = _scoped_sql(_tenant(None)).split("WHERE", 1)[1]
+    assert "purchase_orders.status IN" not in where
+    assert "item_categories" not in where
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", "/procurement/purchase-orders/check-duplicates"),
+        ("POST", "/procurement/purchase-requisitions/conversion-preview"),
+        ("POST", "/procurement/purchase-requisitions/convert-to-orders"),
+        ("POST", "/procurement/purchase-requisitions/{requisition_id}/conversion-preview"),
+        ("POST", "/procurement/purchase-requisitions/{requisition_id}/convert-to-orders"),
+        ("GET", "/procurement/purchase-orders/{order_id}/vendor-assignees"),
+    ],
+)
+def test_the_buyer_side_conversion_and_lookup_routes_refuse_vendor_accounts(
+    method: str, path: str
+) -> None:
+    """``check-duplicates`` answered with other vendors' open orders (T2)."""
+    assert forbid_vendor_users in _dependency_callables(_route(method, path))

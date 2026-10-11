@@ -393,3 +393,89 @@ def test_the_refusal_carries_the_candidates_and_their_actions():
     reported = error.details["candidates"][0]
     assert reported["recommended_action"] in reported["available_actions"]
     assert reported["match_reasons"]
+
+
+# -----------------------------------------------------------------------------
+# Same pending requisition line ("same pending PR")
+# -----------------------------------------------------------------------------
+
+
+def _with_requisition_line(candidate: CandidateInput, line_id: uuid.UUID | None) -> CandidateInput:
+    from dataclasses import replace
+
+    return replace(candidate, requisition_line_id=line_id)
+
+
+def test_claiming_the_same_requisition_line_is_an_exact_duplicate():
+    """An order raised from several requisitions has no single header source, so
+    only the line link can see that an open order already covers this exact line."""
+    line = uuid.uuid4()
+    result = classify(
+        _with_requisition_line(make_candidate(), line),
+        requisition_line_id=line,
+    )
+    assert result is not None
+    assert result.confidence is DuplicateConfidence.EXACT
+    assert "Both cover the same pending requisition line" in result.match_reasons
+
+
+def test_the_same_requisition_line_overrides_the_date_window():
+    line = uuid.uuid4()
+    far_off = REQUIRED + timedelta(days=DUPLICATE_REQUIRED_DATE_WINDOW_DAYS + 30)
+    result = classify(
+        _with_requisition_line(make_candidate(required_date=far_off), line),
+        requisition_line_id=line,
+    )
+    assert result is not None
+    assert result.confidence is DuplicateConfidence.EXACT
+
+
+def test_the_same_requisition_line_recommends_cancelling_like_the_same_source():
+    line = uuid.uuid4()
+    result = classify(
+        _with_requisition_line(make_candidate(status=PurchaseOrderStatus.SENT), line),
+        requisition_line_id=line,
+    )
+    assert result is not None
+    assert result.recommended_action is DuplicateAction.CANCEL_DUPLICATE
+
+
+def test_different_requisition_lines_are_not_a_signal():
+    result = classify(
+        _with_requisition_line(make_candidate(status=PurchaseOrderStatus.SENT), uuid.uuid4()),
+        requisition_line_id=uuid.uuid4(),
+    )
+    assert result is not None
+    assert result.confidence is DuplicateConfidence.POSSIBLE
+
+
+def test_no_proposed_requisition_line_never_matches_an_unlinked_candidate():
+    """Two order lines that both have *no* requisition line share nothing."""
+    far_off = REQUIRED + timedelta(days=DUPLICATE_REQUIRED_DATE_WINDOW_DAYS + 1)
+    assert classify(_with_requisition_line(make_candidate(required_date=far_off), None)) is None
+
+
+def test_the_requisition_line_does_not_override_the_vendor_item_or_warehouse():
+    line = uuid.uuid4()
+    for candidate in (
+        make_candidate(vendor_id=OTHER_VENDOR),
+        make_candidate(item_id=OTHER_ITEM),
+        make_candidate(warehouse_id=OTHER_WAREHOUSE),
+    ):
+        assert classify(_with_requisition_line(candidate, line), requisition_line_id=line) is None
+
+
+def test_classify_candidates_passes_the_requisition_line_through():
+    line = uuid.uuid4()
+    far_off = REQUIRED + timedelta(days=DUPLICATE_REQUIRED_DATE_WINDOW_DAYS + 30)
+    found = classify_candidates(
+        [_with_requisition_line(make_candidate(required_date=far_off), line)],
+        vendor_id=VENDOR,
+        item_id=ITEM,
+        warehouse_id=WAREHOUSE,
+        required_date=REQUIRED,
+        source_type=None,
+        source_id=None,
+        requisition_line_id=line,
+    )
+    assert [c.confidence for c in found] == [DuplicateConfidence.EXACT]

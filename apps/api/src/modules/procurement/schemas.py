@@ -48,6 +48,11 @@ from src.modules.procurement.models import (
     RequisitionStatus,
     RfqStatus,
 )
+from src.modules.procurement.service_rules import (
+    RequisitionPriceSource,
+    RequisitionVendorSource,
+    VendorAssigneeReason,
+)
 
 # --- reusable constrained scalars --------------------------------------------
 
@@ -205,6 +210,18 @@ class RequisitionDetail(RequisitionSummary):
     lines: list[RequisitionLineRead] = Field(default_factory=list)
 
 
+class RequisitionListRow(RequisitionSummary):
+    """A requisition as the list shows it.
+
+    ``open_line_count`` is how many of its lines still have quantity to order -
+    live lines whose ordered quantity is short of the requested one - so the
+    list can offer "Raise purchase orders" only where there is something left
+    to raise. Counted for the whole page in one grouped statement.
+    """
+
+    open_line_count: int
+
+
 class RequisitionFilters(BaseModel):
     search: str | None = None
     status: RequisitionStatus | None = None
@@ -212,6 +229,9 @@ class RequisitionFilters(BaseModel):
     department_id: uuid.UUID | None = None
     item_id: uuid.UUID | None = None
     open_only: bool = False
+    #: APPROVED or CONVERTED with at least one line still to order - what the
+    #: batch conversion picker lists.
+    convertible_only: bool = False
     required_from: date | None = None
     required_to: date | None = None
 
@@ -720,6 +740,9 @@ class PurchaseOrderSummary(BaseModel):
     source_type: PurchaseSourceType
     source_id: uuid.UUID | None
     assigned_vendor_user_id: uuid.UUID | None
+    #: The procurement category the order was raised for, or ``None`` when its
+    #: lines span several. Derived by the service, never accepted from a client.
+    item_category_id: uuid.UUID | None
     version: int
     created_at: datetime
 
@@ -738,6 +761,12 @@ class PurchaseOrderDetail(PurchaseOrderSummary):
     courier_name: str | None
     tracking_reference: str | None
     shipped_at: datetime | None
+    #: Labels for ``item_category_id`` and ``assigned_vendor_user_id``, filled
+    #: by the service so a buyer without ``category.view`` or ``user.view`` can
+    #: still read who and what the order is for.
+    item_category_code: str | None = None
+    item_category_name: str | None = None
+    assigned_vendor_user_name: str | None = None
     lines: list[PurchaseOrderLineRead] = Field(default_factory=list)
 
 
@@ -747,6 +776,8 @@ class PurchaseOrderFilters(BaseModel):
     vendor_id: uuid.UUID | None = None
     warehouse_id: uuid.UUID | None = None
     item_id: uuid.UUID | None = None
+    #: Orders raised for this category or any category beneath it.
+    item_category_id: uuid.UUID | None = None
     open_only: bool = False
     overdue_only: bool = False
     source_type: PurchaseSourceType | None = None
@@ -821,6 +852,9 @@ class DuplicateCheckLine(BaseModel):
 
     item_id: uuid.UUID
     required_date: date | None = None
+    #: The pending requisition line the order line would satisfy. An open order
+    #: already claiming the same line is an EXACT duplicate.
+    requisition_line_id: uuid.UUID | None = None
 
 
 class DuplicateCheckRequest(BaseModel):
@@ -864,6 +898,186 @@ class DuplicateCheckResult(BaseModel):
     candidates: list[DuplicateCandidateRead]
     #: True when creating the order would be refused without an acknowledgement.
     requires_acknowledgement: bool
+
+
+# --- requisition to purchase orders: the category-wise split -------------------
+
+#: A batch conversion names at most this many requisitions. MRP raises one
+#: single-line requisition per suggestion, so converting a planning run's
+#: purchases is the batch form's whole purpose; the bound keeps the one
+#: transaction that locks them all short.
+MAX_REQUISITIONS_PER_CONVERSION = 50
+
+
+class RequisitionConversionLineOverride(BaseModel):
+    """The buyer's correction to how one requisition line is converted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    requisition_line_id: uuid.UUID
+    #: Buy this line from this vendor instead of the resolved one.
+    vendor_id: uuid.UUID | None = None
+    unit_price: NonNegativeUnitPrice | None = None
+    #: Defaults to what is still to order: quantity less ordered quantity. May
+    #: exceed it - a vendor's minimum order rounds the buy upwards.
+    quantity: PositiveQuantity | None = None
+    #: Leave this line out of the conversion; it stays open on the requisition.
+    exclude: bool = False
+
+
+class RequisitionConversionRequest(BaseModel):
+    """How to turn approved requisitions into purchase orders.
+
+    Every header field applies to every order the conversion raises. Nothing
+    names a vendor, a category or an assignee per order: those are resolved,
+    and the per-line overrides are how a buyer changes the resolution.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    lines: list[RequisitionConversionLineOverride] = Field(
+        default_factory=list, max_length=MAX_LINES_PER_DOCUMENT
+    )
+    po_date: date | None = None
+    #: Defaults, per order, to the earliest delivery date among its lines.
+    expected_delivery_date: date | None = None
+    #: Defaults, per order, to the most urgent priority among its requisitions.
+    priority: Priority | None = None
+    delivery_address: str | None = Field(default=None, max_length=4000)
+    terms: str | None = Field(default=None, max_length=4000)
+    notes: str | None = Field(default=None, max_length=4000)
+
+    #: As on :class:`PurchaseOrderCreate`: proceed over duplicate candidates,
+    #: which needs ``purchase_order.approve`` and a reason.
+    acknowledge_duplicates: bool = False
+    duplicate_acknowledgement_reason: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def _check_payload(self) -> RequisitionConversionRequest:
+        line_ids = [override.requisition_line_id for override in self.lines]
+        if len(set(line_ids)) != len(line_ids):
+            duplicates = sorted({str(i) for i in line_ids if line_ids.count(i) > 1})
+            raise ValueError(f"Each requisition line can be overridden once: {duplicates}")
+        acknowledgement = (self.duplicate_acknowledgement_reason or "").strip()
+        if self.acknowledge_duplicates and not acknowledgement:
+            raise ValueError(
+                "Acknowledging duplicate purchase orders requires a reason to be recorded."
+            )
+        return self
+
+
+class RequisitionBatchConversionRequest(RequisitionConversionRequest):
+    """The batch form: several approved requisitions converted together."""
+
+    requisition_ids: list[uuid.UUID] = Field(
+        min_length=1, max_length=MAX_REQUISITIONS_PER_CONVERSION
+    )
+
+    @model_validator(mode="after")
+    def _distinct_requisitions(self) -> RequisitionBatchConversionRequest:
+        if len(set(self.requisition_ids)) != len(self.requisition_ids):
+            raise ValueError("Each requisition can be named once.")
+        return self
+
+
+class RequisitionConversionLine(BaseModel):
+    """One requisition line as it will appear on the proposed order."""
+
+    requisition_id: uuid.UUID
+    requisition_code: str
+    requisition_line_id: uuid.UUID
+    line_number: int
+    item_id: uuid.UUID
+    item_code: str
+    item_name: str
+    description: str | None
+    quantity: Decimal
+    uom_id: uuid.UUID
+    required_date: date | None
+    unit_price: Decimal
+    price_source: RequisitionPriceSource
+    vendor_source: RequisitionVendorSource
+    #: Quantity times price after tax at the item's GST rate - what the line
+    #: adds to the order's total.
+    line_total: Decimal
+
+
+class RequisitionConversionGroup(BaseModel):
+    """One proposed purchase order: one vendor, one category, one warehouse."""
+
+    vendor_id: uuid.UUID
+    vendor_code: str
+    vendor_name: str
+    item_category_id: uuid.UUID | None
+    item_category_code: str | None
+    item_category_name: str | None
+    warehouse_id: uuid.UUID
+    #: The requisition the order comes from when all its lines share one;
+    #: ``None`` when a batch conversion pools several.
+    source_requisition_id: uuid.UUID | None
+    assigned_vendor_user_id: uuid.UUID | None
+    assigned_vendor_user_name: str | None
+    assignee_reason: VendorAssigneeReason
+    currency: str
+    expected_delivery_date: date | None
+    priority: int
+    subtotal: Decimal
+    tax_amount: Decimal
+    total_amount: Decimal
+    lines: list[RequisitionConversionLine]
+    #: Open orders this one would collide with (master rules section 16).
+    duplicate_candidates: list[DuplicateCandidateRead]
+    #: Filled once the order is raised; ``None`` on a preview.
+    purchase_order_id: uuid.UUID | None = None
+    purchase_order_code: str | None = None
+
+
+class RequisitionConversionUnresolvedLine(BaseModel):
+    """A line that cannot be converted, and every reason why."""
+
+    requisition_id: uuid.UUID
+    requisition_code: str
+    requisition_line_id: uuid.UUID
+    line_number: int
+    item_id: uuid.UUID
+    item_code: str
+    #: The vendor the line resolved to, when one did and something else failed.
+    vendor_id: uuid.UUID | None
+    reasons: list[str]
+
+
+class RequisitionConversionResult(BaseModel):
+    """A conversion, proposed (preview) or done (convert)."""
+
+    requisitions: list[RequisitionSummary]
+    groups: list[RequisitionConversionGroup]
+    unresolved_lines: list[RequisitionConversionUnresolvedLine]
+    #: Lines left out because nothing is left to order on them, they are
+    #: cancelled, or the buyer excluded them.
+    skipped_line_count: int
+    #: The most purchase orders one conversion may raise.
+    max_orders: int
+    #: Creating the orders would be refused without an acknowledgement.
+    requires_acknowledgement: bool
+    #: ``False`` on a preview, ``True`` once the orders exist.
+    converted: bool
+
+
+class PurchaseOrderVendorAssignee(BaseModel):
+    """A vendor user an order may be sent to - the Send dialog's picker row.
+
+    Served by procurement because the buyer choosing the assignee holds
+    ``purchase_order.send``, not ``user.view``.
+    """
+
+    id: uuid.UUID
+    full_name: str
+    email: str
+    #: The user's category scope; empty means every category of the vendor.
+    allowed_category_ids: list[uuid.UUID]
+    allowed_category_codes: list[str]
+    #: The user the assignee rule would choose if the buyer names nobody.
+    is_suggested: bool
 
 
 # --- tracking (master rules section 23) ---------------------------------------
@@ -1211,6 +1425,7 @@ class PendingApprovalFilters(BaseModel):
 
 __all__ = [
     "MAX_LINES_PER_DOCUMENT",
+    "MAX_REQUISITIONS_PER_CONVERSION",
     "AcknowledgeRequest",
     "ApproveRequest",
     "ComparisonItemRow",
@@ -1238,6 +1453,7 @@ __all__ = [
     "PurchaseOrderSummary",
     "PurchaseOrderTracking",
     "PurchaseOrderUpdate",
+    "PurchaseOrderVendorAssignee",
     "PurchaseReturnCreate",
     "PurchaseReturnDetail",
     "PurchaseReturnFilters",
@@ -1255,11 +1471,19 @@ __all__ = [
     "QuotationSummary",
     "QuotationUpdate",
     "ReasonRequest",
+    "RequisitionBatchConversionRequest",
+    "RequisitionConversionGroup",
+    "RequisitionConversionLine",
+    "RequisitionConversionLineOverride",
+    "RequisitionConversionRequest",
+    "RequisitionConversionResult",
+    "RequisitionConversionUnresolvedLine",
     "RequisitionCreate",
     "RequisitionDetail",
     "RequisitionFilters",
     "RequisitionLineIn",
     "RequisitionLineRead",
+    "RequisitionListRow",
     "RequisitionSummary",
     "RequisitionUpdate",
     "RfqCreate",

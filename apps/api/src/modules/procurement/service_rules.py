@@ -14,6 +14,7 @@ that must be exercisable, and arguable with the business, without a database.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -846,10 +847,15 @@ def recommend_action(
 
 @dataclass(frozen=True, slots=True)
 class ProposedLine:
-    """The demand being checked, as the matcher needs to see it."""
+    """The demand being checked, as the matcher needs to see it.
+
+    ``requisition_line_id`` is the pending requisition line the proposed order
+    line would satisfy, when there is one - the "same pending PR" signal.
+    """
 
     item_id: uuid.UUID
     required_date: date | None
+    requisition_line_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -872,6 +878,27 @@ class CandidateInput:
     required_date: date | None
     source_type: PurchaseSourceType
     source_id: uuid.UUID | None
+    #: The requisition line the existing order line was raised to satisfy.
+    requisition_line_id: uuid.UUID | None = None
+
+
+def same_requisition_line(
+    *,
+    candidate_requisition_line_id: uuid.UUID | None,
+    proposed_requisition_line_id: uuid.UUID | None,
+) -> bool:
+    """Whether both order lines claim the same pending requisition line.
+
+    The line-level form of :func:`same_source_demand`. A purchase order raised
+    from several requisitions carries no single header source, so the header
+    pair alone could never see that an open order already covers this exact
+    line of this exact requisition - which is the "same pending PR" rule of
+    master rules section 16.
+    """
+    return (
+        proposed_requisition_line_id is not None
+        and candidate_requisition_line_id == proposed_requisition_line_id
+    )
 
 
 def classify_candidate(
@@ -884,6 +911,7 @@ def classify_candidate(
     source_type: PurchaseSourceType | None,
     source_id: uuid.UUID | None,
     window_days: int = DUPLICATE_REQUIRED_DATE_WINDOW_DAYS,
+    requisition_line_id: uuid.UUID | None = None,
 ) -> DuplicateCandidate | None:
     """Decide whether one open line is a duplicate of the proposed demand.
 
@@ -891,7 +919,9 @@ def classify_candidate(
     section 16 - same vendor, same item, same warehouse, overlapping required
     date - all have to hold, except that naming the same source demand
     overrides the date window: two orders raised from one MRP suggestion are
-    duplicates whatever dates were typed on them.
+    duplicates whatever dates were typed on them. Claiming the same pending
+    requisition line is the same kind of signal at line level, and is EXACT
+    for the same reason.
     """
     if candidate.vendor_id != vendor_id:
         return None
@@ -906,8 +936,12 @@ def classify_candidate(
         proposed_source_type=source_type,
         proposed_source_id=source_id,
     )
+    is_same_requisition_line = same_requisition_line(
+        candidate_requisition_line_id=candidate.requisition_line_id,
+        proposed_requisition_line_id=requisition_line_id,
+    )
     in_window = dates_overlap(candidate.required_date, required_date, window_days=window_days)
-    if not in_window and not is_same_source:
+    if not in_window and not is_same_source and not is_same_requisition_line:
         return None
 
     reasons = ["Same vendor", "Same item", "Same delivery warehouse"]
@@ -919,10 +953,12 @@ def classify_candidate(
         )
     if is_same_source:
         reasons.append(f"Both raised from the same {candidate.source_type.value} demand")
+    if is_same_requisition_line:
+        reasons.append("Both cover the same pending requisition line")
     if Decimal(candidate.received_quantity) <= 0:
         reasons.append("Nothing received against the existing order yet")
 
-    if is_same_source:
+    if is_same_source or is_same_requisition_line:
         confidence = DuplicateConfidence.EXACT
     elif candidate.status in _NOT_YET_WITH_VENDOR:
         confidence = DuplicateConfidence.STRONG
@@ -935,7 +971,7 @@ def classify_candidate(
     recommended = recommend_action(
         status=candidate.status,
         received_quantity=candidate.received_quantity,
-        is_same_source=is_same_source,
+        is_same_source=is_same_source or is_same_requisition_line,
         available=available,
     )
 
@@ -977,6 +1013,7 @@ def classify_candidates(
     source_type: PurchaseSourceType | None,
     source_id: uuid.UUID | None,
     window_days: int = DUPLICATE_REQUIRED_DATE_WINDOW_DAYS,
+    requisition_line_id: uuid.UUID | None = None,
 ) -> list[DuplicateCandidate]:
     """Classify a set of open lines, strongest match first."""
     matched = [
@@ -992,6 +1029,7 @@ def classify_candidates(
                 source_type=source_type,
                 source_id=source_id,
                 window_days=window_days,
+                requisition_line_id=requisition_line_id,
             )
         )
         is not None
@@ -1246,6 +1284,376 @@ def recommendation_reason(ranked: list[RankedOffer], *, vendor_names: dict[uuid.
 
 
 # =============================================================================
+# Requisition to purchase orders: the category-wise split
+# =============================================================================
+#
+# An approved requisition becomes one purchase order per (vendor, procurement
+# category, warehouse). Every decision on the way is a rule below, so the split
+# can be argued with the business without a database: which vendor a line goes
+# to, at what price, under which category, as part of which order, and which of
+# the vendor's people the order is handed to.
+
+# ASSUMPTION: the vendor-side right that makes a vendor user someone a purchase
+# order can be assigned to is ``purchase_order.update`` - the permission the
+# portal's acknowledge and shipment actions are gated on today. Held in one
+# constant so the dedicated portal right that replaces it is a one-line change
+# (docs/assumptions.md §C0-5).
+VENDOR_PO_RESPOND_PERMISSION: Permission = Permission.PURCHASE_ORDER_UPDATE
+
+#: One conversion raises at most this many purchase orders. Each order is a
+#: bounded run of writes inside the one transaction - an advisory lock, the
+#: duplicate check, numbering, the insert, the requisition link and the audit
+#: row - so the cost grows with the group count, and twenty orders is already
+#: more than a buyer reviews on one screen. A larger split is refused, and the
+#: buyer converts fewer requisitions or excludes lines.
+MAX_ORDERS_PER_CONVERSION = 20
+
+
+class RequisitionVendorSource(StrEnum):
+    """Where a converted line's vendor came from, strongest source first."""
+
+    #: The buyer named the vendor on the conversion request.
+    OVERRIDE = "OVERRIDE"
+    #: The requester's ``suggested_vendor_id`` on the requisition line.
+    SUGGESTED = "SUGGESTED"
+    #: The item's preferred ``item_vendor_links`` row.
+    ITEM_PREFERRED = "ITEM_PREFERRED"
+    #: The preferred ``vendor_categories`` row for the item's category, or for
+    #: its nearest ancestor that has one.
+    CATEGORY_PREFERRED = "CATEGORY_PREFERRED"
+
+
+class RequisitionPriceSource(StrEnum):
+    """Where a converted line's unit price came from, strongest source first."""
+
+    OVERRIDE = "OVERRIDE"
+    #: The requester's ``estimated_unit_price`` on the requisition line.
+    ESTIMATE = "ESTIMATE"
+    #: ``item_vendor_links.last_purchase_price`` for that item and vendor.
+    LAST_PURCHASE = "LAST_PURCHASE"
+
+
+class VendorAssigneeReason(StrEnum):
+    """Why an order was - or was not - handed to a particular vendor user."""
+
+    #: Exactly one eligible user is scoped to the order's category (or to an
+    #: ancestor of it).
+    CATEGORY_MATCH = "CATEGORY_MATCH"
+    #: Several eligible users would match equally; the buyer picks at Send.
+    AMBIGUOUS = "AMBIGUOUS"
+    #: Nobody is scoped to the category, and exactly one eligible user is
+    #: unrestricted.
+    UNRESTRICTED = "UNRESTRICTED"
+    #: No eligible user can take the order.
+    NO_ELIGIBLE_USER = "NO_ELIGIBLE_USER"
+
+
+def category_lineage(path: str | None) -> tuple[uuid.UUID, ...]:
+    """A category and its ancestors, nearest first, from its materialised path.
+
+    ``item_categories.path`` is ``/<root id>/.../<own id>/``, so the lineage is
+    the path's segments read backwards - no query per level. An empty or
+    missing path is an empty lineage.
+    """
+    if not path:
+        return ()
+    return tuple(reversed([uuid.UUID(segment) for segment in path.split("/") if segment]))
+
+
+def lineage_from(
+    lineage: Sequence[uuid.UUID], category_id: uuid.UUID | None
+) -> tuple[uuid.UUID, ...]:
+    """The lineage of one member of ``lineage``: that category and what is above it."""
+    if category_id is None or category_id not in lineage:
+        return ()
+    return tuple(lineage[list(lineage).index(category_id) :])
+
+
+def resolve_procurement_category(
+    item_category_lineage: Sequence[uuid.UUID], vendor_category_ids: Collection[uuid.UUID]
+) -> uuid.UUID | None:
+    """The category a line is bought under from a given vendor.
+
+    ASSUMPTION: the nearest ancestor-or-self of the item's category that the
+    vendor is qualified for in ``vendor_categories``; when the vendor is
+    qualified for none of them, the item's own category. That is the granularity
+    the vendor is engaged at, and it is the same set the vendor's managers are
+    scoped to - so the order a manager is shown and the order they are assigned
+    can never be drawn at two different levels of the tree
+    (docs/assumptions.md §C0-1). An item with no category has none.
+    """
+    for category_id in item_category_lineage:
+        if category_id in vendor_category_ids:
+            return category_id
+    return item_category_lineage[0] if item_category_lineage else None
+
+
+def preferred_category_vendor(
+    item_category_lineage: Sequence[uuid.UUID], preferred_by_category: Mapping[uuid.UUID, uuid.UUID]
+) -> uuid.UUID | None:
+    """The preferred vendor of the item's category, or of its nearest ancestor that has one."""
+    for category_id in item_category_lineage:
+        vendor_id = preferred_by_category.get(category_id)
+        if vendor_id is not None:
+            return vendor_id
+    return None
+
+
+def resolve_line_vendor(
+    *,
+    override: uuid.UUID | None,
+    suggested: uuid.UUID | None,
+    item_preferred: uuid.UUID | None,
+    category_preferred: uuid.UUID | None,
+) -> tuple[uuid.UUID | None, RequisitionVendorSource | None]:
+    """Pick the vendor for one requisition line: the first source that names one.
+
+    ASSUMPTION: the buyer's override, then the requester's suggestion, then the
+    item's preferred vendor link, then the preferred vendor of the item's
+    category or its nearest ancestor (docs/assumptions.md §C0-2). The person
+    closest to the decision wins: a buyer overriding at conversion time knows
+    something the master data does not, and a requester who named a vendor did
+    so on purpose. ``(None, None)`` is an unresolved line.
+    """
+    for vendor_id, source in (
+        (override, RequisitionVendorSource.OVERRIDE),
+        (suggested, RequisitionVendorSource.SUGGESTED),
+        (item_preferred, RequisitionVendorSource.ITEM_PREFERRED),
+        (category_preferred, RequisitionVendorSource.CATEGORY_PREFERRED),
+    ):
+        if vendor_id is not None:
+            return vendor_id, source
+    return None, None
+
+
+def resolve_line_price(
+    *,
+    override: Decimal | None,
+    estimated: Decimal | None,
+    last_purchase: Decimal | None,
+) -> tuple[Decimal | None, RequisitionPriceSource | None]:
+    """Pick the unit price for one converted line: the first source that has one.
+
+    ASSUMPTION: the buyer's override, then the requester's estimate, then the
+    last price paid to the resolved vendor for the item. Never the item's
+    ``standard_cost``: that is what the company *values* the item at, not a
+    price any vendor offered, and a purchase order printed at it would put an
+    internal costing figure on a document the vendor reads
+    (docs/assumptions.md §C0-3). A zero is a price; ``None`` is not.
+    ``(None, None)`` is an unresolved line.
+    """
+    for price, source in (
+        (override, RequisitionPriceSource.OVERRIDE),
+        (estimated, RequisitionPriceSource.ESTIMATE),
+        (last_purchase, RequisitionPriceSource.LAST_PURCHASE),
+    ):
+        if price is not None:
+            return Decimal(price), source
+    return None, None
+
+
+def conversion_delivery_date(need_date: date | None, po_date: date) -> date | None:
+    """The delivery date a converted line asks the vendor for.
+
+    ASSUMPTION: the requisition's need date, but never earlier than the order
+    date. A requirement that is already overdue is wanted as soon as possible,
+    and a purchase order cannot promise a delivery before it was raised - the
+    database refuses that on the header (docs/assumptions.md §C0-8).
+    """
+    if need_date is None:
+        return None
+    return max(need_date, po_date)
+
+
+def single_order_category(categories: Iterable[uuid.UUID | None]) -> uuid.UUID | None:
+    """The one procurement category every line shares, or ``None`` when they differ.
+
+    A line with no category counts as a category of its own, so an order mixing
+    a categorised line with an uncategorised one is not claimed for either.
+    """
+    distinct = set(categories)
+    if len(distinct) == 1:
+        return next(iter(distinct))
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class PlannedConversionLine:
+    """One requisition line, resolved and ready to go onto a purchase order."""
+
+    requisition_id: uuid.UUID
+    requisition_code: str
+    requisition_line_id: uuid.UUID
+    line_number: int
+    item_id: uuid.UUID
+    description: str | None
+    quantity: Decimal
+    uom_id: uuid.UUID
+    required_date: date | None
+    unit_price: Decimal
+    price_source: RequisitionPriceSource
+    vendor_id: uuid.UUID
+    vendor_source: RequisitionVendorSource
+    #: The procurement category - see :func:`resolve_procurement_category`.
+    item_category_id: uuid.UUID | None
+    #: That category and its ancestors, nearest first, for the assignee rule.
+    category_lineage: tuple[uuid.UUID, ...]
+    warehouse_id: uuid.UUID
+    priority: int
+
+
+@dataclass(frozen=True, slots=True)
+class ConversionGroup:
+    """The lines that become one purchase order."""
+
+    vendor_id: uuid.UUID
+    item_category_id: uuid.UUID | None
+    warehouse_id: uuid.UUID
+    category_lineage: tuple[uuid.UUID, ...]
+    lines: tuple[PlannedConversionLine, ...]
+
+    @property
+    def sort_key(self) -> tuple[str, str, str]:
+        return (str(self.vendor_id), str(self.item_category_id or ""), str(self.warehouse_id))
+
+    @property
+    def requisition_ids(self) -> tuple[uuid.UUID, ...]:
+        return tuple(dict.fromkeys(line.requisition_id for line in self.lines))
+
+    @property
+    def source_requisition_id(self) -> uuid.UUID | None:
+        """The requisition the order comes from, when all its lines share one."""
+        ids = self.requisition_ids
+        return ids[0] if len(ids) == 1 else None
+
+
+def group_conversion_lines(lines: Iterable[PlannedConversionLine]) -> list[ConversionGroup]:
+    """One group per (vendor, procurement category, warehouse), deterministically ordered.
+
+    Groups are sorted by ``(str(vendor), str(category or ""), str(warehouse))``
+    and the lines inside a group by requisition code then line number, so two
+    previews of the same requisitions read the same and two concurrent
+    conversions walk their orders in the same sequence.
+    """
+    buckets: dict[tuple[uuid.UUID, uuid.UUID | None, uuid.UUID], list[PlannedConversionLine]] = {}
+    for line in lines:
+        buckets.setdefault((line.vendor_id, line.item_category_id, line.warehouse_id), []).append(
+            line
+        )
+    groups = [
+        ConversionGroup(
+            vendor_id=vendor_id,
+            item_category_id=category_id,
+            warehouse_id=warehouse_id,
+            category_lineage=members[0].category_lineage,
+            lines=tuple(sorted(members, key=lambda m: (m.requisition_code, m.line_number))),
+        )
+        for (vendor_id, category_id, warehouse_id), members in buckets.items()
+    ]
+    return sorted(groups, key=lambda group: group.sort_key)
+
+
+def assert_within_order_limit(group_count: int, *, limit: int = MAX_ORDERS_PER_CONVERSION) -> None:
+    """Refuse a conversion that would raise more purchase orders than the bound."""
+    if group_count > limit:
+        raise BusinessRuleError(
+            f"This conversion would raise {group_count} purchase orders; at most {limit} can be "
+            "raised at once. Convert fewer requisitions, or exclude lines and convert the rest "
+            "afterwards.",
+            details={"order_count": group_count, "max_orders_per_conversion": limit},
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AssigneeCandidate:
+    """A vendor user, as the assignee rule needs to see them."""
+
+    user_id: uuid.UUID
+    vendor_id: uuid.UUID | None
+    is_active: bool
+    is_deleted: bool
+    #: Holds :data:`VENDOR_PO_RESPOND_PERMISSION` after roles, grants and
+    #: denials are folded (or is a superuser).
+    can_respond: bool
+    #: Empty means unrestricted - the documented contract of
+    #: ``users.allowed_category_ids``.
+    allowed_category_ids: tuple[uuid.UUID, ...]
+
+
+def is_eligible_assignee(candidate: AssigneeCandidate, *, vendor_id: uuid.UUID) -> bool:
+    """Active, live, bound to this vendor, and able to act on a purchase order."""
+    return (
+        candidate.vendor_id == vendor_id
+        and candidate.is_active
+        and not candidate.is_deleted
+        and candidate.can_respond
+    )
+
+
+def scope_covers_category(
+    allowed_category_ids: Collection[uuid.UUID], category_lineage: Sequence[uuid.UUID]
+) -> bool:
+    """Whether a *restricted* scope contains the category or one of its ancestors.
+
+    Subtree semantics: a manager scoped to Handles covers Lever Handles. An
+    empty scope is unrestricted and is not a match here - callers decide what
+    unrestricted means for them. A category-less order (an empty lineage) is
+    covered by no restricted scope.
+    """
+    return bool(allowed_category_ids) and any(
+        category_id in allowed_category_ids for category_id in category_lineage
+    )
+
+
+def may_take_order(
+    candidate: AssigneeCandidate, *, vendor_id: uuid.UUID, category_lineage: Sequence[uuid.UUID]
+) -> bool:
+    """Whether an order on ``vendor_id`` in this category may be assigned to the candidate."""
+    if not is_eligible_assignee(candidate, vendor_id=vendor_id):
+        return False
+    if not candidate.allowed_category_ids:
+        return True
+    return scope_covers_category(candidate.allowed_category_ids, category_lineage)
+
+
+def choose_vendor_assignee(
+    candidates: Iterable[AssigneeCandidate],
+    *,
+    vendor_id: uuid.UUID,
+    category_lineage: Sequence[uuid.UUID],
+) -> tuple[uuid.UUID | None, VendorAssigneeReason]:
+    """Pick the vendor user an order on ``vendor_id`` in this category goes to.
+
+    Only eligible users count (:func:`is_eligible_assignee`). Then:
+
+    1. exactly one user scoped to the category, or to an ancestor of it - them;
+    2. several such users - nobody, ``AMBIGUOUS``;
+    3. none - the one unrestricted user, if there is exactly one;
+    4. otherwise nobody.
+
+    ASSUMPTION: an ambiguous match leaves the order unassigned rather than
+    guessing; the buyer picks at Send, where the choice is visible
+    (docs/assumptions.md §C0-6). A category-less order matches unrestricted
+    users only.
+    """
+    eligible = [c for c in candidates if is_eligible_assignee(c, vendor_id=vendor_id)]
+    scoped = [
+        c for c in eligible if scope_covers_category(c.allowed_category_ids, category_lineage)
+    ]
+    if len(scoped) == 1:
+        return scoped[0].user_id, VendorAssigneeReason.CATEGORY_MATCH
+    if len(scoped) > 1:
+        return None, VendorAssigneeReason.AMBIGUOUS
+
+    unrestricted = [c for c in eligible if not c.allowed_category_ids]
+    if len(unrestricted) == 1:
+        return unrestricted[0].user_id, VendorAssigneeReason.UNRESTRICTED
+    if len(unrestricted) > 1:
+        return None, VendorAssigneeReason.AMBIGUOUS
+    return None, VendorAssigneeReason.NO_ELIGIBLE_USER
+
+
+# =============================================================================
 # Purchase returns: which pool the goods leave
 # =============================================================================
 
@@ -1390,6 +1798,7 @@ def resolve_return_pool(
 __all__ = [
     "DEFAULT_SCORE_WEIGHTS",
     "GOODS_RECEIPT_LIFECYCLE",
+    "MAX_ORDERS_PER_CONVERSION",
     "PURCHASE_ORDER_LIFECYCLE",
     "PURCHASE_RETURN_LIFECYCLE",
     "QUOTATION_LIFECYCLE",
@@ -1399,7 +1808,10 @@ __all__ = [
     "RETURN_POOL_DAMAGED",
     "RFQ_LIFECYCLE",
     "UNRATED_VENDOR_SCORE",
+    "VENDOR_PO_RESPOND_PERMISSION",
+    "AssigneeCandidate",
     "CandidateInput",
+    "ConversionGroup",
     "DocumentTotals",
     "DuplicateAction",
     "DuplicateCandidate",
@@ -1408,30 +1820,49 @@ __all__ = [
     "LineAmounts",
     "LineReceiptState",
     "OfferInput",
+    "PlannedConversionLine",
     "ProposedLine",
     "RankedOffer",
+    "RequisitionPriceSource",
+    "RequisitionVendorSource",
     "ReturnPoolFacts",
     "ScoreWeights",
+    "VendorAssigneeReason",
+    "assert_within_order_limit",
     "assert_within_over_receipt_tolerance",
     "available_actions_for",
+    "category_lineage",
+    "choose_vendor_assignee",
     "classify_candidate",
     "classify_candidates",
     "compute_line_amounts",
+    "conversion_delivery_date",
     "dates_overlap",
     "duplicate_refusal",
     "effective_unit_price",
+    "group_conversion_lines",
+    "is_eligible_assignee",
+    "lineage_from",
     "max_receivable_quantity",
+    "may_take_order",
     "order_is_fully_received",
     "po_line_status_for",
+    "preferred_category_vendor",
     "rank_offers",
     "receipt_unit_cost",
     "recommend_action",
     "recommendation_reason",
     "remaining_receivable",
     "requisition_line_status_for",
+    "resolve_line_price",
+    "resolve_line_vendor",
+    "resolve_procurement_category",
     "resolve_return_pool",
     "returnable_by_pool",
+    "same_requisition_line",
     "same_source_demand",
+    "scope_covers_category",
     "score_offer",
+    "single_order_category",
     "sum_document_totals",
 ]

@@ -299,6 +299,25 @@ OPEN_REQUISITION_STATUSES: tuple[RequisitionStatus, ...] = (
     RequisitionStatus.CONVERTED,
 )
 
+# ASSUMPTION: a vendor-portal principal sees a purchase order only once it has
+# been sent: SENT and every status that can only follow it. CANCELLED is
+# visible too, but only when the order had been sent first (``sent_at`` set) -
+# see ``PurchaseOrderRepository._scoped``. DRAFT, PENDING_APPROVAL, APPROVED and
+# REJECTED are the buyer's working state: an order the vendor has not been
+# given, with prices nobody has approved yet (docs/assumptions.md §C0-7).
+VENDOR_VISIBLE_PO_STATUSES: tuple[PurchaseOrderStatus, ...] = (
+    PurchaseOrderStatus.SENT,
+    PurchaseOrderStatus.ACKNOWLEDGED,
+    PurchaseOrderStatus.PARTIALLY_RECEIVED,
+    PurchaseOrderStatus.RECEIVED,
+    PurchaseOrderStatus.QC_PENDING,
+    PurchaseOrderStatus.QC_COMPLETED,
+    PurchaseOrderStatus.GRN_COMPLETED,
+    PurchaseOrderStatus.INVOICED,
+    PurchaseOrderStatus.PAID,
+    PurchaseOrderStatus.CLOSED,
+)
+
 #: Purchase-order-line statuses that still expect a delivery. The partial index
 #: on ``purchase_order_lines`` below is built for exactly this predicate.
 OPEN_PO_LINE_STATUSES: tuple[PurchaseOrderLineStatus, ...] = (
@@ -896,6 +915,17 @@ class PurchaseOrder(TenantEntity, OptimisticLockMixin):
         GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
+    #: The procurement category this order was raised for: the one item category
+    #: its lines share at the granularity the vendor is engaged at (nearest
+    #: ancestor-or-self in the vendor's ``vendor_categories``), or NULL when the
+    #: lines span several. Derived by the service on create, update and
+    #: requisition conversion - never accepted from the client - and read by the
+    #: vendor-portal scope, which shows a category-restricted vendor manager only
+    #: the orders in their categories (docs/assumptions.md §C0-1).
+    item_category_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("item_categories.id", ondelete="RESTRICT"), nullable=True
+    )
+
     # --- inbound shipment (master rules section 23) -------------------------
     # ASSUMPTION: the inbound leg of a purchase order carries its courier
     # details here. The ``dispatch`` module owns ``dispatches`` and
@@ -938,6 +968,9 @@ class PurchaseOrder(TenantEntity, OptimisticLockMixin):
         Index("ix_purchase_orders_source", "company_id", "source_type", "source_id"),
         # The vendor portal's own list.
         Index("ix_purchase_orders_assigned_vendor_user", "company_id", "assigned_vendor_user_id"),
+        # "This vendor's orders in this category" - the category-wise split's
+        # own question, and the vendor-portal scope for a category manager.
+        Index("ix_purchase_orders_vendor_category", "company_id", "vendor_id", "item_category_id"),
         CheckConstraint(f"status IN ({sql_in_list(PurchaseOrderStatus)})", name="status_known"),
         CheckConstraint(
             f"source_type IN ({sql_in_list(PurchaseSourceType)})", name="source_type_known"
