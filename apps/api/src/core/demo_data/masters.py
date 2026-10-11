@@ -23,7 +23,9 @@ kind                    codes
 ``customer``            ``DM-CUST-*``, ``DM-DLR-*``, ``DM-DIST-WEST``
 ``vendor``              ``DM-VEN-BRASS``, ``DM-VEN-SS``, ``DM-VEN-FAST`` ...
 ``transporter``         ``DM-TRN-VRL``, ``DM-TRN-GATI``, ``DM-TRN-CITY``
-``user``                ``DM-USER-BUYER``, ``DM-USER-SALES``
+``user``                ``DM-USER-BUYER``, ``DM-USER-SALES``, and the vendor
+                        managers ``DM-USER-VEN-LOCKS``, ``-VEN-HANDLES``,
+                        ``-VEN-PACKING``
 ``cost_centre``         ``DM-CC-PROD`` and its process children
                         (``DM-CC-PROD-DIE`` ... ``DM-CC-PROD-PACK``),
                         ``DM-CC-QC``, ``DM-CC-STORES``, ``DM-CC-MAINT``,
@@ -51,6 +53,10 @@ buyer, creates the vendors as the buyer, and approves them as the administrator.
 That is also how the maker-checker rule is meant to look on screen. The sales
 executive exists for the same practical reason: ``assigned_sales_user_id`` on a
 customer wants somebody other than the system administrator.
+
+The three vendor managers are the proposal's own example of the category-wise
+purchase order split - one per category at the vendors that supply them - so a
+converted requisition has somebody at each vendor to hand each order to.
 """
 
 from __future__ import annotations
@@ -206,7 +212,7 @@ class _ItemSpec:
     can_manufacture: bool | None = None
 
 
-#: The item master. Eighteen rows, chosen so that every shape the rest of the
+#: The item master. Twenty rows, chosen so that every shape the rest of the
 #: system has to handle exists at least once: metal bought by weight, components
 #: bought by the thousand, a batch-tracked consumable, a serial-tracked finished
 #: good, sub-assemblies that will hang under a BOM, and scrap coming back off the
@@ -323,6 +329,34 @@ ITEMS: tuple[_ItemSpec, ...] = (
         reorder_quantity="3000",
         safety_stock="600",
         lead_time_days=15,
+    ),
+    # Bought in alongside the made versions when the plating line or the
+    # foundry is the constraint. Two categories on one supplier is what the
+    # category-wise purchase order split exists for: the procurement stage
+    # raises one requisition for these and a carton, ready to split.
+    _ItemSpec(
+        code=("BO", "LOCKBODY"),
+        name="Mortise Lock Body 6572 - Bought Out, Unplated",
+        description="Die-cast zinc lock body, bought in when the in-house line is full.",
+        group=ItemGroup.COMPONENT,
+        category="LOCK-MORT",
+        base_uom="NOS",
+        hsn="83014090",
+        standard_cost="188.00",
+        warehouse="WH-CMP",
+        lead_time_days=12,
+    ),
+    _ItemSpec(
+        code=("BO", "HANDLE"),
+        name="Lever Handle Blank - Zinc Die Cast",
+        description="Unfinished lever blank, machined and plated in house.",
+        group=ItemGroup.COMPONENT,
+        category="HANDLE-LEVER",
+        base_uom="NOS",
+        hsn="83024110",
+        standard_cost="98.00",
+        warehouse="WH-CMP",
+        lead_time_days=10,
     ),
     # --- packing -------------------------------------------------------------
     _ItemSpec(
@@ -976,8 +1010,21 @@ VENDORS: tuple[_VendorSpec, ...] = (
         owner_phone="+91 20 2712 3344",
         accounts_name="Vaibhav Shinde",
         accounts_email="accounts@precisionfasteners.example",
-        categories=(("FASTENERS", True), ("LOCK-CYL", True), ("ACCESSORIES", True)),
-        notes="Screws, springs and cylinders. Reliable on quantity, slow on paperwork.",
+        # Not preferred for mortise locks or handles - the plater is - but
+        # qualified for both, which is what lets its lock-body and handle
+        # managers be scoped to them (users.allowed_category_ids must be a
+        # subset of these rows).
+        categories=(
+            ("FASTENERS", True),
+            ("LOCK-CYL", True),
+            ("ACCESSORIES", True),
+            ("LOCK-MORT", False),
+            ("HANDLES", False),
+        ),
+        notes=(
+            "Screws, springs and cylinders, and bought-out lock bodies and handle blanks. "
+            "Reliable on quantity, slow on paperwork."
+        ),
     ),
     _VendorSpec(
         code=("VEN", "PACK"),
@@ -1000,7 +1047,9 @@ VENDORS: tuple[_VendorSpec, ...] = (
         owner_phone="+91 2827 252 900",
         accounts_name="Rekha Joshi",
         accounts_email="accounts@kraftpack.example",
-        categories=(("PACKING", True),),
+        # Stretch film and tape as well as cartons - qualified, not preferred,
+        # so the lacquer still has nobody nominated to supply it.
+        categories=(("PACKING", True), ("CONSUMABLE", False)),
     ),
     _VendorSpec(
         code=("VEN", "PLATE"),
@@ -1047,6 +1096,8 @@ ITEM_VENDORS: tuple[tuple[tuple[str, ...], tuple[str, ...], str, str, int], ...]
     (("BO", "CYL-60"), ("VEN", "FAST"), "PF-CYL-60-5P", "164.00", 15),
     (("PK", "BOX"), ("VEN", "PACK"), "KP-CTN-3PLY-HS", "14.20", 8),
     (("PK", "POLYBAG"), ("VEN", "PACK"), "KP-LDPE-150250", "0.91", 6),
+    (("BO", "LOCKBODY"), ("VEN", "FAST"), "PF-LB-6572-ZN", "182.00", 12),
+    (("BO", "HANDLE"), ("VEN", "FAST"), "PF-LH-ZN-BLANK", "96.00", 10),
 )
 
 #: Whose part a source supplies, keyed on ``(item parts, vendor parts)``: the
@@ -1081,6 +1132,42 @@ STAFF: tuple[tuple[tuple[str, ...], str, str, str, str], ...] = (
 
 #: Which of :data:`STAFF` creates the vendor records.
 BUYER = ("USER", "BUYER")
+
+#: Vendor-portal managers, as ``(code parts, full name, e-mail, vendor parts,
+#: role, category codes)`` - the proposal's own table: Manager 1 for lock
+#: bodies, Manager 2 for handles, Manager 3 for packaging. Each scope is a
+#: category its vendor is qualified for (the users service refuses anything
+#: else), and VENDOR_MANAGER carries ``purchase_order.update``, which is what
+#: makes them someone a purchase order can be assigned to. The addresses use
+#: the reserved ``.example`` domain, as every seeded account does (``seed.py``).
+VENDOR_PORTAL_USERS: tuple[
+    tuple[tuple[str, ...], str, str, tuple[str, ...], str, tuple[str, ...]], ...
+] = (
+    (
+        ("USER", "VEN-LOCKS"),
+        "Sandeep Patil",
+        "lockbody.manager@precisionfasteners.example",
+        ("VEN", "FAST"),
+        "VENDOR_MANAGER",
+        ("LOCK-MORT",),
+    ),
+    (
+        ("USER", "VEN-HANDLES"),
+        "Meera Joshi",
+        "handles.manager@precisionfasteners.example",
+        ("VEN", "FAST"),
+        "VENDOR_MANAGER",
+        ("HANDLES",),
+    ),
+    (
+        ("USER", "VEN-PACKING"),
+        "Kiran Rathod",
+        "packaging.manager@kraftpack.example",
+        ("VEN", "PACK"),
+        "VENDOR_MANAGER",
+        ("PACKING",),
+    ),
+)
 
 
 # --- cost centres and departments --------------------------------------------
@@ -2046,13 +2133,63 @@ async def _seed_item_vendor_links(ctx: DemoContext, anchor: date) -> None:
         ctx.note(STAGE, created=1)
 
 
+async def _seed_vendor_portal_users(ctx: DemoContext) -> None:
+    """One vendor manager per category, at the vendors that supply them.
+
+    The same mechanism as :func:`_seed_staff`: created through the users
+    service, keyed by e-mail, with a generated password the account must change
+    - nothing signs in as them, and a literal would be a credential in source
+    control. An administrator gives a demonstrator a sign-in with Reset
+    password, which shows a fresh temporary one. Skipped, with the reason, when
+    the vendor, the role or a category is missing.
+    """
+    service = UserService(ctx.session, ctx.tenant)
+    for parts, full_name, email, vendor_parts, role_code, category_codes in VENDOR_PORTAL_USERS:
+        code = ctx.code(*parts)
+        stmt = select(User).where(User.company_id == ctx.company_id, User.email == email)
+        existing = (await ctx.session.execute(stmt)).scalars().first()
+        if existing is not None:
+            _seen(ctx, "user", code, existing.id, created=False)
+            continue
+
+        vendor_id = ctx.maybe_id("vendor", ctx.code(*vendor_parts))
+        role = await find_by_code(ctx.session, Role, ctx.company_id, role_code)
+        category_ids = [ctx.maybe_id("category", category) for category in category_codes]
+        scope = [category_id for category_id in category_ids if category_id is not None]
+        if vendor_id is None or role is None or len(scope) != len(category_ids):
+            ctx.skipped.append(
+                (
+                    STAGE,
+                    f"vendor portal account {email} not created: vendor, role or category missing",
+                )
+            )
+            continue
+        try:
+            detail = await service.create_user(
+                ctx.principal,
+                UserCreate(
+                    email=email,
+                    full_name=full_name,
+                    password=generate_temporary_password(email),
+                    vendor_id=vendor_id,
+                    allowed_category_ids=scope,
+                    role_ids=[role.id],
+                ),
+            )
+        except (BusinessRuleError, DuplicateError, NotFoundError, AuthorizationError) as exc:
+            ctx.skipped.append((STAGE, f"vendor portal account {email} not created: {exc}"))
+            continue
+        _seen(ctx, "user", code, detail.id, created=True)
+
+
 async def seed(ctx: DemoContext) -> None:
     """Fill in the master data every later stage addresses by code.
 
     The order is a dependency order and is not arbitrary: items need units,
     warehouses and categories; prices need items; customers name a carrier and a
     salesperson; vendors are entered by the buyer and approved by somebody else;
-    and the item-vendor links need both sides to exist already.
+    the item-vendor links need both sides to exist already; and a vendor
+    manager's category scope must name categories the vendor is qualified for.
     """
     # One reading of the clock for the whole stage - see PRICE_START_DAYS_AGO.
     anchor = today()
@@ -2077,3 +2214,4 @@ async def seed(ctx: DemoContext) -> None:
     await _seed_customers(ctx)
     await _seed_vendors(ctx, buyer)
     await _seed_item_vendor_links(ctx, anchor)
+    await _seed_vendor_portal_users(ctx)

@@ -25,8 +25,10 @@ Five choices are worth reading twice:
   a grid, and ``raiseload=True`` makes touching an unloaded one an error rather
   than another query per row.
 * **Cross-module reads are read-only.** ``branches``, ``plants``,
-  ``departments`` and ``vendors`` are owned by other modules; this file only
-  probes them for existence within the tenant, and never writes to them.
+  ``departments``, ``vendors``, ``item_categories`` and ``vendor_categories``
+  are owned by other modules; this file only probes them within the tenant -
+  existence, and which categories a vendor is qualified for - and never writes
+  to them.
 """
 
 from __future__ import annotations
@@ -48,9 +50,10 @@ from src.core.pagination import SortParams
 # in an organisation and may be bound to a vendor; this module never writes to
 # either, it only refuses an id that does not belong to the tenant.
 from src.modules.organization.models import Branch, Department, Plant
+from src.modules.products.models import ItemCategory
 from src.modules.users.models import Role, User, UserSession, user_roles
 from src.modules.users.schemas import RoleFilters, UserFilters
-from src.modules.vendors.models import Vendor
+from src.modules.vendors.models import Vendor, VendorCategory
 
 #: Columns a user list row renders. The password hash, MFA secret, scope arrays
 #: and preferences blob are absent on purpose - see the module docstring.
@@ -394,6 +397,25 @@ class UserRepository(BaseRepository[User]):
 
     async def vendor_exists(self, vendor_id: uuid.UUID) -> bool:
         return await self._reference_exists(Vendor, vendor_id)
+
+    async def live_category_ids(self, category_ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
+        """Which of these item categories exist, live, in the caller's tenant."""
+        if not category_ids:
+            return set()
+        stmt = select(ItemCategory.id).where(
+            ItemCategory.company_id == self.tenant.company_id,
+            ItemCategory.id.in_(list(dict.fromkeys(category_ids))),
+            ItemCategory.deleted_at.is_(None),
+        )
+        return set((await self.session.execute(stmt)).scalars().all())
+
+    async def vendor_category_ids(self, vendor_id: uuid.UUID) -> set[uuid.UUID]:
+        """The item categories a vendor is qualified for (``vendor_categories``)."""
+        stmt = select(VendorCategory.item_category_id).where(
+            VendorCategory.company_id == self.tenant.company_id,
+            VendorCategory.vendor_id == vendor_id,
+        )
+        return set((await self.session.execute(stmt)).scalars().all())
 
 
 class RoleRepository(BaseRepository[Role]):

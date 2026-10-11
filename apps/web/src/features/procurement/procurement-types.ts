@@ -112,6 +112,19 @@ export const isUrgentPriority = (priority: number): boolean => priority < DEFAUL
 export const requisitionKeys = {
   list: (params: unknown) => [...queryKeys.procurement.all, 'requisitions', params] as const,
   detail: (id: string) => [...queryKeys.procurement.all, 'requisitions', 'detail', id] as const,
+  /** The batch picker's own page of convertible requisitions - never the queue's URL state. */
+  convertible: (params: unknown) =>
+    [...queryKeys.procurement.all, 'requisitions', 'convertible', params] as const,
+  /** Every conversion preview, for the one invalidation that must skip them. */
+  conversions: [...queryKeys.procurement.all, 'requisitions', 'conversion'] as const,
+  /**
+   * One conversion preview: the requisitions and the request body it was asked
+   * with. The body is part of the key because every override is a different
+   * proposal, and an answer to the previous overrides must never be shown as the
+   * answer to these.
+   */
+  conversion: (requisitionIds: readonly string[], body: unknown) =>
+    [...queryKeys.procurement.all, 'requisitions', 'conversion', requisitionIds, body] as const,
 }
 
 export type RequisitionStatus = SchemaOf<'RequisitionStatus'>
@@ -192,11 +205,52 @@ export const ACTIONABLE_REQUISITION_STATUSES: readonly RequisitionStatus[] = [
 ]
 
 /**
- * One row of `GET /procurement/purchase-requisitions` (`RequisitionSummary`).
+ * Statuses a requisition can be converted into purchase orders from.
+ *
+ * The API's `OPEN_REQUISITION_STATUSES`: approved, and converted - a converted
+ * requisition may still have lines nobody has ordered, and the conversion
+ * raises orders for exactly those. Whether anything is left is the row's
+ * `open_line_count`, so the status alone never decides.
+ */
+export const CONVERTIBLE_REQUISITION_STATUSES: readonly RequisitionStatus[] = [
+  'APPROVED',
+  'CONVERTED',
+]
+
+/** Something approved is still left to order on it - what "Raise purchase orders" needs. */
+export const isRequisitionConvertible = (row: {
+  status: string
+  open_line_count: number
+}): boolean =>
+  (CONVERTIBLE_REQUISITION_STATUSES as readonly string[]).includes(row.status) &&
+  row.open_line_count > 0
+
+/**
+ * Statuses a requisition may be closed from: the APPROVED -> CLOSED and
+ * CONVERTED -> CLOSED edges of `REQUISITION_LIFECYCLE`, the only two ways in.
+ * Closing says whatever is still unordered will not be ordered, which is why it
+ * is the approver's command and not the requester's.
+ */
+export const CLOSABLE_REQUISITION_STATUSES: readonly RequisitionStatus[] = ['APPROVED', 'CONVERTED']
+
+export const isRequisitionClosable = (status: string): boolean =>
+  (CLOSABLE_REQUISITION_STATUSES as readonly string[]).includes(status)
+
+/**
+ * One row of `GET /procurement/purchase-requisitions` (`RequisitionListRow`).
  *
  * `priority` is an integer 1-9 and lower is the more urgent end.
+ * `open_line_count` is how many lines still have quantity to order - counted
+ * by the API for the whole page, so the list can offer a conversion only where
+ * there is something left to convert.
  */
-export type RequisitionRow = SchemaOf<'RequisitionSummary'>
+export type RequisitionRow = SchemaOf<'RequisitionListRow'>
+
+/**
+ * What every requisition command answers with (`RequisitionSummary`): the
+ * header alone, without the list's open-line count.
+ */
+export type RequisitionSummary = SchemaOf<'RequisitionSummary'>
 
 /** One line of `GET /procurement/purchase-requisitions/{id}`. */
 export type RequisitionLine = SchemaOf<'RequisitionLineRead'>
@@ -230,6 +284,102 @@ export type RequisitionCreatePayload = SchemaOf<'RequisitionCreate'>
  * purpose but cannot clear one - the same asymmetry the RFQ update has.
  */
 export type RequisitionUpdatePayload = SchemaOf<'RequisitionUpdate'>
+
+// ------------------------------------- requisitions to purchase orders -----
+
+/**
+ * The most requisitions one batch conversion may name.
+ *
+ * `MAX_REQUISITIONS_PER_CONVERSION` in the API's procurement schemas: the batch
+ * form exists for the one-line requisitions MRP raises, and the bound keeps the
+ * one transaction that locks them all short. The picker stops here rather than
+ * letting the 51st tick earn a 422.
+ */
+export const MAX_REQUISITIONS_PER_CONVERSION = 50
+
+/** A requisition as the conversion screens carry it: enough to name it. */
+export interface RequisitionRef {
+  id: string
+  code: string
+}
+
+/**
+ * What a conversion dialog was opened for.
+ *
+ * One requisition goes to `/purchase-requisitions/{id}/...`; several go to the
+ * batch form, whose orders are grouped by warehouse as well, because a batch
+ * can span several.
+ */
+export type RequisitionConversionTarget =
+  | { kind: 'single'; requisition: RequisitionRef }
+  | { kind: 'batch'; requisitions: RequisitionRef[] }
+
+/** Body of the single-requisition preview and convert (`RequisitionConversionRequest`). */
+export type RequisitionConversionPayload = SchemaOf<'RequisitionConversionRequest'>
+
+/** Body of the batch preview and convert (`RequisitionBatchConversionRequest`). */
+export type RequisitionBatchConversionPayload = SchemaOf<'RequisitionBatchConversionRequest'>
+
+/**
+ * One per-line correction (`RequisitionConversionLineOverride`).
+ *
+ * Quantity and price are decimal strings on the way out, like every other
+ * quantity and price this application sends.
+ */
+export type RequisitionConversionOverride = SchemaOf<'RequisitionConversionLineOverride'>
+
+/** A preview or a conversion (`RequisitionConversionResult`). */
+export type RequisitionConversionResult = SchemaOf<'RequisitionConversionResult'>
+
+/** One proposed - or, once converted, raised - purchase order. */
+export type RequisitionConversionGroup = SchemaOf<'RequisitionConversionGroup'>
+
+/** One requisition line as it would appear on its proposed order. */
+export type RequisitionConversionLine = SchemaOf<'RequisitionConversionLine'>
+
+/** A line that cannot be converted yet, with every reason why. */
+export type RequisitionConversionUnresolvedLine = SchemaOf<'RequisitionConversionUnresolvedLine'>
+
+/** An open order line a proposed order would duplicate (master rules section 16). */
+export type DuplicateCandidateRead = SchemaOf<'DuplicateCandidateRead'>
+
+export type RequisitionVendorSource = SchemaOf<'RequisitionVendorSource'>
+export type RequisitionPriceSource = SchemaOf<'RequisitionPriceSource'>
+export type VendorAssigneeReason = SchemaOf<'VendorAssigneeReason'>
+
+/**
+ * Where a converted line's vendor came from, as the buyer reads it.
+ *
+ * Typed as a `Record` over the API's own union, so a source the API adds fails
+ * to compile here rather than rendering as a raw code.
+ */
+export const VENDOR_SOURCE_COPY: Record<RequisitionVendorSource, string> = {
+  OVERRIDE: 'Your choice',
+  SUGGESTED: 'Suggested on the requisition',
+  ITEM_PREFERRED: "Item's preferred vendor",
+  CATEGORY_PREFERRED: "Category's preferred vendor",
+}
+
+/** Where a converted line's unit price came from. Never the item's standard cost. */
+export const PRICE_SOURCE_COPY: Record<RequisitionPriceSource, string> = {
+  OVERRIDE: 'Your price',
+  ESTIMATE: 'Requisition estimate',
+  LAST_PURCHASE: 'Last purchase price',
+}
+
+/**
+ * Why a proposed order is - or is not - handed to a particular vendor user.
+ *
+ * The assignment rule (`choose_vendor_assignee`) leaves an ambiguous order
+ * unassigned on purpose, so the buyer picks at Send where the choice is
+ * visible; the copy says so rather than presenting a gap as an error.
+ */
+export const ASSIGNEE_REASON_COPY: Record<VendorAssigneeReason, string> = {
+  CATEGORY_MATCH: 'Manages this category at the vendor',
+  UNRESTRICTED: 'The only vendor user covering every category',
+  AMBIGUOUS: 'Several vendor users cover this category - choose one when sending',
+  NO_ELIGIBLE_USER: 'Nobody at the vendor can take it on the portal yet',
+}
 
 // ------------------------------------------------------ purchase orders -----
 
@@ -394,6 +544,30 @@ export type PurchaseOrderTracking = SchemaOf<'PurchaseOrderTracking'>
 /** Body of `POST /procurement/purchase-orders/{id}/shipment` (`ShipmentUpdate`). */
 export type ShipmentUpdatePayload = SchemaOf<'ShipmentUpdate'>
 
+/** Body of `POST /procurement/purchase-orders/{id}/send` (`SendRequest`). */
+export type SendOrderPayload = SchemaOf<'SendRequest'>
+
+/**
+ * One row of `GET /procurement/purchase-orders/{id}/vendor-assignees`.
+ *
+ * Exactly the vendor users Send accepts for this order - active, bound to its
+ * vendor, able to act on purchase orders, and scoped to its category or to every
+ * category - with the one the assignment rule would choose marked
+ * `is_suggested`. Served by procurement because the buyer sending the order
+ * holds `purchase_order.send`, not `user.view`.
+ */
+export type PurchaseOrderVendorAssignee = SchemaOf<'PurchaseOrderVendorAssignee'>
+
+/**
+ * Purchase order keys the shared registry does not carry, under the same
+ * `procurement` prefix so one `queryKeys.procurement.all` invalidation - which
+ * every procurement command runs - sweeps them too.
+ */
+export const purchaseOrderKeys = {
+  vendorAssignees: (orderId: string) =>
+    [...queryKeys.procurement.purchaseOrder(orderId), 'vendor-assignees'] as const,
+}
+
 // ------------------------------------------------------- goods receipts -----
 
 export type GrnStatus = SchemaOf<'GoodsReceiptStatus'>
@@ -462,6 +636,28 @@ export type GoodsReceiptPostResult = SchemaOf<'GoodsReceiptPostResult'>
 /** How sure the matcher is, which drives how loudly the screen objects. */
 export const DUPLICATE_CONFIDENCES = ['EXACT', 'STRONG', 'POSSIBLE'] as const
 export type DuplicateConfidence = (typeof DUPLICATE_CONFIDENCES)[number]
+
+/**
+ * How loudly to object, by how sure the matcher is.
+ *
+ * Shared by the 409 resolution dialog and the conversion preview's warnings, so
+ * the same match reads the same in both places.
+ */
+export const DUPLICATE_CONFIDENCE_COPY: Record<
+  DuplicateConfidence,
+  { label: string; variant: 'destructive' | 'warning' | 'muted' }
+> = {
+  EXACT: { label: 'Same demand', variant: 'destructive' },
+  STRONG: { label: 'Strong match', variant: 'warning' },
+  POSSIBLE: { label: 'Possible match', variant: 'muted' },
+}
+
+/** A confidence the API sends as a plain string, read defensively. */
+export function duplicateConfidence(value: string): DuplicateConfidence {
+  return (DUPLICATE_CONFIDENCES as readonly string[]).includes(value)
+    ? (value as DuplicateConfidence)
+    : 'POSSIBLE'
+}
 
 export const DUPLICATE_ACTIONS = [
   'MERGE_WITH_EXISTING',
@@ -562,9 +758,7 @@ function asAction(value: unknown): DuplicateActionCode | null {
 }
 
 function asConfidence(value: unknown): DuplicateConfidence {
-  return typeof value === 'string' && (DUPLICATE_CONFIDENCES as readonly string[]).includes(value)
-    ? (value as DuplicateConfidence)
-    : 'POSSIBLE'
+  return typeof value === 'string' ? duplicateConfidence(value) : 'POSSIBLE'
 }
 
 /**

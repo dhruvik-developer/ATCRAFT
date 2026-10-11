@@ -746,7 +746,8 @@ charge path.
 ## 33. Vendor portal scope
 
 **Assumed.** A vendor principal's purchase-order reads and row locks are
-confined at `PurchaseOrderRepository._scoped` to that vendor's own orders.
+confined at `PurchaseOrderRepository._scoped` to that vendor's own orders -
+and, within those, to orders it has been sent and to its categories (§C0-7).
 `PATCH /purchase-orders/{id}` and `POST /purchase-orders/{id}/submit` are
 buyer-only (`forbid_vendor_users`), even for the order's own vendor;
 acknowledge and shipment recording stay vendor-reachable.
@@ -1182,6 +1183,212 @@ that renders it; the payload builders in `organisation-dialogs.tsx`,
 storekeeper preset does not hold it today, so adjustments raised there are
 unallocated. Making a centre mandatory on a document is a backend rule, not a
 picker setting (§B1-1).
+
+---
+
+## §C0-1. A line is bought under the nearest category its vendor is qualified for
+
+**Assumed.** When a requisition is split into purchase orders, each line's
+*procurement category* is the nearest ancestor-or-self of the item's category
+that appears in the resolved vendor's `vendor_categories`; if none does, it is
+the item's own category, and an uncategorised item has none. One order is raised
+per (vendor, procurement category, warehouse). A purchase order's
+`item_category_id` is always derived, never accepted from a client: the group's
+category on conversion, and on a buyer's own order the one category every line
+resolves to against the order's vendor, or NULL when the lines differ (a line
+with no category counts as a category of its own). Existing orders were
+backfilled with the item's own category where every line shares one.
+
+**Why.** That is the granularity at which the vendor is engaged, and it is the
+same set a vendor manager's `allowed_category_ids` must be drawn from - so the
+order a manager is scoped to and the order a manager is assigned can never be
+cut at two different levels of the category tree. Matching is by subtree: a
+manager scoped to Handles sees and is assigned Lever Handles orders.
+
+**Where.** `src/modules/procurement/service_rules.py` -
+`resolve_procurement_category`, `single_order_category`, `scope_covers_category`;
+`src/modules/procurement/service.py` - `_order_category`, `_plan_conversion`;
+migration `159ffb5b9cb4` (the backfill).
+
+**Impact if wrong.** If Atcraft wants one order per item category regardless of
+how the vendor is qualified, `resolve_procurement_category` returns the item's
+own category and nothing else changes; vendor managers would then need scopes at
+that finer level.
+
+---
+
+## §C0-2. Vendor resolution order, and an unresolved line refuses the conversion
+
+**Assumed.** A converted line's vendor is the first of: the buyer's per-line
+override, the requisition line's `suggested_vendor_id`, the item's preferred
+`item_vendor_links` row, and the preferred `vendor_categories` row of the item's
+category or its nearest ancestor that has one. The vendor must also pass
+`can_receive_purchase_orders`. A line with no vendor, an archived vendor, a vendor
+not approved for orders, no price (§C0-3), or an item retired, deactivated or no
+longer flagged purchasable since the requisition was approved is *unresolved*,
+and if any line is unresolved the whole conversion is refused - nothing is
+written - with every unresolved line and every reason listed. The preview reports
+the same lines without refusing, so each can be fixed or left out on screen. A
+vendor a requisition line suggests must be a live vendor of the tenant when the
+line is typed; the foreign key alone would accept another company's.
+
+**Why.** The person closest to the decision wins: a buyer overriding at
+conversion time knows something the master data does not, and a requester who
+named a vendor did so on purpose. Refusing the whole conversion rather than
+raising the resolvable part keeps a requisition from being half-ordered by
+accident - the buyer can exclude a line deliberately, which leaves it open.
+
+**Where.** `src/modules/procurement/service_rules.py` - `resolve_line_vendor`,
+`preferred_category_vendor`; `src/modules/procurement/service.py` -
+`_plan_conversion`, `_unorderable_item_reasons`, `convert_requisitions_to_orders`,
+`_assert_suggested_vendors`.
+
+**Impact if wrong.** If the resolvable lines should be raised and the rest left
+open, `convert_requisitions_to_orders` stops refusing on `plan.unresolved` and the
+result reports them instead; the requisition then stays partly ordered.
+
+---
+
+## §C0-3. A converted line is priced from the override, the estimate, or the last price paid
+
+**Assumed.** A converted line's unit price is the first of: the buyer's override,
+the requisition line's `estimated_unit_price`, and
+`item_vendor_links.last_purchase_price` for that item and the resolved vendor.
+Never the item's `standard_cost`. A zero is a price. No price is an unresolved
+line. Converted orders are raised in the company's currency
+(`DEFAULT_CURRENCY`).
+
+**Why.** `standard_cost` is what the company values the item at, not a price any
+vendor offered; a purchase order printed at it would put an internal costing
+figure on a document the vendor reads. A requisition carries no currency, so its
+estimate is in the company's own; a last purchase price recorded in another
+currency is not converted (open question 3).
+
+**Where.** `src/modules/procurement/service_rules.py` - `resolve_line_price`;
+`src/modules/procurement/service.py` - `_conversion_order_payload`.
+
+**Impact if wrong.** If a price list or the last quoted price should rank above
+the requester's estimate, it is one more source in `resolve_line_price`. Imports
+need the currency question answered first.
+
+---
+
+## §C0-4. Converted purchase orders are raised as DRAFT
+
+**Assumed.** A conversion raises its purchase orders in DRAFT, with
+`source_type = PURCHASE_REQUISITION` (and `source_id` the requisition when all of
+an order's lines come from one). Each goes through submit, approve and send like
+an order a buyer typed. The requisition moves APPROVED to CONVERTED, and only
+`POST /purchase-requisitions/{id}/close` (right `purchase_requisition.approve`,
+the right the state machine declares) takes it on to CLOSED.
+
+**Why.** Conversion is a buyer's convenience, not an approval. An order that
+skipped approval because a requisition was approved would let one sign-off commit
+money twice, at a price nobody has looked at.
+
+**Where.** `src/modules/procurement/service.py` - `convert_requisitions_to_orders`,
+`_create_purchase_order`; `src/modules/procurement/router.py` - `close_requisition`.
+
+**Impact if wrong.** Auto-submitting the converted orders is one transition per
+order at the end of the conversion; auto-approving them would need a value
+threshold (open question 2).
+
+---
+
+## §C0-5. The right that makes a vendor user an order's assignee is `purchase_order.update`
+
+**Assumed.** A vendor user is eligible to be assigned a purchase order when they
+are active, live, bound to the order's vendor and - after their roles, direct
+grants and denials are folded exactly as the request path folds them - hold
+`purchase_order.update`, the right the portal's acknowledge and shipment actions
+use today. It is one named constant, `VENDOR_PO_RESPOND_PERMISSION`.
+
+**Why.** An order assigned to somebody who cannot act on it is an order nobody at
+the vendor answers. Folding the rights with the same function as
+`core.deps._resolve_permissions` means "may act" cannot mean two things.
+
+**Where.** `src/modules/procurement/service_rules.py` -
+`VENDOR_PO_RESPOND_PERMISSION`, `is_eligible_assignee`;
+`src/core/permissions.py` - `resolve_role_grants`.
+
+**Impact if wrong.** A dedicated vendor-portal right replaces it by changing the
+constant (planned for the vendor portal work package).
+
+---
+
+## §C0-6. An ambiguous assignee leaves the order unassigned
+
+**Assumed.** The vendor user an order goes to is: the one eligible user scoped to
+the order's category or an ancestor of it; if several are, nobody (AMBIGUOUS); if
+none is, the one unrestricted eligible user (empty `allowed_category_ids`); if
+there are several unrestricted users, nobody; otherwise nobody. An order with no
+category matches unrestricted users only. The choice is made at conversion and,
+when an order reaches Send with no assignee, at Send; a named assignee is
+validated on create, update and Send (tenant, active, same vendor, the right, and
+category or unrestricted). An edit that moves an order out of its assignee's
+categories clears the assignee rather than refusing the edit. Likewise, an
+assignee already on the order who can no longer take it when it is sent -
+deactivated, re-scoped or stripped of the right since it was raised - is replaced
+by the rule's choice (possibly nobody) rather than refusing the send, unless the
+buyer names somebody, who is validated as usual.
+
+**Why.** Guessing between two equally scoped managers would put the order in one
+person's queue for a reason nobody chose. The buyer picks at Send, where the
+choice is visible and the picker (`GET /purchase-orders/{id}/vendor-assignees`)
+offers exactly the users Send accepts. An APPROVED order cannot be edited, so
+refusing a stale assignee at Send would leave it with no way to the vendor.
+
+**Where.** `src/modules/procurement/service_rules.py` - `choose_vendor_assignee`,
+`may_take_order`; `src/modules/procurement/service.py` -
+`_assert_vendor_assignee`, `_send_assignee`, `list_vendor_assignees`.
+
+**Impact if wrong.** A tie-break (least open orders, a named primary manager) is
+a change to `choose_vendor_assignee` alone.
+
+---
+
+## §C0-7. A vendor sees a purchase order only once it has been sent
+
+**Assumed.** A vendor-portal principal sees its own vendor's orders in SENT and
+every later status, and a CANCELLED order only if it had been sent first
+(`sent_at` set). DRAFT, PENDING_APPROVAL, APPROVED and REJECTED are "not found".
+A vendor user with a non-empty `allowed_category_ids` additionally sees only
+orders whose `item_category_id` is one of those categories or beneath one, plus
+any order assigned to them by name. An empty list is unrestricted. The scope sits
+in `PurchaseOrderRepository._scoped`, so every read and lock inherits it.
+
+**Why.** Before it is sent an order is the buyer's working document, with prices
+nobody has approved; showing it to the vendor discloses a negotiating position.
+The by-name exception keeps an order visible to the manager it was assigned to
+even if their scope is narrowed afterwards.
+
+**Where.** `src/modules/procurement/models.py` - `VENDOR_VISIBLE_PO_STATUSES`;
+`src/modules/procurement/repository.py` - `PurchaseOrderRepository._scoped`,
+`category_within`.
+
+**Impact if wrong.** If vendors should see approved orders before they are sent,
+APPROVED joins the tuple. Section 33 and open question 5 cover what a vendor may
+do to the orders it sees.
+
+---
+
+## §C0-8. An overdue requirement is asked for on the order date
+
+**Assumed.** A converted line asks for delivery on its requisition need date (the
+line's, else the requisition's), but never before the order date; the order's
+expected delivery date is the buyer's, else the earliest date among its lines.
+The order's priority is the buyer's, else the most urgent among its
+requisitions.
+
+**Why.** A requirement already overdue is wanted as soon as possible, and an
+order cannot promise a delivery before it was raised - the database refuses an
+expected date before the order date.
+
+**Where.** `src/modules/procurement/service_rules.py` - `conversion_delivery_date`;
+`src/modules/procurement/service.py` - `_group_expected_date`, `_group_priority`.
+
+**Impact if wrong.** If the order date plus the vendor's lead time is the better
+floor, `conversion_delivery_date` takes the vendor's lead time as a third input.
 
 ---
 

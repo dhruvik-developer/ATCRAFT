@@ -3542,6 +3542,32 @@
         "title": "ApiResponse[ReportJobRead]",
         "type": "object"
       },
+      "ApiResponse_RequisitionConversionResult_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequisitionConversionResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[RequisitionConversionResult]",
+        "type": "object"
+      },
       "ApiResponse_RequisitionDetail_": {
         "properties": {
           "data": {
@@ -4678,6 +4704,36 @@
           }
         },
         "title": "ApiResponse[list[NotificationPreferenceRead]]",
+        "type": "object"
+      },
+      "ApiResponse_list_PurchaseOrderVendorAssignee__": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PurchaseOrderVendorAssignee"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[list[PurchaseOrderVendorAssignee]]",
         "type": "object"
       },
       "ApiResponse_list_ReceiptRead__": {
@@ -14705,6 +14761,18 @@
               }
             ],
             "title": "Required Date"
+          },
+          "requisition_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requisition Line Id"
           }
         },
         "required": [
@@ -24809,11 +24877,11 @@
         "title": "PaginatedResponse[ReallocationRequestRead]",
         "type": "object"
       },
-      "PaginatedResponse_RequisitionSummary_": {
+      "PaginatedResponse_RequisitionListRow_": {
         "properties": {
           "data": {
             "items": {
-              "$ref": "#/components/schemas/RequisitionSummary"
+              "$ref": "#/components/schemas/RequisitionListRow"
             },
             "title": "Data",
             "type": "array"
@@ -24832,7 +24900,7 @@
             "type": "boolean"
           }
         },
-        "title": "PaginatedResponse[RequisitionSummary]",
+        "title": "PaginatedResponse[RequisitionListRow]",
         "type": "object"
       },
       "PaginatedResponse_ReservationRead_": {
@@ -29422,6 +29490,17 @@
             ],
             "title": "Assigned Vendor User Id"
           },
+          "assigned_vendor_user_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Vendor User Name"
+          },
           "branch_id": {
             "anyOf": [
               {
@@ -29521,6 +29600,40 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "item_category_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Category Code"
+          },
+          "item_category_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Category Id"
+          },
+          "item_category_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Category Name"
           },
           "lines": {
             "items": {
@@ -29691,6 +29804,7 @@
           "source_type",
           "source_id",
           "assigned_vendor_user_id",
+          "item_category_id",
           "version",
           "created_at",
           "branch_id",
@@ -30157,6 +30271,40 @@
             "title": "Id",
             "type": "string"
           },
+          "item_category_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Category Code"
+          },
+          "item_category_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Category Id"
+          },
+          "item_category_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Category Name"
+          },
           "payment_terms_days": {
             "title": "Payment Terms Days",
             "type": "integer"
@@ -30252,6 +30400,7 @@
           "source_type",
           "source_id",
           "assigned_vendor_user_id",
+          "item_category_id",
           "version",
           "created_at"
         ],
@@ -30615,6 +30764,53 @@
           }
         },
         "title": "PurchaseOrderUpdate",
+        "type": "object"
+      },
+      "PurchaseOrderVendorAssignee": {
+        "description": "A vendor user an order may be sent to - the Send dialog's picker row.\n\nServed by procurement because the buyer choosing the assignee holds\n``purchase_order.send``, not ``user.view``.",
+        "properties": {
+          "allowed_category_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Category Codes",
+            "type": "array"
+          },
+          "allowed_category_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Allowed Category Ids",
+            "type": "array"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "full_name": {
+            "title": "Full Name",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_suggested": {
+            "title": "Is Suggested",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "full_name",
+          "email",
+          "allowed_category_ids",
+          "allowed_category_codes",
+          "is_suggested"
+        ],
+        "title": "PurchaseOrderVendorAssignee",
         "type": "object"
       },
       "PurchaseReturnCreate": {
@@ -33994,6 +34190,706 @@
         "title": "ReportKey",
         "type": "string"
       },
+      "RequisitionBatchConversionRequest": {
+        "additionalProperties": false,
+        "description": "The batch form: several approved requisitions converted together.",
+        "properties": {
+          "acknowledge_duplicates": {
+            "default": false,
+            "title": "Acknowledge Duplicates",
+            "type": "boolean"
+          },
+          "delivery_address": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Address"
+          },
+          "duplicate_acknowledgement_reason": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicate Acknowledgement Reason"
+          },
+          "expected_delivery_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Delivery Date"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/RequisitionConversionLineOverride"
+            },
+            "maxItems": 200,
+            "title": "Lines",
+            "type": "array"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "po_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Po Date"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "maximum": 9.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "requisition_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Requisition Ids",
+            "type": "array"
+          },
+          "terms": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terms"
+          }
+        },
+        "required": [
+          "requisition_ids"
+        ],
+        "title": "RequisitionBatchConversionRequest",
+        "type": "object"
+      },
+      "RequisitionConversionGroup": {
+        "description": "One proposed purchase order: one vendor, one category, one warehouse.",
+        "properties": {
+          "assigned_vendor_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Vendor User Id"
+          },
+          "assigned_vendor_user_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Vendor User Name"
+          },
+          "assignee_reason": {
+            "$ref": "#/components/schemas/VendorAssigneeReason"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "duplicate_candidates": {
+            "items": {
+              "$ref": "#/components/schemas/DuplicateCandidateRead"
+            },
+            "title": "Duplicate Candidates",
+            "type": "array"
+          },
+          "expected_delivery_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Delivery Date"
+          },
+          "item_category_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Category Code"
+          },
+          "item_category_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Category Id"
+          },
+          "item_category_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Category Name"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/RequisitionConversionLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "integer"
+          },
+          "purchase_order_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchase Order Code"
+          },
+          "purchase_order_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchase Order Id"
+          },
+          "source_requisition_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Requisition Id"
+          },
+          "subtotal": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Subtotal",
+            "type": "string"
+          },
+          "tax_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Tax Amount",
+            "type": "string"
+          },
+          "total_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total Amount",
+            "type": "string"
+          },
+          "vendor_code": {
+            "title": "Vendor Code",
+            "type": "string"
+          },
+          "vendor_id": {
+            "format": "uuid",
+            "title": "Vendor Id",
+            "type": "string"
+          },
+          "vendor_name": {
+            "title": "Vendor Name",
+            "type": "string"
+          },
+          "warehouse_id": {
+            "format": "uuid",
+            "title": "Warehouse Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "vendor_id",
+          "vendor_code",
+          "vendor_name",
+          "item_category_id",
+          "item_category_code",
+          "item_category_name",
+          "warehouse_id",
+          "source_requisition_id",
+          "assigned_vendor_user_id",
+          "assigned_vendor_user_name",
+          "assignee_reason",
+          "currency",
+          "expected_delivery_date",
+          "priority",
+          "subtotal",
+          "tax_amount",
+          "total_amount",
+          "lines",
+          "duplicate_candidates"
+        ],
+        "title": "RequisitionConversionGroup",
+        "type": "object"
+      },
+      "RequisitionConversionLine": {
+        "description": "One requisition line as it will appear on the proposed order.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "item_code": {
+            "title": "Item Code",
+            "type": "string"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "item_name": {
+            "title": "Item Name",
+            "type": "string"
+          },
+          "line_number": {
+            "title": "Line Number",
+            "type": "integer"
+          },
+          "line_total": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Line Total",
+            "type": "string"
+          },
+          "price_source": {
+            "$ref": "#/components/schemas/RequisitionPriceSource"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "required_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Date"
+          },
+          "requisition_code": {
+            "title": "Requisition Code",
+            "type": "string"
+          },
+          "requisition_id": {
+            "format": "uuid",
+            "title": "Requisition Id",
+            "type": "string"
+          },
+          "requisition_line_id": {
+            "format": "uuid",
+            "title": "Requisition Line Id",
+            "type": "string"
+          },
+          "unit_price": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unit Price",
+            "type": "string"
+          },
+          "uom_id": {
+            "format": "uuid",
+            "title": "Uom Id",
+            "type": "string"
+          },
+          "vendor_source": {
+            "$ref": "#/components/schemas/RequisitionVendorSource"
+          }
+        },
+        "required": [
+          "requisition_id",
+          "requisition_code",
+          "requisition_line_id",
+          "line_number",
+          "item_id",
+          "item_code",
+          "item_name",
+          "description",
+          "quantity",
+          "uom_id",
+          "required_date",
+          "unit_price",
+          "price_source",
+          "vendor_source",
+          "line_total"
+        ],
+        "title": "RequisitionConversionLine",
+        "type": "object"
+      },
+      "RequisitionConversionLineOverride": {
+        "additionalProperties": false,
+        "description": "The buyer's correction to how one requisition line is converted.",
+        "properties": {
+          "exclude": {
+            "default": false,
+            "title": "Exclude",
+            "type": "boolean"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "requisition_line_id": {
+            "format": "uuid",
+            "title": "Requisition Line Id",
+            "type": "string"
+          },
+          "unit_price": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,12}|(?=[\\d.]{1,19}0*$)\\d{0,12}\\.\\d{0,6}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Price"
+          },
+          "vendor_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Id"
+          }
+        },
+        "required": [
+          "requisition_line_id"
+        ],
+        "title": "RequisitionConversionLineOverride",
+        "type": "object"
+      },
+      "RequisitionConversionRequest": {
+        "additionalProperties": false,
+        "description": "How to turn approved requisitions into purchase orders.\n\nEvery header field applies to every order the conversion raises. Nothing\nnames a vendor, a category or an assignee per order: those are resolved,\nand the per-line overrides are how a buyer changes the resolution.",
+        "properties": {
+          "acknowledge_duplicates": {
+            "default": false,
+            "title": "Acknowledge Duplicates",
+            "type": "boolean"
+          },
+          "delivery_address": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Address"
+          },
+          "duplicate_acknowledgement_reason": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicate Acknowledgement Reason"
+          },
+          "expected_delivery_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Delivery Date"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/RequisitionConversionLineOverride"
+            },
+            "maxItems": 200,
+            "title": "Lines",
+            "type": "array"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "po_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Po Date"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "maximum": 9.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "terms": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terms"
+          }
+        },
+        "title": "RequisitionConversionRequest",
+        "type": "object"
+      },
+      "RequisitionConversionResult": {
+        "description": "A conversion, proposed (preview) or done (convert).",
+        "properties": {
+          "converted": {
+            "title": "Converted",
+            "type": "boolean"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/RequisitionConversionGroup"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "max_orders": {
+            "title": "Max Orders",
+            "type": "integer"
+          },
+          "requires_acknowledgement": {
+            "title": "Requires Acknowledgement",
+            "type": "boolean"
+          },
+          "requisitions": {
+            "items": {
+              "$ref": "#/components/schemas/RequisitionSummary"
+            },
+            "title": "Requisitions",
+            "type": "array"
+          },
+          "skipped_line_count": {
+            "title": "Skipped Line Count",
+            "type": "integer"
+          },
+          "unresolved_lines": {
+            "items": {
+              "$ref": "#/components/schemas/RequisitionConversionUnresolvedLine"
+            },
+            "title": "Unresolved Lines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "requisitions",
+          "groups",
+          "unresolved_lines",
+          "skipped_line_count",
+          "max_orders",
+          "requires_acknowledgement",
+          "converted"
+        ],
+        "title": "RequisitionConversionResult",
+        "type": "object"
+      },
+      "RequisitionConversionUnresolvedLine": {
+        "description": "A line that cannot be converted, and every reason why.",
+        "properties": {
+          "item_code": {
+            "title": "Item Code",
+            "type": "string"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "line_number": {
+            "title": "Line Number",
+            "type": "integer"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "requisition_code": {
+            "title": "Requisition Code",
+            "type": "string"
+          },
+          "requisition_id": {
+            "format": "uuid",
+            "title": "Requisition Id",
+            "type": "string"
+          },
+          "requisition_line_id": {
+            "format": "uuid",
+            "title": "Requisition Line Id",
+            "type": "string"
+          },
+          "vendor_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Id"
+          }
+        },
+        "required": [
+          "requisition_id",
+          "requisition_code",
+          "requisition_line_id",
+          "line_number",
+          "item_id",
+          "item_code",
+          "vendor_id",
+          "reasons"
+        ],
+        "title": "RequisitionConversionUnresolvedLine",
+        "type": "object"
+      },
       "RequisitionCreate": {
         "additionalProperties": false,
         "properties": {
@@ -34545,6 +35441,155 @@
         "title": "RequisitionLineStatus",
         "type": "string"
       },
+      "RequisitionListRow": {
+        "description": "A requisition as the list shows it.\n\n``open_line_count`` is how many of its lines still have quantity to order -\nlive lines whose ordered quantity is short of the requested one - so the\nlist can offer \"Raise purchase orders\" only where there is something left\nto raise. Counted for the whole page in one grouped statement.",
+        "properties": {
+          "approved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "approved_by_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By Id"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "department_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "open_line_count": {
+            "title": "Open Line Count",
+            "type": "integer"
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "integer"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
+          },
+          "requested_by_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By Id"
+          },
+          "required_date": {
+            "format": "date",
+            "title": "Required Date",
+            "type": "string"
+          },
+          "requisition_date": {
+            "format": "date",
+            "title": "Requisition Date",
+            "type": "string"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "source_type": {
+            "$ref": "#/components/schemas/PurchaseSourceType"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RequisitionStatus"
+          },
+          "warehouse_id": {
+            "format": "uuid",
+            "title": "Warehouse Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "requisition_date",
+          "required_date",
+          "warehouse_id",
+          "department_id",
+          "status",
+          "priority",
+          "requested_by_id",
+          "approved_by_id",
+          "approved_at",
+          "source_type",
+          "source_id",
+          "purpose",
+          "created_at",
+          "open_line_count"
+        ],
+        "title": "RequisitionListRow",
+        "type": "object"
+      },
+      "RequisitionPriceSource": {
+        "description": "Where a converted line's unit price came from, strongest source first.",
+        "enum": [
+          "OVERRIDE",
+          "ESTIMATE",
+          "LAST_PURCHASE"
+        ],
+        "title": "RequisitionPriceSource",
+        "type": "string"
+      },
       "RequisitionStatus": {
         "description": "Lifecycle of a purchase requisition (master rules section 15).",
         "enum": [
@@ -34810,6 +35855,17 @@
         },
         "title": "RequisitionUpdate",
         "type": "object"
+      },
+      "RequisitionVendorSource": {
+        "description": "Where a converted line's vendor came from, strongest source first.",
+        "enum": [
+          "OVERRIDE",
+          "SUGGESTED",
+          "ITEM_PREFERRED",
+          "CATEGORY_PREFERRED"
+        ],
+        "title": "RequisitionVendorSource",
+        "type": "string"
       },
       "ReservationCreate": {
         "description": "Ask for a quantity of stock to be held for a demand line.",
@@ -43663,6 +44719,17 @@
         },
         "title": "VariantUpdate",
         "type": "object"
+      },
+      "VendorAssigneeReason": {
+        "description": "Why an order was - or was not - handed to a particular vendor user.",
+        "enum": [
+          "CATEGORY_MATCH",
+          "AMBIGUOUS",
+          "UNRESTRICTED",
+          "NO_ELIGIBLE_USER"
+        ],
+        "title": "VendorAssigneeReason",
+        "type": "string"
       },
       "VendorCategoryAssign": {
         "description": "Qualify a vendor for one item category.",
@@ -87758,6 +88825,25 @@
             }
           },
           {
+            "description": "Orders raised for this item category or any category beneath it",
+            "in": "query",
+            "name": "item_category_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Orders raised for this item category or any category beneath it",
+              "title": "Item Category Id"
+            }
+          },
+          {
             "description": "Only orders still expecting delivery",
             "in": "query",
             "name": "open_only",
@@ -88143,7 +89229,7 @@
     },
     "/api/v1/procurement/purchase-orders/check-duplicates": {
       "post": {
-        "description": "Master rules section 16. Matches on vendor, item, warehouse, an overlapping required date window and the source demand reference. Each candidate carries the possible actions - merge, increase the existing quantity, create a new order with approval, or cancel the duplicate - and the recommended one.",
+        "description": "Master rules section 16. Matches on vendor, item, warehouse, an overlapping required date window, the source demand reference and the pending requisition line. Each candidate carries the possible actions - merge, increase the existing quantity, create a new order with approval, or cancel the duplicate - and the recommended one.",
         "operationId": "check_duplicates_api_v1_procurement_purchase_orders_check_duplicates_post",
         "requestBody": {
           "content": {
@@ -89649,8 +90735,128 @@
         ]
       }
     },
+    "/api/v1/procurement/purchase-orders/{order_id}/vendor-assignees": {
+      "get": {
+        "description": "The Send dialog's picker: active users of the order's vendor who may act on purchase orders and whose category scope covers the order's category (or is unrestricted), with the one the assignment rule would choose marked is_suggested. Served here because the buyer sending the order holds purchase_order.send, not user.view.",
+        "operationId": "list_vendor_assignees_api_v1_procurement_purchase_orders__order_id__vendor_assignees_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Order Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_list_PurchaseOrderVendorAssignee__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Vendor users this order can be sent to",
+        "tags": [
+          "Procurement"
+        ]
+      }
+    },
     "/api/v1/procurement/purchase-requisitions": {
       "get": {
+        "description": "Each row carries open_line_count: how many of its lines are still to order.",
         "operationId": "list_requisitions_api_v1_procurement_purchase_requisitions_get",
         "parameters": [
           {
@@ -89746,6 +90952,18 @@
               "default": false,
               "description": "Only unmet approved demand",
               "title": "Open Only",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Only approved or converted requisitions with a line still to order",
+            "in": "query",
+            "name": "convertible_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Only approved or converted requisitions with a line still to order",
+              "title": "Convertible Only",
               "type": "boolean"
             }
           },
@@ -89863,7 +91081,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PaginatedResponse_RequisitionSummary_"
+                  "$ref": "#/components/schemas/PaginatedResponse_RequisitionListRow_"
                 }
               }
             },
@@ -90070,6 +91288,240 @@
           }
         ],
         "summary": "Raise a draft purchase requisition",
+        "tags": [
+          "Procurement"
+        ]
+      }
+    },
+    "/api/v1/procurement/purchase-requisitions/conversion-preview": {
+      "post": {
+        "description": "Read-only. One proposed order per (vendor, procurement category, warehouse), each with its lines, prices and their sources, the vendor and its source, the vendor user it would be assigned to and why, and the open orders it would duplicate; plus every line that cannot be converted and why. MRP raises one requisition per suggestion, which is what the batch form is for.",
+        "operationId": "preview_batch_conversion_api_v1_procurement_purchase_requisitions_conversion_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequisitionBatchConversionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_RequisitionConversionResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview converting several approved requisitions into purchase orders",
+        "tags": [
+          "Procurement"
+        ]
+      }
+    },
+    "/api/v1/procurement/purchase-requisitions/convert-to-orders": {
+      "post": {
+        "description": "Raises one DRAFT purchase order per (vendor, procurement category, warehouse) in one transaction. Any unresolved line refuses the whole conversion. A duplicate is refused with DUPLICATE_DOCUMENT unless acknowledge_duplicates is set with a reason by a caller holding purchase_order.approve.",
+        "operationId": "convert_batch_to_orders_api_v1_procurement_purchase_requisitions_convert_to_orders_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequisitionBatchConversionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_RequisitionConversionResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Convert several approved requisitions into category-wise purchase orders",
         "tags": [
           "Procurement"
         ]
@@ -90701,6 +92153,393 @@
           }
         ],
         "summary": "Cancel a requisition",
+        "tags": [
+          "Procurement"
+        ]
+      }
+    },
+    "/api/v1/procurement/purchase-requisitions/{requisition_id}/close": {
+      "post": {
+        "description": "Stops the requisition counting as open demand: whatever is still unordered on it will not be ordered. Reaches CLOSED from APPROVED or CONVERTED; the reason is recorded.",
+        "operationId": "close_requisition_api_v1_procurement_purchase_requisitions__requisition_id__close_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requisition_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Requisition Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/src__modules__procurement__schemas__ReasonRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_RequisitionSummary_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Close an approved or converted requisition",
+        "tags": [
+          "Procurement"
+        ]
+      }
+    },
+    "/api/v1/procurement/purchase-requisitions/{requisition_id}/conversion-preview": {
+      "post": {
+        "description": "Read-only. One proposed order per (vendor, procurement category), with every line's price and vendor and where each came from, the vendor user each order would be assigned to, duplicate warnings, and every line that cannot be converted and why.",
+        "operationId": "preview_requisition_conversion_api_v1_procurement_purchase_requisitions__requisition_id__conversion_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requisition_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Requisition Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequisitionConversionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_RequisitionConversionResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview converting an approved requisition into purchase orders",
+        "tags": [
+          "Procurement"
+        ]
+      }
+    },
+    "/api/v1/procurement/purchase-requisitions/{requisition_id}/convert-to-orders": {
+      "post": {
+        "description": "Raises one DRAFT purchase order per (vendor, procurement category) in one transaction and moves the requisition to CONVERTED. Any unresolved line refuses the whole conversion. A duplicate is refused with DUPLICATE_DOCUMENT unless acknowledge_duplicates is set with a reason by a caller holding purchase_order.approve.",
+        "operationId": "convert_requisition_to_orders_api_v1_procurement_purchase_requisitions__requisition_id__convert_to_orders_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requisition_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Requisition Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequisitionConversionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_RequisitionConversionResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Convert an approved requisition into category-wise purchase orders",
         "tags": [
           "Procurement"
         ]

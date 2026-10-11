@@ -11475,9 +11475,9 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"required_date\": {}\n    }\n  ],\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\"\n}"
+              "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"required_date\": {},\n      \"requisition_line_id\": {}\n    }\n  ],\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\"\n}"
             },
-            "description": "Master rules section 16. Matches on vendor, item, warehouse, an overlapping required date window and the source demand reference. Each candidate carries the possible actions - merge, increase the existing quantity, create a new order with approval, or cancel the duplicate - and the recommended one.",
+            "description": "Master rules section 16. Matches on vendor, item, warehouse, an overlapping required date window, the source demand reference and the pending requisition line. Each candidate carries the possible actions - merge, increase the existing quantity, create a new order with approval, or cancel the duplicate - and the recommended one.",
             "header": [
               {
                 "key": "Content-Type",
@@ -11587,6 +11587,49 @@
           }
         },
         {
+          "name": "Close an approved or converted requisition",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Stops the requisition counting as open demand: whatever is still unordered on it will not be ordered. Reaches CLOSED from APPROVED or CONVERTED; the reason is recorded.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-requisitions",
+                ":requisition_id",
+                "close"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-requisitions/{requisition_id}/close",
+              "variable": [
+                {
+                  "description": "requisition_id of the record",
+                  "key": "requisition_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Compare every quotation received for an RFQ",
           "request": {
             "description": "Side by side, one row per item and one column per vendor, with price, lead time and vendor rating. Each row names a recommended vendor and states the reason; the overall recommendation is the vendor that wins the most lines. No recommendation is made when the quotations are in different currencies.",
@@ -11612,6 +11655,84 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Convert an approved requisition into category-wise purchase orders",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"acknowledge_duplicates\": false,\n  \"delivery_address\": \"\",\n  \"duplicate_acknowledgement_reason\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"requisition_line_id\": {},\n      \"exclude\": {},\n      \"quantity\": {},\n      \"unit_price\": {},\n      \"vendor_id\": {}\n    }\n  ],\n  \"notes\": \"\",\n  \"po_date\": \"2026-01-01\",\n  \"priority\": 0,\n  \"terms\": \"\"\n}"
+            },
+            "description": "Raises one DRAFT purchase order per (vendor, procurement category) in one transaction and moves the requisition to CONVERTED. Any unresolved line refuses the whole conversion. A duplicate is refused with DUPLICATE_DOCUMENT unless acknowledge_duplicates is set with a reason by a caller holding purchase_order.approve.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-requisitions",
+                ":requisition_id",
+                "convert-to-orders"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-requisitions/{requisition_id}/convert-to-orders",
+              "variable": [
+                {
+                  "description": "requisition_id of the record",
+                  "key": "requisition_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Convert several approved requisitions into category-wise purchase orders",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"requisition_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"acknowledge_duplicates\": false,\n  \"delivery_address\": \"\",\n  \"duplicate_acknowledgement_reason\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"requisition_line_id\": {},\n      \"exclude\": {},\n      \"quantity\": {},\n      \"unit_price\": {},\n      \"vendor_id\": {}\n    }\n  ],\n  \"notes\": \"\",\n  \"po_date\": \"2026-01-01\",\n  \"priority\": 0,\n  \"terms\": \"\"\n}"
+            },
+            "description": "Raises one DRAFT purchase order per (vendor, procurement category, warehouse) in one transaction. Any unresolved line refuses the whole conversion. A duplicate is refused with DUPLICATE_DOCUMENT unless acknowledge_duplicates is set with a reason by a caller holding purchase_order.approve.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-requisitions",
+                "convert-to-orders"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-requisitions/convert-to-orders"
             }
           }
         },
@@ -12002,6 +12123,12 @@
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
+                  "description": "Orders raised for this item category or any category beneath it",
+                  "disabled": true,
+                  "key": "item_category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
                   "description": "Only orders still expecting delivery",
                   "disabled": true,
                   "key": "open_only",
@@ -12075,7 +12202,7 @@
         {
           "name": "List purchase requisitions",
           "request": {
-            "description": "List purchase requisitions",
+            "description": "Each row carries open_line_count: how many of its lines are still to order.",
             "header": [],
             "method": "GET",
             "url": {
@@ -12123,6 +12250,12 @@
                   "description": "Only unmet approved demand",
                   "disabled": true,
                   "key": "open_only",
+                  "value": "False"
+                },
+                {
+                  "description": "Only approved or converted requisitions with a line still to order",
+                  "disabled": true,
+                  "key": "convertible_only",
                   "value": "False"
                 },
                 {
@@ -12491,6 +12624,84 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Preview converting an approved requisition into purchase orders",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"acknowledge_duplicates\": false,\n  \"delivery_address\": \"\",\n  \"duplicate_acknowledgement_reason\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"requisition_line_id\": {},\n      \"exclude\": {},\n      \"quantity\": {},\n      \"unit_price\": {},\n      \"vendor_id\": {}\n    }\n  ],\n  \"notes\": \"\",\n  \"po_date\": \"2026-01-01\",\n  \"priority\": 0,\n  \"terms\": \"\"\n}"
+            },
+            "description": "Read-only. One proposed order per (vendor, procurement category), with every line's price and vendor and where each came from, the vendor user each order would be assigned to, duplicate warnings, and every line that cannot be converted and why.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-requisitions",
+                ":requisition_id",
+                "conversion-preview"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-requisitions/{requisition_id}/conversion-preview",
+              "variable": [
+                {
+                  "description": "requisition_id of the record",
+                  "key": "requisition_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Preview converting several approved requisitions into purchase orders",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"requisition_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"acknowledge_duplicates\": false,\n  \"delivery_address\": \"\",\n  \"duplicate_acknowledgement_reason\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"requisition_line_id\": {},\n      \"exclude\": {},\n      \"quantity\": {},\n      \"unit_price\": {},\n      \"vendor_id\": {}\n    }\n  ],\n  \"notes\": \"\",\n  \"po_date\": \"2026-01-01\",\n  \"priority\": 0,\n  \"terms\": \"\"\n}"
+            },
+            "description": "Read-only. One proposed order per (vendor, procurement category, warehouse), each with its lines, prices and their sources, the vendor and its source, the vendor user it would be assigned to and why, and the open orders it would duplicate; plus every line that cannot be converted and why. MRP raises one requisition per suggestion, which is what the batch form is for.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-requisitions",
+                "conversion-preview"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-requisitions/conversion-preview"
             }
           }
         },
@@ -13344,6 +13555,35 @@
                 ":order_id"
               ],
               "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Vendor users this order can be sent to",
+          "request": {
+            "description": "The Send dialog's picker: active users of the order's vendor who may act on purchase orders and whose category scope covers the order's category (or is unrestricted), with the one the assignment rule would choose marked is_suggested. Served here because the buyer sending the order holds purchase_order.send, not user.view.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "vendor-assignees"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/vendor-assignees",
               "variable": [
                 {
                   "description": "order_id of the record",

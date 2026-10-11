@@ -388,18 +388,21 @@ class TestVendorIsolation:
         vendor_role: Role,
         vendor,
     ) -> None:
+        # The scope names a category the vendor is qualified for: a made-up id
+        # is now refused (see TestVendorCategoryScope).
+        lock_body = await _qualified_category(session, tenant, vendor)
         created = await UserService(session, tenant).create_user(
             principal,
             _payload(
                 _email(),
                 vendor_id=vendor.id,
                 role_ids=[vendor_role.id],
-                allowed_category_ids=[uuid.uuid4()],
+                allowed_category_ids=[lock_body.id],
             ),
         )
         assert created.is_vendor_user
         assert created.role_codes == [vendor_role.code]
-        assert len(created.allowed_category_ids) == 1
+        assert created.allowed_category_ids == [lock_body.id]
 
     async def test_detaching_the_vendor_while_vendor_roles_remain_is_refused(
         self,
@@ -416,6 +419,144 @@ class TestVendorIsolation:
         # The boundary has to hold when the *user* moves, not only when the roles do.
         with pytest.raises(BusinessRuleError):
             await service.update_user(principal, created.id, UserUpdate(clear_vendor=True))
+
+
+async def _qualified_category(session: AsyncSession, tenant: TenantContext, vendor) -> Any:
+    """A live category of this tenant that ``vendor`` is qualified to supply."""
+    from src.modules.vendors.models import VendorCategory
+    from tests import seed_support
+
+    category = await seed_support.seed_category(session, company_id=tenant.company_id)
+    session.add(
+        VendorCategory(
+            company_id=tenant.company_id, vendor_id=vendor.id, item_category_id=category.id
+        )
+    )
+    await session.flush()
+    return category
+
+
+class TestVendorCategoryScope:
+    """``allowed_category_ids``: live categories of this tenant the vendor supplies.
+
+    An array column carries no foreign key at all, so without these checks a
+    vendor manager could be scoped to another company's category, to a retired
+    one, or to one their vendor will never be sent an order for.
+    """
+
+    async def test_an_unknown_category_is_not_found(
+        self, session, tenant, principal, vendor_role, vendor
+    ) -> None:
+        with pytest.raises(NotFoundError):
+            await UserService(session, tenant).create_user(
+                principal,
+                _payload(
+                    _email(),
+                    vendor_id=vendor.id,
+                    role_ids=[vendor_role.id],
+                    allowed_category_ids=[uuid.uuid4()],
+                ),
+            )
+
+    async def test_another_tenants_category_is_not_found(
+        self, session, tenant, principal, vendor_role, vendor, other_company
+    ) -> None:
+        from tests import seed_support
+
+        foreign = await seed_support.seed_category(session, company_id=other_company.id)
+        with pytest.raises(NotFoundError):
+            await UserService(session, tenant).create_user(
+                principal,
+                _payload(
+                    _email(),
+                    vendor_id=vendor.id,
+                    role_ids=[vendor_role.id],
+                    allowed_category_ids=[foreign.id],
+                ),
+            )
+
+    async def test_a_retired_category_is_not_found(
+        self, session, tenant, principal, vendor_role, vendor
+    ) -> None:
+        category = await _qualified_category(session, tenant, vendor)
+        category.deleted_at = utcnow()
+        await session.flush()
+        with pytest.raises(NotFoundError):
+            await UserService(session, tenant).create_user(
+                principal,
+                _payload(
+                    _email(),
+                    vendor_id=vendor.id,
+                    role_ids=[vendor_role.id],
+                    allowed_category_ids=[category.id],
+                ),
+            )
+
+    async def test_a_category_the_vendor_does_not_supply_is_refused(
+        self, session, tenant, principal, vendor_role, vendor
+    ) -> None:
+        from tests import seed_support
+
+        unqualified = await seed_support.seed_category(session, company_id=tenant.company_id)
+        with pytest.raises(BusinessRuleError) as refused:
+            await UserService(session, tenant).create_user(
+                principal,
+                _payload(
+                    _email(),
+                    vendor_id=vendor.id,
+                    role_ids=[vendor_role.id],
+                    allowed_category_ids=[unqualified.id],
+                ),
+            )
+        assert refused.value.details["allowed_category_ids"] == [str(unqualified.id)]
+
+    async def test_an_update_to_the_scope_is_checked_too(
+        self, session, tenant, principal, vendor_role, vendor
+    ) -> None:
+        from tests import seed_support
+
+        service = UserService(session, tenant)
+        created = await service.create_user(
+            principal, _payload(_email(), vendor_id=vendor.id, role_ids=[vendor_role.id])
+        )
+        unqualified = await seed_support.seed_category(session, company_id=tenant.company_id)
+        with pytest.raises(BusinessRuleError):
+            await service.update_user(
+                principal, created.id, UserUpdate(allowed_category_ids=[unqualified.id])
+            )
+
+        qualified = await _qualified_category(session, tenant, vendor)
+        updated = await service.update_user(
+            principal, created.id, UserUpdate(allowed_category_ids=[qualified.id])
+        )
+        assert updated.allowed_category_ids == [qualified.id]
+
+    async def test_a_drifted_scope_does_not_block_an_unrelated_edit(
+        self, session, tenant, principal, vendor_role, vendor
+    ) -> None:
+        """A qualification revoked later must not lock the account's other fields."""
+        from sqlalchemy import delete
+
+        from src.modules.vendors.models import VendorCategory
+
+        qualified = await _qualified_category(session, tenant, vendor)
+        service = UserService(session, tenant)
+        created = await service.create_user(
+            principal,
+            _payload(
+                _email(),
+                vendor_id=vendor.id,
+                role_ids=[vendor_role.id],
+                allowed_category_ids=[qualified.id],
+            ),
+        )
+        await session.execute(
+            delete(VendorCategory).where(VendorCategory.item_category_id == qualified.id)
+        )
+        updated = await service.update_user(
+            principal, created.id, UserUpdate(phone="+91 98200 00000")
+        )
+        assert updated.phone == "+91 98200 00000"
 
 
 class TestVendorPortalIsolation:

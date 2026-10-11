@@ -12,6 +12,7 @@
 import { useQuery } from '@tanstack/react-query'
 
 import { api, emptyOnPermissionError } from '@/lib/api-client'
+import { LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import type { DecimalString, SchemaOf } from '@/types/api'
 
@@ -276,5 +277,33 @@ export function useVendorOptions(enabled = true, approvedOnly = false) {
     },
     staleTime: staleTimes.reference,
     enabled,
+  })
+}
+
+/** One category a vendor is qualified for (`VendorCategoryRead`). */
+export type VendorCategoryOption = SchemaOf<'VendorCategoryRead'>
+
+/**
+ * The item categories one vendor is qualified to supply, for a picker.
+ *
+ * What a vendor-portal user may be limited to: the users service refuses a
+ * category scope that is not a subset of these rows, so the picker offers these
+ * and nothing else. `GET /vendors/{id}/categories` is gated on `vendor.view` -
+ * the right the user dialog's own vendor picker already needs to bind the
+ * account to a vendor at all - and is vendor-scoped for a portal principal. A
+ * vendor's qualifications are reference-sized, so one page at the API's maximum
+ * is the whole set.
+ */
+export function useVendorCategoryOptions(vendorId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: [...queryKeys.vendors.detail(vendorId ?? ''), 'categories', 'options'] as const,
+    queryFn: async (): Promise<VendorCategoryOption[]> =>
+      (
+        await api.getPage<VendorCategoryOption>(`/vendors/${vendorId}/categories`, {
+          params: { limit: LOOKUP_LIST_LIMIT },
+        })
+      ).data,
+    staleTime: staleTimes.master,
+    enabled: enabled && Boolean(vendorId),
   })
 }

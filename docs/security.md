@@ -190,9 +190,32 @@ Vendor users share the `users` table but carry `vendor_id`, and:
 - are scoped to their own vendor's records;
 - may be restricted further to specific item categories
   (`allowed_category_ids`), which is how "Manager 1 → Lock Body, Manager 2 →
-  Handles" is expressed;
+  Handles" is expressed. The list must name live categories of the tenant that
+  the vendor is qualified for (`vendor_categories`); the users service refuses
+  anything else;
 - can be blocked wholesale from internal endpoints with `forbid_vendor_users`,
   a second line of defence behind the permission check.
+
+**Purchase orders.** `PurchaseOrderRepository._scoped` applies the vendor scope
+to every read and lock, so a vendor cannot reach an order by any path the rule
+does not allow, and an order outside it is "not found", never "forbidden":
+
+- only its own vendor's orders;
+- only orders it has been sent - SENT and every later status, and a CANCELLED
+  order only if it had been sent. A DRAFT, PENDING_APPROVAL, APPROVED or
+  REJECTED order is the buyer's working document, with unapproved prices;
+- when `allowed_category_ids` is not empty, only orders whose
+  `item_category_id` is one of those categories or beneath one, plus any order
+  assigned to that user by name. An empty list is unrestricted.
+
+The buyer-side routes that would otherwise reveal other vendors' orders or the
+requisition book are closed to vendor accounts with `forbid_vendor_users`:
+`POST /procurement/purchase-orders/check-duplicates` (it answers with open
+orders for whichever vendor the payload names), the requisition conversion
+preview and convert routes, and `GET /purchase-orders/{id}/vendor-assignees`.
+An order's `assigned_vendor_user_id` is validated wherever it is set - tenant,
+active, the order's vendor, the vendor-side order right, and the order's
+category or unrestricted - because a UUID foreign key checks none of that.
 
 ---
 

@@ -1724,6 +1724,21 @@
               "note": "A reason of at least three characters is required. The requester sees it."
             },
             {
+              "action": "Raise purchase orders from one requisition",
+              "how": "The ... menu on an approved row that still has lines to order, then Raise purchase orders",
+              "note": "The system proposes one draft purchase order per vendor and item category, each handed to the vendor's manager for that category. Change a line's vendor, price or quantity, or leave it out, and the proposal is worked out again. Nothing is raised while any line has no vendor or no price."
+            },
+            {
+              "action": "Raise purchase orders from several requisitions at once",
+              "how": "Raise POs from approved requisitions, top right, then tick the requisitions",
+              "note": "Up to 50 at a time - the planning run raises one small requisition per shortage, and this pools their lines so each vendor gets one order per category and delivery warehouse instead of one per requisition."
+            },
+            {
+              "action": "Close a requisition",
+              "how": "The ... menu on an approved or converted row, then Close requisition",
+              "note": "A reason is required. Whatever is still unordered on it will not be ordered and it stops counting as open demand; orders already raised from it are not affected. Closing is final."
+            },
+            {
               "action": "Cancel a requisition",
               "how": "The ... menu, then Cancel requisition",
               "note": "A reason is required and cancelling is final. Available on a draft, one awaiting approval, or an approved one that is no longer wanted."
@@ -1752,7 +1767,9 @@
             "Save the draft. The screen totals the estimates as an indicative value; nothing is committed by it.",
             "From the row's ... menu, submit it for approval.",
             "The approver filters the list to Pending approval and either approves it or rejects it with a reason.",
-            "An approved requisition can now be put out to vendors as an RFQ, or ordered directly."
+            "An approved requisition can now be put out to vendors as an RFQ, or turned straight into purchase orders: open its ... menu and choose Raise purchase orders.",
+            "Read the proposal: one card per vendor and item category, with each line's price and where it came from, the vendor manager the order goes to, and any open order it would duplicate.",
+            "Correct anything that is wrong - another vendor, a different price or quantity, or leave a line out for later - and press Raise. The orders open as drafts on the Purchase orders screen, to be submitted, approved and sent like any other."
           ],
           "rules": [
             "Only a draft can be edited or deleted. Anything further along is cancelled instead, because somebody may already be deciding on it and a document must not change underneath them.",
@@ -1763,10 +1780,14 @@
             "The required-by date cannot be earlier than the date the requisition is raised \u2014 that is nearly always a mistyped year.",
             "The estimated price is indicative only. What will actually be paid is settled on the purchase order.",
             "Once an RFQ or a purchase order has been raised against an approved requisition it becomes Converted, and from there the only move left is to close it \u2014 cancelling it would say nothing about the commitment already made to a vendor.",
-            "When a purchase order raised from a requisition is cancelled or rejected, the quantity goes back onto the requisition as unmet demand, so the shortage is not silently dropped."
+            "When a purchase order raised from a requisition is cancelled or rejected, the quantity goes back onto the requisition as unmet demand, so the shortage is not silently dropped.",
+            "Raising purchase orders picks each line's vendor in this order: the vendor chosen on the proposal, the vendor suggested on the requisition line, the item's preferred vendor, and the preferred vendor of the item's category or the nearest parent category that has one.",
+            "The price comes from the proposal, the requisition's estimated price, or the last price paid to that vendor for the item \u2014 never the item's standard cost, which is what the company values the item at, not what any vendor offered. A line with no vendor or no price stops the whole conversion until it is given one or left out; nothing is ever half-raised.",
+            "Lines are grouped into one order per vendor, item category and delivery warehouse. The category is the one the vendor is qualified to supply, so the order goes to that vendor's manager for it; when several managers cover the same category the order is left unassigned and the buyer chooses at Send.",
+            "At most 20 purchase orders are raised in one go. If an open order already covers the same demand the conversion stops and shows it; raising anyway needs the right to approve purchase orders and a written reason."
           ],
-          "permission": "Anyone with the right to see purchase requisitions can read this list. Raising, editing, submitting, cancelling and deleting are one right \u2014 the right to create requisitions \u2014 which both a Purchase Executive and a Purchase Manager carry. Approving and rejecting need a separate right to approve requisitions, which of the ready-made roles only a Purchase Manager and an administrator hold.",
-          "notes": "There is no separate page for one requisition \u2014 the list plus the raise/edit dialog is the whole screen, and the lines are only visible inside that dialog. The list deliberately carries no line count and no value column. A \"Raised from\" column shows Manual, or the planning source when the row was produced by an MRP run. The system also has a combined \"waiting for your approval\" queue covering requisitions and purchase orders together, but no screen uses it yet; approvers work this list with the status filter instead."
+          "permission": "Anyone with the right to see purchase requisitions can read this list. Raising, editing, submitting, cancelling and deleting are one right \u2014 the right to create requisitions \u2014 which both a Purchase Executive and a Purchase Manager carry. Approving and rejecting need a separate right to approve requisitions, which of the ready-made roles only a Purchase Manager and an administrator hold. Raising purchase orders from requisitions needs the right to create purchase orders, which buyers carry; closing a requisition needs the right to approve requisitions.",
+          "notes": "There is no separate page for one requisition \u2014 the list plus the raise/edit dialog is the whole screen, and the lines are only visible inside that dialog. The list carries no value column. A \"To order\" column counts the lines still to order on an approved or converted requisition, which is what decides whether purchase orders can be raised from it. A \"Raised from\" column shows Manual, or the planning source when the row was produced by an MRP run. The system also has a combined \"waiting for your approval\" queue covering requisitions and purchase orders together, but no screen uses it yet; approvers work this list with the status filter instead."
         },
         {
           "route": "/procurement/rfqs",
@@ -1998,6 +2019,11 @@
               "note": "The date window is on the expected delivery date, not the order date."
             },
             {
+              "action": "See one item category's orders",
+              "how": "Click a category in the Category column, or choose one in the category box in the toolbar",
+              "note": "Includes the categories beneath it. The category box is there for whoever can read the category list; clicking a category works for everybody."
+            },
+            {
               "action": "Find an order",
               "how": "Search box above the table",
               "note": "Searches the order code, the vendor's own reference and the consignment tracking reference."
@@ -2020,7 +2046,8 @@
             "Before an order is saved the system looks for open orders covering the same requirement: same vendor, same item, same delivery warehouse, and a required date within seven days \u2014 or, strongest of all, raised from the same recorded demand. If it finds any, the order is not created; the screen lists them with how sure it is and what to do about each.",
             "There are four ways out of a duplicate warning: merge the lines into the existing order, increase the quantity already on that order, cancel the existing order, or raise this one anyway. Only the last can be done from the dialog, and only by somebody who can approve purchase orders, with a written reason that stays on the order for anybody who opens it later. The other three are edits to the other document, which opens in a new tab so nothing typed here is lost.",
             "Line totals shown while typing are indicative. Discounts, tax and freight are calculated by the system and the order value is what it comes back with.",
-            "The delay flag only appears on an order that is past its expected date and still expecting a delivery."
+            "The delay flag only appears on an order that is past its expected date and still expecting a delivery.",
+            "An order carries the item category it was raised for. An order raised from requisitions is one category by construction; an order whose lines span several categories has none and shows a dash."
           ],
           "permission": "The right to view purchase orders opens the list. The New purchase order button needs the right to create purchase orders, held by a Purchase Executive and a Purchase Manager. Overriding a duplicate warning additionally needs the right to approve purchase orders, which of the ready-made roles only a Purchase Manager and an administrator carry.",
           "notes": "The list carries no received quantities and no percentage complete \u2014 those are on the order's own page. Vendors show as a name plus code resolved from the vendor list; a suspended vendor shows a dash here and is named properly on the order's own page."
@@ -2049,7 +2076,7 @@
             {
               "action": "Send to vendor",
               "how": "Send to vendor, top right",
-              "note": "Only on an approved order. This is what starts the delivery clock against the expected date."
+              "note": "Only on an approved order. Choose who owns it at the vendor: the list offers the vendor's portal users whose categories cover the order (or who cover every category), with the one the system suggests already chosen. This is what starts the delivery clock against the expected date."
             },
             {
               "action": "Vendor acknowledged",
@@ -2081,7 +2108,7 @@
             "Read the strip at the top to see where it stands.",
             "Check the lines: ordered, received, accepted, rejected, returned and still pending, with the unit price, discount, tax and line total.",
             "Check the totals card \u2014 subtotal, discount, tax, freight and the order value.",
-            "Submit for approval; somebody else approves it; then send it to the vendor.",
+            "Submit for approval; somebody else approves it; then send it to the vendor, choosing the person there who owns it.",
             "When the vendor confirms, record the acknowledgement.",
             "As deliveries arrive they are booked as goods receipts, and this page's tracking panel lists them and shows what is still outstanding."
           ],
@@ -2091,7 +2118,8 @@
             "Cancelling is only possible before anything has been received. Once stock has moved against the order, cancelling it would leave the stock records describing a delivery against a document claiming never to have existed. A part-delivered order that will never be completed is short-closed instead \u2014 the undelivered balance stops being expected.",
             "Approving or cancelling an order changes what the planning run treats as material on its way in.",
             "An order raised over a duplicate warning shows that warning and the reason given for it, permanently, on this page.",
-            "The tax figure on this document is a single amount, not the CGST/SGST/IGST split. The statutory split lives on the vendor's invoice in the finance area, and putting a guess at it here would only give the accounts team a second number to reconcile."
+            "The tax figure on this document is a single amount, not the CGST/SGST/IGST split. The statutory split lives on the vendor's invoice in the finance area, and putting a guess at it here would only give the accounts team a second number to reconcile.",
+            "The order's item category and its vendor assignee are shown on the Order card. The assignee is the vendor user who manages that category; if that person has been switched off or re-scoped since the order was raised, sending it hands it to whoever the system now suggests, or to the person you choose."
           ],
           "permission": "The right to view purchase orders opens the page. Submit and Vendor acknowledged need the right to update purchase orders; Approve, Reject and Cancel each need their own separate right, and of the ready-made roles only a Purchase Manager and an administrator hold them. Sending to the vendor needs the right to send purchase orders.",
           "notes": "Two things the system supports but no screen currently offers: editing an order that is still a draft or awaiting approval, and short-closing a part-delivered order. If a draft is wrong, cancel it and raise a new one. The courier and consignment details on the tracking panel are read-only here \u2014 they are written by the vendor's own dispatch side. Recording the vendor's acknowledgement does not capture a revised delivery date they may have committed to, even though the system can hold one. The vendor's name is a link to the vendor list; there is no page for a single vendor."
@@ -4201,6 +4229,11 @@
               "how": "Users & roles \u2192 Users \u2192 \"All accounts\" filter"
             },
             {
+              "action": "Limit a supplier's manager to item categories",
+              "how": "Users & roles \u2192 Users \u2192 \u22ef menu \u2192 \"Edit details\" on a supplier portal account \u2192 Item categories",
+              "note": "Only the categories that supplier is qualified for are offered. Tick none and the account works with every category the supplier supplies. Purchase orders for a category are handed to the manager scoped to it."
+            },
+            {
               "action": "See every role and how much each grants",
               "how": "Users & roles \u2192 Roles tab",
               "note": "Each row shows whether it is a built-in role or one you created, and how many permissions it carries."
@@ -4250,7 +4283,8 @@
             "Deactivating an account revokes every session it currently holds, immediately. Signing someone out is the point of switching them off.",
             "A resetting administrator sees a temporary password once and never again. Hand it over through a channel the account holder controls; the account must choose a new one at its next sign-in.",
             "A role marked as a supplier portal role can only be given to an account tied to a supplier, and that marking cannot be changed after the role is created \u2014 one careless edit would otherwise either strip the portal boundary from everyone holding it, or make every holder invalid.",
-            "Hiding a button never grants or withholds authority. The system re-checks the signed-in person's permissions on every single request, so what a screen shows is a convenience and what the system allows is the rule."
+            "Hiding a button never grants or withholds authority. The system re-checks the signed-in person's permissions on every single request, so what a screen shows is a convenience and what the system allows is the rule.",
+            "A supplier portal account can be limited only to item categories its supplier is qualified for, and a category covers the categories beneath it. Qualify the supplier for a category on the Vendors screen first."
           ]
         }
       ]

@@ -391,7 +391,8 @@ download. No endpoint holds a connection open for a calculation.
 /routing              routings · operations · work centres · machines
 /sales                sales orders · confirm · allocation status · demand summary
 /mrp                  runs · suggestions · convert · shortage report
-/procurement          requisitions · RFQs · quotations · POs · GRNs · returns · tracking
+/procurement          requisitions · close · convert to POs by category · RFQs · quotations
+                      POs · vendor assignees · GRNs · returns · tracking
 /production           orders · components · work orders · issues · entries · cost
 /assembly             assembly orders · components · complete
 /job-work             orders · challans · issue · receive · pending-at-vendor

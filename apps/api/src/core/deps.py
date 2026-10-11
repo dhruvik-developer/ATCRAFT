@@ -38,7 +38,7 @@ from src.core.errors import (
     PermissionDeniedError,
 )
 from src.core.logging import bind_request_context, get_logger
-from src.core.permissions import Permission
+from src.core.permissions import Permission, resolve_role_grants
 from src.core.security import TokenPayload, decode_token
 from src.modules.users.models import User, UserSession
 
@@ -151,21 +151,12 @@ async def _resolve_permissions(
     """Union of role permissions plus direct grants, minus direct denials.
 
     Denials are applied last and unconditionally: an explicit "this person may
-    not approve payments" must not be overridable by adding another role.
+    not approve payments" must not be overridable by adding another role. The
+    fold itself is :func:`~src.core.permissions.resolve_role_grants`, shared with
+    every other reader of an account's authority so none of them can disagree
+    with what this request path enforces.
     """
-    granted: set[str] = set()
-    role_codes: list[str] = []
-
-    for role in user.roles:
-        if not role.is_active or role.deleted_at is not None:
-            continue
-        role_codes.append(role.code)
-        granted.update(role.permissions or [])
-
-    granted.update(user.extra_permissions or [])
-    granted.difference_update(user.denied_permissions or [])
-
-    return frozenset(granted), tuple(sorted(role_codes))
+    return resolve_role_grants(user.roles, user.extra_permissions, user.denied_permissions)
 
 
 async def _load_principal(session: AsyncSession, payload: TokenPayload) -> Principal:

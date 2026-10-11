@@ -10,7 +10,10 @@ Adding one is routine; renaming one is a breaking change that must be migrated.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
+from datetime import datetime
 from enum import StrEnum
+from typing import Protocol
 
 
 class Permission(StrEnum):
@@ -262,6 +265,57 @@ def group_for(permission: Permission) -> str:
         if resource in resources:
             return group
     return "Other"
+
+
+# --- Resolution: one definition of "what may this account do" ------------------
+
+
+class GrantingRole(Protocol):
+    """What resolution reads off a role: an ORM ``Role`` or a query projection.
+
+    A protocol so the request path (``core.deps``), the administration screen
+    (``users.service``) and any batch reader - procurement folding the rights of
+    a vendor's staff to choose who an order goes to - share this one fold
+    instead of each spelling it out and drifting apart.
+    """
+
+    @property
+    def code(self) -> str: ...
+
+    @property
+    def permissions(self) -> Sequence[str] | None: ...
+
+    @property
+    def is_active(self) -> bool: ...
+
+    @property
+    def deleted_at(self) -> datetime | None: ...
+
+
+def resolve_role_grants(
+    roles: Iterable[GrantingRole],
+    extra_permissions: Sequence[str] | None,
+    denied_permissions: Sequence[str] | None,
+) -> tuple[frozenset[str], tuple[str, ...]]:
+    """Union of usable role permissions plus direct grants, minus direct denials.
+
+    Returns the permission set and the codes of the roles that contributed to
+    it, sorted. A suspended or retired role grants nothing. Denials are applied
+    last and unconditionally: an explicit "this person may not approve payments"
+    must not be overridable by adding another role. The superuser flag is not
+    folded in - it is authority applied at the check (``Principal.has``), not a
+    stored permission.
+    """
+    granted: set[str] = set()
+    role_codes: list[str] = []
+    for role in roles:
+        if not role.is_active or role.deleted_at is not None:
+            continue
+        role_codes.append(role.code)
+        granted.update(role.permissions or [])
+    granted.update(extra_permissions or [])
+    granted.difference_update(denied_permissions or [])
+    return frozenset(granted), tuple(sorted(role_codes))
 
 
 # --- Baseline roles -----------------------------------------------------------
@@ -724,6 +778,8 @@ __all__ = [
     "ROLE_PRESETS",
     "VENDOR_ROLE_CODES",
     "VIEW_ONLY",
+    "GrantingRole",
     "Permission",
     "group_for",
+    "resolve_role_grants",
 ]

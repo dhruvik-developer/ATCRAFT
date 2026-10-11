@@ -12,8 +12,10 @@ Every procurement screen shows more than one status, because a screen with one
 row in one state teaches nobody what the state means:
 
 * **Requisitions** - one DRAFT (still being typed), one PENDING_APPROVAL (in the
-  approver's queue), one APPROVED and not yet ordered (the buyer's to-do list),
-  and one CONVERTED, because a purchase order was eventually raised from it.
+  approver's queue), two APPROVED and not yet ordered (the buyer's to-do list -
+  one of them mixing lock bodies, handle blanks and cartons, ready for the
+  category-wise split into three purchase orders), and one CONVERTED, because a
+  purchase order was eventually raised from it.
 * **RFQs** - one CLOSED, raised from the approved requisition and answered by two
   vendors; one still SENT, with one of its two vendors yet to reply. An open
   enquiry with a partial response set is what the RFQ screen mostly looks like
@@ -81,7 +83,7 @@ which happened and must not have to:
 kind                    codes
 ======================  =====================================================
 ``requisition``         ``DM-PR-METALS``, ``DM-PR-PACK``, ``DM-PR-COMP``,
-                        ``DM-PR-CONSUM``
+                        ``DM-PR-SPLIT``, ``DM-PR-CONSUM``
 ``rfq``                 ``DM-RFQ-METALS`` (closed), ``DM-RFQ-BRASS`` (open)
 ``quotation``           ``DM-QT-METALS-SMA``, ``DM-QT-METALS-DSC``,
                         ``DM-QT-BRASS-SMA``
@@ -237,9 +239,10 @@ def _vendor(ctx: DemoContext, code: str) -> uuid.UUID:
 # -----------------------------------------------------------------------------
 # Purchase requisitions
 # -----------------------------------------------------------------------------
-# Four of them, one per status the approval screen has to be able to show. The
-# quantities are what a works of this size actually asks for: metal by the
-# quarter-tonne, fasteners by the tens of thousands, cartons by the pallet.
+# Five of them: one per status the approval screen has to be able to show, plus
+# a second approved one waiting for the category-wise split. The quantities are
+# what a works of this size actually asks for: metal by the quarter-tonne,
+# fasteners by the tens of thousands, cartons by the pallet.
 
 
 @dataclass(frozen=True, slots=True)
@@ -356,6 +359,31 @@ REQUISITIONS: tuple[_Requisition, ...] = (
                 quantity="12000",
                 estimated_unit_price="4.15",
                 suggested_vendor="VEN-FAST",
+            ),
+        ),
+    ),
+    # Approved and waiting to be split: lock bodies, handle blanks and cartons on
+    # one requisition. "Raise purchase orders" turns it into three orders - two
+    # on Precision Fasteners, one per category and each handed to that
+    # category's manager, and one on Kraft Pack. Deliberately left unconverted
+    # so the demonstration can show the action itself.
+    _Requisition(
+        marker=("PR", "SPLIT"),
+        warehouse="WH-ASM",
+        raised_in=-2,
+        required_in=16,
+        priority=4,
+        purpose="Bought-out kit for the 6572 lockset and lever-set assembly run",
+        notes="Lock bodies, handle blanks and cartons for one assembly run; raise POs by category.",
+        stop_at=RequisitionStatus.APPROVED,
+        lines=(
+            _RequisitionLine(item="BO-LOCKBODY", quantity="100", estimated_unit_price="185.00"),
+            _RequisitionLine(item="BO-HANDLE", quantity="200", estimated_unit_price="98.00"),
+            _RequisitionLine(
+                item="PK-BOX",
+                quantity="500",
+                estimated_unit_price="14.50",
+                suggested_vendor="VEN-PACK",
             ),
         ),
     ),
@@ -1147,7 +1175,7 @@ RETURNS: tuple[_Return, ...] = (
 
 
 async def _seed_requisitions(ctx: DemoContext) -> None:
-    """Raise the four requisitions and walk each one to the state it should rest in."""
+    """Raise the requisitions and walk each one to the state it should rest in."""
     existing = await _existing(ctx, PurchaseRequisition)
 
     for spec in REQUISITIONS:

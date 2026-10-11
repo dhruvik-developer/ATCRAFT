@@ -528,6 +528,10 @@ permitted to change a status column.
 Sales order       DRAFT -> CONFIRMED -> ALLOCATED -> PARTIALLY_DISPATCHED -> DISPATCHED -> INVOICED -> CLOSED
                   (CANCELLED reachable from DRAFT/CONFIRMED/ALLOCATED only)
 
+Purchase          DRAFT -> PENDING_APPROVAL -> APPROVED -> CONVERTED -> CLOSED
+requisition       (REJECTED from PENDING_APPROVAL; CANCELLED from DRAFT, PENDING_APPROVAL,
+                  APPROVED; CLOSED from APPROVED or CONVERTED via POST .../close)
+
 Purchase order    DRAFT -> PENDING_APPROVAL -> APPROVED -> SENT -> ACKNOWLEDGED
                         -> PARTIALLY_RECEIVED -> RECEIVED -> QC_PENDING -> QC_COMPLETED
                         -> GRN_COMPLETED -> INVOICED -> PAID -> CLOSED
@@ -571,9 +575,36 @@ Every transition writes an audit row via `record_status_change`.
 | QC rejection | `change_stock_state` to `DAMAGED`/`SCRAP`, raise return/rework |
 | Dispatch | `allocation.consume`, then `post_movements` (`DISPATCH`) |
 | Sales order confirmed | `allocation.reserve` per line against available stock |
+| Requisition converted | One DRAFT purchase order per (vendor, procurement category, warehouse) through `procurement.service._create_purchase_order` (duplicate check included); `_link_source_documents` adds to each line's `ordered_quantity` and moves the requisition APPROVED → CONVERTED; one CREATE audit row per order and one "Split into …" row per requisition - all in one transaction, or nothing |
 | Vendor invoice approved | `finance.post_journal`: one `PURCHASE_EXPENSE` debit per effective line cost centre (line -> header -> none), input tax, payable |
 | Any write naming a cost centre | `organization.service.require_cost_centre` / `require_cost_centres` (tenant, live, active) before the row is written |
 | Any status change | `audit.record_status_change` in the same transaction |
+
+### Requisition conversion and the purchase-order category
+
+`purchase_orders.item_category_id` (nullable, FK `item_categories` RESTRICT,
+indexed with `(company_id, vendor_id, item_category_id)`) is the procurement
+category an order was raised for. It is **derived, never accepted from a
+client**: the group's category when a requisition is split, and on a buyer's own
+order the single category every line resolves to against the order's vendor, or
+NULL when the lines differ. A line's procurement category is the nearest
+ancestor-or-self of its item's category that the vendor is qualified for in
+`vendor_categories`, else the item's own (docs/assumptions.md §C0-1).
+
+The vendor portal reads it: `PurchaseOrderRepository._scoped` shows a vendor
+user only sent orders, and, when the user's `allowed_category_ids` is not empty,
+only orders whose category sits at or beneath one of them - matched on the
+materialised `item_categories.path` - plus orders assigned to that user by name
+(§C0-7). `users.allowed_category_ids` must name live categories of the tenant
+that the user's vendor is qualified for.
+
+Every path that adds to a requisition's `ordered_quantity` - a conversion, a
+buyer's own order naming requisition lines, an edit rewriting such an order's
+lines - takes its locks in one order: requisition headers by id, then
+requisition lines by id, then the `po-duplicate` advisory locks sorted by
+(vendor, warehouse). A conversion takes all of its advisory keys before raising
+its first order. Giving quantity back on cancel or reject locks only the lines,
+never a header, so it cannot close a cycle with that order.
 
 ---
 

@@ -169,9 +169,10 @@ async def seed_category(
     company_id: uuid.UUID,
     code: str | None = None,
     name: str | None = None,
+    parent: ItemCategory | None = None,
     **overrides: Any,
 ) -> ItemCategory:
-    """A root category.
+    """A category - a root, or a child of ``parent``.
 
     The materialised ``path`` is built by the products module's own rule rather
     than spelled here, so a test cannot seed a shape the ancestor queries would
@@ -184,8 +185,9 @@ async def seed_category(
         company_id=company_id,
         code=code,
         name=name or code.title(),
-        path=build_category_path(None, category_id),
-        depth=0,
+        parent_id=parent.id if parent is not None else None,
+        path=build_category_path(parent.path if parent is not None else None, category_id),
+        depth=parent.depth + 1 if parent is not None else 0,
         **overrides,
     )
     session.add(record)

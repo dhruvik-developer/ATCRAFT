@@ -17,16 +17,24 @@
  * through the `isRequisition*` predicates in `procurement-types.ts`. Offering an
  * action the backend will refuse puts somebody through a dialog for nothing.
  *
- * `RequisitionSummary` is a header: it carries no line count and no estimated
- * value, because those live on the lines. It also carries ids rather than names
- * for the warehouse and department, which are named here through the same
- * bounded reference lookups the rest of the app uses.
+ * Approved demand leaves this screen as purchase orders. "Raise purchase orders"
+ * converts one requisition, and the header's batch action several at once, into
+ * one draft order per vendor and item category - `purchase_order.create`, the
+ * right both conversion endpoints enforce, offered only where the row still has
+ * a line to order. Closing approved or converted demand that will never be
+ * ordered is the approver's `purchase_requisition.approve`, the right the
+ * `/close` route and both CLOSED edges of the machine declare.
+ *
+ * `RequisitionListRow` is a header plus `open_line_count`: it carries no
+ * estimated value, because that lives on the lines. It also carries ids rather
+ * than names for the warehouse and department, which are named here through the
+ * same bounded reference lookups the rest of the app uses.
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
-import { MoreHorizontal, Plus, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Layers, MoreHorizontal, Plus, X } from 'lucide-react'
+import { Suspense, lazy, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
@@ -70,26 +78,44 @@ import { indexById } from '@/lib/utils'
 import { RequisitionFormDialog } from './requisition-form-dialog'
 import {
   ACTIONABLE_REQUISITION_STATUSES,
+  CONVERTIBLE_REQUISITION_STATUSES,
   REQUISITION_STATUSES,
   clearSearchKeys,
   isRequisitionAmendable,
   isRequisitionCancellable,
+  isRequisitionClosable,
+  isRequisitionConvertible,
   isRequisitionDecidable,
   isRequisitionDeletable,
   isRequisitionSubmittable,
   isUrgentPriority,
   requisitionKeys,
+  type RequisitionConversionTarget,
   type RequisitionRow,
+  type RequisitionSummary,
 } from './procurement-types'
 import { serverFieldMessage } from './server-field-errors'
+
+/**
+ * The conversion dialogs are the heaviest thing a buyer can open here, and most
+ * visits to the queue never open them, so they arrive in their own chunk - one
+ * module, both dialogs - on first use.
+ */
+const RequisitionConversionDialog = lazy(() => import('./requisition-conversion-dialog'))
+const RequisitionBatchPicker = lazy(() =>
+  import('./requisition-conversion-dialog').then((m) => ({ default: m.RequisitionBatchPicker })),
+)
 
 /** Every filter this screen owns, cleared as one write rather than four. */
 const FILTER_KEYS = ['status', 'required_from', 'required_to', 'open_only'] as const
 
 type Decision = { requisition: RequisitionRow; action: 'approve' | 'reject' }
 
-/** The three commands on the requester's side that carry a recorded reason. */
-type CommandKind = 'submit' | 'cancel' | 'delete'
+/**
+ * The commands that carry a recorded reason: the requester's three, and the
+ * approver's close.
+ */
+type CommandKind = 'submit' | 'cancel' | 'delete' | 'close'
 type Command = { requisition: RequisitionRow; kind: CommandKind }
 
 /**
@@ -100,7 +126,9 @@ type Command = { requisition: RequisitionRow; kind: CommandKind }
  * for approval" when it is null. `cancel` posts a `ReasonRequest`, which
  * requires 3-255 characters and lands on the document as its cancellation
  * reason. `delete` takes its reason as a *query parameter*, also required and
- * also 3-255, and it is the only trace the deleted draft leaves behind.
+ * also 3-255, and it is the only trace the deleted draft leaves behind. `close`
+ * posts a `ReasonRequest` too: whatever is still unordered will never be, and
+ * the reason is what explains that to the next person who looks.
  */
 const COMMANDS: Record<
   CommandKind,
@@ -152,6 +180,19 @@ const COMMANDS: Record<
     toastTitle: success.deleted('Draft requisition'),
     toastBody: (code) => `${code} is gone.`,
   },
+  close: {
+    title: (code) => `Close ${code}?`,
+    description:
+      'Whatever is still unordered on it will not be ordered, and it stops counting as open demand. Purchase orders already raised against it are not affected. Closing is final.',
+    confirmLabel: 'Close requisition',
+    destructive: false,
+    reasonRequired: true,
+    reasonLabel: 'Reason',
+    reasonHint:
+      'Recorded against the status change, for whoever wonders why the rest was never ordered.',
+    toastTitle: success.closed('Requisition'),
+    toastBody: (code) => `${code} no longer counts as open demand.`,
+  },
 }
 
 export default function RequisitionsPage() {
@@ -175,7 +216,17 @@ export default function RequisitionsPage() {
   // `null` inside means "raise a new one"; an id amends that draft.
   const [form, setForm] = useState<{ requisitionId: string | null } | null>(null)
 
+  // What is being converted into purchase orders, and whether the batch picker
+  // is open. Each dialog is mounted only while it is in use, so its chunk is
+  // fetched on first use and its state starts clean every time.
+  const [conversion, setConversion] = useState<RequisitionConversionTarget | null>(null)
+  const [picking, setPicking] = useState(false)
+
   const canDecide = can(P.PURCHASE_REQUISITION_APPROVE)
+  // Both conversion endpoints - one requisition and the batch - are declared
+  // `require_permission(Permission.PURCHASE_ORDER_CREATE)`: converting is
+  // raising purchase orders, whoever raised the requisition.
+  const canConvert = can(P.PURCHASE_ORDER_CREATE)
   // Raise, amend, submit, cancel and delete are one right on the API: every one
   // of those five endpoints is declared
   // `require_permission(Permission.PURCHASE_REQUISITION_CREATE)`. Cancel is the
@@ -222,7 +273,7 @@ export default function RequisitionsPage() {
 
   const decide = useMutation({
     mutationFn: ({ requisition, action, reason: text }: Decision & { reason: string }) =>
-      api.post<RequisitionRow>(
+      api.post<RequisitionSummary>(
         `/procurement/purchase-requisitions/${requisition.id}/${action}`,
         // A rejection must carry its reason; an approval may add a note.
         { reason: text === '' ? null : text },
@@ -261,14 +312,21 @@ export default function RequisitionsPage() {
       if (kind === 'submit') {
         // `ApproveRequest` tolerates a null reason and the API writes its own
         // "Submitted for approval" in its place.
-        await api.post<RequisitionRow>(`/procurement/purchase-requisitions/${id}/submit`, {
+        await api.post<RequisitionSummary>(`/procurement/purchase-requisitions/${id}/submit`, {
           reason: text === '' ? null : text,
+        })
+        return
+      }
+      if (kind === 'close') {
+        // `ReasonRequest`, recorded on the APPROVED/CONVERTED -> CLOSED change.
+        await api.post<RequisitionSummary>(`/procurement/purchase-requisitions/${id}/close`, {
+          reason: text,
         })
         return
       }
       // `ReasonRequest` - refused without a reason, and what is written to the
       // document as its cancellation reason.
-      await api.post<RequisitionRow>(`/procurement/purchase-requisitions/${id}/cancel`, {
+      await api.post<RequisitionSummary>(`/procurement/purchase-requisitions/${id}/cancel`, {
         reason: text,
       })
     },
@@ -342,6 +400,25 @@ export default function RequisitionsPage() {
         ),
       },
       {
+        id: 'to_order',
+        header: 'To order',
+        enableSorting: false,
+        meta: { align: 'right' },
+        // Only approved demand is waiting on a buyer; before approval every
+        // line is "unordered" and the count would say nothing.
+        cell: ({ row }) => {
+          const { status, open_line_count: open } = row.original
+          if (!(CONVERTIBLE_REQUISITION_STATUSES as readonly string[]).includes(status)) {
+            return <span className="text-muted-foreground">-</span>
+          }
+          return open === 0 ? (
+            <span className="text-xs text-muted-foreground">All ordered</span>
+          ) : (
+            <span className="font-medium">{open === 1 ? '1 line' : `${open} lines`}</span>
+          )
+        },
+      },
+      {
         id: 'source',
         header: 'Raised from',
         enableSorting: false,
@@ -411,10 +488,11 @@ export default function RequisitionsPage() {
       },
     ]
 
-    // Gating is UX only - the API authorises every action independently. The two
-    // rights are read separately because they belong to two different people:
-    // the requester amends and withdraws, the approver decides.
-    if (canDecide || canRaise) {
+    // Gating is UX only - the API authorises every action independently. The
+    // rights are read separately because they belong to different people: the
+    // requester amends and withdraws, the approver decides and closes, and the
+    // buyer turns approved demand into purchase orders.
+    if (canDecide || canRaise || canConvert) {
       defs.push({
         id: 'actions',
         header: '',
@@ -428,10 +506,22 @@ export default function RequisitionsPage() {
           const submittable = canRaise && isRequisitionSubmittable(requisition.status)
           const cancellable = canRaise && isRequisitionCancellable(requisition.status)
           const deletable = canRaise && isRequisitionDeletable(requisition.status)
+          const convertible = canConvert && isRequisitionConvertible(requisition)
+          const closable = canDecide && isRequisitionClosable(requisition.status)
 
-          // A decided, converted or closed requisition offers nothing at all
-          // rather than an empty menu.
-          if (!decidable && !amendable && !submittable && !cancellable && !deletable) return null
+          // A requisition nothing can be done to offers nothing at all rather
+          // than an empty menu.
+          if (
+            !decidable &&
+            !amendable &&
+            !submittable &&
+            !cancellable &&
+            !deletable &&
+            !convertible &&
+            !closable
+          ) {
+            return null
+          }
 
           return (
             <DropdownMenu>
@@ -445,6 +535,18 @@ export default function RequisitionsPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {convertible && (
+                  <DropdownMenuItem
+                    onSelect={() =>
+                      setConversion({
+                        kind: 'single',
+                        requisition: { id: requisition.id, code: requisition.code },
+                      })
+                    }
+                  >
+                    Raise purchase orders
+                  </DropdownMenuItem>
+                )}
                 {amendable && (
                   <DropdownMenuItem onSelect={() => setForm({ requisitionId: requisition.id })}>
                     Edit draft
@@ -470,8 +572,14 @@ export default function RequisitionsPage() {
                     Reject
                   </DropdownMenuItem>
                 )}
-                {(cancellable || deletable) && (decidable || amendable || submittable) && (
-                  <DropdownMenuSeparator />
+                {(cancellable || deletable || closable) &&
+                  (decidable || amendable || submittable || convertible) && (
+                    <DropdownMenuSeparator />
+                  )}
+                {closable && (
+                  <DropdownMenuItem onSelect={() => setCommand({ requisition, kind: 'close' })}>
+                    Close requisition
+                  </DropdownMenuItem>
                 )}
                 {cancellable && (
                   <DropdownMenuItem
@@ -497,7 +605,7 @@ export default function RequisitionsPage() {
     }
 
     return defs
-  }, [canDecide, canRaise, departmentById, warehouseById])
+  }, [canConvert, canDecide, canRaise, departmentById, warehouseById])
 
   const rejecting = decision?.action === 'reject'
   const reasonRequired = rejecting
@@ -530,11 +638,21 @@ export default function RequisitionsPage() {
         title="Purchase requisitions"
         description="Demand waiting to be sourced, raised by hand or converted from an MRP run. An approved requisition is what a purchase order is raised against."
         actions={
-          canRaise ? (
-            <Button onClick={() => setForm({ requisitionId: null })}>
-              <Plus />
-              Raise requisition
-            </Button>
+          canRaise || canConvert ? (
+            <>
+              {canConvert && (
+                <Button variant="outline" onClick={() => setPicking(true)}>
+                  <Layers />
+                  Raise POs from approved requisitions
+                </Button>
+              )}
+              {canRaise && (
+                <Button onClick={() => setForm({ requisitionId: null })}>
+                  <Plus />
+                  Raise requisition
+                </Button>
+              )}
+            </>
           ) : undefined
         }
       />
@@ -620,6 +738,31 @@ export default function RequisitionsPage() {
         }}
         requisitionId={form?.requisitionId ?? null}
       />
+
+      {picking && (
+        <Suspense fallback={null}>
+          <RequisitionBatchPicker
+            open
+            onOpenChange={setPicking}
+            onContinue={(requisitions) => {
+              setPicking(false)
+              setConversion({ kind: 'batch', requisitions })
+            }}
+          />
+        </Suspense>
+      )}
+
+      {conversion && (
+        <Suspense fallback={null}>
+          <RequisitionConversionDialog
+            target={conversion}
+            open
+            onOpenChange={(next) => {
+              if (!next) setConversion(null)
+            }}
+          />
+        </Suspense>
+      )}
 
       <ConfirmDialog
         open={Boolean(decision)}

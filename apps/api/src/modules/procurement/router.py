@@ -51,6 +51,7 @@ from src.modules.procurement.schemas import (
     PurchaseOrderSummary,
     PurchaseOrderTracking,
     PurchaseOrderUpdate,
+    PurchaseOrderVendorAssignee,
     PurchaseReturnCreate,
     PurchaseReturnDetail,
     PurchaseReturnFilters,
@@ -64,9 +65,13 @@ from src.modules.procurement.schemas import (
     QuotationSummary,
     QuotationUpdate,
     ReasonRequest,
+    RequisitionBatchConversionRequest,
+    RequisitionConversionRequest,
+    RequisitionConversionResult,
     RequisitionCreate,
     RequisitionDetail,
     RequisitionFilters,
+    RequisitionListRow,
     RequisitionSummary,
     RequisitionUpdate,
     RfqCreate,
@@ -103,6 +108,10 @@ def requisition_filters(
     department_id: Annotated[uuid.UUID | None, Query()] = None,
     item_id: Annotated[uuid.UUID | None, Query()] = None,
     open_only: Annotated[bool, Query(description="Only unmet approved demand")] = False,
+    convertible_only: Annotated[
+        bool,
+        Query(description="Only approved or converted requisitions with a line still to order"),
+    ] = False,
     required_from: Annotated[date | None, Query()] = None,
     required_to: Annotated[date | None, Query()] = None,
 ) -> RequisitionFilters:
@@ -113,6 +122,7 @@ def requisition_filters(
         department_id=department_id,
         item_id=item_id,
         open_only=open_only,
+        convertible_only=convertible_only,
         required_from=required_from,
         required_to=required_to,
     )
@@ -160,6 +170,10 @@ def order_filters(
     vendor_id: Annotated[uuid.UUID | None, Query()] = None,
     warehouse_id: Annotated[uuid.UUID | None, Query()] = None,
     item_id: Annotated[uuid.UUID | None, Query()] = None,
+    item_category_id: Annotated[
+        uuid.UUID | None,
+        Query(description="Orders raised for this item category or any category beneath it"),
+    ] = None,
     open_only: Annotated[bool, Query(description="Only orders still expecting delivery")] = False,
     overdue_only: Annotated[
         bool, Query(description="Only orders past their promised date")
@@ -175,6 +189,7 @@ def order_filters(
         vendor_id=vendor_id,
         warehouse_id=warehouse_id,
         item_id=item_id,
+        item_category_id=item_category_id,
         open_only=open_only,
         overdue_only=overdue_only,
         source_type=source_type,
@@ -290,8 +305,9 @@ async def list_pending_approvals(
 
 @router.get(
     "/purchase-requisitions",
-    response_model=PaginatedResponse[RequisitionSummary],
+    response_model=PaginatedResponse[RequisitionListRow],
     summary="List purchase requisitions",
+    description="Each row carries open_line_count: how many of its lines are still to order.",
     dependencies=[require_permission(Permission.PURCHASE_REQUISITION_VIEW)],
 )
 async def list_requisitions(
@@ -300,9 +316,76 @@ async def list_requisitions(
     filters: RequisitionFilterDep,
     params: PageDep,
     sort: SortDep,
-) -> PaginatedResponse[RequisitionSummary]:
+) -> PaginatedResponse[RequisitionListRow]:
     rows, pagination = await service.list_requisitions(session, tenant, filters, params, sort)
-    return PaginatedResponse[RequisitionSummary](data=rows, pagination=pagination)
+    return PaginatedResponse[RequisitionListRow](data=rows, pagination=pagination)
+
+
+# --- the batch conversion: literal paths, declared before /{requisition_id} ---
+
+
+@router.post(
+    "/purchase-requisitions/conversion-preview",
+    response_model=ApiResponse[RequisitionConversionResult],
+    summary="Preview converting several approved requisitions into purchase orders",
+    description=(
+        "Read-only. One proposed order per (vendor, procurement category, warehouse), each with "
+        "its lines, prices and their sources, the vendor and its source, the vendor user it "
+        "would be assigned to and why, and the open orders it would duplicate; plus every line "
+        "that cannot be converted and why. MRP raises one requisition per suggestion, which is "
+        "what the batch form is for."
+    ),
+    dependencies=[
+        require_permission(Permission.PURCHASE_ORDER_CREATE),
+        Depends(forbid_vendor_users),
+    ],
+)
+async def preview_batch_conversion(
+    payload: RequisitionBatchConversionRequest, session: DbSession, tenant: Tenant
+) -> ApiResponse[RequisitionConversionResult]:
+    result = await service.preview_requisition_conversion(
+        session, tenant, payload.requisition_ids, payload
+    )
+    return ApiResponse[RequisitionConversionResult].ok(result, _preview_message(result))
+
+
+@router.post(
+    "/purchase-requisitions/convert-to-orders",
+    response_model=ApiResponse[RequisitionConversionResult],
+    status_code=status.HTTP_201_CREATED,
+    summary="Convert several approved requisitions into category-wise purchase orders",
+    description=(
+        "Raises one DRAFT purchase order per (vendor, procurement category, warehouse) in one "
+        "transaction. Any unresolved line refuses the whole conversion. A duplicate is refused "
+        "with DUPLICATE_DOCUMENT unless acknowledge_duplicates is set with a reason by a caller "
+        "holding purchase_order.approve."
+    ),
+    dependencies=[
+        require_permission(Permission.PURCHASE_ORDER_CREATE),
+        Depends(forbid_vendor_users),
+    ],
+)
+async def convert_batch_to_orders(
+    payload: RequisitionBatchConversionRequest,
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+) -> ApiResponse[RequisitionConversionResult]:
+    result = await service.convert_requisitions_to_orders(
+        session, tenant, principal, payload.requisition_ids, payload
+    )
+    return ApiResponse[RequisitionConversionResult].ok(result, _converted_message(result))
+
+
+def _preview_message(result: RequisitionConversionResult) -> str:
+    if result.unresolved_lines:
+        return f"{len(result.unresolved_lines)} line(s) cannot be converted yet"
+    return f"{len(result.groups)} purchase order(s) would be raised"
+
+
+def _converted_message(result: RequisitionConversionResult) -> str:
+    codes = ", ".join(group.purchase_order_code or "" for group in result.groups)
+    return f"Raised {len(result.groups)} purchase order(s): {codes}"
 
 
 @router.post(
@@ -474,6 +557,93 @@ async def cancel_requisition(
         RequisitionSummary.model_validate(requisition),
         f"Requisition {requisition.code} cancelled",
     )
+
+
+@router.post(
+    "/purchase-requisitions/{requisition_id}/close",
+    response_model=ApiResponse[RequisitionSummary],
+    summary="Close an approved or converted requisition",
+    description=(
+        "Stops the requisition counting as open demand: whatever is still unordered on it will "
+        "not be ordered. Reaches CLOSED from APPROVED or CONVERTED; the reason is recorded."
+    ),
+    # The right the state machine declares on both CLOSED edges.
+    dependencies=[require_permission(Permission.PURCHASE_REQUISITION_APPROVE)],
+)
+async def close_requisition(
+    requisition_id: uuid.UUID,
+    payload: ReasonRequest,
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+) -> ApiResponse[RequisitionSummary]:
+    requisition = await service.transition_requisition(
+        session,
+        tenant,
+        principal,
+        requisition_id,
+        RequisitionStatus.CLOSED,
+        reason=payload.reason,
+    )
+    return ApiResponse[RequisitionSummary].ok(
+        RequisitionSummary.model_validate(requisition),
+        f"Requisition {requisition.code} closed",
+    )
+
+
+@router.post(
+    "/purchase-requisitions/{requisition_id}/conversion-preview",
+    response_model=ApiResponse[RequisitionConversionResult],
+    summary="Preview converting an approved requisition into purchase orders",
+    description=(
+        "Read-only. One proposed order per (vendor, procurement category), with every line's "
+        "price and vendor and where each came from, the vendor user each order would be "
+        "assigned to, duplicate warnings, and every line that cannot be converted and why."
+    ),
+    dependencies=[
+        require_permission(Permission.PURCHASE_ORDER_CREATE),
+        Depends(forbid_vendor_users),
+    ],
+)
+async def preview_requisition_conversion(
+    requisition_id: uuid.UUID,
+    payload: RequisitionConversionRequest,
+    session: DbSession,
+    tenant: Tenant,
+) -> ApiResponse[RequisitionConversionResult]:
+    result = await service.preview_requisition_conversion(
+        session, tenant, [requisition_id], payload
+    )
+    return ApiResponse[RequisitionConversionResult].ok(result, _preview_message(result))
+
+
+@router.post(
+    "/purchase-requisitions/{requisition_id}/convert-to-orders",
+    response_model=ApiResponse[RequisitionConversionResult],
+    status_code=status.HTTP_201_CREATED,
+    summary="Convert an approved requisition into category-wise purchase orders",
+    description=(
+        "Raises one DRAFT purchase order per (vendor, procurement category) in one transaction "
+        "and moves the requisition to CONVERTED. Any unresolved line refuses the whole "
+        "conversion. A duplicate is refused with DUPLICATE_DOCUMENT unless acknowledge_duplicates "
+        "is set with a reason by a caller holding purchase_order.approve."
+    ),
+    dependencies=[
+        require_permission(Permission.PURCHASE_ORDER_CREATE),
+        Depends(forbid_vendor_users),
+    ],
+)
+async def convert_requisition_to_orders(
+    requisition_id: uuid.UUID,
+    payload: RequisitionConversionRequest,
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+) -> ApiResponse[RequisitionConversionResult]:
+    result = await service.convert_requisitions_to_orders(
+        session, tenant, principal, [requisition_id], payload
+    )
+    return ApiResponse[RequisitionConversionResult].ok(result, _converted_message(result))
 
 
 # =============================================================================
@@ -743,11 +913,17 @@ async def list_purchase_orders(
     summary="Check a proposed order against open ones before raising it",
     description=(
         "Master rules section 16. Matches on vendor, item, warehouse, an overlapping required "
-        "date window and the source demand reference. Each candidate carries the possible "
-        "actions - merge, increase the existing quantity, create a new order with approval, or "
-        "cancel the duplicate - and the recommended one."
+        "date window, the source demand reference and the pending requisition line. Each "
+        "candidate carries the possible actions - merge, increase the existing quantity, create "
+        "a new order with approval, or cancel the duplicate - and the recommended one."
     ),
-    dependencies=[require_permission(Permission.PURCHASE_ORDER_VIEW)],
+    # Buyer-side: the answer names other vendors' open orders, their quantities
+    # and dates, and the vendor in the payload is the caller's choice - so a
+    # vendor account must not be able to ask it at all.
+    dependencies=[
+        require_permission(Permission.PURCHASE_ORDER_VIEW),
+        Depends(forbid_vendor_users),
+    ],
 )
 async def check_duplicates(
     payload: DuplicateCheckRequest, session: DbSession, tenant: Tenant
@@ -782,7 +958,9 @@ async def create_purchase_order(
     message = f"Purchase order {order.code} raised"
     if candidates:
         message += f" over {len(candidates)} acknowledged duplicate(s)"
-    return ApiResponse[PurchaseOrderDetail].ok(service.order_detail(order, lines), message)
+    return ApiResponse[PurchaseOrderDetail].ok(
+        await service.describe_purchase_order(session, tenant, order, lines), message
+    )
 
 
 @router.get(
@@ -818,6 +996,29 @@ async def purchase_order_tracking(
     )
 
 
+@router.get(
+    "/purchase-orders/{order_id}/vendor-assignees",
+    response_model=ApiResponse[list[PurchaseOrderVendorAssignee]],
+    summary="Vendor users this order can be sent to",
+    description=(
+        "The Send dialog's picker: active users of the order's vendor who may act on purchase "
+        "orders and whose category scope covers the order's category (or is unrestricted), "
+        "with the one the assignment rule would choose marked is_suggested. Served here because "
+        "the buyer sending the order holds purchase_order.send, not user.view."
+    ),
+    dependencies=[
+        require_permission(Permission.PURCHASE_ORDER_SEND),
+        Depends(forbid_vendor_users),
+    ],
+)
+async def list_vendor_assignees(
+    order_id: uuid.UUID, session: DbSession, tenant: Tenant
+) -> ApiResponse[list[PurchaseOrderVendorAssignee]]:
+    return ApiResponse[list[PurchaseOrderVendorAssignee]].ok(
+        await service.list_vendor_assignees(session, tenant, order_id)
+    )
+
+
 @router.patch(
     "/purchase-orders/{order_id}",
     response_model=ApiResponse[PurchaseOrderDetail],
@@ -841,7 +1042,8 @@ async def update_purchase_order(
         session, tenant, principal, order_id, payload
     )
     return ApiResponse[PurchaseOrderDetail].ok(
-        service.order_detail(order, lines), f"Purchase order {order.code} updated"
+        await service.describe_purchase_order(session, tenant, order, lines),
+        f"Purchase order {order.code} updated",
     )
 
 
