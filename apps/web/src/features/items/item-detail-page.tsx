@@ -44,7 +44,9 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
+import { brandLabeller, useBrandOptions } from '@/hooks/use-brand-options'
 import { attributeLabeller, useItemAttributeOptions } from '@/hooks/use-item-attribute-options'
+import { manufacturerLabeller, useManufacturerOptions } from '@/hooks/use-manufacturer-options'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { indexById } from '@/lib/utils'
@@ -148,6 +150,13 @@ function OverviewPanel({
   const finishLabel = useMemo(() => attributeLabeller(finishes.data), [finishes.data])
   const sizeLabel = useMemo(() => attributeLabeller(sizes.data), [sizes.data])
   const colourLabel = useMemo(() => attributeLabeller(colours.data), [colours.data])
+  // Brand and maker are separate rights. Without one the list is not fetched,
+  // and a recorded value reads as a sentence rather than as a raw id.
+  const { can } = useAuth()
+  const brands = useBrandOptions(can(P.BRAND_VIEW))
+  const makers = useManufacturerOptions(can(P.MANUFACTURER_VIEW))
+  const brandLabel = useMemo(() => brandLabeller(brands.data), [brands.data])
+  const makerLabel = useMemo(() => manufacturerLabeller(makers.data), [makers.data])
 
   return (
     <div className="grid gap-4 lg:grid-cols-3">
@@ -199,6 +208,9 @@ function OverviewPanel({
               { label: 'Finish', value: finishLabel(item.finish_id) },
               { label: 'Size', value: sizeLabel(item.size_id) },
               { label: 'Colour', value: colourLabel(item.colour_id) },
+              { label: 'Brand', value: brandLabel(item.brand_id) },
+              { label: 'Manufacturer', value: makerLabel(item.manufacturer_id) },
+              { label: 'Manufacturer part no.', value: item.manufacturer_part_number ?? '-' },
               { label: 'Created', value: formatDateTime(item.created_at) },
               { label: 'Last updated', value: formatDateTime(item.updated_at) },
             ]}
@@ -774,7 +786,15 @@ interface VendorOption {
   name: string
 }
 
-function VendorsPanel({ itemId, canViewVendors }: { itemId: string; canViewVendors: boolean }) {
+function VendorsPanel({
+  itemId,
+  canViewVendors,
+  canViewMakers,
+}: {
+  itemId: string
+  canViewVendors: boolean
+  canViewMakers: boolean
+}) {
   const panel = usePanelQuery<ItemVendorLink>({
     queryKey: [...queryKeys.items.detail(itemId), 'vendors'],
     path: `/products/items/${itemId}/vendors`,
@@ -802,6 +822,10 @@ function VendorsPanel({ itemId, canViewVendors }: { itemId: string; canViewVendo
     enabled: canViewVendors,
   })
   const vendorById = useMemo(() => indexById(vendors.data), [vendors.data])
+  // Which maker's part a source supplies. Display only: a link is created and
+  // edited through the API, not from this panel.
+  const makers = useManufacturerOptions(canViewMakers)
+  const makerLabel = useMemo(() => manufacturerLabeller(makers.data), [makers.data])
 
   const columns = useMemo<ColumnDef<ItemVendorLink, unknown>[]>(
     () => [
@@ -830,6 +854,24 @@ function VendorsPanel({ itemId, canViewVendors }: { itemId: string; canViewVendo
         cell: ({ row }) => (
           <span className="text-muted-foreground">{row.original.vendor_item_code ?? '-'}</span>
         ),
+      },
+      {
+        id: 'manufacturer_part_number',
+        header: 'Maker part no.',
+        enableSorting: false,
+        cell: ({ row }) =>
+          row.original.manufacturer_part_number || row.original.manufacturer_id ? (
+            <span className="block">
+              <span className="block">{row.original.manufacturer_part_number ?? '-'}</span>
+              {row.original.manufacturer_id && (
+                <span className="block text-xs text-muted-foreground">
+                  {makerLabel(row.original.manufacturer_id)}
+                </span>
+              )}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">-</span>
+          ),
       },
       {
         id: 'lead_time',
@@ -877,7 +919,7 @@ function VendorsPanel({ itemId, canViewVendors }: { itemId: string; canViewVendo
         cell: ({ row }) => <StatusBadge status={row.original.is_active ? 'ACTIVE' : 'INACTIVE'} />,
       },
     ],
-    [vendorById],
+    [vendorById, makerLabel],
   )
 
   return (
@@ -1105,7 +1147,11 @@ export default function ItemDetailPage() {
         </TabsContent>
 
         <TabsContent value="vendors">
-          <VendorsPanel itemId={item.id} canViewVendors={can(P.VENDOR_VIEW)} />
+          <VendorsPanel
+            itemId={item.id}
+            canViewVendors={can(P.VENDOR_VIEW)}
+            canViewMakers={can(P.MANUFACTURER_VIEW)}
+          />
         </TabsContent>
       </Tabs>
 

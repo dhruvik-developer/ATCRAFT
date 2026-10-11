@@ -125,7 +125,15 @@ export const navigation: NavSection[] = [
         label: 'Item Masters',
         to: '/masters',
         icon: Ruler,
-        permissions: [P.CATEGORY_VIEW, P.UOM_VIEW, P.PRICE_VIEW],
+        // The same rights the route admits - one per tab.
+        permissions: [
+          P.CATEGORY_VIEW,
+          P.UOM_VIEW,
+          P.PRICE_VIEW,
+          P.ITEM_ATTRIBUTE_VIEW,
+          P.BRAND_VIEW,
+          P.MANUFACTURER_VIEW,
+        ],
       },
     ],
   },

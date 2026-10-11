@@ -15,11 +15,14 @@
  *    `create_conversion`). Reading it the other way round silently corrupts
  *    every quantity derived from it, so nothing in this feature prints a bare
  *    factor without the sentence that fixes its direction.
- * 2. **None of these four list endpoints accepts `sort_by`.** Categories come
- *    back ordered by the materialised `path` (depth-first tree order), units
- *    and conversions by the repository's own order, prices by validity. Every
- *    column in this feature therefore sets `enableSorting: false`: a header
- *    that reorders nothing is worse than no header affordance at all.
+ * 2. **None of the four original list endpoints accepts `sort_by`.** Categories
+ *    come back ordered by the materialised `path` (depth-first tree order),
+ *    units and conversions by the repository's own order, prices by validity.
+ *    Every column on those tabs therefore sets `enableSorting: false`: a header
+ *    that reorders nothing is worse than no header affordance at all. Brands
+ *    and manufacturers are the exception - their repositories whitelist `code`
+ *    and `name` (and, for brands, `sort_order`), and exactly those columns, no
+ *    others, are sortable on their tabs.
  * 3. **A PATCH here ignores nulls.** `update_category`, `update_uom` and
  *    `update_price` all loop `if value is not None: setattr(...)`, so a null
  *    field is dropped rather than clearing the column. A text field is cleared
@@ -56,6 +59,8 @@ export const mastersKeys = {
   categoryReference: () => ['masters', 'categories', 'reference'] as const,
   uoms: (params: unknown) => ['masters', 'uoms', params] as const,
   attributes: (params: unknown) => ['masters', 'attributes', params] as const,
+  brands: (params: unknown) => ['masters', 'brands', params] as const,
+  manufacturers: (params: unknown) => ['masters', 'manufacturers', params] as const,
   uomReference: () => ['masters', 'uoms', 'reference'] as const,
   conversions: (params: unknown) => ['masters', 'conversions', params] as const,
   conversionCheck: (params: unknown) => ['masters', 'conversions', 'check', params] as const,
@@ -70,6 +75,12 @@ export type CategoryRow = SchemaOf<'CategoryOut'>
 
 /** One row of `GET /products/attributes` (`ItemAttributeOut`). */
 export type ItemAttributeRow = SchemaOf<'ItemAttributeOut'>
+
+/** One row of `GET /products/brands` (`BrandOut`). */
+export type BrandRow = SchemaOf<'BrandOut'>
+
+/** One row of `GET /products/manufacturers` (`ManufacturerOut`). */
+export type ManufacturerRow = SchemaOf<'ManufacturerOut'>
 
 /** One row of `GET /products/uoms` (`UomOut`). */
 export type UomRow = SchemaOf<'UomOut'>

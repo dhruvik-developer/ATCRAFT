@@ -127,6 +127,11 @@ export const empty = {
   search: (term: string) => `No results for "${term}".`,
   loadFailedTitle: 'Could not load this list',
   loadFailedAction: 'Try again',
+  /**
+   * A stored reference the lookup list cannot name - a value retired since it
+   * was assigned, or one this account may not read. Shown instead of the raw id.
+   */
+  unlistedReference: 'Not in the active list',
 } as const
 
 // ------------------------------------------------------------ prompts ------

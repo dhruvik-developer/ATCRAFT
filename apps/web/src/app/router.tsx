@@ -343,12 +343,20 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
 
   { path: '/transporters', element: <TransportersPage />, permissions: [P.TRANSPORTER_VIEW] },
   { path: '/dealers', element: <DealersPage />, permissions: [P.DEALER_VIEW] },
-  // The page admits `price.view` on its own: `GET /products/items/{id}/prices`
-  // declares PRICE_VIEW, and the Prices tab is gated on it inside the page.
+  // Every tab's own read right opens the page, and each tab is gated on that
+  // right inside it: a holder of only `brand.view` (or only `price.view`, whose
+  // `GET /products/items/{id}/prices` declares PRICE_VIEW) must still get in.
   {
     path: '/masters',
     element: <MastersPage />,
-    permissions: [P.CATEGORY_VIEW, P.UOM_VIEW, P.PRICE_VIEW],
+    permissions: [
+      P.CATEGORY_VIEW,
+      P.UOM_VIEW,
+      P.PRICE_VIEW,
+      P.ITEM_ATTRIBUTE_VIEW,
+      P.BRAND_VIEW,
+      P.MANUFACTURER_VIEW,
+    ],
   },
   { path: '/warehouses/locations', element: <LocationsPage />, permissions: [P.LOCATION_VIEW] },
 

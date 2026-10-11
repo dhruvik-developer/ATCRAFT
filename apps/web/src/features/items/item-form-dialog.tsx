@@ -35,10 +35,9 @@ import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { humanise, toDecimal } from '@/lib/format'
 import { success } from '@/lib/messages'
-import {
-  useItemAttributeOptions,
-  type ItemAttributeOption,
-} from '@/hooks/use-item-attribute-options'
+import { useBrandOptions } from '@/hooks/use-brand-options'
+import { useItemAttributeOptions } from '@/hooks/use-item-attribute-options'
+import { useManufacturerOptions } from '@/hooks/use-manufacturer-options'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -68,6 +67,9 @@ const schema = z.object({
   finish_id: z.string(),
   size_id: z.string(),
   colour_id: z.string(),
+  brand_id: z.string(),
+  manufacturer_id: z.string(),
+  manufacturer_part_number: z.string().trim().max(64, 'Part number is at most 64 characters'),
   base_uom_id: z.string().min(1, 'Base unit is required'),
   purchase_uom_id: z.string(),
   sale_uom_id: z.string(),
@@ -110,6 +112,9 @@ function emptyValues(): ItemFormValues {
     finish_id: SELECT_NONE,
     size_id: SELECT_NONE,
     colour_id: SELECT_NONE,
+    brand_id: SELECT_NONE,
+    manufacturer_id: SELECT_NONE,
+    manufacturer_part_number: '',
     base_uom_id: '',
     purchase_uom_id: SELECT_NONE,
     sale_uom_id: SELECT_NONE,
@@ -140,6 +145,9 @@ function valuesFrom(item: ItemDetail): ItemFormValues {
     finish_id: item.finish_id ?? SELECT_NONE,
     size_id: item.size_id ?? SELECT_NONE,
     colour_id: item.colour_id ?? SELECT_NONE,
+    brand_id: item.brand_id ?? SELECT_NONE,
+    manufacturer_id: item.manufacturer_id ?? SELECT_NONE,
+    manufacturer_part_number: item.manufacturer_part_number ?? '',
     base_uom_id: item.base_uom_id,
     purchase_uom_id: item.purchase_uom_id ?? SELECT_NONE,
     sale_uom_id: item.sale_uom_id ?? SELECT_NONE,
@@ -176,6 +184,11 @@ function buildPayload(
     finish_id: asId(values.finish_id),
     size_id: asId(values.size_id),
     colour_id: asId(values.colour_id),
+    // "No brand" / "No manufacturer" post null, which the API reads as "clear
+    // it"; a blank part number posts null too, never an empty string.
+    brand_id: asId(values.brand_id),
+    manufacturer_id: asId(values.manufacturer_id),
+    manufacturer_part_number: asText(values.manufacturer_part_number),
     base_uom_id: values.base_uom_id,
     purchase_uom_id: asId(values.purchase_uom_id),
     sale_uom_id: asId(values.sale_uom_id),
@@ -199,13 +212,14 @@ function buildPayload(
 }
 
 /**
- * One of the three physical attributes.
+ * One optional reference chosen from a client-maintained list: a finish, a
+ * size, a colour, a brand or a manufacturer.
  *
- * Written once rather than three times: the three differ only in their label
- * and which list they read, and three copies of a Select is three places for a
- * "No finish" sentinel to be spelled differently.
+ * Written once rather than five times: they differ only in their label and
+ * which list they read, and five copies of a Select is five places for a "No
+ * finish" sentinel to be spelled differently.
  */
-function AttributeSelect({
+function ReferenceSelect({
   id,
   label,
   name,
@@ -214,9 +228,9 @@ function AttributeSelect({
 }: {
   id: string
   label: string
-  name: 'finish_id' | 'size_id' | 'colour_id'
+  name: 'finish_id' | 'size_id' | 'colour_id' | 'brand_id' | 'manufacturer_id'
   control: Control<ItemFormValues>
-  options: ItemAttributeOption[] | undefined
+  options: ReadonlyArray<{ id: string; name: string }> | undefined
 }) {
   const none = `No ${label.toLowerCase()}`
   return (
@@ -270,6 +284,11 @@ export function ItemFormDialog({
   const finishes = useItemAttributeOptions('FINISH', mayReadAttributes)
   const sizes = useItemAttributeOptions('SIZE', mayReadAttributes)
   const colours = useItemAttributeOptions('COLOUR', mayReadAttributes)
+  // Brand and maker are rights of their own, gated the same way: without one,
+  // its select offers only "None", and an edit still posts the value the item
+  // already carries - the form is seeded from the item, not from the list.
+  const brands = useBrandOptions(open && can(P.BRAND_VIEW))
+  const makers = useManufacturerOptions(open && can(P.MANUFACTURER_VIEW))
   const uoms = useUomOptions(open && can(P.UOM_VIEW))
 
   const {
@@ -420,7 +439,7 @@ export function ItemFormDialog({
                   at Masters -> Attributes; before that they were free text, so
                   the same finish could be spelled three ways and no report
                   could group by it. */}
-              <AttributeSelect
+              <ReferenceSelect
                 id="item-finish"
                 label="Finish"
                 name="finish_id"
@@ -428,7 +447,7 @@ export function ItemFormDialog({
                 options={finishes.data}
               />
 
-              <AttributeSelect
+              <ReferenceSelect
                 id="item-size"
                 label="Size"
                 name="size_id"
@@ -436,13 +455,43 @@ export function ItemFormDialog({
                 options={sizes.data}
               />
 
-              <AttributeSelect
+              <ReferenceSelect
                 id="item-colour"
                 label="Colour"
                 name="colour_id"
                 control={control}
                 options={colours.data}
               />
+
+              {/* Who sells it and who makes it - classification maintained at
+                  Masters -> Brands / Manufacturers. Nothing branches on either. */}
+              <ReferenceSelect
+                id="item-brand"
+                label="Brand"
+                name="brand_id"
+                control={control}
+                options={brands.data}
+              />
+
+              <ReferenceSelect
+                id="item-manufacturer"
+                label="Manufacturer"
+                name="manufacturer_id"
+                control={control}
+                options={makers.data}
+              />
+
+              <div>
+                <Label htmlFor="item-mpn">Manufacturer part number</Label>
+                <Input
+                  id="item-mpn"
+                  {...register('manufacturer_part_number')}
+                  autoComplete="off"
+                  aria-invalid={Boolean(errors.manufacturer_part_number)}
+                  className="mt-1.5"
+                />
+                <FieldError message={errors.manufacturer_part_number?.message} />
+              </div>
 
               <div>
                 <Label htmlFor="item-base-uom" required>
