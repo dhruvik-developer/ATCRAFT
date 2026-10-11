@@ -57,6 +57,7 @@ function jobWorkOrder(overrides: Partial<JobWorkOrderRow> = {}): JobWorkOrderRow
     vendor_id: 'vendor-aaaa-0001',
     warehouse_id: 'wh-1',
     return_warehouse_id: 'wh-1',
+    cost_centre_id: null,
     process_type: 'POLISHING',
     process_description: 'Mirror polish, 400 grit',
     rate_basis: 'PER_PIECE',

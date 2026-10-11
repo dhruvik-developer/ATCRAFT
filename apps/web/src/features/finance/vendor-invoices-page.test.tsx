@@ -78,6 +78,7 @@ function summary(overrides: Partial<VendorInvoiceSummary> = {}): VendorInvoiceSu
     outstanding_amount: '1359.00',
     purchase_order_id: null,
     goods_receipt_id: null,
+    cost_centre_id: null,
     created_at: '2026-09-01T09:00:00Z',
     ...overrides,
   }
@@ -90,6 +91,7 @@ function line(overrides: Partial<VendorInvoiceLine> = {}): VendorInvoiceLine {
     item_id: null,
     purchase_order_line_id: null,
     goods_receipt_line_id: null,
+    cost_centre_id: null,
     description: 'Brass rod 12mm',
     hsn_code: null,
     quantity: '2.0000',

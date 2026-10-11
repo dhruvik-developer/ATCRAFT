@@ -1702,6 +1702,32 @@
         "title": "ApiResponse[ConversionResult]",
         "type": "object"
       },
+      "ApiResponse_CostCentreRead_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostCentreRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[CostCentreRead]",
+        "type": "object"
+      },
       "ApiResponse_CreditStatus_": {
         "properties": {
           "data": {
@@ -9212,6 +9238,61 @@
             ],
             "title": "Address Line2"
           },
+          "bank_account_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Name"
+          },
+          "bank_account_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Number"
+          },
+          "bank_branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Branch"
+          },
+          "bank_ifsc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Ifsc"
+          },
+          "bank_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Name"
+          },
           "cin": {
             "anyOf": [
               {
@@ -9281,6 +9362,17 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "invoice_terms": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Terms"
           },
           "is_active": {
             "title": "Is Active",
@@ -9412,6 +9504,12 @@
           "timezone",
           "is_active",
           "logo_document_id",
+          "bank_name",
+          "bank_account_name",
+          "bank_account_number",
+          "bank_ifsc",
+          "bank_branch",
+          "invoice_terms",
           "created_at",
           "updated_at"
         ],
@@ -9445,6 +9543,66 @@
               }
             ],
             "title": "Address Line2"
+          },
+          "bank_account_name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Name"
+          },
+          "bank_account_number": {
+            "anyOf": [
+              {
+                "maxLength": 34,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Account Number"
+          },
+          "bank_branch": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Branch"
+          },
+          "bank_ifsc": {
+            "anyOf": [
+              {
+                "maxLength": 11,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Ifsc"
+          },
+          "bank_name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Name"
           },
           "cin": {
             "anyOf": [
@@ -9532,6 +9690,18 @@
               }
             ],
             "title": "Gstin"
+          },
+          "invoice_terms": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Terms"
           },
           "legal_name": {
             "anyOf": [
@@ -10707,6 +10877,296 @@
         ],
         "title": "ConversionTarget",
         "type": "string"
+      },
+      "CostCentreCreate": {
+        "additionalProperties": false,
+        "description": "Payload for opening a cost centre.\n\n``cost_centre_type`` is required rather than defaulted: it is how the centre\nis grouped on every report, and a silent default would misclassify each one\nnobody remembered to change.",
+        "properties": {
+          "code": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "cost_centre_type": {
+            "$ref": "#/components/schemas/CostCentreType"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "head_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head User Id"
+          },
+          "is_active": {
+            "default": true,
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "plant_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plant Id"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "cost_centre_type"
+        ],
+        "title": "CostCentreCreate",
+        "type": "object"
+      },
+      "CostCentreRead": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "cost_centre_type": {
+            "$ref": "#/components/schemas/CostCentreType"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "head_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head User Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "plant_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plant Id"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "cost_centre_type",
+          "parent_id",
+          "plant_id",
+          "head_user_id",
+          "description",
+          "is_active",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CostCentreRead",
+        "type": "object"
+      },
+      "CostCentreType": {
+        "description": "How a cost centre is classified on a report. Nothing may branch on it.\n\nThe same rule as ``items.item_group``: a reporting classification, never a\nswitch. A rule that needs to know whether a centre is \"production\" reads\nthe carrier it is attached to (a work centre, a production order), not this\ncolumn - otherwise reclassifying a centre would silently change behaviour.",
+        "enum": [
+          "PRODUCTION",
+          "SERVICE",
+          "ADMINISTRATION",
+          "SELLING"
+        ],
+        "title": "CostCentreType",
+        "type": "string"
+      },
+      "CostCentreUpdate": {
+        "additionalProperties": false,
+        "description": "Partial update. ``code`` is immutable: it is quoted on posted history.\n\nAn explicit null clears ``parent_id`` (the centre becomes a root),\n``plant_id``, ``head_user_id`` or ``description``; an omitted key is left\nalone.",
+        "properties": {
+          "cost_centre_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CostCentreType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "head_user_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head User Id"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "plant_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plant Id"
+          }
+        },
+        "title": "CostCentreUpdate",
+        "type": "object"
       },
       "CreditStatus": {
         "description": "The answer to \"can this account take another order of X?\".",
@@ -12262,6 +12722,18 @@
             "title": "Code",
             "type": "string"
           },
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
+          },
           "head_user_id": {
             "anyOf": [
               {
@@ -12322,6 +12794,18 @@
           "code": {
             "title": "Code",
             "type": "string"
+          },
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
           },
           "created_at": {
             "format": "date-time",
@@ -12402,6 +12886,7 @@
           "plant_id",
           "parent_id",
           "head_user_id",
+          "cost_centre_id",
           "is_active",
           "created_at",
           "updated_at"
@@ -12412,6 +12897,18 @@
       "DepartmentUpdate": {
         "additionalProperties": false,
         "properties": {
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
+          },
           "head_user_id": {
             "anyOf": [
               {
@@ -17788,6 +18285,18 @@
         "additionalProperties": false,
         "description": "Raise a draft job work order.",
         "properties": {
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
+          },
           "expected_return_date": {
             "format": "date",
             "title": "Expected Return Date",
@@ -17954,6 +18463,18 @@
             "title": "Code",
             "type": "string"
           },
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
+          },
           "estimated_charges": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Estimated Charges",
@@ -18086,6 +18607,7 @@
           "expected_return_date",
           "warehouse_id",
           "return_warehouse_id",
+          "cost_centre_id",
           "rate_per_unit",
           "rate_basis",
           "estimated_charges",
@@ -18384,6 +18906,18 @@
             "title": "Code",
             "type": "string"
           },
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
+          },
           "estimated_charges": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Estimated Charges",
@@ -18509,6 +19043,7 @@
           "expected_return_date",
           "warehouse_id",
           "return_warehouse_id",
+          "cost_centre_id",
           "rate_per_unit",
           "rate_basis",
           "estimated_charges",
@@ -18534,6 +19069,18 @@
         "additionalProperties": false,
         "description": "Amend a draft.\n\nOnly a DRAFT is editable: past approval the order has hard stock\nreservations against it and, from ISSUED, material at a vendor. ``vendor_id``\nis absent on purpose - sending the same order to a different processor is a\ndifferent order, not an edit, and the challan would name the wrong party.",
         "properties": {
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
+          },
           "expected_return_date": {
             "anyOf": [
               {
@@ -23300,6 +23847,32 @@
         "title": "PaginatedResponse[ContactRead]",
         "type": "object"
       },
+      "PaginatedResponse_CostCentreRead_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/CostCentreRead"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/OffsetPagination"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "PaginatedResponse[CostCentreRead]",
+        "type": "object"
+      },
       "PaginatedResponse_CustomerSummary_": {
         "properties": {
           "data": {
@@ -27638,6 +28211,18 @@
             ],
             "title": "Bom Id"
           },
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
+          },
           "item_id": {
             "format": "uuid",
             "title": "Item Id",
@@ -27824,6 +28409,18 @@
             "title": "Component Count",
             "type": "integer"
           },
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -27970,6 +28567,7 @@
           "item_id",
           "warehouse_id",
           "plant_id",
+          "cost_centre_id",
           "planned_quantity",
           "produced_quantity",
           "rejected_quantity",
@@ -28073,6 +28671,18 @@
           "code": {
             "title": "Code",
             "type": "string"
+          },
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
           },
           "created_at": {
             "format": "date-time",
@@ -28213,6 +28823,7 @@
           "item_id",
           "warehouse_id",
           "plant_id",
+          "cost_centre_id",
           "planned_quantity",
           "produced_quantity",
           "rejected_quantity",
@@ -28285,6 +28896,18 @@
           "code": {
             "title": "Code",
             "type": "string"
+          },
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
           },
           "created_at": {
             "format": "date-time",
@@ -28378,6 +29001,7 @@
           "item_id",
           "warehouse_id",
           "plant_id",
+          "cost_centre_id",
           "planned_quantity",
           "produced_quantity",
           "rejected_quantity",
@@ -28409,6 +29033,18 @@
               }
             ],
             "title": "Bom Id"
+          },
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
           },
           "notes": {
             "anyOf": [
@@ -33352,6 +33988,7 @@
           "DISPATCH",
           "COURIER_TRACKING",
           "VENDOR_DISPATCH_HISTORY",
+          "COST_CENTRE_EXPENSE",
           "PACKING_LIST"
         ],
         "title": "ReportKey",
@@ -35467,7 +36104,7 @@
             "items": {
               "type": "string"
             },
-            "maxItems": 152,
+            "maxItems": 154,
             "title": "Permissions",
             "type": "array"
           }
@@ -35669,7 +36306,7 @@
                 "items": {
                   "type": "string"
                 },
-                "maxItems": 152,
+                "maxItems": 154,
                 "type": "array"
               },
               {
@@ -37896,6 +38533,18 @@
             ],
             "title": "Adjustment Date"
           },
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
+          },
           "lines": {
             "items": {
               "$ref": "#/components/schemas/StockAdjustmentLineCreate"
@@ -38171,6 +38820,18 @@
             "title": "Code",
             "type": "string"
           },
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -38285,6 +38946,7 @@
           "status",
           "warehouse_id",
           "adjustment_date",
+          "cost_centre_id",
           "reason_code",
           "reason",
           "notes",
@@ -43843,6 +44505,18 @@
         "additionalProperties": false,
         "description": "Record a bill in DRAFT. Nothing posts to the ledger until approval.",
         "properties": {
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
+          },
           "currency": {
             "anyOf": [
               {
@@ -43993,6 +44667,18 @@
           "code": {
             "title": "Code",
             "type": "string"
+          },
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
           },
           "created_at": {
             "format": "date-time",
@@ -44166,6 +44852,7 @@
           "outstanding_amount",
           "purchase_order_id",
           "goods_receipt_id",
+          "cost_centre_id",
           "created_at",
           "round_off_amount",
           "match_variance_amount",
@@ -44185,6 +44872,18 @@
         "additionalProperties": false,
         "description": "One billed line.\n\n``taxable_amount``, the tax split and ``line_total`` are computed by the\nserver from quantity, price, discount and rate - see\n``service.price_invoice_line``. Accepting them would let a client post a\nline whose parts do not add up, which the CHECK constraints would then\nreject with a message nobody can act on.",
         "properties": {
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
+          },
           "description": {
             "anyOf": [
               {
@@ -44344,6 +45043,18 @@
             "title": "Cgst Amount",
             "type": "string"
           },
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
+          },
           "description": {
             "anyOf": [
               {
@@ -44486,6 +45197,7 @@
           "item_id",
           "purchase_order_line_id",
           "goods_receipt_line_id",
+          "cost_centre_id",
           "description",
           "hsn_code",
           "quantity",
@@ -44524,6 +45236,18 @@
           "code": {
             "title": "Code",
             "type": "string"
+          },
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
           },
           "created_at": {
             "format": "date-time",
@@ -44631,6 +45355,7 @@
           "outstanding_amount",
           "purchase_order_id",
           "goods_receipt_id",
+          "cost_centre_id",
           "created_at"
         ],
         "title": "VendorInvoiceSummary",
@@ -44640,6 +45365,18 @@
         "additionalProperties": false,
         "description": "Amend an invoice that has not been approved.\n\nReplacing ``lines`` replaces the whole set: a bill is a document, and\npatching individual lines of a document somebody is about to approve invites\nan approval of something other than what was reviewed.",
         "properties": {
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
+          },
           "due_date": {
             "anyOf": [
               {
@@ -47122,6 +47859,18 @@
             "title": "Code",
             "type": "string"
           },
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
+          },
           "cost_per_hour": {
             "anyOf": [
               {
@@ -47231,6 +47980,18 @@
             "title": "Code",
             "type": "string"
           },
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
+          },
           "cost_per_hour": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Cost Per Hour",
@@ -47312,6 +48073,7 @@
           "description",
           "plant_id",
           "department_id",
+          "cost_centre_id",
           "capacity_per_hour",
           "cost_per_hour",
           "setup_cost",
@@ -47355,6 +48117,18 @@
               }
             ],
             "title": "Code"
+          },
+          "cost_centre_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Centre Id"
           },
           "cost_per_hour": {
             "anyOf": [
@@ -79577,6 +80351,776 @@
         ]
       }
     },
+    "/api/v1/organization/cost-centres": {
+      "get": {
+        "operationId": "list_cost_centres_api_v1_organization_cost_centres_get",
+        "parameters": [
+          {
+            "description": "Code or name",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Code or name",
+              "title": "Search"
+            }
+          },
+          {
+            "description": "Direct children of",
+            "in": "query",
+            "name": "parent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Direct children of",
+              "title": "Parent Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "plant_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Plant Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cost_centre_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CostCentreType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cost Centre Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "is_active",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Is Active"
+            }
+          },
+          {
+            "description": "Include retired cost centres",
+            "in": "query",
+            "name": "include_deleted",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include retired cost centres",
+              "title": "Include Deleted",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "1-based page number",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "1-based page number",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Rows per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Rows per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Include an exact total row count",
+            "in": "query",
+            "name": "with_total",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Include an exact total row count",
+              "title": "With Total",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Field to sort by",
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Field to sort by",
+              "title": "Sort By"
+            }
+          },
+          {
+            "description": "Sort direction",
+            "in": "query",
+            "name": "sort_dir",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "description": "Sort direction",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Sort Dir",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_CostCentreRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List cost centres",
+        "tags": [
+          "Organisation"
+        ]
+      },
+      "post": {
+        "operationId": "create_cost_centre_api_v1_organization_cost_centres_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CostCentreCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_CostCentreRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create a cost centre",
+        "tags": [
+          "Organisation"
+        ]
+      }
+    },
+    "/api/v1/organization/cost-centres/{cost_centre_id}": {
+      "delete": {
+        "description": "Refused while a sub-centre, a department, a work centre or any document still names the centre. Posted ledger history keeps it.",
+        "operationId": "delete_cost_centre_api_v1_organization_cost_centres__cost_centre_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cost_centre_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Cost Centre Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Why the record is being retired",
+            "in": "query",
+            "name": "reason",
+            "required": true,
+            "schema": {
+              "description": "Why the record is being retired",
+              "maxLength": 255,
+              "minLength": 3,
+              "title": "Reason",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retire a cost centre",
+        "tags": [
+          "Organisation"
+        ]
+      },
+      "get": {
+        "operationId": "get_cost_centre_api_v1_organization_cost_centres__cost_centre_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cost_centre_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Cost Centre Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_CostCentreRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Fetch one cost centre",
+        "tags": [
+          "Organisation"
+        ]
+      },
+      "patch": {
+        "description": "Deactivating (`is_active: false`) is refused while an active sub-centre, a department default or a work centre still hands the centre out; documents keep their reference.",
+        "operationId": "update_cost_centre_api_v1_organization_cost_centres__cost_centre_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "cost_centre_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Cost Centre Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CostCentreUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_CostCentreRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update a cost centre",
+        "tags": [
+          "Organisation"
+        ]
+      }
+    },
     "/api/v1/organization/departments": {
       "get": {
         "operationId": "list_departments_api_v1_organization_departments_get",
@@ -104680,6 +106224,340 @@
           }
         ],
         "summary": "List the available reports",
+        "tags": [
+          "Reports"
+        ]
+      }
+    },
+    "/api/v1/reports/cost-centre-expense": {
+      "get": {
+        "description": "Posted income and expense per cost centre and account over the period, read from the ledger. `search` matches the cost centre's code or name. Net is debit minus credit: positive is cost, negative is income. A retired cost centre still appears - posted history keeps it.",
+        "operationId": "cost_centre_expense_api_v1_reports_cost_centre_expense_get",
+        "parameters": [
+          {
+            "description": "First day of the period, inclusive",
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First day of the period, inclusive",
+              "title": "Date From"
+            }
+          },
+          {
+            "description": "Last day of the period, inclusive",
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Last day of the period, inclusive",
+              "title": "Date To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "item_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Item Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "warehouse_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Warehouse Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "vendor_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Vendor Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "customer_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Customer Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "description": "Age threshold in days, where the report uses one",
+            "in": "query",
+            "name": "min_days",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 3650,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Age threshold in days, where the report uses one",
+              "title": "Min Days"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "description": "1-based page number",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "1-based page number",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Rows per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Rows per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Include an exact total row count",
+            "in": "query",
+            "name": "with_total",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Include an exact total row count",
+              "title": "With Total",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The report, paginated"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptedJobResponse"
+                }
+              }
+            },
+            "description": "Too large to return inline. Generated in the background; poll the status URL."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cost centre statement",
         "tags": [
           "Reports"
         ]

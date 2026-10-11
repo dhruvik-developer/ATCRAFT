@@ -25,7 +25,7 @@ CI and the pre-push hook run the same three checks `contract-check` runs.
 
 ### Using the Postman collection
 
-Import `postman_collection.json` (Postman v2.1 format, 494 requests in 27
+Import `postman_collection.json` (Postman v2.1 format, 500 requests in 27
 folders, one per tag). Then:
 
 1. Set the `base_url` variable if it is not `http://127.0.0.1:8000/api/v1`.
@@ -379,7 +379,8 @@ download. No endpoint holds a connection open for a calculation.
                       mfa/setup · mfa/confirm · mfa/disable · change-password
                       password-reset/request · password-reset/confirm
 /users  /roles        users, roles, permission catalogue
-/organization         company · branches · plants · departments · financial years
+/organization         company (incl. bank details) · branches · plants · departments
+                      cost centres · financial years
 /warehouses           warehouses · storage locations
 /products             items · categories · UoM · prices · vendor links
 /customers  /vendors  business partners · transporters
@@ -397,7 +398,8 @@ download. No endpoint holds a connection open for a calculation.
 /packing              packing orders · cartons · packing list
 /dispatch             dispatches · tracking events · tracking board · delayed
 /finance              ledgers · vendor invoices · match · payments · ageing · GST · valuation
-/reports              catalogue · dashboard · background report jobs
+/reports              catalogue · dashboard · background report jobs · one route per
+                      report (e.g. /reports/cost-centre-expense, the cost-centre statement)
 /documents            upload · download · metadata
 /notifications        list · unread count · read · preferences
 /audit                logs · entity history · approvals
