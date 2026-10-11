@@ -6,7 +6,41 @@ import { cn } from '@/lib/utils'
 
 // ---------------------------------------------------------------- Select ----
 
-export const Select = SelectPrimitive.Root
+/**
+ * The select root, with one Radix behaviour neutralised.
+ *
+ * Inside a `<form>`, Radix renders a hidden native `<select>` for autofill and
+ * re-dispatches every change of the controlled value through it. When the new
+ * value's `<option>` has not been rendered yet - a form reset to a saved record
+ * while the picker's list is still loading - the native element can only hold
+ * "", and its change event arrives here as `onValueChange('')`. A form wired to
+ * that clears the field: the record's warehouse, plant or cost centre silently
+ * became "none", the select showed its placeholder once the list arrived, and
+ * the next save wrote the loss.
+ *
+ * "" is never a choice a person can make - Radix refuses an item whose value is
+ * the empty string, which is why every "none" option here is a sentinel - so it
+ * is dropped once, for every select in the application, rather than guarded in
+ * each form that happens to load its options late. See `select.test.tsx`.
+ */
+export function Select({
+  onValueChange,
+  ...props
+}: React.ComponentPropsWithoutRef<typeof SelectPrimitive.Root>) {
+  return (
+    <SelectPrimitive.Root
+      {...props}
+      onValueChange={
+        onValueChange
+          ? (next: string) => {
+              if (next !== '') onValueChange(next)
+            }
+          : undefined
+      }
+    />
+  )
+}
+
 export const SelectGroup = SelectPrimitive.Group
 export const SelectValue = SelectPrimitive.Value
 

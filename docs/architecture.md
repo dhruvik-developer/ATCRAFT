@@ -308,6 +308,17 @@ main - so a feature page cannot forget them; toolbars stack their controls with
 `flex-wrap` and `w-full sm:w-[..]` widths, and the sidebar's "collapsed"
 preference only applies at `lg`, where the control that undoes it exists.
 
+`Select` carries a safety net of the same kind. Inside a `<form>`, Radix keeps a
+hidden native `<select>` and re-dispatches every change of the controlled value
+through it; when the new value's `<option>` has not rendered yet - a form reset
+to a saved record while its picker's list is still loading - the native element
+can only hold `""`, and that arrived as `onValueChange('')`. Every form wired to
+it cleared the field: an amended job-work order lost its warehouse, a document
+its cost centre, and the next save wrote the loss. `""` is never a choice a
+person can make - Radix refuses an item whose value is empty, which is why every
+"none" option is a sentinel - so `components/ui/select.tsx` drops it, once, for
+every select (`select.test.tsx`).
+
 Permissions in the UI control affordances only. The API authorises every request
 independently — anyone can edit the browser's idea of their permissions, and the
 server does not care.
