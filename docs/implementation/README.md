@@ -12,13 +12,13 @@ and [the traceability audit](trace/trace.json).
 
 ## Current checkpoint
 
-Updated 12 October 2026, about 18:05 IST. **Paused at the user's request; no agent holds any lane.**
+Updated 12 October 2026, about 19:25 IST. **Resumed by Codex at the user's request.**
 
 - `main` is round 1 integrated (`fd90655`), plus this directory.
-- Round 2 is paused. At about 16:57 Claude resumed it in five worktrees; the user stopped every Claude process at about 18:04.
+- At about 16:57 Claude resumed round 2 in five worktrees; the user stopped every Claude process at about 18:04. Codex resumed from that newer checkpoint at about 19:18.
   - Nothing was committed in that hour.
-  - Each lane keeps its uncommitted work exactly as it was left: Codex's changes plus Claude's partial takeover.
-  - No servers or test runs are left running.
+  - The newer implementations are being reconciled with the saved Codex work, rather than overwritten with older copies.
+  - Checks run before the takeover do not verify the current files. Each affected lane must be verified again.
   - The Docker database stack is still up.
 
 | Lane | Branch and worktree | Round 2 packages | State when paused |
@@ -28,6 +28,11 @@ Updated 12 October 2026, about 18:05 IST. **Paused at the user's request; no age
 | C | `lane/portals`, `../ATCRAFT-lanes/portals` | C1a scoped vendor portal; C1b Web Push | Codex's commit `383550c`, plus Claude's uncommitted review fixes for C1a. Still to do: finish the C1a review and commit, then review C1b. |
 | D | `lane/supply`, `../ATCRAFT-lanes/supply` | E8a inventory operations | Uncommitted. Codex's work, partly taken over by Claude. Still to do: finish, verify and commit, then review. |
 | E | `lane/quality`, `../ATCRAFT-lanes/quality` | E4 assembly and one QC-verdict path | Claude's uncommitted, partial backend. Still to do: finish the backend, then the frontend, then review. |
+
+Current lane holders: Codex `/root/commercial_round2` holds A; `/root/project_state`
+holds B and will take E after committing B; `/root/portals_round2` holds C and
+performs a read-only review of D; `/root` holds D. E has no active writer until
+the B handoff. The five-lane schedule remains authoritative.
 
 To resume a lane, follow `specs/BRIEF.md` section 1a:
 - take the uncommitted work over;
