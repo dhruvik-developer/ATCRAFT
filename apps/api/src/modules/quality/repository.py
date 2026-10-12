@@ -594,6 +594,31 @@ class QcInspectionResultRepository(BaseRepository[QcInspectionResult]):
         return {row.parameter_id: row for row in await self.list_for_inspection(inspection_id)}
 
 
+def open_inspection_count(
+    company_id: uuid.UUID, reference_type: str, reference_ids: Any
+) -> ColumnElement[int]:
+    """Undecided inspections raised by the documents ``reference_ids`` selects.
+
+    A correlatable scalar subquery rather than a count fetched per document:
+    procurement's inbound board asks it once per purchase order inside one
+    statement, passing a correlated select of that order's posted receipts.
+    Reached through a guarded import (``inbound_repository``), the same seam
+    procurement uses for every other quality call, so the planning layer never
+    imports this module's types.
+    """
+    return (
+        select(func.count())
+        .select_from(QcInspection)
+        .where(
+            QcInspection.company_id == company_id,
+            QcInspection.reference_type == reference_type,
+            QcInspection.reference_id.in_(reference_ids),
+            QcInspection.status.in_(OPEN_STATUSES),
+        )
+        .scalar_subquery()
+    )
+
+
 __all__ = [
     "InspectableItem",
     "ItemLookupRepository",
@@ -605,4 +630,5 @@ __all__ = [
     "QualityTotals",
     "VendorItemTotals",
     "WarehouseLookupRepository",
+    "open_inspection_count",
 ]

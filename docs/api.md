@@ -393,6 +393,8 @@ download. No endpoint holds a connection open for a calculation.
 /mrp                  runs · suggestions · convert · shortage report
 /procurement          requisitions · close · convert to POs by category · RFQs · quotations
                       POs · vendor assignees · GRNs · returns · tracking
+                      inbound-tracking board · consignments · delivered · typed files
+                      accept vendor date · PO PDF
 /production           orders · components · work orders · issues · entries · cost
 /assembly             assembly orders · components · complete
 /job-work             orders · challans · issue · receive · pending-at-vendor
@@ -403,7 +405,10 @@ download. No endpoint holds a connection open for a calculation.
 /reports              catalogue · dashboard · background report jobs · one route per
                       report (e.g. /reports/cost-centre-expense, the cost-centre statement)
 /documents            upload · download · metadata
-/notifications        list · unread count · read · preferences
+/notifications        list · unread count · read · preferences · push devices
+/vendor-portal        vendor accounts only: me · dashboard · orders (accept, decline,
+                      delivery date, ready, consignments, delivered, files, receipts,
+                      PDF) · transporter options · receipts · bills · payments · rating
 /audit                logs · entity history · approvals
 ```
 
@@ -411,16 +416,31 @@ Full request and response schemas are generated from the code at `/docs`.
 
 ## Vendor portal and device push
 
-Vendor users use `/vendor-portal`: own profile/dashboard, paged purchase orders,
-accept/decline/date/ready actions, numbered shipments and delivered updates,
-transporter options, typed multipart documents, scoped download, posted receipts
-with QC, invoices, payments/summary, rating and queued PO PDF/jobs. Every route
-requires its literal portal right and a vendor principal. Foreign resources
-answer 404; staff cannot enter the portal. Own invoices require a visible PO,
-omit vendor/cost-centre fields, and accept an optional `invoice_document_id`
-returned by an INVOICE upload. Internal companions live under procurement:
-`inbound-tracking`, PO shipments/create/edit/delivered/documents,
-`accept-vendor-date`, and `pdf`. PDF creation returns 202 and a scoped status URL.
+A vendor account calls `/vendor-portal` and nothing else (plus its own
+notifications and auth self-service; every other route is 403 `SCOPE_DENIED`).
+Every portal route names its `vendor_portal.*` right and refuses staff accounts;
+another vendor's order, file, receipt, job or bill is 404.
+
+| Route | Right | Notes |
+|---|---|---|
+| `GET /me`, `GET /dashboard`, `GET /rating` | access | dashboard tiles match the order-list tabs one for one |
+| `GET /purchase-orders` | access | `tab` = to_accept, accepted, ready, dispatched, delivered, all; `search`; `assigned_to_me` |
+| `GET /purchase-orders/{id}` | access | allow-listed detail with tracking, timeline from SENT, first 50 consignments/files/receipts |
+| `POST .../accept`, `.../decline`, `.../delivery-date` | respond | the committed date never moves the buyer's planning date |
+| `POST .../ready-for-dispatch`, `GET`/`POST .../shipments`, `POST .../shipments/{id}/delivered`, `GET /transporters/options` | ship (GETs: access) | consignments only on ACKNOWLEDGED/PARTIALLY_RECEIVED orders |
+| `POST`/`GET .../documents`, `GET /documents/{id}/download` | ship, or invoice for kind INVOICE (GETs: access) | multipart `file`, `kind`, optional `shipment_id`; only shared files are listed |
+| `POST .../pdf` (202), `GET /jobs/{id}` | access | the job route answers for the caller's own PO PDF jobs only |
+| `GET /receipts`, `GET .../receipts` | access | posted receipts with lines and QC verdicts |
+| `GET`/`POST /invoices`, `GET /invoices/{id}` | invoice | a bill names an own order; no vendor or cost-centre field; `invoice_document_id` from an INVOICE upload |
+| `GET /payments`, `GET /payments/summary` | invoice | approved payments with allocations; summary per currency |
+
+The buyer's companions sit under `/procurement` (staff only):
+`GET /inbound-tracking` (filters `overdue`, `expected_today`, `in_transit`,
+`not_acknowledged`, `include_completed`, `vendor_id`, `category_id`, `search`),
+`GET`/`POST /purchase-orders/{id}/shipments`, `PATCH .../shipments/{id}`,
+`POST .../shipments/{id}/delivered` (`grn.create`), `GET`/`POST .../documents`
+(`document.upload` to file), `POST .../accept-vendor-date` and `POST .../pdf`
+(202, polled at `/reports/jobs/{id}`).
 
 All six `/notifications/push` endpoints require notification.view: config;
 POST/GET subscriptions; DELETE subscriptions/{id}; POST subscriptions/unregister

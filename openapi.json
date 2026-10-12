@@ -4664,6 +4664,32 @@
         "title": "ApiResponse[VendorPortalDashboard]",
         "type": "object"
       },
+      "ApiResponse_VendorPortalInvoiceDetail_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VendorPortalInvoiceDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[VendorPortalInvoiceDetail]",
+        "type": "object"
+      },
       "ApiResponse_VendorPortalMe_": {
         "properties": {
           "data": {
@@ -4688,6 +4714,32 @@
           }
         },
         "title": "ApiResponse[VendorPortalMe]",
+        "type": "object"
+      },
+      "ApiResponse_VendorPortalOrderActionRead_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VendorPortalOrderActionRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[VendorPortalOrderActionRead]",
         "type": "object"
       },
       "ApiResponse_VendorPortalOrderDetail_": {
@@ -6724,44 +6776,6 @@
         "title": "BlockRequest",
         "type": "object"
       },
-      "Body_upload_api_v1_vendor_portal_purchase_orders__order_id__documents_post": {
-        "properties": {
-          "file": {
-            "contentMediaType": "application/octet-stream",
-            "title": "File",
-            "type": "string"
-          },
-          "kind": {
-            "enum": [
-              "INVOICE",
-              "DISPATCH_PHOTO",
-              "LR_COPY",
-              "DELIVERY_CHALLAN",
-              "OTHER"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
-          "shipment_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Shipment Id"
-          }
-        },
-        "required": [
-          "file",
-          "kind"
-        ],
-        "title": "Body_upload_api_v1_vendor_portal_purchase_orders__order_id__documents_post",
-        "type": "object"
-      },
       "Body_upload_document_api_v1_documents_post": {
         "properties": {
           "category": {
@@ -6822,7 +6836,7 @@
         "title": "Body_upload_document_api_v1_documents_post",
         "type": "object"
       },
-      "Body_upload_document_api_v1_procurement_purchase_orders__order_id__documents_post": {
+      "Body_upload_document_api_v1_vendor_portal_purchase_orders__order_id__documents_post": {
         "properties": {
           "file": {
             "contentMediaType": "application/octet-stream",
@@ -6857,7 +6871,45 @@
           "file",
           "kind"
         ],
-        "title": "Body_upload_document_api_v1_procurement_purchase_orders__order_id__documents_post",
+        "title": "Body_upload_document_api_v1_vendor_portal_purchase_orders__order_id__documents_post",
+        "type": "object"
+      },
+      "Body_upload_purchase_order_document_api_v1_procurement_purchase_orders__order_id__documents_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "INVOICE",
+              "DISPATCH_PHOTO",
+              "LR_COPY",
+              "DELIVERY_CHALLAN",
+              "OTHER"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "shipment_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shipment Id"
+          }
+        },
+        "required": [
+          "file",
+          "kind"
+        ],
+        "title": "Body_upload_purchase_order_document_api_v1_procurement_purchase_orders__order_id__documents_post",
         "type": "object"
       },
       "BomCostComponentRead": {
@@ -17019,6 +17071,7 @@
       },
       "InboundShipmentCreate": {
         "additionalProperties": false,
+        "description": "One consignment, as a vendor or a buyer records it.\n\nThe same body creates a consignment and (``PATCH``) replaces one, so a\ncorrection is checked by exactly the rules the first entry was.",
         "properties": {
           "courier_name": {
             "anyOf": [
@@ -17184,13 +17237,11 @@
         "type": "object"
       },
       "InboundShipmentRead": {
-        "additionalProperties": false,
+        "description": "A stored consignment. Plain types: reading a row never re-runs write rules.",
         "properties": {
           "courier_name": {
             "anyOf": [
               {
-                "maxLength": 120,
-                "minLength": 1,
                 "type": "string"
               },
               {
@@ -17219,7 +17270,6 @@
           "driver_mobile": {
             "anyOf": [
               {
-                "maxLength": 32,
                 "type": "string"
               },
               {
@@ -17231,7 +17281,6 @@
           "driver_name": {
             "anyOf": [
               {
-                "maxLength": 120,
                 "type": "string"
               },
               {
@@ -17253,8 +17302,7 @@
             "title": "Expected Delivery Date"
           },
           "freight_amount": {
-            "default": "0",
-            "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Freight Amount",
             "type": "string"
           },
@@ -17266,7 +17314,6 @@
           "lr_number": {
             "anyOf": [
               {
-                "maxLength": 64,
                 "type": "string"
               },
               {
@@ -17278,7 +17325,6 @@
           "notes": {
             "anyOf": [
               {
-                "maxLength": 2000,
                 "type": "string"
               },
               {
@@ -17290,7 +17336,6 @@
           "packages": {
             "anyOf": [
               {
-                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -17316,7 +17361,6 @@
           "tracking_reference": {
             "anyOf": [
               {
-                "maxLength": 120,
                 "type": "string"
               },
               {
@@ -17340,7 +17384,6 @@
           "vehicle_number": {
             "anyOf": [
               {
-                "maxLength": 32,
                 "type": "string"
               },
               {
@@ -17352,7 +17395,7 @@
           "weight_kg": {
             "anyOf": [
               {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -17363,17 +17406,30 @@
           }
         },
         "required": [
-          "shipped_at",
           "id",
           "purchase_order_id",
           "shipment_number",
+          "transporter_id",
+          "courier_name",
+          "tracking_reference",
+          "lr_number",
+          "vehicle_number",
+          "driver_name",
+          "driver_mobile",
+          "shipped_at",
           "delivered_at",
+          "expected_delivery_date",
+          "packages",
+          "weight_kg",
+          "freight_amount",
+          "notes",
           "created_at"
         ],
         "title": "InboundShipmentRead",
         "type": "object"
       },
       "InboundTrackingRead": {
+        "description": "One row of the inbound board and of the vendor's order list.",
         "properties": {
           "acknowledged_at": {
             "anyOf": [
@@ -17386,18 +17442,6 @@
               }
             ],
             "title": "Acknowledged At"
-          },
-          "approved_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Approved At"
           },
           "assigned_vendor_user_id": {
             "anyOf": [
@@ -17463,11 +17507,6 @@
             ],
             "title": "Delivery Expected Date"
           },
-          "discount": {
-            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Discount",
-            "type": "string"
-          },
           "documents_count": {
             "default": 0,
             "title": "Documents Count",
@@ -17484,11 +17523,6 @@
               }
             ],
             "title": "Expected Delivery Date"
-          },
-          "freight_amount": {
-            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Freight Amount",
-            "type": "string"
           },
           "grn_pending": {
             "default": false,
@@ -17554,18 +17588,10 @@
               }
             ]
           },
-          "payment_terms_days": {
-            "title": "Payment Terms Days",
-            "type": "integer"
-          },
           "po_date": {
             "format": "date",
             "title": "Po Date",
             "type": "string"
-          },
-          "priority": {
-            "title": "Priority",
-            "type": "integer"
           },
           "qc_pending": {
             "default": false,
@@ -17613,6 +17639,11 @@
             ],
             "title": "Sent At"
           },
+          "shipment_count": {
+            "default": 0,
+            "title": "Shipment Count",
+            "type": "integer"
+          },
           "shipped_at": {
             "anyOf": [
               {
@@ -17625,33 +17656,8 @@
             ],
             "title": "Shipped At"
           },
-          "source_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Id"
-          },
-          "source_type": {
-            "$ref": "#/components/schemas/PurchaseSourceType"
-          },
           "status": {
             "$ref": "#/components/schemas/PurchaseOrderStatus"
-          },
-          "subtotal": {
-            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Subtotal",
-            "type": "string"
-          },
-          "tax_amount": {
-            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Tax Amount",
-            "type": "string"
           },
           "total_amount": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -17704,10 +17710,6 @@
             "title": "Vendor Name",
             "type": "string"
           },
-          "version": {
-            "title": "Version",
-            "type": "integer"
-          },
           "warehouse_id": {
             "format": "uuid",
             "title": "Warehouse Id",
@@ -17717,35 +17719,21 @@
         "required": [
           "id",
           "code",
-          "vendor_id",
           "po_date",
-          "expected_delivery_date",
-          "warehouse_id",
           "status",
-          "priority",
-          "currency",
-          "subtotal",
-          "discount",
-          "tax_amount",
-          "freight_amount",
-          "total_amount",
-          "payment_terms_days",
-          "approved_at",
-          "sent_at",
-          "acknowledged_at",
-          "source_type",
-          "source_id",
-          "assigned_vendor_user_id",
-          "item_category_id",
-          "version",
-          "created_at",
+          "vendor_id",
           "vendor_name",
-          "tracking_status"
+          "warehouse_id",
+          "currency",
+          "total_amount",
+          "tracking_status",
+          "created_at"
         ],
         "title": "InboundTrackingRead",
         "type": "object"
       },
       "InboundTrackingStatus": {
+        "description": "The proposal's admin tracking vocabulary (Add-on section 07), derived.\n\nNever stored: computed by ``inbound_repository.inbound_tracking_status``\nfrom the order, its latest consignment, its receipts and their inspections,\nso the buyer's board, the vendor's order list and the vendor dashboard read\none rule and cannot disagree.",
         "enum": [
           "NOT_DISPATCHED",
           "READY_FOR_DISPATCH",
@@ -24588,15 +24576,8 @@
         "type": "string"
       },
       "NotificationType": {
+        "description": "The closed vocabulary of things the system notifies about.\n\nClosed rather than free text because it is the key of\n``notification_preferences``: a user mutes a *type*, so a caller inventing an\nad-hoc string would produce alerts nobody can ever turn off, and a\npreferences screen that cannot enumerate its own rows. Adding a member is a\nnormal code change - it appears in the preferences endpoint automatically and\ninherits the defaults in :mod:`src.modules.notifications.service`.",
         "enum": [
-          "PURCHASE_ORDER_SENT",
-          "PURCHASE_ORDER_ACKNOWLEDGED",
-          "PURCHASE_ORDER_DECLINED",
-          "PURCHASE_ORDER_DATE_CHANGED",
-          "PURCHASE_ORDER_READY",
-          "PURCHASE_ORDER_SHIPPED",
-          "VENDOR_INVOICE_STATUS",
-          "VENDOR_PAYMENT_RECORDED",
           "APPROVAL_PENDING",
           "APPROVAL_GRANTED",
           "APPROVAL_REJECTED",
@@ -24616,6 +24597,14 @@
           "REPORT_READY",
           "BACKGROUND_JOB_COMPLETED",
           "BACKGROUND_JOB_FAILED",
+          "PURCHASE_ORDER_SENT",
+          "PURCHASE_ORDER_ACKNOWLEDGED",
+          "PURCHASE_ORDER_DECLINED",
+          "PURCHASE_ORDER_DATE_CHANGED",
+          "PURCHASE_ORDER_READY",
+          "PURCHASE_ORDER_SHIPPED",
+          "VENDOR_INVOICE_STATUS",
+          "VENDOR_PAYMENT_RECORDED",
           "SYSTEM_ANNOUNCEMENT"
         ],
         "title": "NotificationType",
@@ -26448,32 +26437,6 @@
         "title": "PaginatedResponse[PackingOrderSummary]",
         "type": "object"
       },
-      "PaginatedResponse_PaymentDetail_": {
-        "properties": {
-          "data": {
-            "items": {
-              "$ref": "#/components/schemas/PaymentDetail"
-            },
-            "title": "Data",
-            "type": "array"
-          },
-          "message": {
-            "default": "Operation completed successfully",
-            "title": "Message",
-            "type": "string"
-          },
-          "pagination": {
-            "$ref": "#/components/schemas/OffsetPagination"
-          },
-          "success": {
-            "default": true,
-            "title": "Success",
-            "type": "boolean"
-          }
-        },
-        "title": "PaginatedResponse[PaymentDetail]",
-        "type": "object"
-      },
       "PaginatedResponse_PaymentSummary_": {
         "properties": {
           "data": {
@@ -27512,6 +27475,58 @@
           }
         },
         "title": "PaginatedResponse[VendorLinkOut]",
+        "type": "object"
+      },
+      "PaginatedResponse_VendorPortalInvoiceSummary_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/VendorPortalInvoiceSummary"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/OffsetPagination"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "PaginatedResponse[VendorPortalInvoiceSummary]",
+        "type": "object"
+      },
+      "PaginatedResponse_VendorPortalPayment_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/VendorPortalPayment"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/OffsetPagination"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "PaginatedResponse[VendorPortalPayment]",
         "type": "object"
       },
       "PaginatedResponse_VendorPortalReceiptRead_": {
@@ -49441,6 +49456,7 @@
         "type": "object"
       },
       "VendorPortalDashboard": {
+        "description": "The vendor app's tiles; each order count matches its list tab exactly.",
         "properties": {
           "accepted": {
             "default": 0,
@@ -49462,6 +49478,10 @@
             "title": "Payment Pending",
             "type": "integer"
           },
+          "qc_lookback_days": {
+            "title": "Qc Lookback Days",
+            "type": "integer"
+          },
           "qc_rejected": {
             "default": 0,
             "title": "Qc Rejected",
@@ -49478,6 +49498,9 @@
             "type": "integer"
           }
         },
+        "required": [
+          "qc_lookback_days"
+        ],
         "title": "VendorPortalDashboard",
         "type": "object"
       },
@@ -49503,8 +49526,90 @@
         "title": "VendorPortalDateChange",
         "type": "object"
       },
+      "VendorPortalDecline": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 255,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "VendorPortalDecline",
+        "type": "object"
+      },
+      "VendorPortalInspection": {
+        "description": "Quality's verdict on a received lot, as the supplier may read it.",
+        "properties": {
+          "accepted_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Accepted Quantity",
+            "type": "string"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "inspected_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Inspected Quantity",
+            "type": "string"
+          },
+          "rejected_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Rejected Quantity",
+            "type": "string"
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "status",
+          "inspected_quantity",
+          "accepted_quantity",
+          "rejected_quantity"
+        ],
+        "title": "VendorPortalInspection",
+        "type": "object"
+      },
       "VendorPortalInvoiceCreate": {
         "additionalProperties": false,
+        "description": "A bill against one of the vendor's own purchase orders, submitted for review.",
         "properties": {
           "currency": {
             "anyOf": [
@@ -49562,7 +49667,7 @@
           },
           "lines": {
             "items": {
-              "$ref": "#/components/schemas/VendorPortalInvoiceLine"
+              "$ref": "#/components/schemas/VendorPortalInvoiceLineIn"
             },
             "maxItems": 200,
             "minItems": 1,
@@ -49615,8 +49720,336 @@
         "title": "VendorPortalInvoiceCreate",
         "type": "object"
       },
+      "VendorPortalInvoiceDetail": {
+        "properties": {
+          "cancellation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancellation Reason"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "dispute_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispute Reason"
+          },
+          "due_date": {
+            "format": "date",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "goods_receipt_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goods Receipt Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice_date": {
+            "format": "date",
+            "title": "Invoice Date",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/VendorPortalInvoiceLine"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "match_status": {
+            "$ref": "#/components/schemas/MatchStatus"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "outstanding_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Outstanding Amount",
+            "type": "string"
+          },
+          "paid_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Paid Amount",
+            "type": "string"
+          },
+          "purchase_order_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchase Order Id"
+          },
+          "round_off_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Round Off Amount",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/VendorInvoiceStatus"
+          },
+          "subtotal": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Subtotal",
+            "type": "string"
+          },
+          "tax_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Tax Amount",
+            "type": "string"
+          },
+          "total_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total Amount",
+            "type": "string"
+          },
+          "vendor_invoice_number": {
+            "title": "Vendor Invoice Number",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "vendor_invoice_number",
+          "invoice_date",
+          "due_date",
+          "status",
+          "match_status",
+          "currency",
+          "subtotal",
+          "tax_amount",
+          "total_amount",
+          "paid_amount",
+          "outstanding_amount",
+          "purchase_order_id",
+          "goods_receipt_id",
+          "created_at",
+          "round_off_amount",
+          "dispute_reason",
+          "cancellation_reason",
+          "notes"
+        ],
+        "title": "VendorPortalInvoiceDetail",
+        "type": "object"
+      },
       "VendorPortalInvoiceLine": {
+        "properties": {
+          "cgst_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cgst Amount",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "discount_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Discount Amount",
+            "type": "string"
+          },
+          "goods_receipt_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goods Receipt Line Id"
+          },
+          "hsn_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hsn Code"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "igst_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Igst Amount",
+            "type": "string"
+          },
+          "item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Id"
+          },
+          "line_number": {
+            "title": "Line Number",
+            "type": "integer"
+          },
+          "line_total": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Line Total",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "purchase_order_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchase Order Line Id"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "sgst_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Sgst Amount",
+            "type": "string"
+          },
+          "tax_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Tax Amount",
+            "type": "string"
+          },
+          "tax_rate": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Tax Rate",
+            "type": "string"
+          },
+          "taxable_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Taxable Amount",
+            "type": "string"
+          },
+          "unit_price": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unit Price",
+            "type": "string"
+          },
+          "uom_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uom Id"
+          }
+        },
+        "required": [
+          "id",
+          "line_number",
+          "item_id",
+          "purchase_order_line_id",
+          "goods_receipt_line_id",
+          "description",
+          "hsn_code",
+          "quantity",
+          "uom_id",
+          "unit_price",
+          "discount_amount",
+          "taxable_amount",
+          "tax_rate",
+          "cgst_amount",
+          "sgst_amount",
+          "igst_amount",
+          "tax_amount",
+          "line_total",
+          "notes"
+        ],
+        "title": "VendorPortalInvoiceLine",
+        "type": "object"
+      },
+      "VendorPortalInvoiceLineIn": {
         "additionalProperties": false,
+        "description": "One bill line. No cost centre: a vendor cannot list them and must not name one.",
         "properties": {
           "description": {
             "anyOf": [
@@ -49767,7 +50200,149 @@
           "quantity",
           "unit_price"
         ],
-        "title": "VendorPortalInvoiceLine",
+        "title": "VendorPortalInvoiceLineIn",
+        "type": "object"
+      },
+      "VendorPortalInvoiceSummary": {
+        "description": "One of the vendor's own bills: status, money owed, when it is due.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "due_date": {
+            "format": "date",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "goods_receipt_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goods Receipt Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice_date": {
+            "format": "date",
+            "title": "Invoice Date",
+            "type": "string"
+          },
+          "match_status": {
+            "$ref": "#/components/schemas/MatchStatus"
+          },
+          "outstanding_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Outstanding Amount",
+            "type": "string"
+          },
+          "paid_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Paid Amount",
+            "type": "string"
+          },
+          "purchase_order_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchase Order Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/VendorInvoiceStatus"
+          },
+          "subtotal": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Subtotal",
+            "type": "string"
+          },
+          "tax_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Tax Amount",
+            "type": "string"
+          },
+          "total_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total Amount",
+            "type": "string"
+          },
+          "vendor_invoice_number": {
+            "title": "Vendor Invoice Number",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "vendor_invoice_number",
+          "invoice_date",
+          "due_date",
+          "status",
+          "match_status",
+          "currency",
+          "subtotal",
+          "tax_amount",
+          "total_amount",
+          "paid_amount",
+          "outstanding_amount",
+          "purchase_order_id",
+          "goods_receipt_id",
+          "created_at"
+        ],
+        "title": "VendorPortalInvoiceSummary",
+        "type": "object"
+      },
+      "VendorPortalInvoiceTotals": {
+        "description": "The vendor's bills against one order (cancelled bills excluded).",
+        "properties": {
+          "balance": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Balance",
+            "type": "string"
+          },
+          "count": {
+            "default": 0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "paid": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Paid",
+            "type": "string"
+          },
+          "total": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total",
+            "type": "string"
+          }
+        },
+        "title": "VendorPortalInvoiceTotals",
         "type": "object"
       },
       "VendorPortalMe": {
@@ -49848,7 +50423,8 @@
         "title": "VendorPortalMe",
         "type": "object"
       },
-      "VendorPortalOrderDetail": {
+      "VendorPortalOrderActionRead": {
+        "description": "The vendor-visible result of accepting, declining or updating its promise.",
         "properties": {
           "acknowledged_at": {
             "anyOf": [
@@ -49862,7 +50438,33 @@
             ],
             "title": "Acknowledged At"
           },
-          "approved_at": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "expected_delivery_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Delivery Date"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "po_date": {
+            "format": "date",
+            "title": "Po Date",
+            "type": "string"
+          },
+          "ready_for_dispatch_at": {
             "anyOf": [
               {
                 "format": "date-time",
@@ -49872,19 +50474,105 @@
                 "type": "null"
               }
             ],
-            "title": "Approved At"
+            "title": "Ready For Dispatch At"
           },
-          "approved_by_id": {
+          "ready_packages": {
             "anyOf": [
               {
-                "format": "uuid",
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ready Packages"
+          },
+          "sent_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Approved By Id"
+            "title": "Sent At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PurchaseOrderStatus"
+          },
+          "vendor_committed_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Committed Date"
+          },
+          "vendor_decline_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Decline Reason"
+          },
+          "vendor_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Reference"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "po_date",
+          "status",
+          "expected_delivery_date",
+          "vendor_committed_date",
+          "vendor_reference",
+          "sent_at",
+          "acknowledged_at",
+          "ready_for_dispatch_at",
+          "ready_packages",
+          "vendor_decline_reason",
+          "version"
+        ],
+        "title": "VendorPortalOrderActionRead",
+        "type": "object"
+      },
+      "VendorPortalOrderDetail": {
+        "description": "One order as its vendor sees it.\n\nThe first page of shipments, documents and receipts is embedded with its\npaging metadata; the dedicated list routes page the rest\n(docs/assumptions.md §C1-8).",
+        "properties": {
+          "acknowledged_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged At"
           },
           "assigned_vendor_user_id": {
             "anyOf": [
@@ -49909,47 +50597,8 @@
             ],
             "title": "Assigned Vendor User Name"
           },
-          "branch_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Branch Id"
-          },
-          "cancellation_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Cancellation Reason"
-          },
           "code": {
             "title": "Code",
-            "type": "string"
-          },
-          "courier_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Courier Name"
-          },
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
             "type": "string"
           },
           "currency": {
@@ -49985,29 +50634,7 @@
             "type": "integer"
           },
           "documents_pagination": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/OffsetPagination"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "duplicate_acknowledged": {
-            "title": "Duplicate Acknowledged",
-            "type": "boolean"
-          },
-          "duplicate_acknowledgement_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Duplicate Acknowledgement Reason"
+            "$ref": "#/components/schemas/OffsetPagination"
           },
           "expected_delivery_date": {
             "anyOf": [
@@ -50032,9 +50659,7 @@
             "type": "string"
           },
           "invoice_summary": {
-            "additionalProperties": true,
-            "title": "Invoice Summary",
-            "type": "object"
+            "$ref": "#/components/schemas/VendorPortalInvoiceTotals"
           },
           "item_category_code": {
             "anyOf": [
@@ -50072,21 +50697,10 @@
           },
           "lines": {
             "items": {
-              "$ref": "#/components/schemas/PurchaseOrderLineRead"
+              "$ref": "#/components/schemas/VendorPortalOrderLine"
             },
             "title": "Lines",
             "type": "array"
-          },
-          "notes": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Notes"
           },
           "payment_terms_days": {
             "title": "Payment Terms Days",
@@ -50096,10 +50710,6 @@
             "format": "date",
             "title": "Po Date",
             "type": "string"
-          },
-          "priority": {
-            "title": "Priority",
-            "type": "integer"
           },
           "ready_for_dispatch_at": {
             "anyOf": [
@@ -50113,6 +50723,17 @@
             ],
             "title": "Ready For Dispatch At"
           },
+          "ready_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ready Note"
+          },
           "ready_packages": {
             "anyOf": [
               {
@@ -50125,9 +50746,7 @@
             "title": "Ready Packages"
           },
           "receipt_summary": {
-            "additionalProperties": true,
-            "title": "Receipt Summary",
-            "type": "object"
+            "$ref": "#/components/schemas/VendorPortalReceiptTotals"
           },
           "receipts": {
             "items": {
@@ -50137,25 +50756,7 @@
             "type": "array"
           },
           "receipts_pagination": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/OffsetPagination"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "rejection_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rejection Reason"
+            "$ref": "#/components/schemas/OffsetPagination"
           },
           "sent_at": {
             "anyOf": [
@@ -50182,41 +50783,7 @@
             "type": "array"
           },
           "shipments_pagination": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/OffsetPagination"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "shipped_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Shipped At"
-          },
-          "source_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Source Id"
-          },
-          "source_type": {
-            "$ref": "#/components/schemas/PurchaseSourceType"
+            "$ref": "#/components/schemas/OffsetPagination"
           },
           "status": {
             "$ref": "#/components/schemas/PurchaseOrderStatus"
@@ -50244,8 +50811,7 @@
           },
           "timeline": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/VendorPortalTimelineEvent"
             },
             "title": "Timeline",
             "type": "array"
@@ -50257,17 +50823,6 @@
           },
           "tracking": {
             "$ref": "#/components/schemas/InboundTrackingRead"
-          },
-          "tracking_reference": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Tracking Reference"
           },
           "vendor_committed_date": {
             "anyOf": [
@@ -50321,12 +50876,11 @@
         "required": [
           "id",
           "code",
-          "vendor_id",
           "po_date",
-          "expected_delivery_date",
-          "warehouse_id",
           "status",
-          "priority",
+          "tracking",
+          "vendor_id",
+          "warehouse_id",
           "currency",
           "subtotal",
           "discount",
@@ -50334,34 +50888,354 @@
           "freight_amount",
           "total_amount",
           "payment_terms_days",
-          "approved_at",
-          "sent_at",
-          "acknowledged_at",
-          "source_type",
-          "source_id",
-          "assigned_vendor_user_id",
-          "item_category_id",
-          "version",
-          "created_at",
-          "branch_id",
-          "approved_by_id",
+          "expected_delivery_date",
+          "vendor_committed_date",
           "delivery_address",
           "terms",
-          "notes",
           "vendor_reference",
-          "rejection_reason",
-          "cancellation_reason",
-          "duplicate_acknowledged",
-          "duplicate_acknowledgement_reason",
-          "courier_name",
-          "tracking_reference",
-          "shipped_at",
-          "tracking"
+          "sent_at",
+          "acknowledged_at",
+          "ready_for_dispatch_at",
+          "ready_packages",
+          "ready_note",
+          "vendor_decline_reason",
+          "assigned_vendor_user_id",
+          "version",
+          "lines",
+          "timeline",
+          "invoice_summary",
+          "receipt_summary",
+          "shipments",
+          "shipments_pagination",
+          "documents",
+          "documents_pagination",
+          "receipts",
+          "receipts_pagination"
         ],
         "title": "VendorPortalOrderDetail",
         "type": "object"
       },
+      "VendorPortalOrderLine": {
+        "properties": {
+          "accepted_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Accepted Quantity",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "discount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Discount",
+            "type": "string"
+          },
+          "discount_percentage": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Discount Percentage",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "item_category_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Category Id"
+          },
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "item_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Name"
+          },
+          "line_number": {
+            "title": "Line Number",
+            "type": "integer"
+          },
+          "line_total": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Line Total",
+            "type": "string"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "received_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Received Quantity",
+            "type": "string"
+          },
+          "rejected_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Rejected Quantity",
+            "type": "string"
+          },
+          "required_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Date"
+          },
+          "requires_qc": {
+            "title": "Requires Qc",
+            "type": "boolean"
+          },
+          "returned_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Returned Quantity",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PurchaseOrderLineStatus"
+          },
+          "tax_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Tax Amount",
+            "type": "string"
+          },
+          "tax_rate": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Tax Rate",
+            "type": "string"
+          },
+          "unit_price": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unit Price",
+            "type": "string"
+          },
+          "uom_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uom Code"
+          },
+          "uom_id": {
+            "format": "uuid",
+            "title": "Uom Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "line_number",
+          "item_id",
+          "description",
+          "quantity",
+          "uom_id",
+          "unit_price",
+          "discount_percentage",
+          "discount",
+          "tax_rate",
+          "tax_amount",
+          "line_total",
+          "required_date",
+          "received_quantity",
+          "accepted_quantity",
+          "rejected_quantity",
+          "returned_quantity",
+          "requires_qc",
+          "status"
+        ],
+        "title": "VendorPortalOrderLine",
+        "type": "object"
+      },
+      "VendorPortalPayment": {
+        "description": "A payment to the vendor and the bills it settled.",
+        "properties": {
+          "allocated_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Allocated Amount",
+            "type": "string"
+          },
+          "allocations": {
+            "items": {
+              "$ref": "#/components/schemas/VendorPortalPaymentAllocation"
+            },
+            "title": "Allocations",
+            "type": "array"
+          },
+          "amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "bank_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bank Name"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "instrument_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instrument Date"
+          },
+          "payment_date": {
+            "format": "date",
+            "title": "Payment Date",
+            "type": "string"
+          },
+          "payment_method": {
+            "$ref": "#/components/schemas/PaymentMethod"
+          },
+          "reference_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Number"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PaymentStatus"
+          },
+          "unallocated_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unallocated Amount",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "payment_date",
+          "amount",
+          "allocated_amount",
+          "unallocated_amount",
+          "currency",
+          "payment_method",
+          "reference_number",
+          "bank_name",
+          "instrument_date",
+          "status"
+        ],
+        "title": "VendorPortalPayment",
+        "type": "object"
+      },
+      "VendorPortalPaymentAllocation": {
+        "properties": {
+          "amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "invoice_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invoice Code"
+          },
+          "vendor_invoice_id": {
+            "format": "uuid",
+            "title": "Vendor Invoice Id",
+            "type": "string"
+          },
+          "vendor_invoice_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Invoice Number"
+          }
+        },
+        "required": [
+          "vendor_invoice_id",
+          "amount"
+        ],
+        "title": "VendorPortalPaymentAllocation",
+        "type": "object"
+      },
       "VendorPortalPaymentSummary": {
+        "description": "The vendor payment dashboard, one row per currency.",
         "properties": {
           "currency": {
             "title": "Currency",
@@ -50467,6 +51341,79 @@
         "title": "VendorPortalReady",
         "type": "object"
       },
+      "VendorPortalReceiptLine": {
+        "properties": {
+          "accepted_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Accepted Quantity",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "line_number": {
+            "title": "Line Number",
+            "type": "integer"
+          },
+          "purchase_order_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purchase Order Line Id"
+          },
+          "qc_status": {
+            "title": "Qc Status",
+            "type": "string"
+          },
+          "received_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Received Quantity",
+            "type": "string"
+          },
+          "rejected_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Rejected Quantity",
+            "type": "string"
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason"
+          }
+        },
+        "required": [
+          "id",
+          "line_number",
+          "item_id",
+          "purchase_order_line_id",
+          "received_quantity",
+          "accepted_quantity",
+          "rejected_quantity",
+          "rejection_reason",
+          "qc_status"
+        ],
+        "title": "VendorPortalReceiptLine",
+        "type": "object"
+      },
       "VendorPortalReceiptRead": {
         "properties": {
           "code": {
@@ -50480,19 +51427,21 @@
           },
           "inspections": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/VendorPortalInspection"
             },
             "title": "Inspections",
             "type": "array"
           },
           "lines": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/VendorPortalReceiptLine"
             },
             "title": "Lines",
             "type": "array"
+          },
+          "purchase_order_code": {
+            "title": "Purchase Order Code",
+            "type": "string"
           },
           "purchase_order_id": {
             "format": "uuid",
@@ -50513,12 +51462,67 @@
           "id",
           "code",
           "purchase_order_id",
+          "purchase_order_code",
           "receipt_date",
           "status",
           "lines",
           "inspections"
         ],
         "title": "VendorPortalReceiptRead",
+        "type": "object"
+      },
+      "VendorPortalReceiptTotals": {
+        "properties": {
+          "count": {
+            "default": 0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "qc_pending": {
+            "default": false,
+            "title": "Qc Pending",
+            "type": "boolean"
+          }
+        },
+        "title": "VendorPortalReceiptTotals",
+        "type": "object"
+      },
+      "VendorPortalTimelineEvent": {
+        "description": "One status change the vendor took part in (from SENT onwards).",
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "from_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Status"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "to_status": {
+            "title": "To Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "from_status",
+          "to_status"
+        ],
+        "title": "VendorPortalTimelineEvent",
         "type": "object"
       },
       "VendorQualityItemRow": {
@@ -92832,6 +93836,7 @@
     },
     "/api/v1/procurement/inbound-tracking": {
       "get": {
+        "description": "Open purchase orders with their latest consignment and the derived tracking status (NOT_DISPATCHED to GRN_COMPLETED). Completed, closed and cancelled orders appear only with include_completed. overdue uses the shared PO-late rule: receivable, goods still due, planning date passed.",
         "operationId": "inbound_tracking_api_v1_procurement_inbound_tracking_get",
         "parameters": [
           {
@@ -92876,6 +93881,16 @@
           },
           {
             "in": "query",
+            "name": "include_completed",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Completed",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
             "name": "vendor_id",
             "required": false,
             "schema": {
@@ -92915,6 +93930,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "maxLength": 120,
                   "type": "string"
                 },
                 {
@@ -93062,7 +94078,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Inbound Tracking",
+        "summary": "Inbound tracking board",
         "tags": [
           "Procurement"
         ]
@@ -94122,6 +95138,7 @@
     },
     "/api/v1/procurement/purchase-orders/{order_id}/accept-vendor-date": {
       "post": {
+        "description": "Copies vendor_committed_date into expected_delivery_date (which MRP nets on). The two are kept apart until a buyer does this; a no-op when they already agree.",
         "operationId": "accept_vendor_date_api_v1_procurement_purchase_orders__order_id__accept_vendor_date_post",
         "parameters": [
           {
@@ -94140,7 +95157,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse_NoneType_"
+                  "$ref": "#/components/schemas/ApiResponse_PurchaseOrderSummary_"
                 }
               }
             },
@@ -94232,7 +95249,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Accept Vendor Date",
+        "summary": "Adopt the vendor's committed date as the planning date",
         "tags": [
           "Procurement"
         ]
@@ -94240,7 +95257,7 @@
     },
     "/api/v1/procurement/purchase-orders/{order_id}/acknowledge": {
       "post": {
-        "description": "The vendor may commit to a different delivery date than the one requested.",
+        "description": "A buyer recording an acceptance the vendor gave by phone or e-mail; the vendor itself accepts through /vendor-portal. Here the buyer may move the planning date.",
         "operationId": "acknowledge_purchase_order_api_v1_procurement_purchase_orders__order_id__acknowledge_post",
         "parameters": [
           {
@@ -94361,7 +95378,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Record the vendor's acknowledgement",
+        "summary": "Record the vendor's acknowledgement on its behalf",
         "tags": [
           "Procurement"
         ]
@@ -94755,7 +95772,8 @@
     },
     "/api/v1/procurement/purchase-orders/{order_id}/documents": {
       "get": {
-        "operationId": "list_documents_api_v1_procurement_purchase_orders__order_id__documents_get",
+        "description": "Download through GET /documents/{document_id}/download.",
+        "operationId": "list_purchase_order_documents_api_v1_procurement_purchase_orders__order_id__documents_get",
         "parameters": [
           {
             "in": "path",
@@ -94905,13 +95923,14 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "List Documents",
+        "summary": "Every file filed against the order, typed where it was uploaded with a kind",
         "tags": [
           "Procurement"
         ]
       },
       "post": {
-        "operationId": "upload_document_api_v1_procurement_purchase_orders__order_id__documents_post",
+        "description": "Multipart: file, kind (INVOICE, DISPATCH_PHOTO, LR_COPY, DELIVERY_CHALLAN, OTHER) and an optional shipment_id. Files filed here are shared with the order's vendor.",
+        "operationId": "upload_purchase_order_document_api_v1_procurement_purchase_orders__order_id__documents_post",
         "parameters": [
           {
             "in": "path",
@@ -94928,7 +95947,7 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_document_api_v1_procurement_purchase_orders__order_id__documents_post"
+                "$ref": "#/components/schemas/Body_upload_purchase_order_document_api_v1_procurement_purchase_orders__order_id__documents_post"
               }
             }
           },
@@ -95031,7 +96050,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Upload Document",
+        "summary": "File a typed document against the order or one of its consignments",
         "tags": [
           "Procurement"
         ]
@@ -95039,7 +96058,8 @@
     },
     "/api/v1/procurement/purchase-orders/{order_id}/pdf": {
       "post": {
-        "operationId": "pdf_api_v1_procurement_purchase_orders__order_id__pdf_post",
+        "description": "Queued; poll the returned status URL, then download the document.",
+        "operationId": "purchase_order_pdf_api_v1_procurement_purchase_orders__order_id__pdf_post",
         "parameters": [
           {
             "in": "path",
@@ -95149,7 +96169,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Pdf",
+        "summary": "Generate the purchase order PDF",
         "tags": [
           "Procurement"
         ]
@@ -95413,7 +96433,7 @@
     },
     "/api/v1/procurement/purchase-orders/{order_id}/shipment": {
       "post": {
-        "description": "Written by the vendor's dispatch manager. Feeds the delay flag on the tracking view (master rules section 23).",
+        "description": "The single-shipment header fields (master rules section 23). Numbered consignments are recorded with POST /purchase-orders/{order_id}/shipments, which also keeps these fields in step with the latest consignment.",
         "operationId": "record_shipment_api_v1_procurement_purchase_orders__order_id__shipment_post",
         "parameters": [
           {
@@ -95534,7 +96554,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Record inbound courier and tracking details",
+        "summary": "Record inbound courier and tracking details on the order header",
         "tags": [
           "Procurement"
         ]
@@ -95542,7 +96562,7 @@
     },
     "/api/v1/procurement/purchase-orders/{order_id}/shipments": {
       "get": {
-        "operationId": "list_shipments_api_v1_procurement_purchase_orders__order_id__shipments_get",
+        "operationId": "list_purchase_order_shipments_api_v1_procurement_purchase_orders__order_id__shipments_get",
         "parameters": [
           {
             "in": "path",
@@ -95692,13 +96712,14 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "List Shipments",
+        "summary": "The order's numbered consignments, newest first",
         "tags": [
           "Procurement"
         ]
       },
       "post": {
-        "operationId": "create_shipment_api_v1_procurement_purchase_orders__order_id__shipments_post",
+        "description": "Same body and rules as the vendor portal: only on an accepted order with goods still due. Notifies the order's creator, its approvers and administrators.",
+        "operationId": "create_purchase_order_shipment_api_v1_procurement_purchase_orders__order_id__shipments_post",
         "parameters": [
           {
             "in": "path",
@@ -95818,7 +96839,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Create Shipment",
+        "summary": "Record a consignment on the vendor's behalf",
         "tags": [
           "Procurement"
         ]
@@ -95826,7 +96847,8 @@
     },
     "/api/v1/procurement/purchase-orders/{order_id}/shipments/{shipment_id}": {
       "patch": {
-        "operationId": "edit_shipment_api_v1_procurement_purchase_orders__order_id__shipments__shipment_id__patch",
+        "description": "Replaces the consignment's details; the same validation as recording it.",
+        "operationId": "update_purchase_order_shipment_api_v1_procurement_purchase_orders__order_id__shipments__shipment_id__patch",
         "parameters": [
           {
             "in": "path",
@@ -95956,7 +96978,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Edit Shipment",
+        "summary": "Correct a consignment",
         "tags": [
           "Procurement"
         ]
@@ -95964,7 +96986,7 @@
     },
     "/api/v1/procurement/purchase-orders/{order_id}/shipments/{shipment_id}/delivered": {
       "post": {
-        "operationId": "delivered_api_v1_procurement_purchase_orders__order_id__shipments__shipment_id__delivered_post",
+        "operationId": "mark_purchase_order_shipment_delivered_api_v1_procurement_purchase_orders__order_id__shipments__shipment_id__delivered_post",
         "parameters": [
           {
             "in": "path",
@@ -96094,7 +97116,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Delivered",
+        "summary": "Mark a consignment delivered at the gate",
         "tags": [
           "Procurement"
         ]
@@ -130974,7 +131996,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Dashboard",
+        "summary": "Tile counts: orders by tab, bills awaiting payment, recent QC rejections",
         "tags": [
           "Vendor Portal"
         ]
@@ -130982,7 +132004,7 @@
     },
     "/api/v1/vendor-portal/documents/{document_id}/download": {
       "get": {
-        "operationId": "download_api_v1_vendor_portal_documents__document_id__download_get",
+        "operationId": "download_document_api_v1_vendor_portal_documents__document_id__download_get",
         "parameters": [
           {
             "in": "path",
@@ -131085,7 +132107,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Download",
+        "summary": "Download a file shared on one of the vendor's orders",
         "tags": [
           "Vendor Portal"
         ]
@@ -131093,7 +132115,7 @@
     },
     "/api/v1/vendor-portal/invoices": {
       "get": {
-        "operationId": "invoices_api_v1_vendor_portal_invoices_get",
+        "operationId": "list_invoices_api_v1_vendor_portal_invoices_get",
         "parameters": [
           {
             "description": "1-based page number",
@@ -131141,7 +132163,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PaginatedResponse_VendorInvoiceSummary_"
+                  "$ref": "#/components/schemas/PaginatedResponse_VendorPortalInvoiceSummary_"
                 }
               }
             },
@@ -131233,13 +132255,14 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Invoices",
+        "summary": "The vendor's bills: status, paid, balance, due date",
         "tags": [
           "Vendor Portal"
         ]
       },
       "post": {
-        "operationId": "invoice_api_v1_vendor_portal_invoices_post",
+        "description": "Raised for the signed-in vendor and submitted for review. purchase_order_id is required; no vendor or cost-centre field is accepted. A file goes up first as an INVOICE document on the same order and is named by invoice_document_id.",
+        "operationId": "create_invoice_api_v1_vendor_portal_invoices_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -131255,7 +132278,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse_VendorInvoiceDetail_"
+                  "$ref": "#/components/schemas/ApiResponse_VendorPortalInvoiceDetail_"
                 }
               }
             },
@@ -131347,7 +132370,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Invoice",
+        "summary": "Submit a bill against one of the vendor's own orders",
         "tags": [
           "Vendor Portal"
         ]
@@ -131355,7 +132378,7 @@
     },
     "/api/v1/vendor-portal/invoices/{invoice_id}": {
       "get": {
-        "operationId": "invoice_detail_api_v1_vendor_portal_invoices__invoice_id__get",
+        "operationId": "get_invoice_api_v1_vendor_portal_invoices__invoice_id__get",
         "parameters": [
           {
             "in": "path",
@@ -131373,7 +132396,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse_VendorInvoiceDetail_"
+                  "$ref": "#/components/schemas/ApiResponse_VendorPortalInvoiceDetail_"
                 }
               }
             },
@@ -131465,7 +132488,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Invoice Detail",
+        "summary": "One of the vendor's bills, with its lines",
         "tags": [
           "Vendor Portal"
         ]
@@ -131473,7 +132496,7 @@
     },
     "/api/v1/vendor-portal/jobs/{job_id}": {
       "get": {
-        "operationId": "job_api_v1_vendor_portal_jobs__job_id__get",
+        "operationId": "get_job_api_v1_vendor_portal_jobs__job_id__get",
         "parameters": [
           {
             "in": "path",
@@ -131583,7 +132606,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Job",
+        "summary": "Status of one of the vendor's own PO PDF jobs",
         "tags": [
           "Vendor Portal"
         ]
@@ -131689,7 +132712,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Me",
+        "summary": "The signed-in vendor account: vendor, roles, categories",
         "tags": [
           "Vendor Portal"
         ]
@@ -131697,7 +132720,7 @@
     },
     "/api/v1/vendor-portal/payments": {
       "get": {
-        "operationId": "payments_api_v1_vendor_portal_payments_get",
+        "operationId": "list_payments_api_v1_vendor_portal_payments_get",
         "parameters": [
           {
             "description": "1-based page number",
@@ -131745,7 +132768,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PaginatedResponse_PaymentDetail_"
+                  "$ref": "#/components/schemas/PaginatedResponse_VendorPortalPayment_"
                 }
               }
             },
@@ -131837,7 +132860,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Payments",
+        "summary": "Approved payments to the vendor and the bills each settled",
         "tags": [
           "Vendor Portal"
         ]
@@ -131943,7 +132966,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Payment Summary",
+        "summary": "Payment dashboard per currency: outstanding, overdue, due soon, paid, last paid",
         "tags": [
           "Vendor Portal"
         ]
@@ -131951,7 +132974,8 @@
     },
     "/api/v1/vendor-portal/purchase-orders": {
       "get": {
-        "operationId": "orders_api_v1_vendor_portal_purchase_orders_get",
+        "description": "tab narrows to one vendor-app tab: to_accept (SENT), accepted (ACKNOWLEDGED, nothing dispatched), ready, dispatched (dispatched or in transit), delivered (delivered, received, QC pending or GRN completed); all is every order the account can see.",
+        "operationId": "list_orders_api_v1_vendor_portal_purchase_orders_get",
         "parameters": [
           {
             "in": "query",
@@ -131959,7 +132983,14 @@
             "required": false,
             "schema": {
               "default": "all",
-              "pattern": "^(to_accept|accepted|ready|dispatched|delivered|all)$",
+              "enum": [
+                "to_accept",
+                "accepted",
+                "ready",
+                "dispatched",
+                "delivered",
+                "all"
+              ],
               "title": "Tab",
               "type": "string"
             }
@@ -131971,6 +133002,7 @@
             "schema": {
               "anyOf": [
                 {
+                  "maxLength": 120,
                   "type": "string"
                 },
                 {
@@ -132128,7 +133160,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Orders",
+        "summary": "The vendor's purchase orders, with tracking status",
         "tags": [
           "Vendor Portal"
         ]
@@ -132136,7 +133168,7 @@
     },
     "/api/v1/vendor-portal/purchase-orders/{order_id}": {
       "get": {
-        "operationId": "order_api_v1_vendor_portal_purchase_orders__order_id__get",
+        "operationId": "get_order_api_v1_vendor_portal_purchase_orders__order_id__get",
         "parameters": [
           {
             "in": "path",
@@ -132246,7 +133278,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Order",
+        "summary": "One purchase order: lines, dates, timeline, shipments, files, receipts, bills",
         "tags": [
           "Vendor Portal"
         ]
@@ -132254,7 +133286,8 @@
     },
     "/api/v1/vendor-portal/purchase-orders/{order_id}/accept": {
       "post": {
-        "operationId": "accept_api_v1_vendor_portal_purchase_orders__order_id__accept_post",
+        "description": "SENT to ACKNOWLEDGED. The committed date is stored as vendor_committed_date; the buyer's expected_delivery_date (the planning date) is not changed.",
+        "operationId": "accept_order_api_v1_vendor_portal_purchase_orders__order_id__accept_post",
         "parameters": [
           {
             "in": "path",
@@ -132282,7 +133315,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse_PurchaseOrderSummary_"
+                  "$ref": "#/components/schemas/ApiResponse_VendorPortalOrderActionRead_"
                 }
               }
             },
@@ -132374,7 +133407,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Accept",
+        "summary": "Accept a sent order, optionally committing a delivery date",
         "tags": [
           "Vendor Portal"
         ]
@@ -132382,7 +133415,8 @@
     },
     "/api/v1/vendor-portal/purchase-orders/{order_id}/decline": {
       "post": {
-        "operationId": "decline_api_v1_vendor_portal_purchase_orders__order_id__decline_post",
+        "description": "SENT to VENDOR_DECLINED; the buyer then cancels the order or sends it again.",
+        "operationId": "decline_order_api_v1_vendor_portal_purchase_orders__order_id__decline_post",
         "parameters": [
           {
             "in": "path",
@@ -132399,7 +133433,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/src__modules__procurement__schemas__ReasonRequest"
+                "$ref": "#/components/schemas/VendorPortalDecline"
               }
             }
           },
@@ -132410,7 +133444,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse_PurchaseOrderSummary_"
+                  "$ref": "#/components/schemas/ApiResponse_VendorPortalOrderActionRead_"
                 }
               }
             },
@@ -132502,7 +133536,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Decline",
+        "summary": "Decline a sent order, with the reason",
         "tags": [
           "Vendor Portal"
         ]
@@ -132510,7 +133544,7 @@
     },
     "/api/v1/vendor-portal/purchase-orders/{order_id}/delivery-date": {
       "post": {
-        "operationId": "delivery_date_api_v1_vendor_portal_purchase_orders__order_id__delivery_date_post",
+        "operationId": "change_delivery_date_api_v1_vendor_portal_purchase_orders__order_id__delivery_date_post",
         "parameters": [
           {
             "in": "path",
@@ -132538,7 +133572,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse_PurchaseOrderSummary_"
+                  "$ref": "#/components/schemas/ApiResponse_VendorPortalOrderActionRead_"
                 }
               }
             },
@@ -132630,7 +133664,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Delivery Date",
+        "summary": "Change the vendor's committed delivery date",
         "tags": [
           "Vendor Portal"
         ]
@@ -132638,7 +133672,7 @@
     },
     "/api/v1/vendor-portal/purchase-orders/{order_id}/documents": {
       "get": {
-        "operationId": "documents_api_v1_vendor_portal_purchase_orders__order_id__documents_get",
+        "operationId": "list_documents_api_v1_vendor_portal_purchase_orders__order_id__documents_get",
         "parameters": [
           {
             "in": "path",
@@ -132788,13 +133822,14 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Documents",
+        "summary": "The files shared on one order (its typed uploads and the PO PDF)",
         "tags": [
           "Vendor Portal"
         ]
       },
       "post": {
-        "operationId": "upload_api_v1_vendor_portal_purchase_orders__order_id__documents_post",
+        "description": "Multipart: file, kind and an optional shipment_id. kind INVOICE needs vendor_portal.invoice; every other kind needs vendor_portal.ship.",
+        "operationId": "upload_document_api_v1_vendor_portal_purchase_orders__order_id__documents_post",
         "parameters": [
           {
             "in": "path",
@@ -132811,7 +133846,7 @@
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_api_v1_vendor_portal_purchase_orders__order_id__documents_post"
+                "$ref": "#/components/schemas/Body_upload_document_api_v1_vendor_portal_purchase_orders__order_id__documents_post"
               }
             }
           },
@@ -132914,7 +133949,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Upload",
+        "summary": "Upload an invoice, dispatch photo, LR copy, delivery challan or other file",
         "tags": [
           "Vendor Portal"
         ]
@@ -132922,7 +133957,8 @@
     },
     "/api/v1/vendor-portal/purchase-orders/{order_id}/pdf": {
       "post": {
-        "operationId": "pdf_api_v1_vendor_portal_purchase_orders__order_id__pdf_post",
+        "description": "Queued; poll the portal job route it returns, then follow its download_url.",
+        "operationId": "order_pdf_api_v1_vendor_portal_purchase_orders__order_id__pdf_post",
         "parameters": [
           {
             "in": "path",
@@ -133032,7 +134068,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Pdf",
+        "summary": "Generate the purchase order PDF",
         "tags": [
           "Vendor Portal"
         ]
@@ -133040,7 +134076,7 @@
     },
     "/api/v1/vendor-portal/purchase-orders/{order_id}/ready-for-dispatch": {
       "post": {
-        "operationId": "ready_for_dispatch_api_v1_vendor_portal_purchase_orders__order_id__ready_for_dispatch_post",
+        "operationId": "mark_ready_api_v1_vendor_portal_purchase_orders__order_id__ready_for_dispatch_post",
         "parameters": [
           {
             "in": "path",
@@ -133068,7 +134104,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse_PurchaseOrderSummary_"
+                  "$ref": "#/components/schemas/ApiResponse_VendorPortalOrderActionRead_"
                 }
               }
             },
@@ -133160,7 +134196,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Ready For Dispatch",
+        "summary": "Mark an accepted order ready for dispatch",
         "tags": [
           "Vendor Portal"
         ]
@@ -133168,7 +134204,7 @@
     },
     "/api/v1/vendor-portal/purchase-orders/{order_id}/receipts": {
       "get": {
-        "operationId": "order_receipts_api_v1_vendor_portal_purchase_orders__order_id__receipts_get",
+        "operationId": "list_order_receipts_api_v1_vendor_portal_purchase_orders__order_id__receipts_get",
         "parameters": [
           {
             "in": "path",
@@ -133318,7 +134354,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Order Receipts",
+        "summary": "Posted goods receipts on one order, with QC results",
         "tags": [
           "Vendor Portal"
         ]
@@ -133326,7 +134362,7 @@
     },
     "/api/v1/vendor-portal/purchase-orders/{order_id}/shipments": {
       "get": {
-        "operationId": "shipments_api_v1_vendor_portal_purchase_orders__order_id__shipments_get",
+        "operationId": "list_shipments_api_v1_vendor_portal_purchase_orders__order_id__shipments_get",
         "parameters": [
           {
             "in": "path",
@@ -133476,13 +134512,14 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Shipments",
+        "summary": "The order's consignments, newest first",
         "tags": [
           "Vendor Portal"
         ]
       },
       "post": {
-        "operationId": "shipment_api_v1_vendor_portal_purchase_orders__order_id__shipments_post",
+        "description": "Only on an accepted order with goods still due. Numbered 1..n per order.",
+        "operationId": "record_shipment_api_v1_vendor_portal_purchase_orders__order_id__shipments_post",
         "parameters": [
           {
             "in": "path",
@@ -133602,7 +134639,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Shipment",
+        "summary": "Record a consignment (transporter or courier, tracking, LR, vehicle, freight)",
         "tags": [
           "Vendor Portal"
         ]
@@ -133610,7 +134647,7 @@
     },
     "/api/v1/vendor-portal/purchase-orders/{order_id}/shipments/{shipment_id}/delivered": {
       "post": {
-        "operationId": "delivered_api_v1_vendor_portal_purchase_orders__order_id__shipments__shipment_id__delivered_post",
+        "operationId": "mark_delivered_api_v1_vendor_portal_purchase_orders__order_id__shipments__shipment_id__delivered_post",
         "parameters": [
           {
             "in": "path",
@@ -133740,7 +134777,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Delivered",
+        "summary": "Mark a consignment delivered",
         "tags": [
           "Vendor Portal"
         ]
@@ -133846,7 +134883,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Rating",
+        "summary": "The vendor's own rating: on-time and rejection percentages, score, sample",
         "tags": [
           "Vendor Portal"
         ]
@@ -133854,7 +134891,7 @@
     },
     "/api/v1/vendor-portal/receipts": {
       "get": {
-        "operationId": "receipts_api_v1_vendor_portal_receipts_get",
+        "operationId": "list_receipts_api_v1_vendor_portal_receipts_get",
         "parameters": [
           {
             "description": "1-based page number",
@@ -133994,7 +135031,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Receipts",
+        "summary": "Posted goods receipts on the vendor's orders, with QC results",
         "tags": [
           "Vendor Portal"
         ]
@@ -134002,7 +135039,7 @@
     },
     "/api/v1/vendor-portal/transporters/options": {
       "get": {
-        "operationId": "transporters_api_v1_vendor_portal_transporters_options_get",
+        "operationId": "transporter_options_api_v1_vendor_portal_transporters_options_get",
         "parameters": [
           {
             "description": "1-based page number",
@@ -134142,7 +135179,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Transporters",
+        "summary": "Active transporters, for the shipment form",
         "tags": [
           "Vendor Portal"
         ]

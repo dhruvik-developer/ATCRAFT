@@ -67,6 +67,9 @@ from src.modules.audit.service import record_audit, record_status_change, snapsh
 from src.modules.inventory.models import StockState, TransactionType
 from src.modules.inventory.schemas import StockBatchCreate
 from src.modules.inventory.service import MovementRequest, TraceabilityService, post_movements
+from src.modules.notifications.models import NotificationSeverity, NotificationType
+from src.modules.notifications.service import notify
+from src.modules.procurement.inbound_repository import po_is_late
 from src.modules.procurement.models import (
     DUPLICATE_REQUIRED_DATE_WINDOW_DAYS,
     EDITABLE_PO_STATUSES,
@@ -3049,10 +3052,22 @@ async def transition_purchase_order(
             # The edge first, so an order that cannot be sent says so rather
             # than complaining about who it would have been sent to.
             PURCHASE_ORDER_LIFECYCLE.assert_transition(PurchaseOrderStatus(order.status), target)
+            if order.status == PurchaseOrderStatus.VENDOR_DECLINED:
+                # ASSUMPTION: a declined order waits for the buyer, who re-sends
+                # or cancels it (docs/assumptions.md §C1-10). A re-send goes back
+                # to a vendor that may have been suspended since approval.
+                _assert_orderable(await _load_vendor(session, tenant, order.vendor_id))
+                # The refusal is history now (its audit row keeps the reason);
+                # left on the row it would read as the answer to this send.
+                order.vendor_decline_reason = None
             order.assigned_vendor_user_id = await _send_assignee(
                 session, tenant, order, requested=assigned_vendor_user_id
             )
             order.sent_at = utcnow()
+        elif target is PurchaseOrderStatus.VENDOR_DECLINED:
+            # Recorded here rather than by the caller, so no path can decline an
+            # order without the reason the buyer needs to decide what to do.
+            order.vendor_decline_reason = reason
         elif target is PurchaseOrderStatus.ACKNOWLEDGED:
             order.acknowledged_at = utcnow()
             if expected_delivery_date is not None:
@@ -3102,20 +3117,16 @@ async def transition_purchase_order(
             )
 
         if target is PurchaseOrderStatus.SENT:
-            from src.modules.notifications.models import NotificationType
-            from src.modules.notifications.repository import NotificationRepository
-            from src.modules.notifications.service import notify
-
-            recipient_repo = NotificationRepository(session, tenant)
-            eligible = await recipient_repo.user_ids_for_vendor(
-                order.vendor_id, permission="vendor_portal.respond"
+            # The assignee when there is one; otherwise every vendor user who may
+            # respond and can see the order (a user scoped to other categories
+            # would be told about an order their portal answers 404 for).
+            eligible = await vendor_recipients_for_order(
+                session, tenant, order, VENDOR_PO_RESPOND_PERMISSION
             )
             recipients = (
                 [order.assigned_vendor_user_id]
                 if order.assigned_vendor_user_id in eligible
                 else eligible
-                if order.assigned_vendor_user_id is None
-                else []
             )
             await notify(
                 session,
@@ -3124,9 +3135,9 @@ async def transition_purchase_order(
                 notification_type=NotificationType.PURCHASE_ORDER_SENT,
                 title=f"New purchase order {order.code}",
                 body=f"Please review and accept {order.code}.",
-                entity_type="purchase_order",
+                entity_type=AUDIT_PURCHASE_ORDER,
                 entity_id=order.id,
-                action_url=f"/vendor/orders/{order.id}",
+                action_url=vendor_order_url(order.id),
                 actor_id=tenant.user_id,
             )
 
@@ -3396,6 +3407,133 @@ async def list_vendor_assignees(
     ]
 
 
+# --- telling the vendor (WP C1a) ------------------------------------------------
+
+
+def vendor_order_url(order_id: uuid.UUID) -> str:
+    """The vendor app's order page - the deep link of every vendor-facing order alert."""
+    return f"/vendor/orders/{order_id}"
+
+
+def _quantity_text(value: Decimal | None) -> str:
+    """A quantity as a sentence states it: ``20``, not ``20.0000``."""
+    text = format(Decimal(value or 0).normalize(), "f")
+    return "0" if text == "-0" else text
+
+
+async def vendor_recipients_for_order(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: PurchaseOrder,
+    permission: Permission,
+) -> list[uuid.UUID]:
+    """The order's vendor users who hold ``permission`` and can see the order.
+
+    ASSUMPTION: a vendor-facing notification reaches only users who could act on
+    it (docs/assumptions.md §C1-11).
+
+    "Can see" is ``PurchaseOrderRepository._scoped``'s rule, restated over the
+    same facts: an unrestricted user, a user whose category scope covers the
+    order's category (or an ancestor of it), or the user the order is assigned
+    to. Telling anyone else would hand them a link their portal answers "not
+    found" for. Two reads: the order's category lineage and the vendor's users
+    with their roles, folded by the request path's own rule.
+    """
+    lineage = await _category_lineage_of(session, tenant, order.item_category_id)
+    users = await VendorAssigneeRepository(session, tenant).candidates([order.vendor_id])
+    recipients: list[uuid.UUID] = []
+    for user in users:
+        if not user.is_active or user.vendor_id != order.vendor_id:
+            continue
+        granted, _ = resolve_role_grants(
+            user.roles, user.extra_permissions, user.denied_permissions
+        )
+        if not (user.is_superuser or str(permission) in granted):
+            continue
+        sees_order = (
+            not user.allowed_category_ids
+            or user.id == order.assigned_vendor_user_id
+            or scope_covers_category(user.allowed_category_ids, lineage)
+        )
+        if sees_order:
+            recipients.append(user.id)
+    return recipients
+
+
+async def notify_vendor_about_order(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: PurchaseOrder,
+    *,
+    permission: Permission,
+    notification_type: NotificationType,
+    title: str,
+    body: str,
+    entity_type: str,
+    entity_id: uuid.UUID,
+    action_url: str,
+    severity: NotificationSeverity = NotificationSeverity.INFO,
+    group_key: str | None = None,
+) -> None:
+    """Tell the order's vendor users who may act on the event, in the caller's transaction."""
+    await notify(
+        session,
+        company_id=tenant.company_id,
+        user_ids=await vendor_recipients_for_order(session, tenant, order, permission),
+        notification_type=notification_type,
+        title=title,
+        body=body,
+        severity=severity,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        action_url=action_url,
+        group_key=group_key,
+        actor_id=tenant.user_id,
+    )
+
+
+async def notify_vendor_about_receipt(
+    session: AsyncSession,
+    tenant: TenantContext,
+    receipt_id: uuid.UUID,
+    *,
+    permission: Permission,
+    notification_type: NotificationType,
+    title: str,
+    body: str,
+    entity_type: str,
+    entity_id: uuid.UUID,
+    severity: NotificationSeverity = NotificationSeverity.INFO,
+    group_key: str | None = None,
+) -> None:
+    """The same, for an event on one goods receipt (quality's verdict on it).
+
+    The deep link is the receipt's order in the vendor app (``/vendor/orders/:id``,
+    WP C2a), whose detail shows the receipts and their QC results. A receipt this
+    tenant cannot read tells nobody.
+    """
+    receipt = await GoodsReceiptRepository(session, tenant).get(receipt_id)
+    if receipt is None:
+        return
+    order = await PurchaseOrderRepository(session, tenant).get(receipt.purchase_order_id)
+    if order is None:
+        return
+    await notify_vendor_about_order(
+        session,
+        tenant,
+        order,
+        permission=permission,
+        notification_type=notification_type,
+        title=title,
+        body=body,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        action_url=vendor_order_url(order.id),
+        severity=severity,
+        group_key=group_key,
+    )
+
+
 # --- dispatch tracking (master rules section 23) ------------------------------
 
 
@@ -3444,8 +3582,6 @@ async def order_tracking(
         if order.expected_delivery_date is not None and order.expected_delivery_date < as_of
         else 0
     )
-
-    from src.modules.procurement.inbound_repository import po_is_late
 
     return PurchaseOrderTracking(
         purchase_order_id=order.id,
@@ -4489,22 +4625,22 @@ async def post_goods_receipt(
         )
 
         await _advance_order_after_receipt(session, tenant, context)
-        from src.modules.notifications.models import NotificationType
-        from src.modules.notifications.service import notify_vendor
-
-        await notify_vendor(
+        # The proposal's "Material received" to the vendor, in this transaction:
+        # its users who may open the order, through the portal's own scope rule.
+        await notify_vendor_about_order(
             session,
-            company_id=tenant.company_id,
-            vendor_id=receipt.vendor_id,
+            tenant,
+            order,
             permission=Permission.VENDOR_PORTAL_ACCESS,
             notification_type=NotificationType.GOODS_RECEIPT_POSTED,
-            title=f"Goods received against {order.code}",
-            body=f"{receipt.code}: {receipt.total_accepted_quantity} accepted, "
-            f"{receipt.total_rejected_quantity} rejected.",
+            title=f"Material received against {order.code}",
+            body=(
+                f"{receipt.code}: {_quantity_text(receipt.total_accepted_quantity)} accepted, "
+                f"{_quantity_text(receipt.total_rejected_quantity)} rejected."
+            ),
             entity_type=AUDIT_GOODS_RECEIPT,
             entity_id=receipt.id,
-            action_url=f"/vendor/orders/{order.id}/receipts",
-            actor_id=tenant.user_id,
+            action_url=vendor_order_url(order.id),
         )
 
         # The products module documents these two columns as written by goods

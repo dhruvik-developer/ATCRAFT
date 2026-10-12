@@ -1,6 +1,6 @@
 """Scheduled alerting and notification delivery (master rules sections 23, 35).
 
-Two tasks live here.
+Delivery workers and scheduled recovery tasks live here.
 
 ``notifications.scan_dispatch_delays`` is the hourly beat job behind master rules
 section 23: a consignment past its promised delivery date is flagged and the
@@ -22,10 +22,11 @@ company with, say, no staffed dispatch role cannot silence every other tenant's
 alerts.
 
 ``notifications.send_email`` and ``notifications.send_password_reset_email``
-perform SMTP delivery. Both re-read their database row under a lock before
-sending, then stamp a channel-specific delivery timestamp. That makes ordinary
-late-acknowledgement re-delivery harmless while preserving at-least-once retry
-semantics for a worker crash during the SMTP conversation.
+perform SMTP delivery. Push uses the same claim-before-transport pattern. Each
+worker commits a channel-specific delivery marker before contacting the provider
+and releases it on a retryable failure. Ordinary late-acknowledgement re-delivery
+is harmless; a process killed after claiming retains the documented at-most-once
+crash window. Recovery re-queues eligible, unclaimed rows after a broker outage.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ from __future__ import annotations
 import html
 import smtplib
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
@@ -59,20 +60,24 @@ from src.workers.celery_app import async_task
 log = get_logger("worker.notifications")
 
 
-def push_claim_statement(
-    notification_id: uuid.UUID, company_id: uuid.UUID, user_id: uuid.UUID
-) -> Any:
-    recent = (
+def recent_push_session(moment: datetime) -> Any:
+    """A recipient who has used a session within the configured refresh window."""
+    return (
         select(UserSession.id)
         .where(
             UserSession.company_id == Notification.company_id,
             UserSession.user_id == Notification.user_id,
             func.coalesce(UserSession.last_used_at, UserSession.created_at)
-            >= utcnow() - timedelta(days=settings.jwt_refresh_token_expire_days),
+            >= moment - timedelta(days=settings.jwt_refresh_token_expire_days),
         )
         .correlate(Notification)
         .exists()
     )
+
+
+def push_claim_statement(
+    notification_id: uuid.UUID, company_id: uuid.UUID, user_id: uuid.UUID
+) -> Any:
     return (
         select(Notification)
         .join(
@@ -84,7 +89,7 @@ def push_claim_statement(
             Notification.user_id == user_id,
             User.is_active.is_(True),
             User.deleted_at.is_(None),
-            recent,
+            recent_push_session(utcnow()),
         )
         .with_for_update(of=Notification)
     )
@@ -213,45 +218,76 @@ async def send_push(
     return await _deliver_notification_push(notification_id, company_id, user_id)
 
 
+def pending_deliveries_statement(moment: datetime) -> Any:
+    """Recover deliverable rows before limiting, so abandoned devices cannot starve the queue."""
+    has_device = (
+        select(PushSubscription.id)
+        .where(
+            PushSubscription.company_id == Notification.company_id,
+            PushSubscription.user_id == Notification.user_id,
+            or_(PushSubscription.expires_at.is_(None), PushSubscription.expires_at > moment),
+        )
+        .correlate(Notification)
+        .exists()
+    )
+    return (
+        select(
+            Notification.id,
+            Notification.company_id,
+            Notification.user_id,
+            Notification.channels,
+            Notification.email_delivered_at,
+            Notification.push_delivered_at,
+        )
+        .join(
+            User,
+            and_(
+                User.id == Notification.user_id,
+                User.company_id == Notification.company_id,
+            ),
+        )
+        .where(
+            User.is_active.is_(True),
+            User.deleted_at.is_(None),
+            Notification.created_at >= moment - timedelta(hours=24),
+            or_(
+                and_(
+                    Notification.email_delivered_at.is_(None),
+                    literal(NotificationChannel.EMAIL.value) == any_(Notification.channels),
+                    literal(settings.email_provider is not EmailProvider.disabled),
+                ),
+                and_(
+                    Notification.push_delivered_at.is_(None),
+                    literal(NotificationChannel.PUSH.value) == any_(Notification.channels),
+                    literal(settings.web_push_enabled),
+                    recent_push_session(moment),
+                    has_device,
+                ),
+            ),
+        )
+        .order_by(Notification.created_at, Notification.id)
+        .limit(100)
+    )
+
+
 @async_task(name="notifications.dispatch_pending_deliveries", queue="notifications")
 async def dispatch_pending_deliveries(request_id: str | None = None, **_: Any) -> dict[str, int]:
     from src.workers.celery_app import celery_app
 
-    moment = utcnow()
     async with session_scope() as session:
-        statement = (
-            select(
-                Notification.id,
-                Notification.company_id,
-                Notification.user_id,
-                Notification.channels,
-                Notification.email_delivered_at,
-                Notification.push_delivered_at,
-            )
-            .where(
-                Notification.created_at >= moment - timedelta(hours=24),
-                or_(
-                    and_(
-                        Notification.email_delivered_at.is_(None),
-                        literal(NotificationChannel.EMAIL.value) == any_(Notification.channels),
-                    ),
-                    and_(
-                        Notification.push_delivered_at.is_(None),
-                        literal(NotificationChannel.PUSH.value) == any_(Notification.channels),
-                    ),
-                ),
-            )
-            .order_by(Notification.created_at, Notification.id)
-            .limit(100)
-        )
-        pending = (await session.execute(statement)).all()
+        pending = (await session.execute(pending_deliveries_statement(utcnow()))).all()
     queued = 0
     for row in pending:
         for channel, marker, task in (
             ("EMAIL", row.email_delivered_at, "notifications.send_email"),
             ("PUSH", row.push_delivered_at, "notifications.send_push"),
         ):
-            if channel in row.channels and marker is None:
+            enabled = (
+                settings.web_push_enabled
+                if channel == "PUSH"
+                else settings.email_provider is not EmailProvider.disabled
+            )
+            if enabled and channel in row.channels and marker is None:
                 try:
                     celery_app.send_task(
                         task,

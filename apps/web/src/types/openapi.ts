@@ -3782,7 +3782,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Inbound Tracking */
+        /**
+         * Inbound tracking board
+         * @description Open purchase orders with their latest consignment and the derived tracking status (NOT_DISPATCHED to GRN_COMPLETED). Completed, closed and cancelled orders appear only with include_completed. overdue uses the shared PO-late rule: receivable, goods still due, planning date passed.
+         */
         get: operations["inbound_tracking_api_v1_procurement_inbound_tracking_get"];
         put?: never;
         post?: never;
@@ -3880,7 +3883,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Accept Vendor Date */
+        /**
+         * Adopt the vendor's committed date as the planning date
+         * @description Copies vendor_committed_date into expected_delivery_date (which MRP nets on). The two are kept apart until a buyer does this; a no-op when they already agree.
+         */
         post: operations["accept_vendor_date_api_v1_procurement_purchase_orders__order_id__accept_vendor_date_post"];
         delete?: never;
         options?: never;
@@ -3898,8 +3904,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Record the vendor's acknowledgement
-         * @description The vendor may commit to a different delivery date than the one requested.
+         * Record the vendor's acknowledgement on its behalf
+         * @description A buyer recording an acceptance the vendor gave by phone or e-mail; the vendor itself accepts through /vendor-portal. Here the buyer may move the planning date.
          */
         post: operations["acknowledge_purchase_order_api_v1_procurement_purchase_orders__order_id__acknowledge_post"];
         delete?: never;
@@ -3972,11 +3978,17 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Documents */
-        get: operations["list_documents_api_v1_procurement_purchase_orders__order_id__documents_get"];
+        /**
+         * Every file filed against the order, typed where it was uploaded with a kind
+         * @description Download through GET /documents/{document_id}/download.
+         */
+        get: operations["list_purchase_order_documents_api_v1_procurement_purchase_orders__order_id__documents_get"];
         put?: never;
-        /** Upload Document */
-        post: operations["upload_document_api_v1_procurement_purchase_orders__order_id__documents_post"];
+        /**
+         * File a typed document against the order or one of its consignments
+         * @description Multipart: file, kind (INVOICE, DISPATCH_PHOTO, LR_COPY, DELIVERY_CHALLAN, OTHER) and an optional shipment_id. Files filed here are shared with the order's vendor.
+         */
+        post: operations["upload_purchase_order_document_api_v1_procurement_purchase_orders__order_id__documents_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3992,8 +4004,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Pdf */
-        post: operations["pdf_api_v1_procurement_purchase_orders__order_id__pdf_post"];
+        /**
+         * Generate the purchase order PDF
+         * @description Queued; poll the returned status URL, then download the document.
+         */
+        post: operations["purchase_order_pdf_api_v1_procurement_purchase_orders__order_id__pdf_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4044,8 +4059,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Record inbound courier and tracking details
-         * @description Written by the vendor's dispatch manager. Feeds the delay flag on the tracking view (master rules section 23).
+         * Record inbound courier and tracking details on the order header
+         * @description The single-shipment header fields (master rules section 23). Numbered consignments are recorded with POST /purchase-orders/{order_id}/shipments, which also keeps these fields in step with the latest consignment.
          */
         post: operations["record_shipment_api_v1_procurement_purchase_orders__order_id__shipment_post"];
         delete?: never;
@@ -4061,11 +4076,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Shipments */
-        get: operations["list_shipments_api_v1_procurement_purchase_orders__order_id__shipments_get"];
+        /** The order's numbered consignments, newest first */
+        get: operations["list_purchase_order_shipments_api_v1_procurement_purchase_orders__order_id__shipments_get"];
         put?: never;
-        /** Create Shipment */
-        post: operations["create_shipment_api_v1_procurement_purchase_orders__order_id__shipments_post"];
+        /**
+         * Record a consignment on the vendor's behalf
+         * @description Same body and rules as the vendor portal: only on an accepted order with goods still due. Notifies the order's creator, its approvers and administrators.
+         */
+        post: operations["create_purchase_order_shipment_api_v1_procurement_purchase_orders__order_id__shipments_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4085,8 +4103,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Edit Shipment */
-        patch: operations["edit_shipment_api_v1_procurement_purchase_orders__order_id__shipments__shipment_id__patch"];
+        /**
+         * Correct a consignment
+         * @description Replaces the consignment's details; the same validation as recording it.
+         */
+        patch: operations["update_purchase_order_shipment_api_v1_procurement_purchase_orders__order_id__shipments__shipment_id__patch"];
         trace?: never;
     };
     "/api/v1/procurement/purchase-orders/{order_id}/shipments/{shipment_id}/delivered": {
@@ -4098,8 +4119,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Delivered */
-        post: operations["delivered_api_v1_procurement_purchase_orders__order_id__shipments__shipment_id__delivered_post"];
+        /** Mark a consignment delivered at the gate */
+        post: operations["mark_purchase_order_shipment_delivered_api_v1_procurement_purchase_orders__order_id__shipments__shipment_id__delivered_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7009,7 +7030,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Dashboard */
+        /** Tile counts: orders by tab, bills awaiting payment, recent QC rejections */
         get: operations["dashboard_api_v1_vendor_portal_dashboard_get"];
         put?: never;
         post?: never;
@@ -7026,8 +7047,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Download */
-        get: operations["download_api_v1_vendor_portal_documents__document_id__download_get"];
+        /** Download a file shared on one of the vendor's orders */
+        get: operations["download_document_api_v1_vendor_portal_documents__document_id__download_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7043,11 +7064,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Invoices */
-        get: operations["invoices_api_v1_vendor_portal_invoices_get"];
+        /** The vendor's bills: status, paid, balance, due date */
+        get: operations["list_invoices_api_v1_vendor_portal_invoices_get"];
         put?: never;
-        /** Invoice */
-        post: operations["invoice_api_v1_vendor_portal_invoices_post"];
+        /**
+         * Submit a bill against one of the vendor's own orders
+         * @description Raised for the signed-in vendor and submitted for review. purchase_order_id is required; no vendor or cost-centre field is accepted. A file goes up first as an INVOICE document on the same order and is named by invoice_document_id.
+         */
+        post: operations["create_invoice_api_v1_vendor_portal_invoices_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7061,8 +7085,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Invoice Detail */
-        get: operations["invoice_detail_api_v1_vendor_portal_invoices__invoice_id__get"];
+        /** One of the vendor's bills, with its lines */
+        get: operations["get_invoice_api_v1_vendor_portal_invoices__invoice_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7078,8 +7102,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Job */
-        get: operations["job_api_v1_vendor_portal_jobs__job_id__get"];
+        /** Status of one of the vendor's own PO PDF jobs */
+        get: operations["get_job_api_v1_vendor_portal_jobs__job_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7095,7 +7119,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Me */
+        /** The signed-in vendor account: vendor, roles, categories */
         get: operations["me_api_v1_vendor_portal_me_get"];
         put?: never;
         post?: never;
@@ -7112,8 +7136,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Payments */
-        get: operations["payments_api_v1_vendor_portal_payments_get"];
+        /** Approved payments to the vendor and the bills each settled */
+        get: operations["list_payments_api_v1_vendor_portal_payments_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7129,7 +7153,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Payment Summary */
+        /** Payment dashboard per currency: outstanding, overdue, due soon, paid, last paid */
         get: operations["payment_summary_api_v1_vendor_portal_payments_summary_get"];
         put?: never;
         post?: never;
@@ -7146,8 +7170,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Orders */
-        get: operations["orders_api_v1_vendor_portal_purchase_orders_get"];
+        /**
+         * The vendor's purchase orders, with tracking status
+         * @description tab narrows to one vendor-app tab: to_accept (SENT), accepted (ACKNOWLEDGED, nothing dispatched), ready, dispatched (dispatched or in transit), delivered (delivered, received, QC pending or GRN completed); all is every order the account can see.
+         */
+        get: operations["list_orders_api_v1_vendor_portal_purchase_orders_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7163,8 +7190,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Order */
-        get: operations["order_api_v1_vendor_portal_purchase_orders__order_id__get"];
+        /** One purchase order: lines, dates, timeline, shipments, files, receipts, bills */
+        get: operations["get_order_api_v1_vendor_portal_purchase_orders__order_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7182,8 +7209,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Accept */
-        post: operations["accept_api_v1_vendor_portal_purchase_orders__order_id__accept_post"];
+        /**
+         * Accept a sent order, optionally committing a delivery date
+         * @description SENT to ACKNOWLEDGED. The committed date is stored as vendor_committed_date; the buyer's expected_delivery_date (the planning date) is not changed.
+         */
+        post: operations["accept_order_api_v1_vendor_portal_purchase_orders__order_id__accept_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7199,8 +7229,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Decline */
-        post: operations["decline_api_v1_vendor_portal_purchase_orders__order_id__decline_post"];
+        /**
+         * Decline a sent order, with the reason
+         * @description SENT to VENDOR_DECLINED; the buyer then cancels the order or sends it again.
+         */
+        post: operations["decline_order_api_v1_vendor_portal_purchase_orders__order_id__decline_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7216,8 +7249,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Delivery Date */
-        post: operations["delivery_date_api_v1_vendor_portal_purchase_orders__order_id__delivery_date_post"];
+        /** Change the vendor's committed delivery date */
+        post: operations["change_delivery_date_api_v1_vendor_portal_purchase_orders__order_id__delivery_date_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7231,11 +7264,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Documents */
-        get: operations["documents_api_v1_vendor_portal_purchase_orders__order_id__documents_get"];
+        /** The files shared on one order (its typed uploads and the PO PDF) */
+        get: operations["list_documents_api_v1_vendor_portal_purchase_orders__order_id__documents_get"];
         put?: never;
-        /** Upload */
-        post: operations["upload_api_v1_vendor_portal_purchase_orders__order_id__documents_post"];
+        /**
+         * Upload an invoice, dispatch photo, LR copy, delivery challan or other file
+         * @description Multipart: file, kind and an optional shipment_id. kind INVOICE needs vendor_portal.invoice; every other kind needs vendor_portal.ship.
+         */
+        post: operations["upload_document_api_v1_vendor_portal_purchase_orders__order_id__documents_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7251,8 +7287,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Pdf */
-        post: operations["pdf_api_v1_vendor_portal_purchase_orders__order_id__pdf_post"];
+        /**
+         * Generate the purchase order PDF
+         * @description Queued; poll the portal job route it returns, then follow its download_url.
+         */
+        post: operations["order_pdf_api_v1_vendor_portal_purchase_orders__order_id__pdf_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7268,8 +7307,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Ready For Dispatch */
-        post: operations["ready_for_dispatch_api_v1_vendor_portal_purchase_orders__order_id__ready_for_dispatch_post"];
+        /** Mark an accepted order ready for dispatch */
+        post: operations["mark_ready_api_v1_vendor_portal_purchase_orders__order_id__ready_for_dispatch_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7283,8 +7322,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Order Receipts */
-        get: operations["order_receipts_api_v1_vendor_portal_purchase_orders__order_id__receipts_get"];
+        /** Posted goods receipts on one order, with QC results */
+        get: operations["list_order_receipts_api_v1_vendor_portal_purchase_orders__order_id__receipts_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7300,11 +7339,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Shipments */
-        get: operations["shipments_api_v1_vendor_portal_purchase_orders__order_id__shipments_get"];
+        /** The order's consignments, newest first */
+        get: operations["list_shipments_api_v1_vendor_portal_purchase_orders__order_id__shipments_get"];
         put?: never;
-        /** Shipment */
-        post: operations["shipment_api_v1_vendor_portal_purchase_orders__order_id__shipments_post"];
+        /**
+         * Record a consignment (transporter or courier, tracking, LR, vehicle, freight)
+         * @description Only on an accepted order with goods still due. Numbered 1..n per order.
+         */
+        post: operations["record_shipment_api_v1_vendor_portal_purchase_orders__order_id__shipments_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7320,8 +7362,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Delivered */
-        post: operations["delivered_api_v1_vendor_portal_purchase_orders__order_id__shipments__shipment_id__delivered_post"];
+        /** Mark a consignment delivered */
+        post: operations["mark_delivered_api_v1_vendor_portal_purchase_orders__order_id__shipments__shipment_id__delivered_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7335,7 +7377,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Rating */
+        /** The vendor's own rating: on-time and rejection percentages, score, sample */
         get: operations["rating_api_v1_vendor_portal_rating_get"];
         put?: never;
         post?: never;
@@ -7352,8 +7394,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Receipts */
-        get: operations["receipts_api_v1_vendor_portal_receipts_get"];
+        /** Posted goods receipts on the vendor's orders, with QC results */
+        get: operations["list_receipts_api_v1_vendor_portal_receipts_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7369,8 +7411,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Transporters */
-        get: operations["transporters_api_v1_vendor_portal_transporters_options_get"];
+        /** Active transporters, for the shipment form */
+        get: operations["transporter_options_api_v1_vendor_portal_transporters_options_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -10249,9 +10291,37 @@ export interface components {
              */
             success: boolean;
         };
+        /** ApiResponse[VendorPortalInvoiceDetail] */
+        ApiResponse_VendorPortalInvoiceDetail_: {
+            data?: components["schemas"]["VendorPortalInvoiceDetail"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
         /** ApiResponse[VendorPortalMe] */
         ApiResponse_VendorPortalMe_: {
             data?: components["schemas"]["VendorPortalMe"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[VendorPortalOrderActionRead] */
+        ApiResponse_VendorPortalOrderActionRead_: {
+            data?: components["schemas"]["VendorPortalOrderActionRead"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -11064,18 +11134,6 @@ export interface components {
             /** Reason */
             reason: string;
         };
-        /** Body_upload_api_v1_vendor_portal_purchase_orders__order_id__documents_post */
-        Body_upload_api_v1_vendor_portal_purchase_orders__order_id__documents_post: {
-            /** File */
-            file: string;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "INVOICE" | "DISPATCH_PHOTO" | "LR_COPY" | "DELIVERY_CHALLAN" | "OTHER";
-            /** Shipment Id */
-            shipment_id?: string | null;
-        };
         /** Body_upload_document_api_v1_documents_post */
         Body_upload_document_api_v1_documents_post: {
             /** @default DOCUMENT */
@@ -11097,8 +11155,20 @@ export interface components {
              */
             is_public: boolean;
         };
-        /** Body_upload_document_api_v1_procurement_purchase_orders__order_id__documents_post */
-        Body_upload_document_api_v1_procurement_purchase_orders__order_id__documents_post: {
+        /** Body_upload_document_api_v1_vendor_portal_purchase_orders__order_id__documents_post */
+        Body_upload_document_api_v1_vendor_portal_purchase_orders__order_id__documents_post: {
+            /** File */
+            file: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "INVOICE" | "DISPATCH_PHOTO" | "LR_COPY" | "DELIVERY_CHALLAN" | "OTHER";
+            /** Shipment Id */
+            shipment_id?: string | null;
+        };
+        /** Body_upload_purchase_order_document_api_v1_procurement_purchase_orders__order_id__documents_post */
+        Body_upload_purchase_order_document_api_v1_procurement_purchase_orders__order_id__documents_post: {
             /** File */
             file: string;
             /**
@@ -14745,7 +14815,13 @@ export interface components {
             /** Uploaded By Id */
             uploaded_by_id: string | null;
         };
-        /** InboundShipmentCreate */
+        /**
+         * InboundShipmentCreate
+         * @description One consignment, as a vendor or a buyer records it.
+         *
+         *     The same body creates a consignment and (``PATCH``) replaces one, so a
+         *     correction is checked by exactly the rules the first entry was.
+         */
         InboundShipmentCreate: {
             /** Courier Name */
             courier_name?: string | null;
@@ -14780,10 +14856,13 @@ export interface components {
             /** Weight Kg */
             weight_kg?: number | string | null;
         };
-        /** InboundShipmentRead */
+        /**
+         * InboundShipmentRead
+         * @description A stored consignment. Plain types: reading a row never re-runs write rules.
+         */
         InboundShipmentRead: {
             /** Courier Name */
-            courier_name?: string | null;
+            courier_name: string | null;
             /**
              * Created At
              * Format: date-time
@@ -14792,15 +14871,12 @@ export interface components {
             /** Delivered At */
             delivered_at: string | null;
             /** Driver Mobile */
-            driver_mobile?: string | null;
+            driver_mobile: string | null;
             /** Driver Name */
-            driver_name?: string | null;
+            driver_name: string | null;
             /** Expected Delivery Date */
-            expected_delivery_date?: string | null;
-            /**
-             * Freight Amount
-             * @default 0
-             */
+            expected_delivery_date: string | null;
+            /** Freight Amount */
             freight_amount: string;
             /**
              * Id
@@ -14808,11 +14884,11 @@ export interface components {
              */
             id: string;
             /** Lr Number */
-            lr_number?: string | null;
+            lr_number: string | null;
             /** Notes */
-            notes?: string | null;
+            notes: string | null;
             /** Packages */
-            packages?: number | null;
+            packages: number | null;
             /**
              * Purchase Order Id
              * Format: uuid
@@ -14826,22 +14902,23 @@ export interface components {
              */
             shipped_at: string;
             /** Tracking Reference */
-            tracking_reference?: string | null;
+            tracking_reference: string | null;
             /** Transporter Id */
-            transporter_id?: string | null;
+            transporter_id: string | null;
             /** Vehicle Number */
-            vehicle_number?: string | null;
+            vehicle_number: string | null;
             /** Weight Kg */
-            weight_kg?: string | null;
+            weight_kg: string | null;
         };
-        /** InboundTrackingRead */
+        /**
+         * InboundTrackingRead
+         * @description One row of the inbound board and of the vendor's order list.
+         */
         InboundTrackingRead: {
             /** Acknowledged At */
-            acknowledged_at: string | null;
-            /** Approved At */
-            approved_at: string | null;
+            acknowledged_at?: string | null;
             /** Assigned Vendor User Id */
-            assigned_vendor_user_id: string | null;
+            assigned_vendor_user_id?: string | null;
             /** Assignee Name */
             assignee_name?: string | null;
             /** Code */
@@ -14862,17 +14939,13 @@ export interface components {
             days_late: number;
             /** Delivery Expected Date */
             delivery_expected_date?: string | null;
-            /** Discount */
-            discount: string;
             /**
              * Documents Count
              * @default 0
              */
             documents_count: number;
             /** Expected Delivery Date */
-            expected_delivery_date: string | null;
-            /** Freight Amount */
-            freight_amount: string;
+            expected_delivery_date?: string | null;
             /**
              * Grn Pending
              * @default false
@@ -14891,7 +14964,7 @@ export interface components {
             /** Item Category Code */
             item_category_code?: string | null;
             /** Item Category Id */
-            item_category_id: string | null;
+            item_category_id?: string | null;
             /** Item Category Name */
             item_category_name?: string | null;
             /**
@@ -14900,15 +14973,11 @@ export interface components {
              */
             item_count: number;
             latest_shipment?: components["schemas"]["InboundShipmentRead"] | null;
-            /** Payment Terms Days */
-            payment_terms_days: number;
             /**
              * Po Date
              * Format: date
              */
             po_date: string;
-            /** Priority */
-            priority: number;
             /**
              * Qc Pending
              * @default false
@@ -14924,17 +14993,15 @@ export interface components {
              */
             received_percentage: string;
             /** Sent At */
-            sent_at: string | null;
+            sent_at?: string | null;
+            /**
+             * Shipment Count
+             * @default 0
+             */
+            shipment_count: number;
             /** Shipped At */
             shipped_at?: string | null;
-            /** Source Id */
-            source_id: string | null;
-            source_type: components["schemas"]["PurchaseSourceType"];
             status: components["schemas"]["PurchaseOrderStatus"];
-            /** Subtotal */
-            subtotal: string;
-            /** Tax Amount */
-            tax_amount: string;
             /** Total Amount */
             total_amount: string;
             /** Tracking Reference */
@@ -14951,8 +15018,6 @@ export interface components {
             vendor_id: string;
             /** Vendor Name */
             vendor_name: string;
-            /** Version */
-            version: number;
             /**
              * Warehouse Id
              * Format: uuid
@@ -14961,6 +15026,12 @@ export interface components {
         };
         /**
          * InboundTrackingStatus
+         * @description The proposal's admin tracking vocabulary (Add-on section 07), derived.
+         *
+         *     Never stored: computed by ``inbound_repository.inbound_tracking_status``
+         *     from the order, its latest consignment, its receipts and their inspections,
+         *     so the buyer's board, the vendor's order list and the vendor dashboard read
+         *     one rule and cannot disagree.
          * @enum {string}
          */
         InboundTrackingStatus: "NOT_DISPATCHED" | "READY_FOR_DISPATCH" | "DISPATCHED" | "IN_TRANSIT" | "DELIVERED" | "RECEIVED" | "QC_PENDING" | "GRN_COMPLETED";
@@ -17458,9 +17529,17 @@ export interface components {
         NotificationSeverity: "INFO" | "SUCCESS" | "WARNING" | "CRITICAL";
         /**
          * NotificationType
+         * @description The closed vocabulary of things the system notifies about.
+         *
+         *     Closed rather than free text because it is the key of
+         *     ``notification_preferences``: a user mutes a *type*, so a caller inventing an
+         *     ad-hoc string would produce alerts nobody can ever turn off, and a
+         *     preferences screen that cannot enumerate its own rows. Adding a member is a
+         *     normal code change - it appears in the preferences endpoint automatically and
+         *     inherits the defaults in :mod:`src.modules.notifications.service`.
          * @enum {string}
          */
-        NotificationType: "PURCHASE_ORDER_SENT" | "PURCHASE_ORDER_ACKNOWLEDGED" | "PURCHASE_ORDER_DECLINED" | "PURCHASE_ORDER_DATE_CHANGED" | "PURCHASE_ORDER_READY" | "PURCHASE_ORDER_SHIPPED" | "VENDOR_INVOICE_STATUS" | "VENDOR_PAYMENT_RECORDED" | "APPROVAL_PENDING" | "APPROVAL_GRANTED" | "APPROVAL_REJECTED" | "PURCHASE_ORDER_DELAYED" | "PRODUCTION_ORDER_DELAYED" | "JOB_WORK_OVERDUE" | "DISPATCH_DELAYED" | "SALES_ORDER_AT_RISK" | "STOCK_BELOW_REORDER" | "STOCK_SHORTAGE" | "ALLOCATION_CHANGED" | "QC_INSPECTION_PENDING" | "QC_FAILED" | "GOODS_RECEIPT_POSTED" | "PAYMENT_DUE" | "MRP_RUN_COMPLETED" | "REPORT_READY" | "BACKGROUND_JOB_COMPLETED" | "BACKGROUND_JOB_FAILED" | "SYSTEM_ANNOUNCEMENT";
+        NotificationType: "APPROVAL_PENDING" | "APPROVAL_GRANTED" | "APPROVAL_REJECTED" | "PURCHASE_ORDER_DELAYED" | "PRODUCTION_ORDER_DELAYED" | "JOB_WORK_OVERDUE" | "DISPATCH_DELAYED" | "SALES_ORDER_AT_RISK" | "STOCK_BELOW_REORDER" | "STOCK_SHORTAGE" | "ALLOCATION_CHANGED" | "QC_INSPECTION_PENDING" | "QC_FAILED" | "GOODS_RECEIPT_POSTED" | "PAYMENT_DUE" | "MRP_RUN_COMPLETED" | "REPORT_READY" | "BACKGROUND_JOB_COMPLETED" | "BACKGROUND_JOB_FAILED" | "PURCHASE_ORDER_SENT" | "PURCHASE_ORDER_ACKNOWLEDGED" | "PURCHASE_ORDER_DECLINED" | "PURCHASE_ORDER_DATE_CHANGED" | "PURCHASE_ORDER_READY" | "PURCHASE_ORDER_SHIPPED" | "VENDOR_INVOICE_STATUS" | "VENDOR_PAYMENT_RECORDED" | "SYSTEM_ANNOUNCEMENT";
         /**
          * OffsetPagination
          * @description Page/limit metadata.
@@ -18444,22 +18523,6 @@ export interface components {
              */
             success: boolean;
         };
-        /** PaginatedResponse[PaymentDetail] */
-        PaginatedResponse_PaymentDetail_: {
-            /** Data */
-            data?: components["schemas"]["PaymentDetail"][];
-            /**
-             * Message
-             * @default Operation completed successfully
-             */
-            message: string;
-            pagination?: components["schemas"]["OffsetPagination"];
-            /**
-             * Success
-             * @default true
-             */
-            success: boolean;
-        };
         /** PaginatedResponse[PaymentSummary] */
         PaginatedResponse_PaymentSummary_: {
             /** Data */
@@ -19088,6 +19151,38 @@ export interface components {
         PaginatedResponse_VendorLinkOut_: {
             /** Data */
             data?: components["schemas"]["VendorLinkOut"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** PaginatedResponse[VendorPortalInvoiceSummary] */
+        PaginatedResponse_VendorPortalInvoiceSummary_: {
+            /** Data */
+            data?: components["schemas"]["VendorPortalInvoiceSummary"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** PaginatedResponse[VendorPortalPayment] */
+        PaginatedResponse_VendorPortalPayment_: {
+            /** Data */
+            data?: components["schemas"]["VendorPortalPayment"][];
             /**
              * Message
              * @default Operation completed successfully
@@ -26453,7 +26548,10 @@ export interface components {
             /** Name */
             name: string;
         };
-        /** VendorPortalDashboard */
+        /**
+         * VendorPortalDashboard
+         * @description The vendor app's tiles; each order count matches its list tab exactly.
+         */
         VendorPortalDashboard: {
             /**
              * Accepted
@@ -26475,6 +26573,8 @@ export interface components {
              * @default 0
              */
             payment_pending: number;
+            /** Qc Lookback Days */
+            qc_lookback_days: number;
             /**
              * Qc Rejected
              * @default 0
@@ -26501,7 +26601,40 @@ export interface components {
             /** Reason */
             reason: string;
         };
-        /** VendorPortalInvoiceCreate */
+        /** VendorPortalDecline */
+        VendorPortalDecline: {
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * VendorPortalInspection
+         * @description Quality's verdict on a received lot, as the supplier may read it.
+         */
+        VendorPortalInspection: {
+            /** Accepted Quantity */
+            accepted_quantity: string;
+            /** Code */
+            code: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Inspected Quantity */
+            inspected_quantity: string;
+            /** Rejected Quantity */
+            rejected_quantity: string;
+            /** Rejection Reason */
+            rejection_reason?: string | null;
+            /** Result */
+            result?: string | null;
+            /** Status */
+            status: string;
+        };
+        /**
+         * VendorPortalInvoiceCreate
+         * @description A bill against one of the vendor's own purchase orders, submitted for review.
+         */
         VendorPortalInvoiceCreate: {
             /** Currency */
             currency?: string | null;
@@ -26517,7 +26650,7 @@ export interface components {
             /** Invoice Document Id */
             invoice_document_id?: string | null;
             /** Lines */
-            lines: components["schemas"]["VendorPortalInvoiceLine"][];
+            lines: components["schemas"]["VendorPortalInvoiceLineIn"][];
             /** Notes */
             notes?: string | null;
             /**
@@ -26533,8 +26666,110 @@ export interface components {
             /** Vendor Invoice Number */
             vendor_invoice_number: string;
         };
+        /** VendorPortalInvoiceDetail */
+        VendorPortalInvoiceDetail: {
+            /** Cancellation Reason */
+            cancellation_reason: string | null;
+            /** Code */
+            code: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Currency */
+            currency: string;
+            /** Dispute Reason */
+            dispute_reason: string | null;
+            /**
+             * Due Date
+             * Format: date
+             */
+            due_date: string;
+            /** Goods Receipt Id */
+            goods_receipt_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Invoice Date
+             * Format: date
+             */
+            invoice_date: string;
+            /** Lines */
+            lines?: components["schemas"]["VendorPortalInvoiceLine"][];
+            match_status: components["schemas"]["MatchStatus"];
+            /** Notes */
+            notes: string | null;
+            /** Outstanding Amount */
+            outstanding_amount: string;
+            /** Paid Amount */
+            paid_amount: string;
+            /** Purchase Order Id */
+            purchase_order_id: string | null;
+            /** Round Off Amount */
+            round_off_amount: string;
+            status: components["schemas"]["VendorInvoiceStatus"];
+            /** Subtotal */
+            subtotal: string;
+            /** Tax Amount */
+            tax_amount: string;
+            /** Total Amount */
+            total_amount: string;
+            /** Vendor Invoice Number */
+            vendor_invoice_number: string;
+        };
         /** VendorPortalInvoiceLine */
         VendorPortalInvoiceLine: {
+            /** Cgst Amount */
+            cgst_amount: string;
+            /** Description */
+            description: string | null;
+            /** Discount Amount */
+            discount_amount: string;
+            /** Goods Receipt Line Id */
+            goods_receipt_line_id: string | null;
+            /** Hsn Code */
+            hsn_code: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Igst Amount */
+            igst_amount: string;
+            /** Item Id */
+            item_id: string | null;
+            /** Line Number */
+            line_number: number;
+            /** Line Total */
+            line_total: string;
+            /** Notes */
+            notes: string | null;
+            /** Purchase Order Line Id */
+            purchase_order_line_id: string | null;
+            /** Quantity */
+            quantity: string;
+            /** Sgst Amount */
+            sgst_amount: string;
+            /** Tax Amount */
+            tax_amount: string;
+            /** Tax Rate */
+            tax_rate: string;
+            /** Taxable Amount */
+            taxable_amount: string;
+            /** Unit Price */
+            unit_price: string;
+            /** Uom Id */
+            uom_id: string | null;
+        };
+        /**
+         * VendorPortalInvoiceLineIn
+         * @description One bill line. No cost centre: a vendor cannot list them and must not name one.
+         */
+        VendorPortalInvoiceLineIn: {
             /** Description */
             description?: string | null;
             /**
@@ -26569,6 +26804,80 @@ export interface components {
             /** Uom Id */
             uom_id?: string | null;
         };
+        /**
+         * VendorPortalInvoiceSummary
+         * @description One of the vendor's own bills: status, money owed, when it is due.
+         */
+        VendorPortalInvoiceSummary: {
+            /** Code */
+            code: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Currency */
+            currency: string;
+            /**
+             * Due Date
+             * Format: date
+             */
+            due_date: string;
+            /** Goods Receipt Id */
+            goods_receipt_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Invoice Date
+             * Format: date
+             */
+            invoice_date: string;
+            match_status: components["schemas"]["MatchStatus"];
+            /** Outstanding Amount */
+            outstanding_amount: string;
+            /** Paid Amount */
+            paid_amount: string;
+            /** Purchase Order Id */
+            purchase_order_id: string | null;
+            status: components["schemas"]["VendorInvoiceStatus"];
+            /** Subtotal */
+            subtotal: string;
+            /** Tax Amount */
+            tax_amount: string;
+            /** Total Amount */
+            total_amount: string;
+            /** Vendor Invoice Number */
+            vendor_invoice_number: string;
+        };
+        /**
+         * VendorPortalInvoiceTotals
+         * @description The vendor's bills against one order (cancelled bills excluded).
+         */
+        VendorPortalInvoiceTotals: {
+            /**
+             * Balance
+             * @default 0
+             */
+            balance: string;
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
+            /**
+             * Paid
+             * @default 0
+             */
+            paid: string;
+            /**
+             * Total
+             * @default 0
+             */
+            total: string;
+        };
         /** VendorPortalMe */
         VendorPortalMe: {
             /** Categories */
@@ -26596,31 +26905,60 @@ export interface components {
              */
             unread_count: number;
         };
-        /** VendorPortalOrderDetail */
+        /**
+         * VendorPortalOrderActionRead
+         * @description The vendor-visible result of accepting, declining or updating its promise.
+         */
+        VendorPortalOrderActionRead: {
+            /** Acknowledged At */
+            acknowledged_at: string | null;
+            /** Code */
+            code: string;
+            /** Expected Delivery Date */
+            expected_delivery_date: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Po Date
+             * Format: date
+             */
+            po_date: string;
+            /** Ready For Dispatch At */
+            ready_for_dispatch_at: string | null;
+            /** Ready Packages */
+            ready_packages: number | null;
+            /** Sent At */
+            sent_at: string | null;
+            status: components["schemas"]["PurchaseOrderStatus"];
+            /** Vendor Committed Date */
+            vendor_committed_date: string | null;
+            /** Vendor Decline Reason */
+            vendor_decline_reason: string | null;
+            /** Vendor Reference */
+            vendor_reference: string | null;
+            /** Version */
+            version: number;
+        };
+        /**
+         * VendorPortalOrderDetail
+         * @description One order as its vendor sees it.
+         *
+         *     The first page of shipments, documents and receipts is embedded with its
+         *     paging metadata; the dedicated list routes page the rest
+         *     (docs/assumptions.md §C1-8).
+         */
         VendorPortalOrderDetail: {
             /** Acknowledged At */
             acknowledged_at: string | null;
-            /** Approved At */
-            approved_at: string | null;
-            /** Approved By Id */
-            approved_by_id: string | null;
             /** Assigned Vendor User Id */
             assigned_vendor_user_id: string | null;
             /** Assigned Vendor User Name */
             assigned_vendor_user_name?: string | null;
-            /** Branch Id */
-            branch_id: string | null;
-            /** Cancellation Reason */
-            cancellation_reason: string | null;
             /** Code */
             code: string;
-            /** Courier Name */
-            courier_name: string | null;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
             /** Currency */
             currency: string;
             /** Delivery Address */
@@ -26628,17 +26966,13 @@ export interface components {
             /** Discount */
             discount: string;
             /** Documents */
-            documents?: components["schemas"]["InboundDocumentRead"][];
+            documents: components["schemas"]["InboundDocumentRead"][];
             /**
              * Documents Count
              * @default 0
              */
             documents_count: number;
-            documents_pagination?: components["schemas"]["OffsetPagination"] | null;
-            /** Duplicate Acknowledged */
-            duplicate_acknowledged: boolean;
-            /** Duplicate Acknowledgement Reason */
-            duplicate_acknowledgement_reason: string | null;
+            documents_pagination: components["schemas"]["OffsetPagination"];
             /** Expected Delivery Date */
             expected_delivery_date: string | null;
             /** Freight Amount */
@@ -26648,20 +26982,15 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /** Invoice Summary */
-            invoice_summary?: {
-                [key: string]: unknown;
-            };
+            invoice_summary: components["schemas"]["VendorPortalInvoiceTotals"];
             /** Item Category Code */
             item_category_code?: string | null;
             /** Item Category Id */
-            item_category_id: string | null;
+            item_category_id?: string | null;
             /** Item Category Name */
             item_category_name?: string | null;
             /** Lines */
-            lines?: components["schemas"]["PurchaseOrderLineRead"][];
-            /** Notes */
-            notes: string | null;
+            lines: components["schemas"]["VendorPortalOrderLine"][];
             /** Payment Terms Days */
             payment_terms_days: number;
             /**
@@ -26669,21 +26998,16 @@ export interface components {
              * Format: date
              */
             po_date: string;
-            /** Priority */
-            priority: number;
             /** Ready For Dispatch At */
-            ready_for_dispatch_at?: string | null;
+            ready_for_dispatch_at: string | null;
+            /** Ready Note */
+            ready_note: string | null;
             /** Ready Packages */
-            ready_packages?: number | null;
-            /** Receipt Summary */
-            receipt_summary?: {
-                [key: string]: unknown;
-            };
+            ready_packages: number | null;
+            receipt_summary: components["schemas"]["VendorPortalReceiptTotals"];
             /** Receipts */
-            receipts?: components["schemas"]["VendorPortalReceiptRead"][];
-            receipts_pagination?: components["schemas"]["OffsetPagination"] | null;
-            /** Rejection Reason */
-            rejection_reason: string | null;
+            receipts: components["schemas"]["VendorPortalReceiptRead"][];
+            receipts_pagination: components["schemas"]["OffsetPagination"];
             /** Sent At */
             sent_at: string | null;
             /**
@@ -26692,13 +27016,8 @@ export interface components {
              */
             shipment_count: number;
             /** Shipments */
-            shipments?: components["schemas"]["InboundShipmentRead"][];
-            shipments_pagination?: components["schemas"]["OffsetPagination"] | null;
-            /** Shipped At */
-            shipped_at: string | null;
-            /** Source Id */
-            source_id: string | null;
-            source_type: components["schemas"]["PurchaseSourceType"];
+            shipments: components["schemas"]["InboundShipmentRead"][];
+            shipments_pagination: components["schemas"]["OffsetPagination"];
             status: components["schemas"]["PurchaseOrderStatus"];
             /** Subtotal */
             subtotal: string;
@@ -26707,18 +27026,14 @@ export interface components {
             /** Terms */
             terms: string | null;
             /** Timeline */
-            timeline?: {
-                [key: string]: unknown;
-            }[];
+            timeline: components["schemas"]["VendorPortalTimelineEvent"][];
             /** Total Amount */
             total_amount: string;
             tracking: components["schemas"]["InboundTrackingRead"];
-            /** Tracking Reference */
-            tracking_reference: string | null;
             /** Vendor Committed Date */
-            vendor_committed_date?: string | null;
+            vendor_committed_date: string | null;
             /** Vendor Decline Reason */
-            vendor_decline_reason?: string | null;
+            vendor_decline_reason: string | null;
             /**
              * Vendor Id
              * Format: uuid
@@ -26734,7 +27049,117 @@ export interface components {
              */
             warehouse_id: string;
         };
-        /** VendorPortalPaymentSummary */
+        /** VendorPortalOrderLine */
+        VendorPortalOrderLine: {
+            /** Accepted Quantity */
+            accepted_quantity: string;
+            /** Description */
+            description: string | null;
+            /** Discount */
+            discount: string;
+            /** Discount Percentage */
+            discount_percentage: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Item Category Id */
+            item_category_id?: string | null;
+            /** Item Code */
+            item_code?: string | null;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Item Name */
+            item_name?: string | null;
+            /** Line Number */
+            line_number: number;
+            /** Line Total */
+            line_total: string;
+            /** Quantity */
+            quantity: string;
+            /** Received Quantity */
+            received_quantity: string;
+            /** Rejected Quantity */
+            rejected_quantity: string;
+            /** Required Date */
+            required_date: string | null;
+            /** Requires Qc */
+            requires_qc: boolean;
+            /** Returned Quantity */
+            returned_quantity: string;
+            status: components["schemas"]["PurchaseOrderLineStatus"];
+            /** Tax Amount */
+            tax_amount: string;
+            /** Tax Rate */
+            tax_rate: string;
+            /** Unit Price */
+            unit_price: string;
+            /** Uom Code */
+            uom_code?: string | null;
+            /**
+             * Uom Id
+             * Format: uuid
+             */
+            uom_id: string;
+        };
+        /**
+         * VendorPortalPayment
+         * @description A payment to the vendor and the bills it settled.
+         */
+        VendorPortalPayment: {
+            /** Allocated Amount */
+            allocated_amount: string;
+            /** Allocations */
+            allocations?: components["schemas"]["VendorPortalPaymentAllocation"][];
+            /** Amount */
+            amount: string;
+            /** Bank Name */
+            bank_name: string | null;
+            /** Code */
+            code: string;
+            /** Currency */
+            currency: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Instrument Date */
+            instrument_date: string | null;
+            /**
+             * Payment Date
+             * Format: date
+             */
+            payment_date: string;
+            payment_method: components["schemas"]["PaymentMethod"];
+            /** Reference Number */
+            reference_number: string | null;
+            status: components["schemas"]["PaymentStatus"];
+            /** Unallocated Amount */
+            unallocated_amount: string;
+        };
+        /** VendorPortalPaymentAllocation */
+        VendorPortalPaymentAllocation: {
+            /** Amount */
+            amount: string;
+            /** Invoice Code */
+            invoice_code?: string | null;
+            /**
+             * Vendor Invoice Id
+             * Format: uuid
+             */
+            vendor_invoice_id: string;
+            /** Vendor Invoice Number */
+            vendor_invoice_number?: string | null;
+        };
+        /**
+         * VendorPortalPaymentSummary
+         * @description The vendor payment dashboard, one row per currency.
+         */
         VendorPortalPaymentSummary: {
             /** Currency */
             currency: string;
@@ -26760,6 +27185,33 @@ export interface components {
             /** Ready On */
             ready_on?: string | null;
         };
+        /** VendorPortalReceiptLine */
+        VendorPortalReceiptLine: {
+            /** Accepted Quantity */
+            accepted_quantity: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Line Number */
+            line_number: number;
+            /** Purchase Order Line Id */
+            purchase_order_line_id: string | null;
+            /** Qc Status */
+            qc_status: string;
+            /** Received Quantity */
+            received_quantity: string;
+            /** Rejected Quantity */
+            rejected_quantity: string;
+            /** Rejection Reason */
+            rejection_reason: string | null;
+        };
         /** VendorPortalReceiptRead */
         VendorPortalReceiptRead: {
             /** Code */
@@ -26770,13 +27222,11 @@ export interface components {
              */
             id: string;
             /** Inspections */
-            inspections: {
-                [key: string]: unknown;
-            }[];
+            inspections: components["schemas"]["VendorPortalInspection"][];
             /** Lines */
-            lines: {
-                [key: string]: unknown;
-            }[];
+            lines: components["schemas"]["VendorPortalReceiptLine"][];
+            /** Purchase Order Code */
+            purchase_order_code: string;
             /**
              * Purchase Order Id
              * Format: uuid
@@ -26789,6 +27239,39 @@ export interface components {
             receipt_date: string;
             /** Status */
             status: string;
+        };
+        /** VendorPortalReceiptTotals */
+        VendorPortalReceiptTotals: {
+            /**
+             * Count
+             * @default 0
+             */
+            count: number;
+            /**
+             * Qc Pending
+             * @default false
+             */
+            qc_pending: boolean;
+        };
+        /**
+         * VendorPortalTimelineEvent
+         * @description One status change the vendor took part in (from SENT onwards).
+         */
+        VendorPortalTimelineEvent: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** From Status */
+            from_status: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** To Status */
+            to_status: string;
         };
         /**
          * VendorQualityItemRow
@@ -53619,6 +54102,7 @@ export interface operations {
                 expected_today?: boolean;
                 in_transit?: boolean;
                 not_acknowledged?: boolean;
+                include_completed?: boolean;
                 vendor_id?: string | null;
                 category_id?: string | null;
                 search?: string | null;
@@ -54339,7 +54823,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                    "application/json": components["schemas"]["ApiResponse_PurchaseOrderSummary_"];
                 };
             };
             /** @description Malformed request */
@@ -54808,7 +55292,7 @@ export interface operations {
             };
         };
     };
-    list_documents_api_v1_procurement_purchase_orders__order_id__documents_get: {
+    list_purchase_order_documents_api_v1_procurement_purchase_orders__order_id__documents_get: {
         parameters: {
             query?: {
                 /** @description 1-based page number */
@@ -54909,7 +55393,7 @@ export interface operations {
             };
         };
     };
-    upload_document_api_v1_procurement_purchase_orders__order_id__documents_post: {
+    upload_purchase_order_document_api_v1_procurement_purchase_orders__order_id__documents_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -54920,7 +55404,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "multipart/form-data": components["schemas"]["Body_upload_document_api_v1_procurement_purchase_orders__order_id__documents_post"];
+                "multipart/form-data": components["schemas"]["Body_upload_purchase_order_document_api_v1_procurement_purchase_orders__order_id__documents_post"];
             };
         };
         responses: {
@@ -55007,7 +55491,7 @@ export interface operations {
             };
         };
     };
-    pdf_api_v1_procurement_purchase_orders__order_id__pdf_post: {
+    purchase_order_pdf_api_v1_procurement_purchase_orders__order_id__pdf_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -55395,7 +55879,7 @@ export interface operations {
             };
         };
     };
-    list_shipments_api_v1_procurement_purchase_orders__order_id__shipments_get: {
+    list_purchase_order_shipments_api_v1_procurement_purchase_orders__order_id__shipments_get: {
         parameters: {
             query?: {
                 /** @description 1-based page number */
@@ -55496,7 +55980,7 @@ export interface operations {
             };
         };
     };
-    create_shipment_api_v1_procurement_purchase_orders__order_id__shipments_post: {
+    create_purchase_order_shipment_api_v1_procurement_purchase_orders__order_id__shipments_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -55594,7 +56078,7 @@ export interface operations {
             };
         };
     };
-    edit_shipment_api_v1_procurement_purchase_orders__order_id__shipments__shipment_id__patch: {
+    update_purchase_order_shipment_api_v1_procurement_purchase_orders__order_id__shipments__shipment_id__patch: {
         parameters: {
             query?: never;
             header?: never;
@@ -55693,7 +56177,7 @@ export interface operations {
             };
         };
     };
-    delivered_api_v1_procurement_purchase_orders__order_id__shipments__shipment_id__delivered_post: {
+    mark_purchase_order_shipment_delivered_api_v1_procurement_purchase_orders__order_id__shipments__shipment_id__delivered_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -76784,7 +77268,7 @@ export interface operations {
             };
         };
     };
-    download_api_v1_vendor_portal_documents__document_id__download_get: {
+    download_document_api_v1_vendor_portal_documents__document_id__download_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -76876,7 +77360,7 @@ export interface operations {
             };
         };
     };
-    invoices_api_v1_vendor_portal_invoices_get: {
+    list_invoices_api_v1_vendor_portal_invoices_get: {
         parameters: {
             query?: {
                 /** @description 1-based page number */
@@ -76898,7 +77382,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PaginatedResponse_VendorInvoiceSummary_"];
+                    "application/json": components["schemas"]["PaginatedResponse_VendorPortalInvoiceSummary_"];
                 };
             };
             /** @description Malformed request */
@@ -76975,7 +77459,7 @@ export interface operations {
             };
         };
     };
-    invoice_api_v1_vendor_portal_invoices_post: {
+    create_invoice_api_v1_vendor_portal_invoices_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -76994,7 +77478,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse_VendorInvoiceDetail_"];
+                    "application/json": components["schemas"]["ApiResponse_VendorPortalInvoiceDetail_"];
                 };
             };
             /** @description Malformed request */
@@ -77071,7 +77555,7 @@ export interface operations {
             };
         };
     };
-    invoice_detail_api_v1_vendor_portal_invoices__invoice_id__get: {
+    get_invoice_api_v1_vendor_portal_invoices__invoice_id__get: {
         parameters: {
             query?: never;
             header?: never;
@@ -77088,7 +77572,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse_VendorInvoiceDetail_"];
+                    "application/json": components["schemas"]["ApiResponse_VendorPortalInvoiceDetail_"];
                 };
             };
             /** @description Malformed request */
@@ -77165,7 +77649,7 @@ export interface operations {
             };
         };
     };
-    job_api_v1_vendor_portal_jobs__job_id__get: {
+    get_job_api_v1_vendor_portal_jobs__job_id__get: {
         parameters: {
             query?: never;
             header?: never;
@@ -77351,7 +77835,7 @@ export interface operations {
             };
         };
     };
-    payments_api_v1_vendor_portal_payments_get: {
+    list_payments_api_v1_vendor_portal_payments_get: {
         parameters: {
             query?: {
                 /** @description 1-based page number */
@@ -77373,7 +77857,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PaginatedResponse_PaymentDetail_"];
+                    "application/json": components["schemas"]["PaginatedResponse_VendorPortalPayment_"];
                 };
             };
             /** @description Malformed request */
@@ -77542,10 +78026,10 @@ export interface operations {
             };
         };
     };
-    orders_api_v1_vendor_portal_purchase_orders_get: {
+    list_orders_api_v1_vendor_portal_purchase_orders_get: {
         parameters: {
             query?: {
-                tab?: string;
+                tab?: "to_accept" | "accepted" | "ready" | "dispatched" | "delivered" | "all";
                 search?: string | null;
                 assigned_to_me?: boolean;
                 /** @description 1-based page number */
@@ -77644,7 +78128,7 @@ export interface operations {
             };
         };
     };
-    order_api_v1_vendor_portal_purchase_orders__order_id__get: {
+    get_order_api_v1_vendor_portal_purchase_orders__order_id__get: {
         parameters: {
             query?: never;
             header?: never;
@@ -77738,7 +78222,7 @@ export interface operations {
             };
         };
     };
-    accept_api_v1_vendor_portal_purchase_orders__order_id__accept_post: {
+    accept_order_api_v1_vendor_portal_purchase_orders__order_id__accept_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -77759,7 +78243,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse_PurchaseOrderSummary_"];
+                    "application/json": components["schemas"]["ApiResponse_VendorPortalOrderActionRead_"];
                 };
             };
             /** @description Malformed request */
@@ -77836,7 +78320,7 @@ export interface operations {
             };
         };
     };
-    decline_api_v1_vendor_portal_purchase_orders__order_id__decline_post: {
+    decline_order_api_v1_vendor_portal_purchase_orders__order_id__decline_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -77847,7 +78331,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["src__modules__procurement__schemas__ReasonRequest"];
+                "application/json": components["schemas"]["VendorPortalDecline"];
             };
         };
         responses: {
@@ -77857,7 +78341,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse_PurchaseOrderSummary_"];
+                    "application/json": components["schemas"]["ApiResponse_VendorPortalOrderActionRead_"];
                 };
             };
             /** @description Malformed request */
@@ -77934,7 +78418,7 @@ export interface operations {
             };
         };
     };
-    delivery_date_api_v1_vendor_portal_purchase_orders__order_id__delivery_date_post: {
+    change_delivery_date_api_v1_vendor_portal_purchase_orders__order_id__delivery_date_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -77955,7 +78439,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse_PurchaseOrderSummary_"];
+                    "application/json": components["schemas"]["ApiResponse_VendorPortalOrderActionRead_"];
                 };
             };
             /** @description Malformed request */
@@ -78032,7 +78516,7 @@ export interface operations {
             };
         };
     };
-    documents_api_v1_vendor_portal_purchase_orders__order_id__documents_get: {
+    list_documents_api_v1_vendor_portal_purchase_orders__order_id__documents_get: {
         parameters: {
             query?: {
                 /** @description 1-based page number */
@@ -78133,7 +78617,7 @@ export interface operations {
             };
         };
     };
-    upload_api_v1_vendor_portal_purchase_orders__order_id__documents_post: {
+    upload_document_api_v1_vendor_portal_purchase_orders__order_id__documents_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -78144,7 +78628,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "multipart/form-data": components["schemas"]["Body_upload_api_v1_vendor_portal_purchase_orders__order_id__documents_post"];
+                "multipart/form-data": components["schemas"]["Body_upload_document_api_v1_vendor_portal_purchase_orders__order_id__documents_post"];
             };
         };
         responses: {
@@ -78231,7 +78715,7 @@ export interface operations {
             };
         };
     };
-    pdf_api_v1_vendor_portal_purchase_orders__order_id__pdf_post: {
+    order_pdf_api_v1_vendor_portal_purchase_orders__order_id__pdf_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -78325,7 +78809,7 @@ export interface operations {
             };
         };
     };
-    ready_for_dispatch_api_v1_vendor_portal_purchase_orders__order_id__ready_for_dispatch_post: {
+    mark_ready_api_v1_vendor_portal_purchase_orders__order_id__ready_for_dispatch_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -78346,7 +78830,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ApiResponse_PurchaseOrderSummary_"];
+                    "application/json": components["schemas"]["ApiResponse_VendorPortalOrderActionRead_"];
                 };
             };
             /** @description Malformed request */
@@ -78423,7 +78907,7 @@ export interface operations {
             };
         };
     };
-    order_receipts_api_v1_vendor_portal_purchase_orders__order_id__receipts_get: {
+    list_order_receipts_api_v1_vendor_portal_purchase_orders__order_id__receipts_get: {
         parameters: {
             query?: {
                 /** @description 1-based page number */
@@ -78524,7 +79008,7 @@ export interface operations {
             };
         };
     };
-    shipments_api_v1_vendor_portal_purchase_orders__order_id__shipments_get: {
+    list_shipments_api_v1_vendor_portal_purchase_orders__order_id__shipments_get: {
         parameters: {
             query?: {
                 /** @description 1-based page number */
@@ -78625,7 +79109,7 @@ export interface operations {
             };
         };
     };
-    shipment_api_v1_vendor_portal_purchase_orders__order_id__shipments_post: {
+    record_shipment_api_v1_vendor_portal_purchase_orders__order_id__shipments_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -78723,7 +79207,7 @@ export interface operations {
             };
         };
     };
-    delivered_api_v1_vendor_portal_purchase_orders__order_id__shipments__shipment_id__delivered_post: {
+    mark_delivered_api_v1_vendor_portal_purchase_orders__order_id__shipments__shipment_id__delivered_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -78914,7 +79398,7 @@ export interface operations {
             };
         };
     };
-    receipts_api_v1_vendor_portal_receipts_get: {
+    list_receipts_api_v1_vendor_portal_receipts_get: {
         parameters: {
             query?: {
                 /** @description 1-based page number */
@@ -79013,7 +79497,7 @@ export interface operations {
             };
         };
     };
-    transporters_api_v1_vendor_portal_transporters_options_get: {
+    transporter_options_api_v1_vendor_portal_transporters_options_get: {
         parameters: {
             query?: {
                 /** @description 1-based page number */

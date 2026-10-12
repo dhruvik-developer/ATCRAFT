@@ -163,11 +163,26 @@ planning     mrp · procurement
 execution    production · assembly · job_work
    ↓
 downstream   quality · packing · dispatch · finance · reports
+   ↓
+portals      vendor_portal
 ```
 
 Dependencies point downward only. A master-data module must never import from an
 execution module; where it needs a fact from one (vendor rating needs QC
-results), it takes it as an input rather than reaching upward.
+results), it takes it as an input rather than reaching upward. Where an upper
+module needs a lower one's answer at run time - procurement raising or counting
+an incoming inspection - it resolves it through a guarded import
+(`resolve_quality_port`, `resolve_open_inspection_counter`) rather than importing
+the module's types. `audit`, `notifications` and `documents` are services every
+layer may call.
+
+`vendor_portal` (WP C1a) owns no tables. It is the vendor's whole surface: a
+facade that calls procurement's state machine and consignment rules, finance's
+bill and payment rules, quality's inspection reads and the documents store, with
+the vendor taken from the verified token, and returns allow-listed read models.
+A vendor account cannot reach any other module: `core.deps` refuses every route
+outside `/vendor-portal/**`, `/notifications/**` and auth self-service for a
+principal with a `vendor_id` (docs/security.md section 4).
 
 ## The two data patterns that matter
 
@@ -241,8 +256,11 @@ then update devices in a second transaction. If every device needs retry, a
 compare-and-release UPDATE makes the notification available again. Permanent
 failures keep the claim; GONE removes a device. Collapse preserves delivery
 markers and never re-sends an already-delivered unread notification. A 120-second
-sweep requeues up to 100 unclaimed email/push rows less than 24 hours old, recovering
-broker outages. Claimed rows intentionally retain the existing at-most-once crash
+sweep requeues up to 100 eligible unclaimed email/push rows less than 24 hours old,
+recovering broker outages. It filters inactive users, disabled channels, and push
+recipients without a recent session or an unexpired device before limiting the
+batch, so abandoned devices cannot block later deliveries. Claimed rows intentionally
+retain the existing at-most-once crash
 window: a process killed after claiming may require operator replay.
 
 Auth and user-admin repositories call the notification device cleanup helper in

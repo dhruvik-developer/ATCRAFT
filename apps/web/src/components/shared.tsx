@@ -114,7 +114,6 @@ const STATUS_VARIANTS: Record<
   'default' | 'secondary' | 'success' | 'warning' | 'destructive' | 'muted' | 'outline'
 > = {
   // neutral / early lifecycle
-  VENDOR_DECLINED: 'destructive',
   DRAFT: 'muted',
   OPEN: 'default',
   PENDING: 'warning',
@@ -209,6 +208,8 @@ const STATUS_VARIANTS: Record<
   // bad outcomes
   CANCELLED: 'destructive',
   REJECTED: 'destructive',
+  // Not terminal - the buyer cancels or re-sends - but it is a refusal to act on.
+  VENDOR_DECLINED: 'destructive',
   FAILED: 'destructive',
   SCRAP: 'destructive',
   SCRAPPED: 'destructive',

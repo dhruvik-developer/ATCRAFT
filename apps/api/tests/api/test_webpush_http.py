@@ -20,7 +20,7 @@ from src.modules.notifications import service as notification_service
 from src.modules.notifications.models import NotificationType, PushSubscription
 from src.modules.notifications.schemas import PreferencesUpdateRequest
 from src.modules.notifications.service import NotificationService, notify, queue_push_delivery
-from tests.api.test_vendor_portal_scope_http import _sign_in_as_vendor_owner
+from tests.api.vendor_portal_support import approved_vendor, sign_in, vendor_principal
 
 pytestmark = [pytest.mark.api, pytest.mark.integration]
 
@@ -96,12 +96,19 @@ async def test_disallowed_endpoint_is_422(api_client, invalid, push_enabled):
 
 
 async def test_vendor_can_register(api_client, session, tenant, principal, push_enabled):
-    from tests.api.test_vendor_portal_scope_http import _approved_vendor
-
-    vendor = await _approved_vendor(session, tenant, "Push vendor")
-    _sign_in_as_vendor_owner(principal, vendor)
+    vendor = await approved_vendor(session, tenant, "Push vendor")
+    sign_in(vendor_principal(principal, vendor.id))
     response = await api_client.post("/notifications/push/subscriptions", json=_payload())
     assert response.status_code == 200, response.text
+
+
+@pytest.mark.parametrize("expiration", [0, 1, 10**40])
+async def test_expired_or_out_of_range_device_expiration_is_refused(
+    api_client, push_enabled, expiration
+):
+    payload = {**_payload(), "expiration_time": expiration}
+    response = await api_client.post("/notifications/push/subscriptions", json=payload)
+    assert response.status_code == 422, response.text
 
 
 async def test_device_preferences_collapse_and_logout_cleanup(

@@ -178,6 +178,10 @@ def category_within(
             ItemCategory.company_id == company_id,
             or_(*[ItemCategory.path.like(f"%/{ancestor}/%") for ancestor in ancestor_ids]),
         )
+        # Never correlate ``item_categories`` itself: a statement that also joins
+        # the category table (to label its rows) would otherwise swallow this
+        # subquery's FROM, and the probe would test the wrong row - or none.
+        .correlate_except(ItemCategory)
         .exists()
     )
 

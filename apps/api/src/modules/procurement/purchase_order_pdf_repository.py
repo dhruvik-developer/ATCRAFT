@@ -95,6 +95,9 @@ async def purchase_order_pdf_data(
             str(v) for k, v in block(warehouse).items() if v and k != "gstin"
         )
     data.update(company=block(company), vendor=block(vendor), lines=[])
+    if company is not None and company.legal_name:
+        # The buyer prints its registered name on a document it signs.
+        data["company"]["name"] = company.legal_name
     for line in lines:
         item, vendor_code, uom = lookup[line.id]
         data["lines"].append(

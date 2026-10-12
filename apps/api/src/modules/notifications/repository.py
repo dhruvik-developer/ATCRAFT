@@ -452,77 +452,93 @@ class NotificationRepository(BaseRepository[Notification]):
             found = found[:MAX_ROLE_RECIPIENTS]
         return found
 
+    @staticmethod
+    def _holds(permission: str) -> Any:
+        """SQL for "this user holds ``permission``" - the request path's fold.
+
+        The same rule ``core.permissions.resolve_role_grants`` applies on every
+        request: granted by an active, live role or by a direct grant, and not
+        directly denied (a denial wins over every role). Evaluated in the
+        database so a resolver filters before it limits; loading users and
+        filtering in Python would drop holders past the first page of users.
+        """
+        from sqlalchemy import any_, exists, false, literal, not_
+
+        from src.modules.users.models import Role, User, user_roles
+
+        wanted = literal(permission)
+        by_role = exists(
+            select(user_roles.c.role_id)
+            .join(Role, Role.id == user_roles.c.role_id)
+            .where(
+                user_roles.c.user_id == User.id,
+                Role.company_id == User.company_id,
+                Role.is_active.is_(True),
+                Role.deleted_at.is_(None),
+                wanted == any_(Role.permissions),
+            )
+        )
+        # A NULL array answers NULL, not false - hence the COALESCEs.
+        granted = or_(by_role, func.coalesce(wanted == any_(User.extra_permissions), false()))
+        denied = func.coalesce(wanted == any_(User.denied_permissions), false())
+        return and_(granted, not_(denied))
+
+    async def _bounded_user_ids(self, stmt: Select[Any], *, purpose: str) -> list[uuid.UUID]:
+        found = list(
+            (await self.session.execute(stmt.limit(MAX_ROLE_RECIPIENTS + 1))).scalars().all()
+        )
+        if len(found) > MAX_ROLE_RECIPIENTS:
+            log.warning(
+                "notifications.permission_fanout_truncated",
+                company_id=str(self.tenant.company_id),
+                purpose=purpose,
+                limit=MAX_ROLE_RECIPIENTS,
+            )
+            found = found[:MAX_ROLE_RECIPIENTS]
+        return found
+
     async def user_ids_for_vendor(
         self, vendor_id: uuid.UUID, *, permission: str | None = None
     ) -> list[uuid.UUID]:
-        """Active recipients of one vendor, with the same grants/denials as HTTP."""
-        from sqlalchemy.orm import selectinload
+        """Active users of one vendor, optionally only those holding ``permission``.
 
-        from src.core.permissions import resolve_role_grants
+        The vendor-scoped resolver: ``notify_role`` with a vendor role code
+        would reach every vendor of the company that holds the role.
+        """
         from src.modules.users.models import User
 
-        users = (
-            (
-                await self.session.execute(
-                    select(User)
-                    .options(selectinload(User.roles))
-                    .where(
-                        User.company_id == self.tenant.company_id,
-                        User.vendor_id == vendor_id,
-                        User.is_active.is_(True),
-                        User.deleted_at.is_(None),
-                    )
-                    .order_by(User.id)
-                    .limit(MAX_ROLE_RECIPIENTS)
-                )
-            )
-            .scalars()
-            .all()
+        stmt = select(User.id).where(
+            User.company_id == self.tenant.company_id,
+            User.vendor_id == vendor_id,
+            User.is_active.is_(True),
+            User.deleted_at.is_(None),
         )
-        return [
-            u.id
-            for u in users
-            if permission is None
-            or permission
-            in resolve_role_grants(u.roles, u.extra_permissions, u.denied_permissions)[0]
-        ]
+        if permission is not None:
+            stmt = stmt.where(or_(User.is_superuser.is_(True), self._holds(permission)))
+        return await self._bounded_user_ids(stmt.order_by(User.id), purpose="vendor")
 
     async def user_ids_with_permission(self, permission: str) -> list[uuid.UUID]:
-        """Internal recipients only; direct denials override role membership."""
-        from sqlalchemy.orm import selectinload
+        """Active internal users holding ``permission`` (superusers hold everything).
 
-        from src.core.permissions import resolve_role_grants
+        Vendor accounts are never internal recipients, whatever they hold.
+        """
         from src.modules.users.models import User
 
-        users = (
-            (
-                await self.session.execute(
-                    select(User)
-                    .options(selectinload(User.roles))
-                    .where(
-                        User.company_id == self.tenant.company_id,
-                        User.vendor_id.is_(None),
-                        User.is_active.is_(True),
-                        User.deleted_at.is_(None),
-                    )
-                    .order_by(User.id)
-                    .limit(MAX_ROLE_RECIPIENTS)
-                )
-            )
-            .scalars()
-            .all()
+        stmt = select(User.id).where(
+            User.company_id == self.tenant.company_id,
+            User.vendor_id.is_(None),
+            User.is_active.is_(True),
+            User.deleted_at.is_(None),
+            or_(User.is_superuser.is_(True), self._holds(permission)),
         )
-        return [
-            u.id
-            for u in users
-            if u.is_superuser
-            or permission
-            in resolve_role_grants(u.roles, u.extra_permissions, u.denied_permissions)[0]
-        ]
+        return await self._bounded_user_ids(stmt.order_by(User.id), purpose=permission)
 
     async def internal_user_ids(self, user_ids: Sequence[uuid.UUID]) -> list[uuid.UUID]:
+        """Those of ``user_ids`` that are active internal (non-vendor) users."""
         from src.modules.users.models import User
 
+        if not user_ids:
+            return []
         return list(
             (
                 await self.session.execute(

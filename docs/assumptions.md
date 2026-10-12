@@ -745,23 +745,28 @@ charge path.
 
 ## 33. Vendor portal scope
 
-**Assumed.** A vendor principal's purchase-order reads and row locks are
-confined at `PurchaseOrderRepository._scoped` to that vendor's own orders -
-and, within those, to orders it has been sent and to its categories (§56).
-`PATCH /purchase-orders/{id}` and `POST /purchase-orders/{id}/submit` are
-buyer-only (`forbid_vendor_users`), even for the order's own vendor;
-acknowledge and shipment recording stay vendor-reachable.
+**Assumed.** A vendor account reaches the ERP only through `/vendor-portal/**`,
+its own `/notifications/**` and auth self-service: every other route answers 403
+`SCOPE_DENIED` whatever its roles carry (the route allow-list in
+`core.deps.get_current_principal`). Inside the portal, a vendor principal's
+purchase-order reads and row locks are confined at
+`PurchaseOrderRepository._scoped` to that vendor's own orders - and, within
+those, to orders it has been sent and to its categories (§56). The vendor
+accepts, declines, commits dates, marks ready, records consignments, files
+documents and submits bills there; it cannot edit or submit an order. The
+buyer-side acknowledge and shipment routes remain for a buyer recording what a
+vendor phoned in, and refuse vendor accounts (`forbid_vendor_users`).
 
 **Why.** Confining the query rather than the route means a vendor cannot reach
-another vendor's order by any path, including the locks a status change takes.
-Editing and submitting an order is the buyer's act: a vendor who could amend
-quantities or prices on an order addressed to them would be writing their own
-contract. Acknowledging it and recording the shipment are the two things the
-portal exists for.
+another vendor's order by any path, including the locks a status change takes;
+the allow-list means a module that never learnt about vendors (dispatch,
+finance, quality, documents, reports) cannot leak to one either. Editing and
+submitting an order is the buyer's act: a vendor who could amend quantities or
+prices on an order addressed to them would be writing their own contract.
 
-**Where.** `src/modules/procurement/repository.py` -
-`PurchaseOrderRepository._scoped`; `src/modules/procurement/router.py` - the
-`forbid_vendor_users` dependencies on the two routes.
+**Where.** `src/core/deps.py` - `vendor_route_allowed`, `require_vendor_user`;
+`src/modules/procurement/repository.py` - `PurchaseOrderRepository._scoped`;
+`src/modules/vendor_portal/router.py`.
 
 **Impact if wrong.** If a vendor is meant to propose changes to an order, that
 is a counter-proposal the buyer accepts - a new flow - not write access to the
@@ -1295,13 +1300,14 @@ threshold (open question 2).
 
 ---
 
-## 54. The right that makes a vendor user an order's assignee is `purchase_order.update`
+## 54. The right that makes a vendor user an order's assignee is `vendor_portal.respond`
 
 **Assumed.** A vendor user is eligible to be assigned a purchase order when they
 are active, live, bound to the order's vendor and - after their roles, direct
 grants and denials are folded exactly as the request path folds them - hold
-`purchase_order.update`, the right the portal's acknowledge and shipment actions
-use today. It is one named constant, `VENDOR_PO_RESPOND_PERMISSION`.
+`vendor_portal.respond`, the right the portal's accept, decline and date
+actions require (WP C1a; it was `purchase_order.update` until the portal had
+rights of its own). It is one named constant, `VENDOR_PO_RESPOND_PERMISSION`.
 
 **Why.** An order assigned to somebody who cannot act on it is an order nobody at
 the vendor answers. Folding the rights with the same function as
@@ -1311,8 +1317,7 @@ the vendor answers. Folding the rights with the same function as
 `VENDOR_PO_RESPOND_PERMISSION`, `is_eligible_assignee`;
 `src/core/permissions.py` - `resolve_role_grants`.
 
-**Impact if wrong.** A dedicated vendor-portal right replaces it by changing the
-constant (planned for the vendor portal work package).
+**Impact if wrong.** Another right replaces it by changing the constant.
 
 ---
 
@@ -1392,6 +1397,305 @@ floor, `conversion_delivery_date` takes the vendor's lead time as a third input.
 
 ---
 
+## §C1-1. The vendor's committed delivery date is kept apart from the buyer's planning date
+
+**Assumed.** When a vendor accepts an order it may commit to a delivery date, and
+may later move it (`POST /vendor-portal/purchase-orders/{id}/delivery-date`).
+Both write `purchase_orders.vendor_committed_date`. Neither touches
+`expected_delivery_date`, the buyer's planning date. A buyer adopts the vendor's
+date explicitly with `POST /procurement/purchase-orders/{id}/accept-vendor-date`,
+which is audited and a no-op when the two already agree. The committed date may
+not precede the order date.
+
+**Why.** MRP nets supply on `expected_delivery_date` and the delay flag measures
+lateness against it. A vendor who could rewrite it could make its own late
+order look on time and move the company's plan without anyone deciding to
+(trap T8 in the procurement report).
+
+**Where.** `src/modules/vendor_portal/service.py` - `accept`, `change_date`;
+`src/modules/procurement/inbound_service.py` - `accept_vendor_date`.
+
+**Impact if wrong.** If the vendor's word should drive planning directly, `accept`
+and `change_date` also write `expected_delivery_date` and the adopt route goes.
+
+---
+
+## §C1-2. A consignment is recorded only on an accepted order with goods still due
+
+**Assumed.** A numbered consignment (`purchase_order_shipments`) can be recorded or
+corrected only while the order is ACKNOWLEDGED or PARTIALLY_RECEIVED - by the
+vendor through the portal or by a buyer on its behalf, with the same body and
+rules. Consignments are numbered 1..n per order under the order's row lock. A
+dispatch may not be dated before the order date or in the future, and a
+delivery may not precede its dispatch or lie in the future (five minutes of
+clock skew allowed). Once an order is CANCELLED or CLOSED its consignments can
+no longer change.
+
+**Why.** Goods dispatched against an order nobody has accepted arrive against a
+refusal-in-waiting. A dispatch or delivery dated tomorrow is not a fact, and the
+tracking status would report goods on the road that have not left.
+
+**Where.** `src/modules/procurement/inbound_service.py` - `SHIPPING_PO_STATUSES`,
+`SETTLED_PO_STATUSES`, `DELIVERY_CLOCK_SKEW`, `record_inbound_shipment`,
+`mark_delivered`.
+
+**Impact if wrong.** If dispatch may be recorded on a SENT order (the vendor
+ships without accepting), SENT joins `SHIPPING_PO_STATUSES`.
+
+---
+
+## §C1-3. The order's documents route is the channel shared with the vendor
+
+**Assumed.** A file carries a `kind` (INVOICE, DISPATCH_PHOTO, LR_COPY,
+DELIVERY_CHALLAN, OTHER) through a link table, `purchase_order_documents`; the
+generic `documents` table is unchanged. A vendor sees and downloads only the
+files filed through the order's documents route (by itself or by a buyer) and
+the generated PO PDF. A file a buyer filed against the order from the generic
+Documents screen stays internal. An INVOICE upload needs `vendor_portal.invoice`,
+every other kind `vendor_portal.ship`. A vendor's bill names one of its own
+orders, bills only items on that order, may name only its own receipts and
+receipt lines on that order, carries no cost centre (staff tag centres while
+reviewing) and is submitted for review at once. One uploaded invoice file
+attaches to one bill.
+
+The generated PDF is identified by its completed PURCHASE_ORDER job's document
+reference, rather than the generic REPORT category. Action responses also use an
+explicit vendor field list, so a requisition source link stays internal.
+
+**Why.** A link table is the least invasive way to type a file: nothing that
+reads `documents` changes. Internal attachments - a quote comparison, an
+approval memo - are not the supplier's to read. A vendor cannot list cost
+centres and must not name one.
+
+**Where.** `src/modules/procurement/inbound_repository.py` -
+`InboundDocumentRepository.visibility`; `src/modules/vendor_portal/service.py` -
+`create_invoice`, `_assert_bill_references`, `download`, `upload_vendor_document`.
+
+**Impact if wrong.** A file meant to stay internal but uploaded through the
+order's documents route is visible to the vendor; such a file belongs on the
+generic Documents screen. If a vendor may bill freight or charges against an
+item not on the order, `_assert_bill_references` relaxes its item check.
+
+---
+
+## §C1-4. The "QC rejected" tile looks back thirty days and counts receipt lines
+
+**Assumed.** The vendor dashboard's "QC rejected" counts the vendor's posted
+goods-receipt lines with a rejected quantity whose receipt is dated within the
+last `VENDOR_QC_LOOKBACK_DAYS` (30) days, on orders the account can see.
+"Payment pending" counts the vendor's bills in an open status with money still
+owed. Every tile is a count of documents or lines, not a sum of quantities.
+
+**Why.** Recent enough to be actionable, long enough to cover a monthly review.
+Purchase-order statuses past RECEIVED are never written by the application
+(trap T7), so the tiles are derived from receipts and bills instead.
+
+**Where.** `src/modules/vendor_portal/repository.py` - `VENDOR_QC_LOOKBACK_DAYS`,
+`VendorPortalRepository.dashboard`.
+
+**Impact if wrong.** A different window is the constant; a quantity-weighted
+tile is a different aggregate in the same statement.
+
+---
+
+## §C1-5. The tracking status describes the latest consignment
+
+**Assumed.** One ordered rule derives the proposal's tracking status. In order:
+QC_PENDING (a receipt with an open inspection, when the order is fully received
+or the receipt came after the latest dispatch); GRN_COMPLETED (fully received or
+short-closed, nothing open); RECEIVED (a receipt raised at or after the latest
+consignment's dispatch, or any receipt when nothing was dispatched); DELIVERED
+(the latest consignment is marked delivered); DISPATCHED (it left today, UTC);
+IN_TRANSIT (it left earlier); READY_FOR_DISPATCH (the vendor's ready flag);
+otherwise NOT_DISPATCHED. "Delivery expected date" is the latest consignment's
+own expectation, else the vendor's commitment, else the planning date. "Late"
+is one predicate: receivable status, goods still due, planning date passed.
+
+**Why.** The buyer's board, the vendor's order list and the vendor dashboard read
+the same rule and cannot disagree. A receipt for an earlier consignment must not
+hide the next one on the road.
+
+**Where.** `src/modules/procurement/inbound_repository.py` -
+`inbound_tracking_status`, `po_is_late`, `InboundRepository.projection`.
+
+**Impact if wrong.** A goods receipt does not name the consignment it received,
+so "after the latest dispatch" is decided by time; a receipt keyed in late for
+an earlier consignment counts for the later one. Linking receipts to
+consignments would make the rule exact.
+
+---
+
+## §C1-6. The buyer's inbound board shows open work by default
+
+**Assumed.** `GET /procurement/inbound-tracking` lists orders still in motion: SENT,
+VENDOR_DECLINED (the buyer has to decide), ACKNOWLEDGED, PARTIALLY_RECEIVED, and
+RECEIVED, QC_PENDING or QC_COMPLETED orders whose tracking status is not yet
+GRN_COMPLETED. Completed, closed and cancelled orders appear with
+`include_completed=true`. The vendor's list always shows its whole history; its
+tabs narrow it.
+
+**Why.** A work queue that fills with history stops being read.
+
+**Where.** `src/modules/procurement/inbound_repository.py` -
+`BOARD_OPEN_PO_STATUSES`, `InboundRepository.filtered_projection`.
+
+**Impact if wrong.** Change `BOARD_OPEN_PO_STATUSES`.
+
+---
+
+## §C1-7. Who hears about a vendor action or a consignment change
+
+**Assumed.** A vendor's accept, decline, date change and ready flag, and every
+consignment change - recorded, corrected, delivered, LR copy or dispatch photo
+uploaded, whoever did it - notify the order's creator, every internal user
+holding `purchase_order.approve` and the ADMIN and PURCHASE_MANAGER roles.
+Vendor accounts never receive these, and the person who made the change is not
+told about it. Everything about one consignment collapses onto one unread row
+per recipient (`po-shipment:{id}`), carrying carrier, tracking, dispatch and
+expected dates, boxes, weight and the latest event.
+
+**Why.** The proposal's "admin is notified immediately", without a row per edit;
+the creator and approvers own the order.
+
+**Where.** `src/modules/procurement/inbound_service.py` - `BUYER_ALERT_ROLE_CODES`,
+`buyer_recipients`, `notify_buyer`, `shipment_message`.
+
+**Impact if wrong.** The recipient list is `buyer_recipients`; a per-company
+setting would replace the role constant.
+
+---
+
+## §C1-8. The vendor's order detail embeds the first page of each list
+
+**Assumed.** `GET /vendor-portal/purchase-orders/{id}` embeds the first 50
+consignments, files and receipts, each with its paging metadata; the dedicated
+list routes page the rest. The timeline lists status changes from SENT onwards
+- drafting and internal approval are the buyer's process. Money totals are SQL
+aggregates.
+
+**Why.** One request paints a phone screen; nothing returned is unbounded.
+
+**Where.** `src/modules/vendor_portal/service.py` - `DETAIL_EMBED_LIMIT`;
+`src/modules/vendor_portal/repository.py` - `TIMELINE_STATUSES`.
+
+**Impact if wrong.** Change the constants.
+
+---
+
+## §C1-9. An order's header courier fields mirror its latest consignment
+
+**Assumed.** The single-shipment fields on the order header (`courier_name`,
+`tracking_reference`, `shipped_at`) stay readable and are kept equal to the
+latest numbered consignment. An order with no numbered consignment is tracked
+from the header fields alone; historical header data is not turned into
+consignment rows.
+
+**Why.** Screens and reports built on the header keep working, and no audited
+consignment record is invented after the fact.
+
+**Where.** `src/modules/procurement/inbound_service.py` - `record_inbound_shipment`;
+`src/modules/procurement/inbound_repository.py` - `InboundRepository.projection`.
+
+**Impact if wrong.** A backfill migration could create consignment 1 from each
+header that carries shipment details.
+
+---
+
+## §C1-10. A declined order stays open for the buyer's decision
+
+**Assumed.** SENT -> VENDOR_DECLINED records the vendor's reason. The buyer then
+cancels the order (VENDOR_DECLINED -> CANCELLED, which gives the quantity back to
+the requisition) or sends it again (VENDOR_DECLINED -> SENT, which re-checks that
+the vendor can still take orders and clears the old reason; the audit keeps it).
+Until then the requisition quantity stays committed, the order is not expected
+supply (it is outside `OPEN_PO_STATUSES`, so MRP and the duplicate check ignore
+it and no partial index changes), and it blocks retiring the vendor.
+
+**Why.** A decline is a question to the buyer, not an answer: re-sourcing,
+re-negotiating and cancelling are all reasonable, and none should happen behind
+the buyer's back. Counting a refused order as supply would leave the plan short.
+
+**Where.** `src/modules/procurement/service.py` - `transition_purchase_order`;
+`src/modules/procurement/service_rules.py` - `PURCHASE_ORDER_LIFECYCLE`;
+`src/modules/vendors/repository.py` - `OPEN_PURCHASE_ORDER_STATUSES`.
+
+**Impact if wrong.** If a decline should release the requisition at once, the
+VENDOR_DECLINED transition calls `_release_source_lines` and a re-send re-links.
+
+---
+
+## §C1-11. A vendor-facing notification reaches only users who could act on it
+
+**Assumed.** An order sent to a vendor notifies its assignee; when it is
+unassigned, every user of that vendor who holds `vendor_portal.respond` and can
+see the order - unrestricted, scoped to its category or an ancestor of it, or
+assigned to it. "Material received" (`vendor_portal.access`) and a rejection at
+incoming inspection (`vendor_portal.quality`) follow the same visibility rule. A
+bill approved or disputed and a payment approved or allocated notify the
+vendor's users holding `vendor_portal.invoice`; a dispute carries its reason, an
+approval does not carry the approver's note. Vendor-app links are `/vendor/...`
+routes (WP C2a).
+
+**Why.** A notification whose link the portal answers "not found" for is noise,
+and one that reaches a different vendor is a leak. The approver's note is the
+buyer's own record.
+
+**Where.** `src/modules/procurement/service.py` - `vendor_recipients_for_order`,
+`notify_vendor_about_order`, `notify_vendor_about_receipt`;
+`src/modules/finance/service.py` - `_tell_vendor_about_invoice`,
+`_tell_vendor_about_payment`; `src/modules/notifications/repository.py` -
+`user_ids_for_vendor`.
+
+**Impact if wrong.** The rights per event are named at each call.
+
+---
+
+## §C1-12. Registering a browser is the push opt-in
+
+**Assumed.** New per-type preferences default to push enabled; a user with no
+registered, unexpired device never gets the PUSH channel. An update that omits
+`push_enabled` preserves a stored opt-out.
+
+**Why.** The browser's own permission prompt is the consent; a second switch per
+type would be a setting nobody finds.
+
+**Where.** `src/modules/notifications/service.py` - `resolve_channels`, `notify`;
+`src/modules/notifications/repository.py` - `upsert_preferences`.
+
+**Impact if wrong.** Default `push_enabled` to false and the preferences screen
+becomes the opt-in.
+
+---
+
+## §C1-13. The VAPID key derives from the credential root unless one is supplied
+
+**Assumed.** Without `WEB_PUSH_VAPID_PRIVATE_KEY` the VAPID signing key is derived
+deterministically from `CREDENTIAL_ENCRYPTION_KEY` with the HMAC purpose
+`web-push-vapid`. Rotating the root key changes the VAPID key, and browsers
+re-subscribe.
+
+**Why.** No new deployment secret is needed to switch push on.
+
+**Where.** `src/core/webpush.py`; `src/core/config.py`.
+
+**Impact if wrong.** Supply an explicit key; it survives root rotation.
+
+---
+
+## §C1-14. A collapsed repeat never re-sends to a device
+
+**Assumed.** An unread grouped notification that repeats updates its wording and
+count but keeps its email and push delivery markers, so it is not sent to a
+device again. Once read, the next occurrence is a new row.
+
+**Why.** A consignment that is edited five times should buzz a phone once.
+
+**Where.** `src/modules/notifications/repository.py` - `upsert_many`.
+
+**Impact if wrong.** Clear the markers on collapse to re-send every update.
+
+---
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant
@@ -1419,30 +1723,3 @@ module is used in production:
    or the customer?
 7. **Partial dispatch.** May a sales-order line be dispatched in more than two
    instalments, and is there a minimum dispatch quantity?
-
-## C1 vendor portal and Web Push
-
-- **?C1-1:** Vendor committed delivery is separate from the buyer's expected date.
-  Staff explicitly accept a commitment into planning; vendor updates never do so.
-- **?C1-2:** Both staff and vendors record full consignments only after acceptance,
-  on ACKNOWLEDGED/PARTIALLY_RECEIVED orders. Partial consignments get sequential numbers.
-- **?C1-3:** Document kinds live in a portal link table; upload an INVOICE file first
-  and pass its `invoice_document_id` when raising the bill. Staff assign cost centres.
-- **?C1-4:** Receipt evidence outranks carrier evidence; today's dispatch is DISPATCHED,
-  older undelivered dispatch is IN_TRANSIT. QC rejection dashboard uses the last
-  VENDOR_QC_LOOKBACK_DAYS (30 UTC days). Counts concern records, not summed quantities.
-- **?C1-5:** Vendors see only sent orders, subsequent states and cancellations of
-  previously sent orders, further constrained by their category scope/assignment.
-- **?C1-6:** Registering a browser is the push opt-in. New per-type preferences default
-  to true; absent devices never add PUSH. Old SPA updates preserve a stored opt-out.
-- **?C1-7:** VAPID derives deterministically from the credential root with HMAC purpose
-  web-push-vapid unless explicitly supplied. Root rotation requires re-subscription.
-- **?C1-8:** An unread grouped repeat updates wording/count but preserves email/push
-  claims, so it does not repeatedly send to a device. A read group gets a new row.
-- **?C1-9:** Portal detail embeds the first 50 shipments/documents/receipts with page
-  metadata; dedicated endpoints page the rest. Financial totals are SQL aggregates.
-
-- **?C1-10:** Existing single-consignment PO header fields remain readable in tracking
-  when no numbered consignment exists. Numbered consignments take precedence.
-  Historical header data is not synthesized into audited shipment records; new
-  full consignments use the new table and mirror their latest values to the header.

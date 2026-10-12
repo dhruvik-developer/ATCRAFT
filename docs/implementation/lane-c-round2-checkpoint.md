@@ -43,9 +43,12 @@ WEB_PUSH_ALLOWED_HOSTS suffix list. Dev overlay enables push.
 
 Contract contains 556 requests in 28 Postman folders. OpenAPI/Postman and generated
 frontend types are synchronized. Docs cover security, schema/events, architecture,
-assumptions C1-1..C1-10, runbook, APIs and inbound handbook preparation.
+assumptions C1-1..C1-14, runbook, APIs and inbound handbook preparation.
 
-## Verification actually run
+## Verification before the Claude takeover
+
+These checks record the original 383550c delivery. Current resumed verification
+is recorded separately below; these earlier checks do not certify the newer files.
 
 - Initial targeted units: 112 passed; crypto/worker/role focused run: 55 passed.
 - One full unit run: 3137 passed, 1 existing skip, 5 failures. Three obsolete/default
@@ -67,6 +70,52 @@ assumptions C1-1..C1-10, runbook, APIs and inbound handbook preparation.
 - Live seeded PO data extraction and PDF rendering pass (one line, 2441 bytes).
 - Demo masters/procurement run succeeds; rerun creates zero records. Existing
   serial-receipt limitation remains an explicit demo skip.
+
+## Resumed review and verification, 12 October 2026
+
+Adopted the persisted C1a review fixes: explicit vendor PO/bill/payment/QC
+responses, validated bill references, category-aware vendor notifications,
+correlated inbound projections, latest-consignment receipt evidence, decline
+re-send/cancel UI gates, and the expanded HTTP tests. Inbound routes now live in
+the standard procurement router; the redundant inbound_router module is removed.
+
+Further review closed two privacy edges: the four portal actions now return an
+explicit VendorPortalOrderActionRead instead of the staff summary's source
+links; an unlinked generic REPORT upload stays internal unless a completed
+PURCHASE_ORDER job identifies it as the generated PO PDF.
+
+C1b review closed recovery starvation: disabled channels, inactive users, stale
+sessions, and absent/expired push devices are excluded before the 100-row limit.
+The claim and sweep share the recent-session predicate. An expiration_time of 0
+is treated as an expired timestamp rather than an omitted expiration.
+
+Checks on the resumed files (overlapping targeted runs, not additive counts):
+
+- 216 passed: vendor portal rules/scope, Web Push/worker, notification channels,
+  email staging/worker and lifecycle unit files.
+- 207 passed: vendor portal/scope/push units plus worker logging, contract targets,
+  frontend permissions/contracts, role presets and schema identifier checks.
+- 100 passed: test_vendor_portal_http.py, test_vendor_portal_scope_http.py,
+  test_webpush_http.py and test_notifications_service.py together.
+- 3 passed, 41 deselected: document-privacy and generated-PDF HTTP regressions.
+- 32 passed after the action-response and recovery fixes: vendor portal HTTP,
+  Web Push HTTP and the new PostgreSQL/fake-provider test_push_delivery.py.
+- Final recovery rerun: 5 PostgreSQL worker/recovery tests passed; final push,
+  worker and confidential logging units: 52 passed.
+- Backend Ruff check and format check passed; mypy passed for 222 source files.
+- Frontend typecheck and ESLint passed; procurement-types.test.ts passed 3 tests.
+  Production build passed all bundle budgets and bundle secret scanning (first
+  load 194.1 KB gzipped; largest route 14.6 KB gzipped).
+- Regenerated OpenAPI (412 endpoints, 843 schemas), frontend types and Postman
+  (556 requests, 28 folders); all three consistency checks passed.
+- A fresh isolated database upgraded to head, downgraded all three lane revisions
+  to 159ffb5b9cb4, upgraded again, and reported the single c1bpush2026 head.
+  Fresh baseline seed and masters/procurement demos succeeded; a repeat created
+  zero records (203 masters and 36 procurement already present). The temporary
+  database was removed and its absence verified.
+
+No full unit suite was rerun after the takeover, per the integration coordinator's
+instruction; main integration will run the combined suite. No provider was called.
 
 ## Integration notes and limits
 

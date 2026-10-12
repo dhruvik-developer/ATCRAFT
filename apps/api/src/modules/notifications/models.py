@@ -92,14 +92,6 @@ class NotificationChannel(StrEnum):
 
 
 class NotificationType(StrEnum):
-    PURCHASE_ORDER_SENT = "PURCHASE_ORDER_SENT"
-    PURCHASE_ORDER_ACKNOWLEDGED = "PURCHASE_ORDER_ACKNOWLEDGED"
-    PURCHASE_ORDER_DECLINED = "PURCHASE_ORDER_DECLINED"
-    PURCHASE_ORDER_DATE_CHANGED = "PURCHASE_ORDER_DATE_CHANGED"
-    PURCHASE_ORDER_READY = "PURCHASE_ORDER_READY"
-    PURCHASE_ORDER_SHIPPED = "PURCHASE_ORDER_SHIPPED"
-    VENDOR_INVOICE_STATUS = "VENDOR_INVOICE_STATUS"
-    VENDOR_PAYMENT_RECORDED = "VENDOR_PAYMENT_RECORDED"
     """The closed vocabulary of things the system notifies about.
 
     Closed rather than free text because it is the key of
@@ -136,6 +128,22 @@ class NotificationType(StrEnum):
     REPORT_READY = "REPORT_READY"
     BACKGROUND_JOB_COMPLETED = "BACKGROUND_JOB_COMPLETED"
     BACKGROUND_JOB_FAILED = "BACKGROUND_JOB_FAILED"
+
+    # --- purchase orders and the vendor portal (WP C1a) ---------------------
+    #: To the vendor: an order was sent to it (the assignee, else every vendor
+    #: user who may respond and can see the order).
+    PURCHASE_ORDER_SENT = "PURCHASE_ORDER_SENT"
+    #: To the buyer: the vendor accepted, declined, moved its committed date or
+    #: marked the order ready; and every consignment change (``po-shipment:{id}``).
+    PURCHASE_ORDER_ACKNOWLEDGED = "PURCHASE_ORDER_ACKNOWLEDGED"
+    PURCHASE_ORDER_DECLINED = "PURCHASE_ORDER_DECLINED"
+    PURCHASE_ORDER_DATE_CHANGED = "PURCHASE_ORDER_DATE_CHANGED"
+    PURCHASE_ORDER_READY = "PURCHASE_ORDER_READY"
+    PURCHASE_ORDER_SHIPPED = "PURCHASE_ORDER_SHIPPED"
+    #: To the vendor: its bill was approved or disputed; a payment to it was
+    #: approved or allocated.
+    VENDOR_INVOICE_STATUS = "VENDOR_INVOICE_STATUS"
+    VENDOR_PAYMENT_RECORDED = "VENDOR_PAYMENT_RECORDED"
 
     # --- platform -----------------------------------------------------------
     SYSTEM_ANNOUNCEMENT = "SYSTEM_ANNOUNCEMENT"

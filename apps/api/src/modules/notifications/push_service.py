@@ -55,7 +55,7 @@ class PushService:
         try:
             expires = (
                 datetime.fromtimestamp(payload.expiration_time / 1000, UTC)
-                if payload.expiration_time
+                if payload.expiration_time is not None
                 else None
             )
         except (ValueError, OverflowError, OSError) as exc:

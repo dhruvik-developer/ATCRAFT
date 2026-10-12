@@ -145,22 +145,25 @@ def _dependency_callables(route: APIRoute) -> list[Any]:
     [
         ("PATCH", "/procurement/purchase-orders/{order_id}"),
         ("POST", "/procurement/purchase-orders/{order_id}/submit"),
-    ],
-)
-def test_editing_and_submitting_an_order_are_buyer_only(method: str, path: str) -> None:
-    assert forbid_vendor_users in _dependency_callables(_route(method, path))
-
-
-@pytest.mark.parametrize(
-    ("method", "path"),
-    [
+        # WP C1a: a vendor accepts and ships through /vendor-portal. These two
+        # stay for a buyer recording what the vendor phoned in, and are closed
+        # to vendor accounts (the route allow-list refuses them first).
         ("POST", "/procurement/purchase-orders/{order_id}/acknowledge"),
         ("POST", "/procurement/purchase-orders/{order_id}/shipment"),
+        # The buyer-side consignment companions (WP C1a).
+        ("GET", "/procurement/inbound-tracking"),
+        ("GET", "/procurement/purchase-orders/{order_id}/shipments"),
+        ("POST", "/procurement/purchase-orders/{order_id}/shipments"),
+        ("PATCH", "/procurement/purchase-orders/{order_id}/shipments/{shipment_id}"),
+        ("POST", "/procurement/purchase-orders/{order_id}/shipments/{shipment_id}/delivered"),
+        ("POST", "/procurement/purchase-orders/{order_id}/documents"),
+        ("GET", "/procurement/purchase-orders/{order_id}/documents"),
+        ("POST", "/procurement/purchase-orders/{order_id}/accept-vendor-date"),
+        ("POST", "/procurement/purchase-orders/{order_id}/pdf"),
     ],
 )
-def test_the_vendor_side_actions_stay_reachable_from_the_portal(method: str, path: str) -> None:
-    """These are protected by the repository scope, not by shutting the door."""
-    assert forbid_vendor_users not in _dependency_callables(_route(method, path))
+def test_buyer_side_order_routes_refuse_vendor_accounts(method: str, path: str) -> None:
+    assert forbid_vendor_users in _dependency_callables(_route(method, path))
 
 
 # -----------------------------------------------------------------------------

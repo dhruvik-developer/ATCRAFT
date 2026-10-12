@@ -32,7 +32,7 @@ import hashlib
 import io
 import uuid
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
 
@@ -290,10 +290,22 @@ def render_packing_list_pdf(data: dict[str, Any]) -> bytes:
     return buffer.getvalue()
 
 
+#: The ``documents.entity_type`` a PO PDF is filed under - the purchase order
+#: itself, so the vendor portal and the PO's file list both find it.
+PURCHASE_ORDER_ENTITY = "purchase_order"
+
+#: Two decimals, rounded half-up the way a printed rupee amount is.
+_PAISE = Decimal("0.01")
+
+
 def indian_money(value: Any) -> str:
-    """Decimal amount with Indian digit grouping; shared with future invoices."""
-    amount = f"{Decimal(str(value or 0)):.2f}"
-    integer, fraction = amount.split(".")
+    """An amount with Indian digit grouping: ``1,23,45,678.90``.
+
+    Local to this module for now; WP A2 adds money helpers in the commercial
+    lane, and the integrator consolidates the two.
+    """
+    amount = Decimal(str(value or 0)).quantize(_PAISE, rounding=ROUND_HALF_UP)
+    integer, fraction = f"{amount:.2f}".split(".")
     sign = "-" if integer.startswith("-") else ""
     digits = integer.lstrip("-")
     tail = digits[-3:]
@@ -305,8 +317,31 @@ def indian_money(value: Any) -> str:
     return sign + ",".join([*groups, tail]) + "." + fraction
 
 
+def plain_quantity(value: Any) -> str:
+    """A quantity as a document prints it: ``20``, ``12.5`` - not ``20.0000``."""
+    text = format(Decimal(str(value or 0)).normalize(), "f")
+    return "0" if text == "-0" else text
+
+
+#: The address lines of a party block, in reading order.
+_ADDRESS_KEYS: tuple[str, ...] = ("address_line1", "address_line2", "city", "state", "postal_code")
+
+#: The order totals as the PDF labels them.
+_PO_TOTALS: tuple[tuple[str, str], ...] = (
+    ("subtotal", "Subtotal"),
+    ("discount", "Discount"),
+    ("tax_amount", "Tax"),
+    ("freight_amount", "Freight"),
+    ("total_amount", "Total"),
+)
+
+
 def render_purchase_order_pdf(data: dict[str, Any]) -> bytes:
-    """Pure multipage PO renderer, escaping every stored value as literal text."""
+    """Render a purchase order to PDF bytes. Pure: no database, no clock, no I/O.
+
+    Every stored value is escaped before it becomes a reportlab ``Paragraph``,
+    whose mini-markup would otherwise interpret a ``<`` in an item name.
+    """
     from xml.sax.saxutils import escape
 
     styles = _styles()
@@ -321,41 +356,39 @@ def render_purchase_order_pdf(data: dict[str, Any]) -> bytes:
         title=f"Purchase order {data.get('code', '')}",
     )
 
-    def paragraph(value: Any) -> Paragraph:
-        return Paragraph(escape(str(value or "")), styles["body"])
+    def paragraph(value: Any, style: str = "body") -> Paragraph:
+        return Paragraph(escape(str(value or "")), styles[style])
 
-    story: list[Any] = [Paragraph("PURCHASE ORDER", styles["heading"])]
-    for label in ("company", "vendor"):
-        block = data.get(label, {})
-        story.append(paragraph(f"{label.title()}: {block.get('name', '')}"))
-        story.append(
-            paragraph(
-                " · ".join(
-                    str(block.get(k))
-                    for k in (
-                        "address_line1",
-                        "address_line2",
-                        "city",
-                        "state",
-                        "postal_code",
-                        "gstin",
-                    )
-                    if block.get(k)
-                )
-            )
-        )
-    story.extend(
-        [
-            Spacer(1, 8),
-            paragraph(f"{data.get('code')} · {data.get('po_date')} · {data.get('status')}"),
-            paragraph(f"Delivery address: {data.get('delivery_address') or ''}"),
-            Spacer(1, 8),
+    def party(label: str, block: dict[str, Any]) -> list[Any]:
+        address = ", ".join(str(block[key]) for key in _ADDRESS_KEYS if block.get(key))
+        return [
+            paragraph(f"{label}: {block.get('name') or ''}", "meta"),
+            *([paragraph(address)] if address else []),
+            *([paragraph(f"GSTIN: {block['gstin']}")] if block.get("gstin") else []),
         ]
-    )
+
+    currency = data.get("currency") or "INR"
+    story: list[Any] = [
+        Paragraph("PURCHASE ORDER", styles["title"]),
+        *party("Buyer", data.get("company") or {}),
+        Spacer(1, 4),
+        *party("Vendor", data.get("vendor") or {}),
+        Spacer(1, 8),
+        paragraph(f"PO number: {data.get('code') or ''}", "meta"),
+        paragraph(f"PO date: {data.get('po_date') or ''}    Status: {data.get('status') or ''}"),
+        paragraph(f"Expected delivery: {data.get('expected_delivery_date') or 'not set'}"),
+        *(
+            [paragraph(f"Vendor committed delivery: {data['vendor_committed_date']}")]
+            if data.get("vendor_committed_date")
+            else []
+        ),
+        paragraph(f"Delivery address: {data.get('delivery_address') or ''}"),
+        Spacer(1, 8),
+    ]
     rows: list[list[Any]] = [
         [
-            paragraph(v)
-            for v in (
+            paragraph(header)
+            for header in (
                 "Item / vendor code",
                 "Description / HSN",
                 "Qty / UoM",
@@ -369,41 +402,31 @@ def render_purchase_order_pdf(data: dict[str, Any]) -> bytes:
     for line in data.get("lines", []):
         rows.append(
             [
-                paragraph(f"{line.get('code', '')} {line.get('vendor_item_code') or ''}"),
-                paragraph(f"{line.get('description', '')} {line.get('hsn') or ''}"),
-                paragraph(f"{line.get('quantity')} {line.get('uom') or ''}"),
+                paragraph(
+                    " / ".join(
+                        str(v) for v in (line.get("code"), line.get("vendor_item_code")) if v
+                    )
+                ),
+                paragraph(
+                    str(line.get("description") or "")
+                    + (f" (HSN {line['hsn']})" if line.get("hsn") else "")
+                ),
+                paragraph(f"{plain_quantity(line.get('quantity'))} {line.get('uom') or ''}"),
                 *[
-                    paragraph(indian_money(line.get(k)))
-                    for k in ("unit_price", "discount", "tax", "total")
+                    paragraph(indian_money(line.get(key)), "right")
+                    for key in ("unit_price", "discount", "tax", "total")
                 ],
             ]
         )
     table = Table(rows, colWidths=[70, 125, 50, 60, 50, 50, 65], repeatRows=1)
-    table.setStyle(
-        TableStyle(
-            [
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("GRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
-            ]
-        )
-    )
+    table.setStyle(_TABLE_STYLE)
     story.append(table)
-    for key in ("subtotal", "discount", "tax_amount", "freight_amount", "total_amount"):
-        story.append(
-            paragraph(
-                f"{key.replace('_', ' ').title()}: {data.get('currency', 'INR')} "
-                f"{indian_money(data.get(key))}"
-            )
-        )
-    story.extend(
-        [
-            Spacer(1, 10),
-            paragraph(data.get("terms")),
-            Spacer(1, 24),
-            paragraph("Authorised signatory"),
-        ]
-    )
+    story.append(Spacer(1, 6))
+    for key, label in _PO_TOTALS:
+        story.append(paragraph(f"{label}: {currency} {indian_money(data.get(key))}", "right"))
+    if data.get("terms"):
+        story.extend([Spacer(1, 10), paragraph("Terms", "meta"), paragraph(data.get("terms"))])
+    story.extend([Spacer(1, 28), paragraph("Authorised signatory", "meta")])
     document.build(story)
     return buffer.getvalue()
 
@@ -1167,23 +1190,6 @@ async def generate_report(
     }
 
 
-__all__ = [
-    "CARTONS_PER_PAGE",
-    "GENERATED_REPORT_ENTITY",
-    "MAX_VALUATION_EXPORT_ROWS",
-    "PACKING_LIST_ENTITY",
-    "REPORT_COLUMN_WIDTH_LIMIT",
-    "VALUATION_CHUNK_ROWS",
-    "VALUATION_ENTITY",
-    "generate_packing_list",
-    "generate_report",
-    "inventory_valuation",
-    "render_inventory_valuation_xlsx",
-    "render_packing_list_pdf",
-    "render_report_xlsx",
-]
-
-
 @async_task(name="reports.generate_purchase_order", queue="reports")
 async def generate_purchase_order(
     purchase_order_id: str,
@@ -1248,7 +1254,7 @@ async def generate_purchase_order(
                     size_bytes=len(payload),
                     checksum_sha256=checksum,
                     category=DocumentCategory.REPORT,
-                    entity_type="purchase_order",
+                    entity_type=PURCHASE_ORDER_ENTITY,
                     entity_id=order_id,
                     uploaded_by_id=tenant.user_id,
                     is_public=False,
@@ -1323,3 +1329,25 @@ async def generate_purchase_order(
         "checksum_sha256": checksum,
         "line_count": len(data.get("lines", [])),
     }
+
+
+__all__ = [
+    "CARTONS_PER_PAGE",
+    "GENERATED_REPORT_ENTITY",
+    "MAX_VALUATION_EXPORT_ROWS",
+    "PACKING_LIST_ENTITY",
+    "PURCHASE_ORDER_ENTITY",
+    "REPORT_COLUMN_WIDTH_LIMIT",
+    "VALUATION_CHUNK_ROWS",
+    "VALUATION_ENTITY",
+    "generate_packing_list",
+    "generate_purchase_order",
+    "generate_report",
+    "indian_money",
+    "inventory_valuation",
+    "plain_quantity",
+    "render_inventory_valuation_xlsx",
+    "render_packing_list_pdf",
+    "render_purchase_order_pdf",
+    "render_report_xlsx",
+]

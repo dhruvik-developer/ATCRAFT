@@ -52,7 +52,7 @@ def vapid_keypair() -> ec.EllipticCurvePrivateKey:
             raise ValueError("VAPID private key must be a valid base64url P-256 scalar.")
     else:
         # ASSUMPTION: independent purpose derivation avoids another mandatory secret.
-        # Root-key rotation requires device re-subscription. docs/assumptions.md §C1-7.
+        # Root-key rotation requires device re-subscription. docs/assumptions.md §C1-13.
         digest = hmac.new(
             settings.credential_encryption_key.get_secret_value().encode(),
             b"web-push-vapid",
