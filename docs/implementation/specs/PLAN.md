@@ -22,20 +22,20 @@ Results live in `../trace/trace.json` (full evidence, gap and recommendation per
 | C | `C:/Project/Other/ATCRAFT-lanes/portals` | `lane/portals` | `atcraft_erp_lane_c` | `atcraft_erp_test_c` |
 | D | `C:/Project/Other/ATCRAFT-lanes/supply` | `lane/supply` | `atcraft_erp_lane_d` | `atcraft_erp_test_d` |
 
-Two build workflows run per round: lanes A+B in one, lanes C+D in the other. Each workflow is capped at 2 concurrent agents. The script lives at `../workflows/lane-build.js`; the integrator procedure is in `INTEGRATOR.md`.
+Build workflows run per round, two lanes per workflow (each workflow is capped at 2 concurrent agents on this 4-core box); lane E, added in round 2, runs in a third workflow. Later rounds move a package into lane E whenever one lane would otherwise run much longer than the rest. The script lives at `../workflows/lane-build.js`; the integrator procedure is in `INTEGRATOR.md`.
 
 ## Schedule (`→` = sequential steps inside a lane)
 
-| Round | Lane A | Lane B | Lane C | Lane D |
-|---|---|---|---|---|
-| R1 | A1 | B1 | C0 | — |
-| R2 | E1a → A2 | B2 → E4 | C1a → C1b | E8a |
-| R3 | A3 → D3 | B3a → D5 → E10a | C2a → C2b | B3b → E2 |
-| R4 | A4 → E7b | E5 → E7a | C3a → C3b | E3a → E1b |
-| R5 | A5 → D2 | B4 (incl. E11) | C4a → C4b | E3b → D1 |
-| R6 | E9 | E6a → E6b | E8b | D4 → B5 |
-| R7 | E10b → E12 | buffer / fixes | buffer / fixes | K01–K10 scenario e2e + fixes |
-| R8 | final integration: full suites, migrate/seed/demo, stack up, e2e, handbook rebuild, hooks, commit | | | |
+| Round | Lane A | Lane B | Lane C | Lane D | Lane E |
+|---|---|---|---|---|---|
+| R1 | A1 | B1 | C0 | — | — |
+| R2 | E1a → A2 | B2 | C1a → C1b | E8a | E4 |
+| R3 | A3 → D3 | B3a → D5 → E10a | C2a → C2b | B3b → E2 | (rebalance) |
+| R4 | A4 → E7b | E5 → E7a | C3a → C3b | E3a → E1b | (rebalance) |
+| R5 | A5 → D2 | B4 (incl. E11) | C4a → C4b | E3b → D1 | (rebalance) |
+| R6 | E9 | E6a → E6b | E8b | D4 → B5 | (rebalance) |
+| R7 | E10b → E12 | buffer / fixes | buffer / fixes | K01–K10 scenario e2e + fixes | buffer / fixes |
+| R8 | final integration: full suites, migrate/seed/demo, stack up, e2e, handbook rebuild, hooks, commit | | | | |
 
 Every implementation step is followed by an adversarial review-and-fix step in the same lane. After each round the integrator merges A, B, C and D into main, re-chains Alembic, reconciles CHECK lists, renumbers assumptions, regenerates the contract, verifies, migrates the dev DB, fast-forwards the lanes and re-clones the lane DBs.
 
@@ -47,3 +47,7 @@ Every implementation step is followed by an adversarial review-and-fix step in t
 - Round-1 carry-overs folded into E6a §8, E10a §6–7, E8a §2, C1a (portal invoice has no cost centre), A2 §16 (demo bank details), BRIEF (Select sentinel, typed fixtures, global schema names, handbook report count). Unowned gaps in BACKLOG.md for the R7 buffer lanes.
 - R1 integrated at f1fa6a2 (19:15-20:00); sweep fixes + traps fd90655. R2 launched ~20:25 on base fd90655.
 - R2 launched 20:25: wf_43bfafd9-7b0 (A: E1a full+review, A2 be/fe/review; B: B2 be/fe/review, E4 be/fe/review), wf_dff68a6c-22b (C: C1a be+review, C1b be+review; D: E8a be/fe/review).
+- R2 agents all died within 20 s on the Claude weekly usage limit (resets 00:30 IST); no worktree was changed.
+- 12 Oct 03:24: Codex preserved the plan in the repository (977dffd, `docs/implementation/`) and resumed R2 in lanes A–D. It committed C1a+C1b in lane C (383550c, 16:43, with `docs/implementation/lane-c-round2-checkpoint.md`) and left E1a+A2 (lane A), B2 (lane B) and E8a (lane D) uncommitted when its own limit stopped it at ~16:48. E4 was not started.
+- 12 Oct 16:50: Claude resumed. Orphaned lane servers stopped. The specs in `docs/implementation/specs` are now the single source; the session scratchpad copy is retired. Lane E (`lane/quality`, `atcraft_erp_lane_e`, ports 8750/4750) created from 977dffd for E4.
+- R2 continuation: A: resume E1a+A2 → review E1a → review A2; B: resume B2 → review B2; C: review C1a → review C1b; D: resume E8a → review E8a; E: E4 backend → frontend → review.

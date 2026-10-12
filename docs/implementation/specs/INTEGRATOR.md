@@ -8,8 +8,9 @@ You work in the **main tree** `C:/Project/Other/ATCRAFT` (branch `main`). The la
 | B | `C:/Project/Other/ATCRAFT-lanes/operations` | `lane/operations` |
 | C | `C:/Project/Other/ATCRAFT-lanes/portals` | `lane/portals` |
 | D | `C:/Project/Other/ATCRAFT-lanes/supply` | `lane/supply` |
+| E | `C:/Project/Other/ATCRAFT-lanes/quality` | `lane/quality` |
 
-Lane D exists from round 2. Wherever this procedure says "A then B then C", also do D after C (merge order A, B, C, D; re-chain migrations in that order; fast-forward and re-clone `atcraft_erp_lane_d` too). Lanes that had no work in a round have no new commits. Skip their merge, but still fast-forward them.
+Lane D exists from round 2 and lane E from round 2 (resumed). Wherever this procedure says "A then B then C", continue with D and then E (merge order A, B, C, D, E; re-chain migrations in that order; fast-forward and re-clone `atcraft_erp_lane_d` and `atcraft_erp_lane_e` too). Lanes that had no work in a round have no new commits. Skip their merge, but still fast-forward them.
 
 Read `BRIEF.md` (same folder) for the commands and rules; they apply here with paths in the main tree. The main tree's `.env` points at the real dev DB `atcraft_erp` and test DB `atcraft_erp_test`. Never install or remove dependencies. Never push. Never use `--no-verify`.
 
@@ -27,6 +28,8 @@ Merge each lane in turn, A then B then C:
 git merge --no-ff --no-edit lane/commercial
 git merge --no-ff --no-edit lane/operations
 git merge --no-ff --no-edit lane/portals
+git merge --no-ff --no-edit lane/supply
+git merge --no-ff --no-edit lane/quality
 ```
 
 Resolve conflicts properly after each merge before starting the next. Conflicts here are almost always **additive** (both sides appended to the same list, enum, catalogue, router, nav, `STATUS_VARIANTS`, `permissions.ts`, sweep scripts or docs): keep both sides, in a sensible order, with no duplicates.
@@ -47,7 +50,7 @@ Resolve conflicts properly after each merge before starting the next. Conflicts 
 1. Run `alembic heads`.
 2. If there are several heads, keep lane A's chain as is.
 3. Point the FIRST new migration of lane B at lane A's LAST new revision.
-4. Point lane C's first new migration at lane B's last.
+4. Point lane C's first new migration at lane B's last, then lane D's first at lane C's last, then lane E's first at lane D's last.
 5. In each re-pointed file, edit both `down_revision` and the docstring `Revises:` line. Revision ids never change.
 6. Re-run `alembic heads`; it must show 1 head.
 
@@ -139,7 +142,7 @@ Commit the reconciliation and fixes, for example "Integrate round N: ..." with a
 
 1. Migrate and refresh the real dev DB. From `apps/api` in the main tree, run `python -m alembic upgrade head`, then `python -m src.core.seed`, then `python -m src.core.demo_data`. Run demo_data twice; the second run must create nothing new or fail nothing.
 2. Fast-forward every lane: `git -C <lane> merge --ff-only main`. All three must succeed.
-3. Re-clone every lane DB from the migrated dev DB, so lane DBs never carry a chain that was later re-pointed. For x in a, b, c, d:
+3. Re-clone every lane DB from the migrated dev DB, so lane DBs never carry a chain that was later re-pointed. For x in a, b, c, d, e:
    ```
    DROP DATABASE IF EXISTS atcraft_erp_lane_x WITH (FORCE)
    CREATE DATABASE atcraft_erp_lane_x TEMPLATE atcraft_erp

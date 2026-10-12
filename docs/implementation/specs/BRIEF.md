@@ -1,13 +1,16 @@
 # ATCRAFT gap build: brief for every implementation and review agent
 
 You are one of several agents closing the gaps between the ATCRAFT manufacturing ERP and the
-client proposal. Work proceeds in **rounds**. In each round, three **lanes** (git worktrees)
+client proposal. Work proceeds in **rounds**. In each round, several **lanes** (git worktrees)
 build in parallel. After the round, an integrator merges them into `main`.
+
+The specs, reports and audit live in the main tree under `C:/Project/Other/ATCRAFT/docs/implementation/`. Always read them from
+that absolute path; your lane may hold an older copy, or none.
 
 Read this brief fully, then your work-package spec. The CLAUDE.md you were given is binding.
 It is the main tree's copy, and your lane holds the identical file.
 
-Background research lives in `C:/Users/evenmore/AppData/Local/Temp/claude/c--Project-Other-ATCRAFT/8bc524fc-bf14-4010-86ae-85cb988fc9b7/scratchpad/reports/`:
+Background research lives in `C:/Project/Other/ATCRAFT/docs/implementation/reports/`:
 
 | File | Area |
 |---|---|
@@ -33,10 +36,11 @@ Read the sections your spec names. **Where a spec and a report disagree, the spe
 | B, operations | `C:/Project/Other/ATCRAFT-lanes/operations` | `lane/operations` | `atcraft_erp_lane_b` | `atcraft_erp_test_b` |
 | C, portals | `C:/Project/Other/ATCRAFT-lanes/portals` | `lane/portals` | `atcraft_erp_lane_c` | `atcraft_erp_test_c` |
 | D, supply | `C:/Project/Other/ATCRAFT-lanes/supply` | `lane/supply` | `atcraft_erp_lane_d` | `atcraft_erp_test_d` |
+| E, quality | `C:/Project/Other/ATCRAFT-lanes/quality` | `lane/quality` | `atcraft_erp_lane_e` | `atcraft_erp_test_e` |
 
 Lane names are historical. Any lane may be assigned any work package; follow the spec, not the lane name. The "Lane X, round N" line at the top of a spec may be out of date: **your prompt names your real lane root and step, and that is authoritative.** `PLAN.md` holds the current schedule.
 
-**Traceability.** The client wants *every* item in the proposal PDF present. Many specs cite checklist IDs (for example `K08`, `P05.S8`). For each ID you are assigned, read its full audit entry (evidence, exact gap, recommendation) in `C:/Users/evenmore/AppData/Local/Temp/claude/c--Project-Other-ATCRAFT/8bc524fc-bf14-4010-86ae-85cb988fc9b7/scratchpad/trace/trace.json` (search for `"id": "K08"`). Read the cross-cutting defect notes in `../trace/notes.md` too. Your package is done only when each assigned ID is genuinely closed: backend, a usable screen, tests and docs. A recommendation in the audit is guidance; where your spec decides differently, the spec wins.
+**Traceability.** The client wants *every* item in the proposal PDF present. Many specs cite checklist IDs (for example `K08`, `P05.S8`). For each ID you are assigned, read its full audit entry (evidence, exact gap, recommendation) in `C:/Project/Other/ATCRAFT/docs/implementation/trace/trace.json` (search for `"id": "K08"`). Read the cross-cutting defect notes in `C:/Project/Other/ATCRAFT/docs/implementation/trace/notes.md` too. Your package is done only when each assigned ID is genuinely closed: backend, a usable screen, tests and docs. A recommendation in the audit is guidance; where your spec decides differently, the spec wins.
 
 - **Edit only files under YOUR lane root.** Use absolute paths under it for every Read, Edit, Write and Grep.
   - Never edit `C:/Project/Other/ATCRAFT` (the main tree, branch `main`) or another lane.
@@ -57,6 +61,20 @@ Lane names are historical. Any lane may be assigned any work package; follow the
 - Local greenlet is pinned to 3.2.4 because Windows Smart App Control blocks 3.5.5. Leave it alone.
 - **Hooks and Smart App Control.** Smart App Control also refused some pre-commit console launchers (`end-of-file-fixer.exe`, `check-json.exe`). That is fixed: `.pre-commit-config.yaml` runs every pre-commit-hooks hook as `python -m pre_commit_hooks.<module>` (main `44647f9`, also committed in every lane). Do **not** use `SKIP=` or `--no-verify`. If a tool fails with "An Application Control policy has blocked this file" (WinError 4551), stop and report it, naming the blocked file. Do not work around it.
 - **Exporter line endings.** On Windows the OpenAPI/Postman exporters write CRLF. The `mixed-line-ending` hook converts to LF, which is fine. Re-stage and commit again if the hook rewrote files.
+
+## 1a. Taking over interrupted work
+
+Usage limits have stopped agents mid-package more than once. Codex resumed round 2 after a Claude limit and was then itself stopped, leaving changes uncommitted in lanes A, B and D. When your step says the package was started by someone else, take it over this way:
+
+1. **Inventory before editing.** Read the spec, then every uncommitted change:
+   - `git status`, `git diff`, and each untracked file.
+   - Map each change to the spec's numbered decisions and test list: done, partial, missing or wrong.
+   - The previous agent's notes, if any, are a claim to check, not a fact.
+2. **Keep what is right.** Never discard the previous agent's work wholesale (`git checkout -- .`, `git stash`, `git clean`, deleting files you did not inspect). Fix what is wrong, finish what is missing.
+3. **Scratch is not a deliverable.** Untracked helpers such as `tmp/`, `*.tmp.mjs`, `browser-sweep.json`, `*.log` and ad-hoc scripts must not be committed. Delete each one once you have confirmed it is scratch.
+4. **Line endings.** Files the previous agent wrote may be CRLF; git normalises them to LF on add. If a diff looks like a whole-file rewrite, compare with `git diff --ignore-cr-at-eol` before judging it.
+5. **Prove it yourself.** Re-run every check the brief requires on the final tree. Nothing the previous agent reported counts as verification.
+6. Commit in logical commits, one package per commit where the changes separate cleanly.
 
 ## 2. Commands
 
@@ -85,7 +103,7 @@ After regenerating the contract, update the `"<N> requests in <F> folders"` sent
 | Tests | `npx vitest run <paths...> --no-file-parallelism --maxWorkers=1`. Run only the files you added or changed, plus close neighbours such as `src/app` when you touch routing. The full suite takes about 15 minutes; do not run it. |
 | Build (once, at the end of frontend work) | `npm run build`, which runs `tsc -b`, the Vite build and the **bundle budget**: each route chunk ≤ 20 KB gzipped, first load ≤ 210 KB. Split big dialogs into their own lazy chunks if a budget fails. |
 
-The machine has 4 cores and four lanes run at once. Be economical: run targeted tests, never whole suites except the unit suite once. Use timeouts on long commands.
+The machine has 4 cores and up to five lanes run at once. Be economical: run targeted tests, never whole suites except the unit suite once. Use timeouts on long commands.
 
 **Live check in your lane (frontend and review steps of any package with screens).** Green unit suites have hidden real runtime defects here, such as a list endpoint that answered 500 the first time it held a row. So look at your screens running:
 
@@ -99,6 +117,7 @@ The machine has 4 cores and four lanes run at once. Be economical: run targeted 
    | B | 8720 | 4720 |
    | C | 8730 | 4730 |
    | D | 8740 | 4740 |
+   | E | 8750 | 4750 |
 
    Never use 8000 or 5173; they belong to the main tree. Never start Docker.
 4. From `<LANE>/tests/e2e`, with `E2E_BASE_URL=http://127.0.0.1:<WEB_PORT>` and `E2E_API_URL=http://127.0.0.1:<API_PORT>/api/v1` set, run:
