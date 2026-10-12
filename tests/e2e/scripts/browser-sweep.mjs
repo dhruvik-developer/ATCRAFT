@@ -32,7 +32,7 @@ const STATIC_ROUTES = [
   '/procurement/requisitions', '/procurement/purchase-orders', '/procurement/goods-receipts',
   '/procurement/rfqs', '/procurement/quotations', '/procurement/purchase-returns',
   '/vendors', '/transporters',
-  '/production', '/production/work-orders', '/assembly', '/job-work',
+  '/production', '/production/work-orders', '/production/shift-roster', '/assembly', '/job-work',
   '/quality', '/quality/templates', '/packing', '/dispatch',
   '/finance', '/finance/vendor-invoices', '/finance/payments', '/finance/accounts',
   '/documents', '/reports', '/audit',

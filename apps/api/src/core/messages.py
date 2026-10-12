@@ -35,6 +35,13 @@ SESSION_ENDED_FOR_SECURITY = (
     "This session has been ended for security reasons. Please sign in again."
 )
 
+# --- the shift roster ---------------------------------------------------------
+
+#: A second PLANNED window for one operator or one machine. Raised by the roster
+#: service's own check, with every clash in ``details``, and by the integrity
+#: handler when a race reaches the EXCLUDE constraint first.
+SHIFT_ASSIGNMENT_OVERLAP = "That assignment overlaps another for the same operator or machine."
+
 # --- masters ------------------------------------------------------------------
 
 
@@ -58,6 +65,7 @@ __all__ = [
     "INVALID_MFA_CHALLENGE",
     "NO_FIELDS_TO_UPDATE",
     "SESSION_ENDED_FOR_SECURITY",
+    "SHIFT_ASSIGNMENT_OVERLAP",
     "date_before",
     "inactive_record",
 ]

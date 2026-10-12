@@ -14,6 +14,7 @@ Each builder flushes, so the returned instance has its identity, and takes
 from __future__ import annotations
 
 import uuid
+from datetime import time
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +32,7 @@ from src.modules.products.models import (
     UomCategory,
 )
 from src.modules.products.service import build_category_path
+from src.modules.routing.models import Machine, Shift, WorkCenter, shift_crosses_midnight
 from src.modules.users.models import User
 from src.modules.vendors.models import Vendor, VendorType
 from src.modules.warehouses.models import Warehouse, WarehouseType
@@ -270,6 +272,71 @@ async def seed_serial(
         item_id=item_id,
         warehouse_id=warehouse_id,
         serial_number=serial_number or f"SN-{_suffix()}",
+        **overrides,
+    )
+    session.add(record)
+    await session.flush()
+    return record
+
+
+async def seed_work_center(
+    session: AsyncSession,
+    *,
+    company_id: uuid.UUID,
+    code: str | None = None,
+    name: str = "Machining cell",
+    **overrides: Any,
+) -> WorkCenter:
+    """One work centre. ``routing`` tests build theirs through the service; this
+    one is for the modules that only need a cell to point at."""
+    record = WorkCenter(
+        company_id=company_id, code=code or f"WC-{_suffix()}", name=name, **overrides
+    )
+    session.add(record)
+    await session.flush()
+    return record
+
+
+async def seed_machine(
+    session: AsyncSession,
+    *,
+    company_id: uuid.UUID,
+    work_center_id: uuid.UUID,
+    code: str | None = None,
+    name: str = "CNC lathe",
+    **overrides: Any,
+) -> Machine:
+    """One machine, AVAILABLE and active, inside ``work_center_id``."""
+    record = Machine(
+        company_id=company_id,
+        work_center_id=work_center_id,
+        code=code or f"MC-{_suffix()}",
+        name=name,
+        **overrides,
+    )
+    session.add(record)
+    await session.flush()
+    return record
+
+
+async def seed_shift(
+    session: AsyncSession,
+    *,
+    company_id: uuid.UUID,
+    code: str | None = None,
+    name: str = "Morning",
+    start_time: time = time(6),
+    end_time: time = time(14),
+    **overrides: Any,
+) -> Shift:
+    """One shift. The midnight flag is derived from the times, as the service does."""
+    record = Shift(
+        company_id=company_id,
+        code=code or f"S{_suffix()}",
+        name=name,
+        start_time=start_time,
+        end_time=end_time,
+        crosses_midnight=shift_crosses_midnight(start_time, end_time),
         **overrides,
     )
     session.add(record)

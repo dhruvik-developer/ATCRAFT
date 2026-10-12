@@ -75,7 +75,7 @@ const STATIC_ROUTES = [
   '/vendors',
   '/transporters',
   '/production',
-  '/production/work-orders',
+  '/production/work-orders', '/production/shift-roster',
   '/assembly',
   '/job-work',
   '/quality',

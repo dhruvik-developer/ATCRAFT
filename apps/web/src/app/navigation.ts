@@ -210,6 +210,12 @@ export const navigation: NavSection[] = [
         badgeKey: 'productionInProgress',
       },
       {
+        label: 'Shift roster',
+        to: '/production/shift-roster',
+        icon: Cog,
+        permissions: [P.SHIFT_ROSTER_VIEW, P.SHIFT_VIEW],
+      },
+      {
         label: 'Assembly',
         to: '/assembly',
         icon: Hammer,

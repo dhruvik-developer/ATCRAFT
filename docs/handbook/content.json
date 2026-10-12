@@ -2562,7 +2562,7 @@
             "The costing is calculated by the system from the issues and bookings actually posted - material at what the movements were valued at, operations at the time actually clocked at the work centre's rate. The screen never re-adds them, so the figures always reconcile with the stock ledger.",
             "An operation with no rate behind it is flagged: its work centre carries no cost per hour, so the operation cost is an understatement rather than a complete figure."
           ],
-          "notes": "Three things to be careful about in the deck. First, the Record production dialog carries a line saying the first booking moves the order from material issued to in process. It does not - only the Start button does that, and the header's own confirmation text says so correctly. Do not repeat the dialog's wording. Second, backflushed components (issued automatically at completion rather than picked) exist in the system, and the kit list will label them, but the Release button on this screen never nominates any - so on orders released through the screen the kit list is always fully picked. Third, pressing Complete from this screen books no additional output and records no scrap; it finishes a job whose output was already booked shift by shift. The item and the bill of materials appear as links ('Open item master', 'View BOM') rather than as codes, because the order carries their identity but not their names."
+          "notes": "Three things to be careful about in the deck. First, the Record production dialog carries a line saying the first booking moves the order from material issued to in process. It does not - only the Start button does that, and the header's own confirmation text says so correctly. Do not repeat the dialog's wording. Second, backflushed components (issued automatically at completion rather than picked) exist in the system, and the kit list will label them, but the Release button on this screen never nominates any - so on orders released through the screen the kit list is always fully picked. Third, pressing Complete from this screen books no additional output and records no scrap; it finishes a job whose output was already booked shift by shift. The item and the bill of materials appear as links ('Open item master', 'View BOM') rather than as codes, because the order carries their identity but not their names. Shift selects use the company shift master. Operators come from the active internal directory; choose a work order for per-operation output or leave it blank for final output. Downtime-only bookings are accepted. Legacy shift codes remain visible read-only."
         },
         {
           "route": "/production/work-orders",
@@ -2636,7 +2636,7 @@
             "An operation that was completed but never clocked is costed at its planned setup plus run time; one that never happened is costed at nothing. Time that was actually clocked is charged as it was measured, including any downtime recorded against it - the machine was occupied by this job while it stood idle.",
             "The hourly rate is frozen onto the operation when the job is released, so a later change to the work centre's rate does not silently restate what an old job cost."
           ],
-          "notes": "There is no search box, because the underlying list does not offer one, and only Sequence, Status and Planned start can be sorted. There is no machine column in the grid - a row knows its machine but the grid would need one lookup per row to name it, so machines are resolved in the assignment dialog and in the machine filter instead. The load board carries no work centre names of its own; it borrows them from the work centre master, and shows 'Name unavailable' if that cannot be read. A cell with nothing on it disappears from the board rather than showing zeroes, which is worth saying out loud in the deck."
+          "notes": "There is no search box, because the underlying list does not offer one, and only Sequence, Status and Planned start can be sorted. There is no machine column in the grid - a row knows its machine but the grid would need one lookup per row to name it, so machines are resolved in the assignment dialog and in the machine filter instead. The load board carries no work centre names of its own; it borrows them from the work centre master, and shows 'Name unavailable' if that cannot be read. A cell with nothing on it disappears from the board rather than showing zeroes, which is worth saying out loud in the deck. Shift selects use the company shift master. Operators come from the active internal directory; choose a work order for per-operation output or leave it blank for final output. Downtime-only bookings are accepted. Legacy shift codes remain visible read-only."
         },
         {
           "route": "/assembly",
@@ -2788,6 +2788,43 @@
             "Only items flagged for job work on the item master, and still active, can be put on a line."
           ],
           "notes": "Two gaps worth flagging to whoever assembles the deck. First, there is no detail page for a job work order: the challans it travelled under, the history of lots received against it, and the issued-versus-received reconciliation report all exist in the system but have no screen. The order's lines are only visible inside the Issue and Receive dialogs. Second, the Receive dialog has no control for approving loss beyond the agreed allowance and no control for closing a line and writing off the shortfall - so a receipt where the vendor lost more than the allowance will be refused on this screen with a message saying it needs approval, and there is nowhere here to give it. Also: the row menu offers 'Issue to vendor' on orders that have already been issued, but the system only accepts an issue against an approved order, so a second challan raised from that menu will be refused. Vendor names come from the vendor master and fall back to a dash; items are shown as the first eight characters of their identifier, since the list carries no item code."
+        },
+        {
+          "route": "/production/shift-roster",
+          "title": "Shift roster",
+          "purpose": "Plan operators against local shift windows, cells and machines. Day board shows each cell and machine under active shifts; Week shows operators across seven days; Shifts maintains immutable codes and wall-clock times.",
+          "whoUses": "Production supervisors and plant managers plan staffing; planners read it.",
+          "keyActions": [
+            {
+              "action": "Assign or bulk assign",
+              "how": "Day board, choose date and work centre, then Assign or Bulk assign",
+              "note": "Bulk planning is atomic. Every overlap is named; none of the batch is saved on conflict."
+            },
+            {
+              "action": "Copy a day",
+              "how": "Copy day, source date and target date range",
+              "note": "Limit the work centre when a copy exceeds the bounded batch."
+            },
+            {
+              "action": "Manage shifts",
+              "how": "Shifts tab, New shift or Edit; activate, deactivate or retire with a reason",
+              "note": "The company timezone supplies the local times. Future planned assignments must be cancelled before re-timing or retirement."
+            }
+          ],
+          "flow": [
+            "Maintain shifts with their start/end times, break and ordering.",
+            "Choose the local start date, cell, optional machine and internal operator.",
+            "Check the day or week board. Cancel with a reason when the plan changes.",
+            "Choose a shift on work-order assignment or production booking. The booking pre-fills from the operator roster and can differ from the plan."
+          ],
+          "rules": [
+            "Night shifts belong to the date they start. Adjacent windows do not overlap.",
+            "An operator cannot hold overlapping planned windows; each machine permits one operator at a time. Use a cell assignment when tending several machines.",
+            "Maintenance and breakdown warn rather than refuse a staffing plan.",
+            "Legacy production shift text is shown read-only and retained."
+          ],
+          "permission": "shift_roster.view opens the board; shift_roster.manage plans and cancels. shift.view opens the shift register; shift.manage changes the master. Administrators must grant new rights to existing non-system roles.",
+          "notes": "Rostered capacity is displayed beside calendar capacity in Machine utilisation. Daily production by shift reports output, rejections, downtime and yield."
         }
       ]
     },
@@ -3678,7 +3715,7 @@
             },
             {
               "action": "Charge a bill, or one of its lines, to a cost centre",
-              "how": "Vendor invoices → Record invoice (or Amend) → the Cost centre box under the bill's details, and the cost centre box on any line that belongs somewhere else",
+              "how": "Vendor invoices \u00e2\u2020\u2019 Record invoice (or Amend) \u00e2\u2020\u2019 the Cost centre box under the bill's details, and the cost centre box on any line that belongs somewhere else",
               "note": "Shown only to someone who may see cost centres. A line left on \"As the invoice\" follows the bill's cost centre, decided when the bill is approved; approval then posts the purchase cost to the ledger split by cost centre, which is what the Cost centre statement reads. A bill whose cost centre was switched off after it was keyed is refused at approval until it is changed."
             },
             {
@@ -4026,7 +4063,7 @@
             "Read the table, page through it, or use the search box to find a row.",
             "If the result was too large to show, wait for the download strip and press Download to open the spreadsheet."
           ],
-          "notes": "Twenty reports exist and every one of them is listed above \u2014 this list is worth its own page in the deck. Two things to be accurate about. First, the six filters are the same on every report, so the screen offers a Customer filter on a machine-utilisation report where it does nothing; that is a known simplification, not a fault. Second, the filter set has no category picker even though the system would accept one, and the Status filter expects the exact status word rather than offering a dropdown. The management dashboard tiles (open orders, stock value, QC pending and so on) are a separate screen, not part of this one. The packing list PDF is produced from the Packing screen, not from here.",
+          "notes": "Twenty-one reports exist and every one of them is listed above \u2014 this list is worth its own page in the deck. Two things to be accurate about. First, the six filters are the same on every report, so the screen offers a Customer filter on a machine-utilisation report where it does nothing; that is a known simplification, not a fault. Second, the filter set has no category picker even though the system would accept one, and the Status filter expects the exact status word rather than offering a dropdown. The management dashboard tiles (open orders, stock value, QC pending and so on) are a separate screen, not part of this one. The packing list PDF is produced from the Packing screen, not from here.",
           "permission": "Needs the right to view reports \u2014 that one right opens every report in the catalogue. Producing a large report as a downloadable file additionally needs the right to export reports; without it, a report that returns too many rows is refused with a message asking you to narrow the dates or filters instead.",
           "rules": [
             "A report period may cover at most 366 days. An unbounded query over years of history is how a reporting screen takes the whole system down, so the limit is enforced rather than suggested.",

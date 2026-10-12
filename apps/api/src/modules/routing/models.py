@@ -1,6 +1,6 @@
 """Production routing masters: where work happens, on what machine, in what order.
 
-Four modelling decisions in this file are load-bearing.
+Five modelling decisions in this file are load-bearing.
 
 **A routing is versioned like a BOM, not edited like a form.** ``(company_id,
 item_id, version)`` is unique and an approved routing is never rewritten: a
@@ -29,12 +29,22 @@ has no foreign key: a routing is a *template*, and the vendor recorded on it is 
 planning default rather than a commitment. The binding vendor is chosen on the
 job-work order itself. Same reasoning the inventory ledger uses for
 ``reference_id`` (database.md section 4.2).
+
+**A roster window is a snapshot, and PostgreSQL arbitrates overlaps.**
+``shift_assignments`` stores the UTC instants a planned shift occupies, computed
+in Python from the shift's wall-clock times in the company timezone when the row
+is written. They are plain columns, never generated ones: a server-computed
+column is expired after every UPDATE and the next read becomes a lazy load that
+raises ``MissingGreenlet`` (CLAUDE.md). Two partial ``EXCLUDE USING gist``
+constraints then refuse a second PLANNED window for the same operator, or for the
+same machine, that overlaps the first - the service checks the same thing first so
+a person is told *which* rows clash, and the constraint is what a race meets.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from enum import StrEnum
 
@@ -49,13 +59,19 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Time,
     UniqueConstraint,
+    column,
+    func,
+    literal_column,
     text,
 )
+from sqlalchemy.dialects.postgresql import ExcludeConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.models import TenantEntity, TenantMasterEntity
 from src.core.types import GUID, Money, Quantity
+from src.modules.inventory.models import StatusEnum
 
 #: Fallback shift length when a work centre has not stated one. Named rather
 #: than inlined because it is the divisor in the manufacture lead time MRP
@@ -433,13 +449,204 @@ class RoutingOperation(TenantEntity):
     )
 
 
+# -----------------------------------------------------------------------------
+# Shifts and the roster
+# -----------------------------------------------------------------------------
+
+#: Minutes in a calendar day: the longest a shift can be, and the bound on its
+#: break.
+MINUTES_PER_DAY = 1440
+
+
+def shift_crosses_midnight(start: time, end: time) -> bool:
+    """Whether a shift running from ``start`` to ``end`` ends on the next day.
+
+    Derived, never typed: ``22:00 -> 06:00`` can only mean the night shift, and an
+    end equal to the start is the one way to say "twenty-four hours". The column
+    stores the answer so SQL can read it, and the CHECK below keeps the two from
+    disagreeing.
+    """
+    return end <= start
+
+
+def shift_minutes(start: time, end: time) -> int:
+    """Length of a shift in minutes, from its wall-clock times.
+
+    ``06:00 -> 14:00`` is 480; ``22:00 -> 06:00`` is 480 too, because it crosses
+    midnight; ``06:00 -> 06:00`` is a full day. Seconds are refused on the way in,
+    so whole minutes are exact.
+    """
+    start_minute = start.hour * 60 + start.minute
+    end_minute = end.hour * 60 + end.minute
+    if shift_crosses_midnight(start, end):
+        return MINUTES_PER_DAY - start_minute + end_minute
+    return end_minute - start_minute
+
+
+class ShiftAssignmentStatus(StrEnum):
+    """Lifecycle of one roster row.
+
+    ``CANCELLED`` is terminal and the row is kept: the plan that was changed is
+    part of the history of who was expected where, and an EXCLUDE constraint that
+    only looks at PLANNED rows lets a cancelled window be planned again.
+    """
+
+    PLANNED = "PLANNED"
+    CANCELLED = "CANCELLED"
+
+
+class Shift(TenantMasterEntity):
+    """A named working window - "A 06:00-14:00", "Night 22:00-06:00".
+
+    The times are wall-clock times in ``companies.timezone``, not instants: a
+    morning shift starts at six o'clock local time on every date. The roster turns
+    them into instants for a given date when a row is planned (see
+    :class:`ShiftAssignment`).
+
+    The code is immutable once created and normalised on the way in, because it is
+    what production snapshots onto a work order and a booking - renaming the shift
+    is free, recoding it would make the history read differently from what was
+    recorded at the time.
+    """
+
+    __tablename__ = "shifts"
+
+    #: The same width as ``work_orders.shift`` and ``production_entries.shift``,
+    #: the snapshot columns that copy it.
+    code: Mapped[str] = mapped_column(String(16), nullable=False)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    start_time: Mapped[time] = mapped_column(Time, nullable=False)
+    end_time: Mapped[time] = mapped_column(Time, nullable=False)
+    #: See :func:`shift_crosses_midnight`. Stored for SQL, derived by the service.
+    crosses_midnight: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    #: Unpaid break inside the window. Reduces rostered capacity, never the window.
+    break_minutes: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    #: Display order on the roster board and in pickers: A, B, C before General.
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "code", name="uq_shifts_company_id_code"),
+        # The flag is a function of the times; a row where they disagree would
+        # schedule a night shift as a sixteen-hour negative window.
+        CheckConstraint(
+            "(crosses_midnight AND end_time <= start_time) "
+            "OR (NOT crosses_midnight AND end_time > start_time)",
+            name="midnight_flag_matches_times",
+        ),
+        CheckConstraint(
+            f"break_minutes >= 0 AND break_minutes < {MINUTES_PER_DAY}",
+            name="break_minutes_bounded",
+        ),
+        # The picker's query: active shifts in board order.
+        Index(
+            "ix_shifts_company_picker",
+            "company_id",
+            "sort_order",
+            postgresql_where=text("is_active AND deleted_at IS NULL"),
+        ),
+    )
+
+
+class ShiftAssignment(TenantEntity):
+    """One operator planned on one shift at one work centre, on one date.
+
+    ``machine_id`` is optional: NULL is a cell-level assignment - one operator
+    tending several machines - and a named machine must sit in the stated work
+    centre, which the composite foreign key below enforces exactly as it does for
+    routing operations and work orders.
+
+    ``roster_date`` is the LOCAL date the shift starts on, so the night shift from
+    22:00 on the 11th to 06:00 on the 12th belongs to the 11th. ``starts_at`` and
+    ``ends_at`` are that window as UTC instants, computed when the row is written
+    and never recomputed: a later change of the company timezone does not move a
+    plan somebody already made. Status-driven rather than soft-deleted - a
+    cancelled plan stays readable.
+    """
+
+    __tablename__ = "shift_assignments"
+
+    roster_date: Mapped[date] = mapped_column(Date, nullable=False)
+    shift_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("shifts.id", ondelete="RESTRICT"), nullable=False
+    )
+    work_center_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("work_centers.id", ondelete="RESTRICT"), nullable=False
+    )
+    machine_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+    #: RESTRICT rather than SET NULL: a plan without its person is not a plan.
+    operator_user_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[ShiftAssignmentStatus] = mapped_column(
+        StatusEnum(ShiftAssignmentStatus),
+        nullable=False,
+        default=ShiftAssignmentStatus.PLANNED,
+        server_default=ShiftAssignmentStatus.PLANNED,
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        # NULL machine_id skips the check under MATCH SIMPLE, which is what makes
+        # a cell-level assignment legal.
+        ForeignKeyConstraint(
+            ["machine_id", "work_center_id"],
+            ["machines.id", "machines.work_center_id"],
+            name="fk_shift_assignments_machine_id_work_center_id_machines",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint("ends_at > starts_at", name="window_ordered"),
+        # ASSUMPTION: an operator holds at most one PLANNED window at a time,
+        # across every cell. Half-open ranges, so A (06-14) and B (14-22)
+        # back to back do not clash. docs/assumptions.md §B2-2.
+        ExcludeConstraint(
+            (column("company_id"), "="),
+            (column("operator_user_id"), "="),
+            (func.tstzrange(column("starts_at"), column("ends_at"), literal_column("'[)'")), "&&"),
+            using="gist",
+            where=text("status = 'PLANNED'"),
+            name="ex_shift_assignments_operator_window",
+        ),
+        # ASSUMPTION: one operator per machine at a time; a helper is a second,
+        # cell-level row. docs/assumptions.md §B2-2.
+        ExcludeConstraint(
+            (column("company_id"), "="),
+            (column("machine_id"), "="),
+            (func.tstzrange(column("starts_at"), column("ends_at"), literal_column("'[)'")), "&&"),
+            using="gist",
+            where=text("status = 'PLANNED' AND machine_id IS NOT NULL"),
+            name="ex_shift_assignments_machine_window",
+        ),
+        # The day board: one date, a cell, its shifts.
+        Index(
+            "ix_shift_assignments_grid", "company_id", "roster_date", "work_center_id", "shift_id"
+        ),
+        # "Where is this person this week?" - the week view and the booking prefill.
+        Index("ix_shift_assignments_operator", "company_id", "operator_user_id", "starts_at"),
+    )
+
+
 __all__ = [
     "DEFAULT_WORKING_HOURS_PER_DAY",
     "MAX_WORKING_HOURS_PER_DAY",
+    "MINUTES_PER_DAY",
     "Machine",
     "MachineStatus",
     "Routing",
     "RoutingOperation",
     "RoutingStatus",
+    "Shift",
+    "ShiftAssignment",
+    "ShiftAssignmentStatus",
     "WorkCenter",
+    "shift_crosses_midnight",
+    "shift_minutes",
 ]

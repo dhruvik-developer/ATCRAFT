@@ -14,7 +14,7 @@
  */
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, isValid, parseISO } from 'date-fns'
 import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
@@ -37,9 +37,13 @@ import {
   SelectValue,
 } from '@/components/ui/overlays'
 import { Alert, AlertDescription, Input, Label, Textarea } from '@/components/ui/primitives'
-import { useUserOptions } from '@/hooks/use-user-options'
+import { useOperatorOptions } from '@/hooks/use-operator-options'
+import { ShiftSelect } from '@/features/shifts/shift-select'
+import { useAuth } from '@/features/auth/auth-context'
+import { P } from '@/lib/permissions'
+import type { SchemaOf } from '@/types/api'
 import { api } from '@/lib/api-client'
-import { REASON_MAX_LENGTH, SELECT_NONE } from '@/lib/constants'
+import { REASON_MAX_LENGTH, SELECT_NONE, LOOKUP_LIST_LIMIT } from '@/lib/constants'
 import { formatDateTime, humanise } from '@/lib/format'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { success } from '@/lib/messages'
@@ -48,7 +52,6 @@ import { toast } from '@/lib/toast'
 
 import {
   MAX_NOTES_LENGTH,
-  MAX_SHIFT_LENGTH,
   optionLabel,
   useWorkCentreMachineOptions,
   type WorkOrder,
@@ -56,7 +59,6 @@ import {
   type WorkOrderTransitionPayload,
   type WorkOrderUpdatePayload,
 } from './work-order-model'
-import type { OperatorOption } from './production-model'
 
 /** `datetime-local` wants `yyyy-MM-ddTHH:mm` in the browser's own zone. */
 function toDateTimeInput(value: string | null | undefined): string {
@@ -81,7 +83,7 @@ const assignSchema = z
   .object({
     operator_user_id: z.string(),
     machine_id: z.string(),
-    shift: z.string().trim().max(MAX_SHIFT_LENGTH, `At most ${MAX_SHIFT_LENGTH} characters`),
+    shift_id: z.string(),
     planned_start_at: z.string(),
     planned_end_at: z.string(),
     notes: z.string().trim().max(MAX_NOTES_LENGTH, `At most ${MAX_NOTES_LENGTH} characters`),
@@ -103,7 +105,7 @@ function formValues(workOrder: WorkOrder): AssignFormValues {
   return {
     operator_user_id: workOrder.operator_user_id ?? SELECT_NONE,
     machine_id: workOrder.machine_id ?? SELECT_NONE,
-    shift: workOrder.shift ?? '',
+    shift_id: workOrder.shift_id ?? SELECT_NONE,
     planned_start_at: toDateTimeInput(workOrder.planned_start_at),
     planned_end_at: toDateTimeInput(workOrder.planned_end_at),
     notes: workOrder.notes ?? '',
@@ -132,8 +134,8 @@ function buildChanges(workOrder: WorkOrder, values: AssignFormValues): WorkOrder
   const machine = values.machine_id === SELECT_NONE ? null : values.machine_id
   if (machine !== workOrder.machine_id) changes.machine_id = machine
 
-  const shift = orNull(values.shift)
-  if (shift !== workOrder.shift) changes.shift = shift
+  const shift = values.shift_id === SELECT_NONE ? null : values.shift_id
+  if (shift !== workOrder.shift_id) changes.shift_id = shift
 
   if (values.planned_start_at !== toDateTimeInput(workOrder.planned_start_at)) {
     changes.planned_start_at = fromDateTimeInput(values.planned_start_at)
@@ -166,6 +168,7 @@ export function WorkOrderAssignDialog({
   workOrder: WorkOrder | null
   onOpenChange: (open: boolean) => void
 }) {
+  const { can } = useAuth()
   const queryClient = useQueryClient()
 
   const {
@@ -174,6 +177,7 @@ export function WorkOrderAssignDialog({
     handleSubmit,
     reset,
     setError,
+    watch,
     formState: { errors },
   } = useForm<AssignFormValues>({
     resolver: zodResolver(assignSchema),
@@ -184,7 +188,40 @@ export function WorkOrderAssignDialog({
     if (workOrder) reset(formValues(workOrder))
   }, [workOrder, reset])
 
-  const operators = useUserOptions<OperatorOption>({ enabled: Boolean(workOrder) })
+  const operatorId = watch('operator_user_id')
+  const shiftId = watch('shift_id')
+  const rosterDate = workOrder?.planned_start_at
+    ? toDateTimeInput(workOrder.planned_start_at).slice(0, 10)
+    : format(new Date(), 'yyyy-MM-dd')
+  const roster = useQuery({
+    queryKey: [
+      ...queryKeys.routing.all,
+      'roster',
+      'assignment-hint',
+      workOrder?.id,
+      operatorId,
+      shiftId,
+      rosterDate,
+    ],
+    queryFn: () =>
+      api.getPage<SchemaOf<'ShiftAssignmentRead'>>('/routing/roster/assignments', {
+        params: {
+          date_from: rosterDate,
+          date_to: rosterDate,
+          work_center_id: workOrder?.work_center_id,
+          operator_user_id: operatorId,
+          shift_id: shiftId,
+          status: 'PLANNED',
+          limit: LOOKUP_LIST_LIMIT,
+          with_total: false,
+        },
+      }),
+    enabled:
+      Boolean(workOrder) &&
+      can(P.SHIFT_ROSTER_VIEW) &&
+      Boolean(operatorId && operatorId !== SELECT_NONE && shiftId && shiftId !== SELECT_NONE),
+  })
+  const operators = useOperatorOptions({ enabled: Boolean(workOrder) })
   const machines = useWorkCentreMachineOptions(workOrder?.work_center_id)
 
   const operatorRows = operators.data ?? []
@@ -315,16 +352,25 @@ export function WorkOrderAssignDialog({
 
             <div>
               <Label htmlFor="work-order-shift">Shift</Label>
-              <Input
-                id="work-order-shift"
-                {...register('shift')}
-                autoComplete="off"
-                maxLength={MAX_SHIFT_LENGTH}
-                placeholder="A"
-                className="mt-1.5"
-                aria-invalid={Boolean(errors.shift)}
+              <Controller
+                control={control}
+                name="shift_id"
+                render={({ field }) => (
+                  <ShiftSelect
+                    id="work-order-shift"
+                    value={field.value === SELECT_NONE ? null : field.value}
+                    onChange={(value) => field.onChange(value ?? SELECT_NONE)}
+                    enabled={Boolean(workOrder)}
+                    legacy={workOrder?.shift}
+                  />
+                )}
               />
-              <FieldError message={errors.shift?.message} />
+              <FieldError message={errors.shift_id?.message} />
+              {Boolean(roster.data?.data.length) && (
+                <p className="text-xs text-muted-foreground">
+                  Rostered for this cell on {rosterDate}.
+                </p>
+              )}
             </div>
 
             <div className="hidden sm:block" aria-hidden />

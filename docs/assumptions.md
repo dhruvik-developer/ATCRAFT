@@ -1392,6 +1392,102 @@ floor, `conversion_delivery_date` takes the vendor's lead time as a third input.
 
 ---
 
+## §B2-1. A shift in future use cannot be re-timed or retired
+
+**Assumed.** Future PLANNED assignments must be cancelled before changing times, breaks, deactivating or retiring a shift. Name and sort order changes do not change a window.
+
+**Why.** A plan must keep resolving to the window somebody assigned.
+
+**Where.** `routing.service.ShiftService._assert_off_the_roster`.
+
+**Impact if wrong.** Cancel the affected plan, then retire and replace the shift.
+
+---
+
+## §B2-2. One operator per machine and one window per operator
+
+**Assumed.** Overlapping PLANNED windows are refused for the same operator across all cells and for the same non-null machine. Cell-level assignments permit multi-machine tending.
+
+**Why.** Double-booking cannot be a usable staffing plan.
+
+**Where.** `routing.models.ShiftAssignment; routing.service.ShiftRosterService.plan`.
+
+**Impact if wrong.** Helpers need an explicit capacity or staffing model before the machine exclusion can change.
+
+---
+
+## §B2-3. Legacy shift text keeps its history
+
+**Assumed.** Existing shift text retains NULL shift_id. New inputs select a governed shift and snapshot its immutable code; clearing clears both.
+
+**Why.** Legacy codes carry no start or end times. Creating them would invent a rule.
+
+**Where.** `production.models; routing.service.require_shift`.
+
+**Impact if wrong.** An administrator-approved audited linking action can connect legacy codes to an established master later.
+
+---
+
+## §B2-4. The roster is advisory
+
+**Assumed.** Bookings and work-order assignments outside the selected operator/shift/cell/date roster warn and remain accepted.
+
+**Why.** A booking is an actual fact; refusal would hide production that happened.
+
+**Where.** `production.service.ROSTER_MISMATCH_WARNING; production dialogs`.
+
+**Impact if wrong.** Make enforcement a separately approved policy rather than altering historical bookings.
+
+---
+
+## §B2-5. The roster date is local and windows are snapshots
+
+**Assumed.** roster_date is the company-local date the shift starts. Times use companies.timezone; UTC start/end snapshots never move after a timezone change. Half-open windows admit back-to-back shifts.
+
+**Why.** A night shift belongs to its starting day and a changed timezone cannot rewrite the plan.
+
+**Where.** `routing.service.shift_window; routing.models.ShiftAssignment`.
+
+**Impact if wrong.** Timezone and daylight-saving policy changes need an explicit reviewed rescheduling operation.
+
+---
+
+## §B2-6. Shift codes are immutable
+
+**Assumed.** Codes are normalised, immutable and never reused after retirement.
+
+**Why.** Production rows preserve the code that identified their shift.
+
+**Where.** `routing.schemas.ShiftUpdate; uq_shifts_company_id_code`.
+
+**Impact if wrong.** Introduce separately audited aliases if the business needs code changes.
+
+---
+
+## §B2-7. Rostered capacity sits beside calendar capacity
+
+**Assumed.** Machine utilisation adds net PLANNED window minutes and busy/rostered percent. Existing calendar-days times working-hours capacity remains unchanged.
+
+**Why.** A new plan cannot silently restate existing capacity figures.
+
+**Where.** `reports.repository.machine_utilisation; reports.service._derive_machine_utilisation`.
+
+**Impact if wrong.** A holiday-aware calendar needs its own business policy and report denominator.
+
+---
+
+## §B2-8. Existing planning and costing keep their scheduling conventions
+
+**Assumed.** Routing run/setup minutes are chargeable; queue/move minutes are elapsed only. Work-centre working hours divide lead time, defaulting to eight. Work orders remain scheduled from the planned date in UTC, back-to-back, and calendar capacity includes every day.
+
+**Why.** This package adds staffing plans without rescheduling existing jobs or changing costing.
+
+**Where.** `routing.service.total_routing_minutes/resolve_working_hours_per_day; production.service.plan_work_orders; reports.service.available_minutes`.
+
+**Impact if wrong.** Holiday, minimum-rest and shift-aware job scheduling need a separately agreed calendar policy.
+
+---
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant
@@ -1419,3 +1515,5 @@ module is used in production:
    or the customer?
 7. **Partial dispatch.** May a sales-order line be dispatched in more than two
    instalments, and is there a minimum dispatch quantity?
+
+8. **Staffing policy.** Do operators need employee records without logins? Are helpers on one machine allowed? What holidays, weekly offs and minimum rest apply? Is a weekly publish/lock step required?

@@ -332,6 +332,31 @@ class ProductionEfficiencyRow(ReportRowBase):
     completed_on_time: bool = False
 
 
+class ShiftProductionRow(ReportRowBase):
+    """One date, shift, cell, machine and operator: what was booked.
+
+    ``shift`` is the code snapshot on the bookings - legacy typed text included -
+    and any of the cell, machine and operator may be empty on a booking that did
+    not name one.
+    """
+
+    entry_date: date
+    shift: str | None
+    work_center_id: uuid.UUID | None
+    work_center_code: str | None
+    machine_id: uuid.UUID | None
+    machine_code: str | None
+    operator_user_id: uuid.UUID | None
+    operator_name: str | None
+    employee_code: str | None
+    produced_quantity: Decimal
+    rejected_quantity: Decimal
+    downtime_minutes: Decimal
+    bookings: int
+    #: Good output over good plus rejected, as a percentage.
+    yield_percent: Decimal = Decimal("0")
+
+
 class MachineUtilisationRow(ReportRowBase):
     machine_id: uuid.UUID
     machine_code: str
@@ -343,6 +368,11 @@ class MachineUtilisationRow(ReportRowBase):
     downtime_minutes: Decimal
     completed_quantity: Decimal
     rejected_quantity: Decimal
+    #: Net minutes the roster planned on this machine in the period - its
+    #: PLANNED shift windows less their breaks.
+    rostered_minutes: Decimal = Decimal("0")
+    #: Busy minutes over rostered minutes. Zero when nothing was rostered.
+    rostered_utilisation_percent: Decimal = Decimal("0")
     available_minutes: Decimal = Decimal("0")
     utilisation_percent: Decimal = Decimal("0")
     downtime_percent: Decimal = Decimal("0")

@@ -26,7 +26,7 @@ from starlette.responses import JSONResponse
 from src.core.config import settings
 from src.core.errors import AppError, ErrorCode
 from src.core.logging import get_logger, get_request_id
-from src.core.messages import FIELDS_NEED_ATTENTION
+from src.core.messages import FIELDS_NEED_ATTENTION, SHIFT_ASSIGNMENT_OVERLAP
 
 log = get_logger("errors")
 
@@ -134,6 +134,7 @@ SQLSTATE_NOT_NULL_VIOLATION = "23502"
 SQLSTATE_FOREIGN_KEY_VIOLATION = "23503"
 SQLSTATE_UNIQUE_VIOLATION = "23505"
 SQLSTATE_CHECK_VIOLATION = "23514"
+SQLSTATE_EXCLUSION_VIOLATION = "23P01"
 
 _DUPLICATE = (ErrorCode.DUPLICATE_DOCUMENT, "A record with these details already exists.", 409)
 _REFERENCED_IN_USE = (
@@ -149,6 +150,13 @@ _CHECK_FAILED = (
 )
 _REQUIRED_MISSING = (ErrorCode.VALIDATION_ERROR, "A required value is missing.", 422)
 _GENERIC_CONFLICT = (ErrorCode.CONFLICT, "The operation conflicts with existing data.", 409)
+#: An EXCLUDE constraint refused an overlapping range. The roster's two are the
+#: ones a person can trigger - the service checks first, so reaching them means
+#: a concurrent request won the race - and they get the sentence that says what
+#: clashed. Any other exclusion keeps a neutral one rather than borrowing it.
+_ROSTER_EXCLUSION_PREFIX = "ex_shift_assignments_"
+_ROSTER_OVERLAP = (ErrorCode.CONFLICT, SHIFT_ASSIGNMENT_OVERLAP, 409)
+_OVERLAP = (ErrorCode.CONFLICT, "This overlaps an existing record for the same period.", 409)
 
 
 def _sqlstate(exc: BaseException) -> str | None:
@@ -187,6 +195,8 @@ def classify_integrity_error(exc: BaseException) -> tuple[ErrorCode, str, int]:
     lowered = raw.lower()
     sqlstate = _sqlstate(exc)
 
+    if sqlstate == SQLSTATE_EXCLUSION_VIOLATION:
+        return _ROSTER_OVERLAP if _ROSTER_EXCLUSION_PREFIX in lowered else _OVERLAP
     if sqlstate == SQLSTATE_UNIQUE_VIOLATION:
         return _DUPLICATE
     if sqlstate == SQLSTATE_FOREIGN_KEY_VIOLATION:

@@ -170,6 +170,7 @@ def entry_filters(
     operator_user_id: Annotated[uuid.UUID | None, Query()] = None,
     machine_id: Annotated[uuid.UUID | None, Query()] = None,
     shift: Annotated[str | None, Query(max_length=16)] = None,
+    shift_id: Annotated[uuid.UUID | None, Query()] = None,
     entry_from: Annotated[date | None, Query()] = None,
     entry_to: Annotated[date | None, Query()] = None,
     output_only: Annotated[
@@ -182,6 +183,7 @@ def entry_filters(
         operator_user_id=operator_user_id,
         machine_id=machine_id,
         shift=shift,
+        shift_id=shift_id,
         entry_from=entry_from,
         entry_to=entry_to,
         output_only=output_only,
@@ -194,6 +196,8 @@ def work_order_filters(
     work_center_id: Annotated[uuid.UUID | None, Query()] = None,
     machine_id: Annotated[uuid.UUID | None, Query()] = None,
     operator_user_id: Annotated[uuid.UUID | None, Query()] = None,
+    shift_id: Annotated[uuid.UUID | None, Query()] = None,
+    shift: Annotated[str | None, Query(max_length=16)] = None,
     open_only: Annotated[bool, Query()] = False,
 ) -> WorkOrderFilters:
     return WorkOrderFilters(
@@ -202,6 +206,8 @@ def work_order_filters(
         work_center_id=work_center_id,
         machine_id=machine_id,
         operator_user_id=operator_user_id,
+        shift_id=shift_id,
+        shift=shift,
         open_only=open_only,
     )
 
@@ -392,7 +398,10 @@ async def list_work_orders(
     summary="Assign or reschedule an operation",
     description=(
         "Operator, machine, shift and planned times. Quantities are never set here - "
-        "they only ever move through a production booking."
+        "they only ever move through a production booking. The shift is chosen from the "
+        "shift master by shift_id; its code is kept on the row as a snapshot. An operator "
+        "the shift roster does not plan on that shift is accepted with a warning in the "
+        "message - the roster is advisory."
     ),
     dependencies=[require_permission(Permission.WORK_ORDER_MANAGE)],
 )
@@ -402,10 +411,8 @@ async def update_work_order(
     session: DbSession,
     tenant: Tenant,
 ) -> ApiResponse[WorkOrderRead]:
-    work_order = await service.update_work_order(session, tenant, work_order_id, payload)
-    return ApiResponse[WorkOrderRead].ok(
-        WorkOrderRead.model_validate(work_order), f"{work_order.code} updated"
-    )
+    work_order, message = await service.assign_work_order(session, tenant, work_order_id, payload)
+    return ApiResponse[WorkOrderRead].ok(WorkOrderRead.model_validate(work_order), message)
 
 
 @router.post(

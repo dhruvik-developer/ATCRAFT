@@ -53,6 +53,7 @@ export const routeLoaders = {
   '/transporters': () => import('@/features/transporters/transporters-page'),
   '/production': () => import('@/features/production/production-page'),
   '/production/:orderId': () => import('@/features/production/production-detail-page'),
+  '/production/shift-roster': () => import('@/features/shifts/shift-roster-page'),
   '/production/work-orders': () => import('@/features/production/work-orders-page'),
   '/assembly': () => import('@/features/assembly/assembly-page'),
   '/job-work': () => import('@/features/job-work/job-work-page'),

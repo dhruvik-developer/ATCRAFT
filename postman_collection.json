@@ -13651,9 +13651,9 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_end_at\": \"2026-01-01T00:00:00Z\",\n  \"planned_start_at\": \"2026-01-01T00:00:00Z\",\n  \"shift\": \"\"\n}"
+              "raw": "{\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_end_at\": \"2026-01-01T00:00:00Z\",\n  \"planned_start_at\": \"2026-01-01T00:00:00Z\",\n  \"shift_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
-            "description": "Operator, machine, shift and planned times. Quantities are never set here - they only ever move through a production booking.",
+            "description": "Operator, machine, shift and planned times. Quantities are never set here - they only ever move through a production booking. The shift is chosen from the shift master by shift_id; its code is kept on the row as a snapshot. An operator the shift roster does not plan on that shift is accepted with a warning in the message - the roster is advisory.",
             "header": [
               {
                 "key": "Content-Type",
@@ -13693,7 +13693,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"downtime_minutes\": 0,\n  \"entry_date\": \"2026-01-01\",\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"produced_quantity\": 0,\n  \"rejected_quantity\": 0,\n  \"rejection_reason\": \"\",\n  \"shift\": \"\",\n  \"work_order_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"downtime_minutes\": 0,\n  \"entry_date\": \"2026-01-01\",\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"produced_quantity\": 0,\n  \"rejected_quantity\": 0,\n  \"rejection_reason\": \"\",\n  \"shift_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"work_order_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "A booking against the **last** operation of the routing - or against a job with no routing at all - posts the `PRODUCTION_RECEIPT` into the output warehouse. A booking at an intermediate operation moves that operation's completed quantity and receives no stock. Rejected output is counted but never received: it was never good stock.",
             "header": [
@@ -13772,6 +13772,12 @@
                   "disabled": true,
                   "key": "shift",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "shift_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
                   "description": "",
@@ -13970,7 +13976,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"actual_end_date\": \"2026-01-01\",\n  \"entry_date\": \"2026-01-01\",\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"note\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"produced_quantity\": 0,\n  \"rejected_quantity\": 0,\n  \"rejection_reason\": \"\",\n  \"scrap_quantity\": 0,\n  \"shift\": \"\",\n  \"work_order_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"actual_end_date\": \"2026-01-01\",\n  \"entry_date\": \"2026-01-01\",\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"note\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"produced_quantity\": 0,\n  \"rejected_quantity\": 0,\n  \"rejection_reason\": \"\",\n  \"scrap_quantity\": 0,\n  \"shift_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"work_order_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Books the final output when a quantity is given - which posts the `PRODUCTION_RECEIPT` into the output warehouse - backflushes any automatic components in proportion to what was actually made, and accounts the issued material as consumed. Consumption posts nothing: the stock left the store when it was issued.",
             "header": [
@@ -14495,6 +14501,18 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "shift_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "shift",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "open_only",
                   "value": "False"
                 },
@@ -14635,6 +14653,18 @@
                   "disabled": true,
                   "key": "operator_user_id",
                   "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "shift_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "shift",
+                  "value": ""
                 },
                 {
                   "description": "",
@@ -18082,6 +18112,106 @@
           }
         },
         {
+          "name": "Daily production by shift",
+          "request": {
+            "description": "Bookings grouped by business date, shift code, work centre, machine and operator, with produced, rejected, downtime, the number of bookings and the yield. The shift is the code recorded on each booking, so bookings made before the shift master existed appear under the code that was typed.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "shift-production"
+              ],
+              "query": [
+                {
+                  "description": "First day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "item_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": ""
+                },
+                {
+                  "description": "Age threshold in days, where the report uses one",
+                  "disabled": true,
+                  "key": "min_days",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/reports/shift-production?"
+            }
+          }
+        },
+        {
           "name": "Dead stock",
           "request": {
             "description": "Positions holding stock that has not moved for longer than the ageing threshold. Defaults to 180 days; override with `min_days`.",
@@ -18680,7 +18810,7 @@
         {
           "name": "Machine utilisation",
           "request": {
-            "description": "Busy minutes against available capacity per machine. Capacity is the work centre's working hours across the calendar days of the period - the system holds no shift calendar, so no weekend or holiday assumption is made.",
+            "description": "Busy minutes against available capacity per machine. Capacity is the work centre's working hours across the calendar days of the period - the system makes no weekend or holiday assumption. Separate rostered minutes and rostered utilisation use planned shift assignments less their breaks.",
             "header": [],
             "method": "GET",
             "url": {
@@ -20259,6 +20389,50 @@
           }
         },
         {
+          "name": "Cancel a planned assignment",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Irreversible. The row is kept, CANCELLED, with the reason in the audit trail.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "roster",
+                "assignments",
+                ":assignment_id",
+                "cancel"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/roster/assignments/{assignment_id}/cancel",
+              "variable": [
+                {
+                  "description": "assignment_id of the record",
+                  "key": "assignment_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Change a machine's availability",
           "request": {
             "body": {
@@ -20298,6 +20472,42 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Copy one day's plan onto a range of dates",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"source_date\": \"2026-01-01\",\n  \"target_from\": \"2026-01-01\",\n  \"target_to\": \"2026-01-01\",\n  \"work_center_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Plans every PLANNED row of the source day again on each target date, all or nothing and at most 200 rows; narrow by work centre to split a larger copy.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "roster",
+                "assignments",
+                "copy"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/roster/assignments/copy"
             }
           }
         },
@@ -20367,6 +20577,40 @@
                 "routing"
               ],
               "raw": "{{base_url}}/api/v1/routing"
+            }
+          }
+        },
+        {
+          "name": "Create a shift",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"code\": \"\",\n  \"end_time\": \"\",\n  \"name\": \"\",\n  \"start_time\": \"\",\n  \"break_minutes\": 0,\n  \"is_active\": true,\n  \"sort_order\": 0\n}"
+            },
+            "description": "Times are wall-clock times in the company timezone. Whether the shift crosses midnight is derived from them: an end at or before the start ends the next day.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "shifts"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/shifts"
             }
           }
         },
@@ -20586,6 +20830,34 @@
           }
         },
         {
+          "name": "Fetch one shift",
+          "request": {
+            "description": "Fetch one shift",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "shifts",
+                ":shift_id"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/shifts/{shift_id}",
+              "variable": [
+                {
+                  "description": "shift_id of the record",
+                  "key": "shift_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Fetch one work centre",
           "request": {
             "description": "Fetch one work centre",
@@ -20702,6 +20974,89 @@
           }
         },
         {
+          "name": "List roster assignments",
+          "request": {
+            "description": "A date range is required, at most 31 days with both ends included. Rows carry the shift, work centre, machine and operator labels, so the roster is readable without the user or machine registers.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "roster",
+                "assignments"
+              ],
+              "query": [
+                {
+                  "description": "First roster date, inclusive",
+                  "disabled": false,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last roster date, inclusive - at most 31 days counting both ends",
+                  "disabled": false,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "shift_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "machine_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "operator_user_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": "PLANNED"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/routing/roster/assignments?"
+            }
+          }
+        },
+        {
           "name": "List routings",
           "request": {
             "description": "List routings",
@@ -20785,6 +21140,117 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/routing?"
+            }
+          }
+        },
+        {
+          "name": "List shifts",
+          "request": {
+            "description": "Readable with any right that fills a shift picker - the shift register's own, the roster's, a work-order reader's or a booking clerk's - so production roles need no new grant to choose a shift.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "shifts"
+              ],
+              "query": [
+                {
+                  "description": "Code or name",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "is_active",
+                  "value": "False"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                },
+                {
+                  "description": "Field to sort by",
+                  "disabled": true,
+                  "key": "sort_by",
+                  "value": ""
+                },
+                {
+                  "description": "Sort direction",
+                  "disabled": true,
+                  "key": "sort_dir",
+                  "value": "asc"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/routing/shifts?"
+            }
+          }
+        },
+        {
+          "name": "List the people who can be planned or booked",
+          "request": {
+            "description": "Active internal accounts only - no vendor-portal users - with the name and employee code a picker shows. Readable by roster readers, work-order managers and booking clerks, none of whom hold user.view.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "roster",
+                "operators"
+              ],
+              "query": [
+                {
+                  "description": "Name or employee code",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/routing/roster/operators?"
             }
           }
         },
@@ -20914,6 +21380,163 @@
           }
         },
         {
+          "name": "Offer a shift on pickers again",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Offer a shift on pickers again",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "shifts",
+                ":shift_id",
+                "activate"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/shifts/{shift_id}/activate",
+              "variable": [
+                {
+                  "description": "shift_id of the record",
+                  "key": "shift_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Plan an operator on a shift",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"roster_date\": \"2026-01-01\",\n  \"shift_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"work_center_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\"\n}"
+            },
+            "description": "Refused when the operator, or the named machine, already has a planned window that overlaps this one; every clash is listed in details.conflicts. A machine under maintenance or broken down is planned with a warning in the message.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "roster",
+                "assignments"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/roster/assignments"
+            }
+          }
+        },
+        {
+          "name": "Plan several assignments at once",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"assignments\": [\n    {\n      \"operator_user_id\": {},\n      \"roster_date\": {},\n      \"shift_id\": {},\n      \"work_center_id\": {},\n      \"machine_id\": {},\n      \"notes\": {}\n    }\n  ]\n}"
+            },
+            "description": "All or nothing, at most 200 rows. Overlaps inside the request are refused as well as overlaps with what is already planned.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "roster",
+                "assignments",
+                "bulk"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/roster/assignments/bulk"
+            }
+          }
+        },
+        {
+          "name": "Re-staff a planned assignment",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"work_center_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Another operator, work centre or machine, or new notes. The date and the shift are fixed - cancel and plan again to move the window. Re-validated like a new row; the row never conflicts with itself.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "roster",
+                "assignments",
+                ":assignment_id"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/roster/assignments/{assignment_id}",
+              "variable": [
+                {
+                  "description": "assignment_id of the record",
+                  "key": "assignment_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Retire a machine",
           "request": {
             "description": "Refused while a draft or approved routing operation still names it.",
@@ -20992,6 +21615,42 @@
           }
         },
         {
+          "name": "Retire a shift",
+          "request": {
+            "description": "Refused while planned roster assignments from today onwards use it. Work orders and bookings keep the shift's code.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "shifts",
+                ":shift_id"
+              ],
+              "query": [
+                {
+                  "description": "Why the record is being retired",
+                  "disabled": false,
+                  "key": "reason",
+                  "value": ""
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/routing/shifts/{shift_id}?",
+              "variable": [
+                {
+                  "description": "shift_id of the record",
+                  "key": "shift_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Retire a work centre",
           "request": {
             "description": "Refused while machines still sit in the centre or a draft or approved routing still plans work there.",
@@ -21021,6 +21680,49 @@
                 {
                   "description": "work_center_id of the record",
                   "key": "work_center_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Stop offering a shift",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Refused while planned roster assignments from today onwards use it.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "shifts",
+                ":shift_id",
+                "deactivate"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/shifts/{shift_id}/deactivate",
+              "variable": [
+                {
+                  "description": "shift_id of the record",
+                  "key": "shift_id",
                   "value": ""
                 }
               ]
@@ -21175,6 +21877,48 @@
                 {
                   "description": "machine_id of the record",
                   "key": "machine_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update a shift",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"break_minutes\": 0,\n  \"end_time\": \"\",\n  \"name\": \"\",\n  \"sort_order\": 0,\n  \"start_time\": \"\"\n}"
+            },
+            "description": "The code is fixed once created. New times or a new break are refused while planned roster assignments from today onwards still use the shift.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "shifts",
+                ":shift_id"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/shifts/{shift_id}",
+              "variable": [
+                {
+                  "description": "shift_id of the record",
+                  "key": "shift_id",
                   "value": ""
                 }
               ]

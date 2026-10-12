@@ -38,7 +38,6 @@ from src.modules.production.models import (
 PositiveQuantity = Annotated[Decimal, Field(gt=0, max_digits=18, decimal_places=4)]
 NonNegativeQuantity = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
 Priority = Annotated[int, Field(ge=0, le=9999)]
-ShiftField = Annotated[str, Field(min_length=1, max_length=16)]
 ReasonField = Annotated[str, Field(min_length=3, max_length=255)]
 
 #: A single issue document with more lines than this is a data-entry accident,
@@ -174,7 +173,9 @@ class WorkOrderRead(BaseModel):
     work_center_id: uuid.UUID
     machine_id: uuid.UUID | None
     operator_user_id: uuid.UUID | None
+    #: The shift's code as it was when assigned - or legacy typed text.
     shift: str | None
+    shift_id: uuid.UUID | None
     planned_start_at: datetime | None
     planned_end_at: datetime | None
     actual_start_at: datetime | None
@@ -267,7 +268,8 @@ class CompleteRequest(BaseModel):
     #: never posts a movement, because rejected output is never received.
     scrap_quantity: NonNegativeQuantity = Decimal("0")
     entry_date: date | None = None
-    shift: ShiftField | None = None
+    #: The shift of the final booking, when one is made; see ``ProductionEntryCreate``.
+    shift_id: uuid.UUID | None = None
     work_order_id: uuid.UUID | None = None
     operator_user_id: uuid.UUID | None = None
     machine_id: uuid.UUID | None = None
@@ -517,7 +519,8 @@ class ProductionEntryCreate(BaseModel):
 
     work_order_id: uuid.UUID | None = None
     entry_date: date | None = None
-    shift: ShiftField | None = None
+    #: The shift worked, from the master; its code is snapshotted onto the entry.
+    shift_id: uuid.UUID | None = None
     operator_user_id: uuid.UUID | None = None
     machine_id: uuid.UUID | None = None
     produced_quantity: Annotated[
@@ -552,6 +555,7 @@ class ProductionEntryRead(BaseModel):
     work_order_id: uuid.UUID | None
     entry_date: date
     shift: str | None
+    shift_id: uuid.UUID | None
     operator_user_id: uuid.UUID | None
     machine_id: uuid.UUID | None
     produced_quantity: Decimal
@@ -579,6 +583,7 @@ class ProductionEntryFilters(BaseModel):
     operator_user_id: uuid.UUID | None = None
     machine_id: uuid.UUID | None = None
     shift: str | None = Field(default=None, max_length=16)
+    shift_id: uuid.UUID | None = None
     entry_from: date | None = None
     entry_to: date | None = None
     output_only: bool = False
@@ -596,7 +601,9 @@ class WorkOrderUpdate(BaseModel):
 
     operator_user_id: uuid.UUID | None = None
     machine_id: uuid.UUID | None = None
-    shift: ShiftField | None = None
+    #: A shift from the master, active when chosen; null clears it and its code
+    #: snapshot together. Replaces the free-text ``shift`` this form used to take.
+    shift_id: uuid.UUID | None = None
     planned_start_at: datetime | None = None
     planned_end_at: datetime | None = None
     notes: str | None = Field(default=None, max_length=4000)
@@ -619,6 +626,9 @@ class WorkOrderFilters(BaseModel):
     work_center_id: uuid.UUID | None = None
     machine_id: uuid.UUID | None = None
     operator_user_id: uuid.UUID | None = None
+    shift_id: uuid.UUID | None = None
+    #: Exact match on the code snapshot - also finds rows typed before the shift master.
+    shift: str | None = Field(default=None, max_length=16)
     open_only: bool = False
 
 

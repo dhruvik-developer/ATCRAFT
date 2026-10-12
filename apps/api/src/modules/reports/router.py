@@ -72,6 +72,7 @@ from src.modules.reports.schemas import (
     ReportJobRead,
     ReportPeriod,
     SalesOrderStatusRow,
+    ShiftProductionRow,
     StockAvailabilityRow,
     VendorDispatchHistoryRow,
     VendorPerformanceRow,
@@ -562,7 +563,8 @@ async def production_efficiency(
     description=(
         "Busy minutes against available capacity per machine. Capacity is the work "
         "centre's working hours across the calendar days of the period - the system "
-        "holds no shift calendar, so no weekend or holiday assumption is made."
+        "makes no weekend or holiday assumption. Separate rostered minutes and "
+        "rostered utilisation use planned shift assignments less their breaks."
     ),
     responses=REPORT_RESPONSES,
     dependencies=[require_permission(Permission.REPORT_VIEW)],
@@ -578,6 +580,33 @@ async def machine_utilisation(
 ) -> PaginatedResponse[MachineUtilisationRow] | AcceptedJobResponse:
     return await _run(
         session, tenant, principal, response, ReportKey.MACHINE_UTILISATION, period, filters, page
+    )
+
+
+@router.get(
+    "/shift-production",
+    response_model=None,
+    summary="Daily production by shift",
+    description=(
+        "Bookings grouped by business date, shift code, work centre, machine and "
+        "operator, with produced, rejected, downtime, the number of bookings and the "
+        "yield. The shift is the code recorded on each booking, so bookings made before "
+        "the shift master existed appear under the code that was typed."
+    ),
+    responses=REPORT_RESPONSES,
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def shift_production(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[ShiftProductionRow] | AcceptedJobResponse:
+    return await _run(
+        session, tenant, principal, response, ReportKey.SHIFT_PRODUCTION, period, filters, page
     )
 
 

@@ -25,7 +25,7 @@ CI and the pre-push hook run the same three checks `contract-check` runs.
 
 ### Using the Postman collection
 
-Import `postman_collection.json` (Postman v2.1 format, 516 requests in 27
+Import `postman_collection.json` (Postman v2.1 format, 531 requests in 27
 folders, one per tag). Then:
 
 1. Set the `base_url` variable if it is not `http://127.0.0.1:8000/api/v1`.
@@ -388,7 +388,7 @@ download. No endpoint holds a connection open for a calculation.
 /inventory            balances · ledger · transfers · adjustments · physical counts
 /allocation           reservations · release · available-to-promise · reallocation
 /bom                  BOMs · versions · approve · explode · cost · where-used
-/routing              routings · operations · work centres · machines
+/routing              routings · operations · work centres · machines · shifts · roster
 /sales                sales orders · confirm · allocation status · demand summary
 /mrp                  runs · suggestions · convert · shortage report
 /procurement          requisitions · close · convert to POs by category · RFQs · quotations
@@ -408,3 +408,27 @@ download. No endpoint holds a connection open for a calculation.
 ```
 
 Full request and response schemas are generated from the code at `/docs`.
+
+
+## Shift planning
+
+The Routing & Work Centers folder includes `/routing/shifts` CRUD,
+`/{id}/activate`, `/{id}/deactivate` and retirement with a reason. Read pickers
+accept `shift.view`, `shift_roster.view`, `work_order.view` or
+`production_entry.create`; writes require `shift.manage`.
+
+`/routing/roster/assignments` lists a required inclusive `date_from`/`date_to`
+range of at most 31 days, with optional shift/cell/machine/operator/status filters.
+POST creates one assignment; `/bulk` and `/copy` create an atomic bounded batch;
+PATCH edits an assignment; `/{id}/cancel` requires a reason. These use
+`shift_roster.view` / `shift_roster.manage`. `/routing/roster/operators` offers
+active internal users to roster readers, work-order managers and booking staff.
+SQLSTATE 23P01 is translated to an explicit overlap 409; friendly validation
+reports all conflicting windows. Production assignment and booking inputs now
+use `shift_id`; outputs retain the read-only shift code.
+
+`/reports/shift-production` provides daily production by shift. Machine
+utilisation adds rostered minutes and utilisation without changing its calendar
+capacity. Both need `report.view`. Existing deployed non-system roles require an
+administrator to grant the new shift/roster rights; the migration grants only
+ADMIN and SUPER_ADMIN. New role presets include the appropriate shop-floor rights.

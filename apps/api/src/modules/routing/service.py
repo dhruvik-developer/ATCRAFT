@@ -30,11 +30,13 @@ permission to the catalogue and change the two transitions below.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
-from datetime import date
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass, replace
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import ROUND_CEILING, Decimal
 from enum import StrEnum
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,10 +49,11 @@ from src.core.errors import (
     DuplicateError,
     ErrorCode,
     NotFoundError,
+    ValidationError,
 )
 from src.core.logging import get_logger
-from src.core.messages import NO_FIELDS_TO_UPDATE
-from src.core.pagination import PageParams, SortParams
+from src.core.messages import NO_FIELDS_TO_UPDATE, SHIFT_ASSIGNMENT_OVERLAP, inactive_record
+from src.core.pagination import PageParams, SortParams, paginate
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
@@ -65,22 +68,35 @@ from src.modules.routing.models import (
     Routing,
     RoutingOperation,
     RoutingStatus,
+    Shift,
+    ShiftAssignment,
+    ShiftAssignmentStatus,
     WorkCenter,
+    shift_crosses_midnight,
+    shift_minutes,
 )
 from src.modules.routing.repository import (
+    OPERATOR_ENTITY,
+    SHIFT_ASSIGNMENT_ENTITY,
+    SHIFT_ENTITY,
     WORK_CENTER_ENTITY,
+    CompanyZoneRepository,
     CostedOperation,
     CostedRouting,
     ItemLookupRepository,
     MachineInfo,
     MachineRepository,
+    RosterOperatorRepository,
     RoutingItemInfo,
     RoutingOperationRepository,
     RoutingRepository,
+    ShiftAssignmentRepository,
+    ShiftRepository,
     WorkCenterRates,
     WorkCenterRepository,
 )
 from src.modules.routing.schemas import (
+    MAX_ROSTER_BULK,
     CopyAsNewVersionRequest,
     LeadTimeRead,
     MachineCreate,
@@ -89,6 +105,7 @@ from src.modules.routing.schemas import (
     MachineStatusChange,
     MachineUpdate,
     OperationCostRead,
+    RosterOperatorRead,
     RoutingCostRead,
     RoutingCreate,
     RoutingDetail,
@@ -97,10 +114,20 @@ from src.modules.routing.schemas import (
     RoutingOperationRead,
     RoutingSummary,
     RoutingUpdate,
+    ShiftAssignmentCreate,
+    ShiftAssignmentRead,
+    ShiftAssignmentUpdate,
+    ShiftCreate,
+    ShiftFilters,
+    ShiftRead,
+    ShiftRosterCopyRequest,
+    ShiftRosterFilters,
+    ShiftUpdate,
     WorkCenterCreate,
     WorkCenterFilters,
     WorkCenterRead,
     WorkCenterUpdate,
+    break_problem,
 )
 
 log = get_logger(__name__)
@@ -108,6 +135,14 @@ log = get_logger(__name__)
 AUDIT_WORK_CENTER = "work_center"
 AUDIT_MACHINE = "machine"
 AUDIT_ROUTING = "routing"
+AUDIT_SHIFT = "shift"
+AUDIT_SHIFT_ASSIGNMENT = "shift_assignment"
+
+#: The advisory-lock key every roster write takes first - and every retirement
+#: or move that asks "is this still on the roster?", so the answer cannot change
+#: between the question and the write. Per company, not per cell: one operator
+#: can be planned in any cell, so two cells' writes can conflict.
+ROSTER_LOCK = "shift_roster"
 
 MINUTES_PER_HOUR = Decimal("60")
 
@@ -152,6 +187,29 @@ _ROUTING_AUDITED_FIELDS = [
     "is_default",
     "effective_from",
     "effective_to",
+    "notes",
+]
+
+_SHIFT_AUDITED_FIELDS = [
+    "code",
+    "name",
+    "start_time",
+    "end_time",
+    "crosses_midnight",
+    "break_minutes",
+    "sort_order",
+    "is_active",
+]
+
+_ASSIGNMENT_AUDITED_FIELDS = [
+    "roster_date",
+    "shift_id",
+    "work_center_id",
+    "machine_id",
+    "operator_user_id",
+    "starts_at",
+    "ends_at",
+    "status",
     "notes",
 ]
 
@@ -326,6 +384,61 @@ ROUTING_LIFECYCLE: StateMachine[RoutingStatus] = StateMachine(
         ),
     ),
     terminal=frozenset({RoutingStatus.OBSOLETE}),
+)
+
+
+SHIFT_LIFECYCLE: StateMachine[MasterLifecycleState] = StateMachine(
+    entity=SHIFT_ENTITY,
+    initial=MasterLifecycleState.ACTIVE,
+    transitions=(
+        Transition(
+            MasterLifecycleState.ACTIVE,
+            MasterLifecycleState.INACTIVE,
+            permission=Permission.SHIFT_MANAGE,
+            label="Deactivate",
+        ),
+        Transition(
+            MasterLifecycleState.INACTIVE,
+            MasterLifecycleState.ACTIVE,
+            permission=Permission.SHIFT_MANAGE,
+            label="Activate",
+        ),
+        Transition(
+            MasterLifecycleState.ACTIVE,
+            MasterLifecycleState.ARCHIVED,
+            permission=Permission.SHIFT_MANAGE,
+            label="Retire",
+            is_irreversible=True,
+        ),
+        Transition(
+            MasterLifecycleState.INACTIVE,
+            MasterLifecycleState.ARCHIVED,
+            permission=Permission.SHIFT_MANAGE,
+            label="Retire",
+            is_irreversible=True,
+        ),
+    ),
+    # No restore, unlike a work centre: a retired shift's code is immutable and
+    # already on history, so "we need it back" is answered by a new shift.
+    terminal=frozenset({MasterLifecycleState.ARCHIVED}),
+)
+
+
+SHIFT_ASSIGNMENT_FLOW: StateMachine[ShiftAssignmentStatus] = StateMachine(
+    entity=SHIFT_ASSIGNMENT_ENTITY,
+    initial=ShiftAssignmentStatus.PLANNED,
+    transitions=(
+        # A cancelled plan is kept and never revived: planning the window again
+        # is a new row, so the history shows the change of mind.
+        Transition(
+            ShiftAssignmentStatus.PLANNED,
+            ShiftAssignmentStatus.CANCELLED,
+            permission=Permission.SHIFT_ROSTER_MANAGE,
+            label="Cancel",
+            is_irreversible=True,
+        ),
+    ),
+    terminal=frozenset({ShiftAssignmentStatus.CANCELLED}),
 )
 
 
@@ -570,6 +683,88 @@ def referenced_in_use(message: str, **details: Any) -> BusinessRuleError:
     )
 
 
+class ShiftTimes(Protocol):
+    """What a window calculation reads off a shift.
+
+    A protocol for the same reason :class:`OperationTimings` is one: the ORM row
+    and a test's stub both satisfy it, and the calculation cannot write back.
+    """
+
+    @property
+    def start_time(self) -> time: ...
+
+    @property
+    def end_time(self) -> time: ...
+
+    @property
+    def break_minutes(self) -> int: ...
+
+
+def net_shift_minutes(shift: ShiftTimes) -> int:
+    """Working minutes in one shift: its length less its break.
+
+    What rostered capacity counts. The break stays inside the window - the
+    operator is still on the floor and the window still blocks a second plan.
+    """
+    return shift_minutes(shift.start_time, shift.end_time) - shift.break_minutes
+
+
+def local_date(moment: datetime, zone: ZoneInfo) -> date:
+    """The calendar date a UTC instant falls on where the company is."""
+    return moment.astimezone(zone).date()
+
+
+def shift_window(
+    roster_date: date, shift: ShiftTimes, zone: ZoneInfo | str
+) -> tuple[datetime, datetime]:
+    """The UTC instants one shift occupies when it starts on ``roster_date``.
+
+    ASSUMPTION: ``roster_date`` is the LOCAL date the shift starts on, and the
+    shift's times are wall-clock times in the company timezone; a shift that
+    crosses midnight ends on the next local date. So the night shift 22:00-06:00
+    planned on 11 October in Asia/Kolkata runs from 16:30 UTC on the 11th to
+    00:30 UTC on the 12th. docs/assumptions.md §B2-5.
+
+    A local time that a daylight-saving change skips or repeats resolves as
+    Python's ``zoneinfo`` resolves it (the first occurrence); India observes
+    none, which is the case this was written for.
+    """
+    tz = zone if isinstance(zone, ZoneInfo) else resolve_zone(zone)
+    starts = datetime.combine(roster_date, shift.start_time, tzinfo=tz)
+    end_date = roster_date
+    if shift_crosses_midnight(shift.start_time, shift.end_time):
+        end_date = roster_date + timedelta(days=1)
+    ends = datetime.combine(end_date, shift.end_time, tzinfo=tz)
+    return starts.astimezone(UTC), ends.astimezone(UTC)
+
+
+def windows_overlap(first: tuple[datetime, datetime], second: tuple[datetime, datetime]) -> bool:
+    """Whether two half-open ``[start, end)`` windows share any instant.
+
+    Half-open is the point: A (06:00-14:00) and B (14:00-22:00) are back to back,
+    not overlapping, exactly as the ``'[)'`` ranges of the EXCLUDE constraints
+    read them.
+    """
+    return first[0] < second[1] and second[0] < first[1]
+
+
+def resolve_zone(name: str) -> ZoneInfo:
+    """The company's timezone, or a refusal a person can act on.
+
+    The organisation schema validates the name when it is saved, but only where
+    a tz database is installed; a name this server cannot resolve must not
+    surface on the shop floor as a 500.
+    """
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise BusinessRuleError(
+            f"The company timezone '{name}' is not known to this server, so shift times "
+            "cannot be placed on the calendar. Correct it in the organisation settings.",
+            details={"timezone": name},
+        ) from exc
+
+
 # -----------------------------------------------------------------------------
 # Work centres
 # -----------------------------------------------------------------------------
@@ -723,6 +918,14 @@ class WorkCenterService:
                     work_center_code=work_center.code,
                 )
 
+            centre_id = work_center.id
+            await _assert_off_the_roster(
+                self.session,
+                self.tenant,
+                label=f"Work centre {work_center.code}",
+                planned_from=lambda day: self.repo.used_by_live_roster(centre_id, from_date=day),
+                action="retired",
+            )
             code = work_center.code
             await record_status_change(
                 self.session,
@@ -832,6 +1035,7 @@ class MachineService:
 
             new_work_center = changes.get("work_center_id")
             if new_work_center is not None and new_work_center != machine.work_center_id:
+                await self._assert_not_on_roster_history(machine)
                 await self._assert_work_center_usable(new_work_center)
                 # Moving a machine between centres would break the composite
                 # foreign key on every operation that names it there, so the
@@ -883,6 +1087,7 @@ class MachineService:
             if payload.next_maintenance_date is not None:
                 machine.next_maintenance_date = payload.next_maintenance_date
             if payload.status is MachineStatus.RETIRED:
+                await self._assert_off_the_roster(machine, "retired")
                 # A retired machine leaves the selectable master list too, so a
                 # routing cannot be pointed at it tomorrow.
                 machine.is_active = False
@@ -924,6 +1129,7 @@ class MachineService:
                     machine_code=machine.code,
                 )
 
+            await self._assert_off_the_roster(machine, "retired")
             code = machine.code
             machine.status = MachineStatus.RETIRED
             machine.is_active = False
@@ -948,6 +1154,33 @@ class MachineService:
             raise DuplicateError(
                 f"Machine code '{code}' is already used in this company.",
                 details={"code": code},
+            )
+
+    async def _assert_off_the_roster(self, machine: Machine, action: str) -> None:
+        machine_id = machine.id
+        await _assert_off_the_roster(
+            self.session,
+            self.tenant,
+            label=f"Machine {machine.code}",
+            planned_from=lambda day: self.repo.used_by_live_roster(machine_id, from_date=day),
+            action=action,
+        )
+
+    async def _assert_not_on_roster_history(self, machine: Machine) -> None:
+        """Refuse to move a machine any roster row names, past or cancelled included.
+
+        Those rows record the machine at its current centre, and the composite
+        foreign key keeps them true - so the move would fail in the database with a
+        message nobody could act on. The roster lock is taken first so no plan can
+        be added between this answer and the move.
+        """
+        await advisory_xact_lock(self.session, ROSTER_LOCK, self.tenant.company_id)
+        if await self.repo.named_on_roster(machine.id):
+            raise referenced_in_use(
+                f"Machine {machine.code} appears on the shift roster at its current work "
+                "centre and cannot be moved: the roster history would no longer match. "
+                "Retire it and add the machine to the other centre as a new one.",
+                machine_code=machine.code,
             )
 
     async def _assert_work_center_usable(self, work_center_id: uuid.UUID) -> None:
@@ -1589,6 +1822,668 @@ def _detail(routing: Routing, operations: Sequence[RoutingOperation]) -> Routing
 
 
 # -----------------------------------------------------------------------------
+# Shifts and the roster
+# -----------------------------------------------------------------------------
+
+
+async def company_zone(session: AsyncSession, tenant: TenantContext) -> ZoneInfo:
+    """The timezone the company's shift times are read in."""
+    return resolve_zone(await CompanyZoneRepository(session, tenant).timezone())
+
+
+async def company_today(session: AsyncSession, tenant: TenantContext) -> date:
+    """Today's date where the company is.
+
+    ASSUMPTION: "from today" on the roster means the company-local date, because
+    roster dates are local dates. The UTC date in India is still yesterday until
+    05:30, and a probe keyed on it would treat this morning's shift as already
+    worked. docs/assumptions.md §B2-5.
+    """
+    return local_date(utcnow(), await company_zone(session, tenant))
+
+
+async def _assert_off_the_roster(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    label: str,
+    planned_from: Callable[[date], Awaitable[bool]],
+    action: str,
+    advice: str = "Cancel those assignments first, or plan them elsewhere.",
+) -> None:
+    """Refuse to retire, move or re-time something a future plan still names.
+
+    The roster lock is taken first, so no plan can be written between this
+    answer and the caller's own write - the write path takes the same lock before
+    it reads the asset it validates.
+    """
+    await advisory_xact_lock(session, ROSTER_LOCK, tenant.company_id)
+    from_date = await company_today(session, tenant)
+    if await planned_from(from_date):
+        raise referenced_in_use(
+            f"{label} is on the shift roster on or after {from_date.isoformat()} and cannot be "
+            f"{action}. {advice}",
+            label=label,
+            from_date=from_date.isoformat(),
+        )
+
+
+def shift_lifecycle_state(shift: Shift) -> MasterLifecycleState:
+    """Derive the lifecycle state of a shift from its flags, as for a work centre."""
+    if shift.deleted_at is not None:
+        return MasterLifecycleState.ARCHIVED
+    return MasterLifecycleState.ACTIVE if shift.is_active else MasterLifecycleState.INACTIVE
+
+
+class ShiftService:
+    """The shift master. One instance per request."""
+
+    def __init__(self, session: AsyncSession, tenant: TenantContext) -> None:
+        self.session = session
+        self.tenant = tenant
+        self.repo = ShiftRepository(session, tenant)
+
+    # --- reads --------------------------------------------------------------
+
+    async def list_shifts(
+        self, filters: ShiftFilters, params: PageParams, sort: SortParams
+    ) -> tuple[list[ShiftRead], OffsetPagination]:
+        rows, pagination = await paginate(
+            self.session, self.repo.build_list_stmt(filters, sort), params
+        )
+        return [ShiftRead.model_validate(row) for row in rows], pagination
+
+    async def get_shift(self, shift_id: uuid.UUID) -> ShiftRead:
+        return ShiftRead.model_validate(await self.repo.get_or_404(shift_id))
+
+    # --- writes -------------------------------------------------------------
+
+    async def create_shift(self, payload: ShiftCreate) -> ShiftRead:
+        async with transaction(self.session):
+            if await self.repo.code_taken(payload.code):
+                raise DuplicateError(
+                    f"Shift code '{payload.code}' is already used in this company.",
+                    details={"code": payload.code},
+                )
+            shift = Shift(
+                **payload.model_dump(),
+                crosses_midnight=shift_crosses_midnight(payload.start_time, payload.end_time),
+            )
+            self.repo.add(shift)
+            await self.session.flush()
+
+            await record_audit(
+                self.session,
+                company_id=self.tenant.company_id,
+                action=AuditAction.CREATE,
+                entity_type=AUDIT_SHIFT,
+                entity_id=shift.id,
+                entity_code=shift.code,
+                summary=f"Created shift {shift.code} ({shift.name})",
+                user_id=self.tenant.user_id,
+                new_values=snapshot(shift, _SHIFT_AUDITED_FIELDS),
+            )
+
+        return ShiftRead.model_validate(shift)
+
+    async def update_shift(self, shift_id: uuid.UUID, payload: ShiftUpdate) -> ShiftRead:
+        changes = payload.model_dump(exclude_unset=True)
+        if not changes:
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
+
+        async with transaction(self.session):
+            shift = await self.repo.get_or_404(shift_id)
+            before = snapshot(shift, _SHIFT_AUDITED_FIELDS)
+
+            start = changes.get("start_time", shift.start_time)
+            end = changes.get("end_time", shift.end_time)
+            pause = changes.get("break_minutes", shift.break_minutes)
+            problem = break_problem(start, end, pause)
+            if problem:
+                raise ValidationError(problem, details={"fields": {"break_minutes": [problem]}})
+
+            # ASSUMPTION: a shift that future plans name is not re-timed under
+            # them - their windows were fixed when they were planned, and a break
+            # changes the capacity they count. Renaming and re-ordering are free.
+            # docs/assumptions.md §B2-1.
+            if (start, end, pause) != (shift.start_time, shift.end_time, shift.break_minutes):
+                await self._assert_off_the_roster(
+                    shift,
+                    "re-timed",
+                    advice=(
+                        "To change the times of a shift in use, create a new shift, move the "
+                        "plan onto it and retire this one."
+                    ),
+                )
+
+            for field, value in changes.items():
+                setattr(shift, field, value)
+            shift.crosses_midnight = shift_crosses_midnight(shift.start_time, shift.end_time)
+            self.repo.touch(shift)
+            await self.session.flush()
+
+            await record_audit(
+                self.session,
+                company_id=self.tenant.company_id,
+                action=AuditAction.UPDATE,
+                entity_type=AUDIT_SHIFT,
+                entity_id=shift.id,
+                entity_code=shift.code,
+                summary=f"Updated shift {shift.code}",
+                user_id=self.tenant.user_id,
+                old_values=before,
+                new_values=snapshot(shift, _SHIFT_AUDITED_FIELDS),
+            )
+
+        return ShiftRead.model_validate(shift)
+
+    async def set_active(self, shift_id: uuid.UUID, *, active: bool, reason: str) -> ShiftRead:
+        """Offer a shift on pickers again, or stop offering it."""
+        target = MasterLifecycleState.ACTIVE if active else MasterLifecycleState.INACTIVE
+
+        async with transaction(self.session):
+            shift = await self.repo.get_or_404(shift_id)
+            current = shift_lifecycle_state(shift)
+            SHIFT_LIFECYCLE.assert_transition(current, target)
+            if not active:
+                await self._assert_off_the_roster(shift, "deactivated")
+
+            shift.is_active = active
+            self.repo.touch(shift)
+            await self.session.flush()
+
+            await record_status_change(
+                self.session,
+                company_id=self.tenant.company_id,
+                entity_type=AUDIT_SHIFT,
+                entity_id=shift.id,
+                entity_code=shift.code,
+                from_status=str(current),
+                to_status=str(target),
+                user_id=self.tenant.user_id,
+                reason=reason,
+            )
+
+        return ShiftRead.model_validate(shift)
+
+    async def retire_shift(self, shift_id: uuid.UUID, *, reason: str) -> None:
+        """Soft-delete a shift no future plan names. Its code stays on history."""
+        async with transaction(self.session):
+            shift = await self.repo.get_or_404(shift_id)
+            current = shift_lifecycle_state(shift)
+            SHIFT_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
+            await self._assert_off_the_roster(shift, "retired")
+
+            await record_status_change(
+                self.session,
+                company_id=self.tenant.company_id,
+                entity_type=AUDIT_SHIFT,
+                entity_id=shift.id,
+                entity_code=shift.code,
+                from_status=str(current),
+                to_status=str(MasterLifecycleState.ARCHIVED),
+                user_id=self.tenant.user_id,
+                action=AuditAction.DELETE,
+                reason=reason,
+            )
+            shift.is_active = False
+            await self.repo.soft_delete(shift)
+
+    async def _assert_off_the_roster(
+        self, shift: Shift, action: str, *, advice: str | None = None
+    ) -> None:
+        shift_id = shift.id
+        await _assert_off_the_roster(
+            self.session,
+            self.tenant,
+            label=f"Shift {shift.code}",
+            planned_from=lambda day: self.repo.used_by_live_roster(shift_id, from_date=day),
+            action=action,
+            **({"advice": advice} if advice else {}),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PlannedWindow:
+    """One validated assignment about to be written, with the labels a clash prints."""
+
+    index: int
+    roster_date: date
+    shift_id: uuid.UUID
+    shift_code: str
+    work_center_id: uuid.UUID
+    work_center_code: str
+    machine_id: uuid.UUID | None
+    machine_code: str | None
+    operator_user_id: uuid.UUID
+    operator_name: str
+    starts_at: datetime
+    ends_at: datetime
+    notes: str | None
+
+
+def _where(roster_date: date, shift_code: str, work_center_code: str) -> str:
+    return f"shift {shift_code} at {work_center_code} on {roster_date.isoformat()}"
+
+
+def _clashes(
+    window: PlannedWindow,
+    *,
+    operator_user_id: uuid.UUID,
+    machine_id: uuid.UUID | None,
+    elsewhere: str,
+    conflicting_assignment_id: uuid.UUID | None,
+) -> list[dict[str, Any]]:
+    """Every resource ``window`` shares with one overlapping plan, as a named clash."""
+    clashes: list[tuple[str, str]] = []
+    if window.operator_user_id == operator_user_id:
+        clashes.append(("operator", f"{window.operator_name} is already planned on {elsewhere}."))
+    if window.machine_id is not None and window.machine_id == machine_id:
+        clashes.append(
+            ("machine", f"Machine {window.machine_code} is already staffed on {elsewhere}.")
+        )
+    return [
+        {
+            "resource": resource,
+            "index": window.index,
+            "roster_date": window.roster_date.isoformat(),
+            "shift_code": window.shift_code,
+            "work_center_code": window.work_center_code,
+            "machine_code": window.machine_code,
+            "operator_name": window.operator_name,
+            "conflicting_assignment_id": (
+                str(conflicting_assignment_id) if conflicting_assignment_id else None
+            ),
+            "message": message,
+        }
+        for resource, message in clashes
+    ]
+
+
+def _with_warnings(message: str, warnings: Sequence[str]) -> str:
+    return f"{message} Warning: {' '.join(warnings)}" if warnings else message
+
+
+class ShiftRosterService:
+    """Who is planned where, on which shift. One instance per request.
+
+    Every write - one row, a bulk, a copied day, a re-staffing - takes the roster
+    lock, validates the whole request in one batch of reads, checks every window
+    against PLANNED rows in one query, and then writes. The EXCLUDE constraints
+    are the backstop for anything that slips past; the checks here exist so the
+    refusal names each clash.
+    """
+
+    def __init__(self, session: AsyncSession, tenant: TenantContext) -> None:
+        self.session = session
+        self.tenant = tenant
+        self.repo = ShiftAssignmentRepository(session, tenant)
+        self.shifts = ShiftRepository(session, tenant)
+        self.work_centers = WorkCenterRepository(session, tenant)
+        self.machines = MachineRepository(session, tenant)
+        self.operators = RosterOperatorRepository(session, tenant)
+
+    # --- reads --------------------------------------------------------------
+
+    async def list_assignments(
+        self, filters: ShiftRosterFilters, params: PageParams
+    ) -> tuple[list[ShiftAssignmentRead], OffsetPagination]:
+        return await self.repo.page(filters, params)
+
+    async def list_operators(
+        self, search: str | None, params: PageParams
+    ) -> tuple[list[RosterOperatorRead], OffsetPagination]:
+        rows, pagination = await self.operators.page(search, params)
+        return [RosterOperatorRead.model_validate(row) for row in rows], pagination
+
+    # --- writes -------------------------------------------------------------
+
+    async def plan(
+        self, payloads: Sequence[ShiftAssignmentCreate]
+    ) -> tuple[list[ShiftAssignmentRead], str]:
+        """Write assignments all together or not at all.
+
+        Returns the rows written and the response message, which carries any
+        warning - a machine under maintenance is planned, and said so.
+        """
+        if not payloads:
+            raise BusinessRuleError("There is nothing to plan.")
+        if len(payloads) > MAX_ROSTER_BULK:
+            raise BusinessRuleError(
+                f"At most {MAX_ROSTER_BULK} assignments are planned at once.",
+                details={"requested": len(payloads), "limit": MAX_ROSTER_BULK},
+            )
+
+        async with transaction(self.session):
+            await advisory_xact_lock(self.session, ROSTER_LOCK, self.tenant.company_id)
+            windows, warnings = await self._validate(payloads)
+            await self._assert_no_overlaps(windows)
+
+            rows = [
+                ShiftAssignment(
+                    roster_date=window.roster_date,
+                    shift_id=window.shift_id,
+                    work_center_id=window.work_center_id,
+                    machine_id=window.machine_id,
+                    operator_user_id=window.operator_user_id,
+                    starts_at=window.starts_at,
+                    ends_at=window.ends_at,
+                    status=ShiftAssignmentStatus.PLANNED,
+                    notes=window.notes,
+                )
+                for window in windows
+            ]
+            for row in rows:
+                self.repo.add(row)
+            await self.session.flush()
+
+            # One flush for the whole request's audit rows, as the inventory
+            # posting loop does: each record_audit only stages its row.
+            for row, window in zip(rows, windows, strict=True):
+                await record_audit(
+                    self.session,
+                    company_id=self.tenant.company_id,
+                    action=AuditAction.CREATE,
+                    entity_type=AUDIT_SHIFT_ASSIGNMENT,
+                    entity_id=row.id,
+                    entity_code=f"{window.roster_date.isoformat()} {window.shift_code}",
+                    summary=(
+                        f"Planned {window.operator_name} on "
+                        f"{_where(window.roster_date, window.shift_code, window.work_center_code)}"
+                    ),
+                    user_id=self.tenant.user_id,
+                    new_values=snapshot(row, _ASSIGNMENT_AUDITED_FIELDS),
+                    flush=False,
+                )
+            await self.session.flush()
+            written = await self.repo.reads([row.id for row in rows])
+
+        noun = "assignment" if len(written) == 1 else "assignments"
+        return written, _with_warnings(f"{len(written)} {noun} planned.", warnings)
+
+    async def restaff(
+        self, assignment_id: uuid.UUID, payload: ShiftAssignmentUpdate
+    ) -> tuple[ShiftAssignmentRead, str]:
+        """Change who, where or the notes of a planned row; the window stays.
+
+        Re-validated exactly like a new row, and checked for overlaps against
+        everything except itself.
+        """
+        changes = payload.model_dump(exclude_unset=True)
+        if not changes:
+            raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
+
+        async with transaction(self.session):
+            await advisory_xact_lock(self.session, ROSTER_LOCK, self.tenant.company_id)
+            row = await self.repo.get_or_404(assignment_id)
+            current = ShiftAssignmentStatus(row.status)
+            if current is not ShiftAssignmentStatus.PLANNED:
+                raise BusinessRuleError(
+                    f"This assignment is {current.lower()} and can no longer be changed.",
+                    details={"status": str(current)},
+                )
+
+            merged = ShiftAssignmentCreate(
+                roster_date=row.roster_date,
+                shift_id=row.shift_id,
+                work_center_id=changes.get("work_center_id", row.work_center_id),
+                machine_id=changes.get("machine_id", row.machine_id),
+                operator_user_id=changes.get("operator_user_id", row.operator_user_id),
+                notes=changes.get("notes", row.notes),
+            )
+            validated, warnings = await self._validate([merged])
+            # The stored window, not one recomputed from today's shift times: the
+            # plan keeps the window it was made with.
+            window = replace(validated[0], starts_at=row.starts_at, ends_at=row.ends_at)
+            await self._assert_no_overlaps([window], exclude_ids=[row.id])
+
+            before = snapshot(row, _ASSIGNMENT_AUDITED_FIELDS)
+            row.work_center_id = window.work_center_id
+            row.machine_id = window.machine_id
+            row.operator_user_id = window.operator_user_id
+            row.notes = window.notes
+            self.repo.touch(row)
+            await self.session.flush()
+
+            await record_audit(
+                self.session,
+                company_id=self.tenant.company_id,
+                action=AuditAction.UPDATE,
+                entity_type=AUDIT_SHIFT_ASSIGNMENT,
+                entity_id=row.id,
+                entity_code=f"{window.roster_date.isoformat()} {window.shift_code}",
+                summary="Re-staffed "
+                + _where(window.roster_date, window.shift_code, window.work_center_code),
+                user_id=self.tenant.user_id,
+                old_values=before,
+                new_values=snapshot(row, _ASSIGNMENT_AUDITED_FIELDS),
+            )
+            updated = (await self.repo.reads([row.id]))[0]
+
+        return updated, _with_warnings("Assignment updated.", warnings)
+
+    async def cancel(self, assignment_id: uuid.UUID, *, reason: str) -> ShiftAssignmentRead:
+        """Take a planned row off the roster. Irreversible; the row is kept."""
+        async with transaction(self.session):
+            await advisory_xact_lock(self.session, ROSTER_LOCK, self.tenant.company_id)
+            row = await self.repo.get_or_404(assignment_id)
+            current = ShiftAssignmentStatus(row.status)
+            SHIFT_ASSIGNMENT_FLOW.assert_transition(current, ShiftAssignmentStatus.CANCELLED)
+
+            row.status = ShiftAssignmentStatus.CANCELLED
+            self.repo.touch(row)
+            await self.session.flush()
+            cancelled = (await self.repo.reads([row.id]))[0]
+
+            await record_status_change(
+                self.session,
+                company_id=self.tenant.company_id,
+                entity_type=AUDIT_SHIFT_ASSIGNMENT,
+                entity_id=cancelled.id,
+                entity_code=f"{cancelled.roster_date.isoformat()} {cancelled.shift_code}",
+                from_status=str(current),
+                to_status=str(ShiftAssignmentStatus.CANCELLED),
+                user_id=self.tenant.user_id,
+                reason=reason,
+            )
+
+        return cancelled
+
+    async def copy_day(
+        self, payload: ShiftRosterCopyRequest
+    ) -> tuple[list[ShiftAssignmentRead], str]:
+        """Plan one day's PLANNED rows again on every date of a range.
+
+        All or nothing, like any bulk write, and bounded by the same limit -
+        narrowing to one work centre is how a larger copy is split.
+        """
+        days = (payload.target_to - payload.target_from).days + 1
+        async with transaction(self.session):
+            await advisory_xact_lock(self.session, ROSTER_LOCK, self.tenant.company_id)
+            source = await self.repo.planned_on(
+                payload.source_date,
+                work_center_id=payload.work_center_id,
+                limit=MAX_ROSTER_BULK + 1,
+            )
+            if not source:
+                raise BusinessRuleError(
+                    f"Nothing is planned on {payload.source_date.isoformat()} to copy.",
+                    details={"source_date": payload.source_date.isoformat()},
+                )
+            if len(source) * days > MAX_ROSTER_BULK:
+                raise BusinessRuleError(
+                    f"Copying {len(source)} assignment(s) onto {days} day(s) is more than "
+                    f"{MAX_ROSTER_BULK} at once. Narrow the work centre or the dates.",
+                    details={"limit": MAX_ROSTER_BULK, "days": days},
+                )
+            copies = [
+                ShiftAssignmentCreate(
+                    roster_date=payload.target_from + timedelta(days=offset),
+                    shift_id=row.shift_id,
+                    work_center_id=row.work_center_id,
+                    machine_id=row.machine_id,
+                    operator_user_id=row.operator_user_id,
+                    notes=row.notes,
+                )
+                for offset in range(days)
+                for row in source
+            ]
+            return await self.plan(copies)
+
+    # --- helpers ------------------------------------------------------------
+
+    async def _validate(
+        self, payloads: Sequence[ShiftAssignmentCreate]
+    ) -> tuple[list[PlannedWindow], list[str]]:
+        """Resolve and check every reference of a request in one batch of reads.
+
+        Four statements for the whole request - shifts, work centres, machines,
+        operators - however many rows it carries. A machine under maintenance or
+        broken down is planned with a warning rather than refused, as routing
+        approval treats it: it may well be back before the shift starts.
+        """
+        shifts = await self.shifts.load([p.shift_id for p in payloads])
+        centres = await self.work_centers.rates([p.work_center_id for p in payloads])
+        machines = await self.machines.load(
+            [p.machine_id for p in payloads if p.machine_id is not None]
+        )
+        operators = await self.operators.facts([p.operator_user_id for p in payloads])
+        zone = await company_zone(self.session, self.tenant)
+
+        windows: list[PlannedWindow] = []
+        warnings: list[str] = []
+        for index, payload in enumerate(payloads):
+            shift = shifts.get(payload.shift_id)
+            if shift is None:
+                raise NotFoundError(SHIFT_ENTITY, payload.shift_id)
+            if not shift.is_active:
+                raise BusinessRuleError(
+                    inactive_record(SHIFT_ENTITY, shift.code, "cannot be planned"),
+                    details={"index": index, "shift_code": shift.code},
+                )
+
+            centre = centres.get(payload.work_center_id)
+            if centre is None:
+                raise NotFoundError(WORK_CENTER_ENTITY, payload.work_center_id)
+            if not centre.is_active:
+                raise BusinessRuleError(
+                    inactive_record(WORK_CENTER_ENTITY, centre.code, "cannot be staffed"),
+                    details={"index": index, "work_center_code": centre.code},
+                )
+
+            operator = operators.get(payload.operator_user_id)
+            if operator is None:
+                raise NotFoundError(OPERATOR_ENTITY, payload.operator_user_id)
+            if operator.is_vendor_user:
+                raise BusinessRuleError(
+                    f"{operator.full_name} is a vendor-portal account and cannot be planned "
+                    "on a shift.",
+                    details={"index": index, "operator_user_id": str(operator.id)},
+                )
+            if not operator.is_active:
+                raise BusinessRuleError(
+                    f"{operator.full_name}'s account is inactive and cannot be planned on a shift.",
+                    details={"index": index, "operator_user_id": str(operator.id)},
+                )
+
+            machine_code: str | None = None
+            if payload.machine_id is not None:
+                machine = machines.get(payload.machine_id)
+                if machine is None:
+                    raise NotFoundError("Machine", payload.machine_id)
+                if machine.status is MachineStatus.RETIRED or not machine.is_active:
+                    raise BusinessRuleError(
+                        f"Machine {machine.code} is retired or inactive and cannot be planned.",
+                        details={"index": index, "machine_code": machine.code},
+                    )
+                if machine.work_center_id != payload.work_center_id:
+                    raise BusinessRuleError(
+                        f"Machine {machine.code} does not belong to work centre {centre.code}.",
+                        details={"index": index, "machine_code": machine.code},
+                    )
+                if machine.status in (MachineStatus.MAINTENANCE, MachineStatus.BREAKDOWN):
+                    state = (
+                        "under maintenance"
+                        if machine.status is MachineStatus.MAINTENANCE
+                        else "broken down"
+                    )
+                    warnings.append(
+                        f"Machine {machine.code} is {state}; check it is back before the shift."
+                    )
+                machine_code = machine.code
+
+            starts_at, ends_at = shift_window(payload.roster_date, shift, zone)
+            windows.append(
+                PlannedWindow(
+                    index=index,
+                    roster_date=payload.roster_date,
+                    shift_id=shift.id,
+                    shift_code=shift.code,
+                    work_center_id=centre.id,
+                    work_center_code=centre.code,
+                    machine_id=payload.machine_id,
+                    machine_code=machine_code,
+                    operator_user_id=operator.id,
+                    operator_name=operator.full_name,
+                    starts_at=starts_at,
+                    ends_at=ends_at,
+                    notes=payload.notes,
+                )
+            )
+        return windows, list(dict.fromkeys(warnings))
+
+    async def _assert_no_overlaps(
+        self, windows: Sequence[PlannedWindow], *, exclude_ids: Sequence[uuid.UUID] = ()
+    ) -> None:
+        """Refuse the request if any window clashes - and name every clash.
+
+        One query for PLANNED rows of the involved operators and machines across
+        the request's whole span, then every pair in memory: against what is
+        already planned, and against the request's own earlier rows.
+        """
+        existing = await self.repo.overlapping(
+            starts_at=min(window.starts_at for window in windows),
+            ends_at=max(window.ends_at for window in windows),
+            operator_ids=sorted({window.operator_user_id for window in windows}),
+            machine_ids=sorted(
+                {window.machine_id for window in windows if window.machine_id is not None}
+            ),
+            exclude_ids=exclude_ids,
+        )
+
+        conflicts: list[dict[str, Any]] = []
+        for position, window in enumerate(windows):
+            span = (window.starts_at, window.ends_at)
+            for other in existing:
+                if windows_overlap(span, (other.starts_at, other.ends_at)):
+                    conflicts += _clashes(
+                        window,
+                        operator_user_id=other.operator_user_id,
+                        machine_id=other.machine_id,
+                        elsewhere=(
+                            f"{_where(other.roster_date, other.shift_code, other.work_center_code)}"
+                            f" ({other.operator_name})"
+                        ),
+                        conflicting_assignment_id=other.id,
+                    )
+            for earlier in windows[:position]:
+                if windows_overlap(span, (earlier.starts_at, earlier.ends_at)):
+                    conflicts += _clashes(
+                        window,
+                        operator_user_id=earlier.operator_user_id,
+                        machine_id=earlier.machine_id,
+                        elsewhere=_where(
+                            earlier.roster_date, earlier.shift_code, earlier.work_center_code
+                        )
+                        + " in this same request",
+                        conflicting_assignment_id=None,
+                    )
+
+        if conflicts:
+            raise BusinessRuleError(SHIFT_ASSIGNMENT_OVERLAP, details={"conflicts": conflicts})
+
+
+# -----------------------------------------------------------------------------
 # Cross-module entry point
 # -----------------------------------------------------------------------------
 
@@ -1611,32 +2506,104 @@ async def manufacture_lead_time_days(
     return result.lead_time_days if result.routing_id is not None else None
 
 
+async def require_shift(
+    session: AsyncSession,
+    tenant: TenantContext,
+    shift_id: uuid.UUID,
+    *,
+    field: str = "shift_id",
+) -> Shift:
+    """The shift a work order or a booking is about to name, if it may name it.
+
+    Read through the tenant-scoped repository, never trusted from the foreign
+    key: a UUID is satisfied by another company's shift just as well (CLAUDE.md,
+    "a foreign key to a UUID is not a tenant check"). Live and in this tenant, or
+    :class:`NotFoundError`; active, or a 422 against ``field`` so a form can show
+    it. Only a new choice comes through here - a row keeps the shift it already
+    names after that shift is deactivated.
+    """
+    shift = await ShiftRepository(session, tenant).get(shift_id)
+    if shift is None:
+        raise NotFoundError(SHIFT_ENTITY, shift_id)
+    if not shift.is_active:
+        message = inactive_record(SHIFT_ENTITY, shift.code, "cannot be chosen")
+        raise ValidationError(message, details={"fields": {field: [message]}})
+    return shift
+
+
+async def roster_mismatch(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    operator_user_id: uuid.UUID | None,
+    shift_id: uuid.UUID | None,
+    roster_date: date,
+    work_center_id: uuid.UUID | None = None,
+    machine_id: uuid.UUID | None = None,
+) -> bool:
+    """Is the named operator *not* planned on the named shift there that day?
+
+    ``False`` whenever the operator or the shift is missing: with only one of the
+    two there is no plan to compare against. The caller warns on ``True`` and
+    never refuses - the roster is advisory (docs/assumptions.md §B2-4).
+    """
+    if operator_user_id is None or shift_id is None:
+        return False
+    return not await ShiftAssignmentRepository(session, tenant).is_rostered(
+        operator_user_id=operator_user_id,
+        shift_id=shift_id,
+        roster_date=roster_date,
+        work_center_id=work_center_id,
+        machine_id=machine_id,
+    )
+
+
 __all__ = [
     "AUDIT_MACHINE",
     "AUDIT_ROUTING",
+    "AUDIT_SHIFT",
+    "AUDIT_SHIFT_ASSIGNMENT",
     "AUDIT_WORK_CENTER",
     "MACHINE_AVAILABILITY",
     "MINUTES_PER_HOUR",
+    "ROSTER_LOCK",
     "ROUTING_LIFECYCLE",
+    "SHIFT_ASSIGNMENT_FLOW",
+    "SHIFT_LIFECYCLE",
     "SUPER_ADMIN_ROLE_CODE",
     "WORK_CENTER_LIFECYCLE",
     "MachineService",
     "MasterLifecycleState",
     "OperationTimings",
+    "PlannedWindow",
     "RoutingService",
+    "ShiftRosterService",
+    "ShiftService",
+    "ShiftTimes",
     "WorkCenterService",
     "calculate_operation_cost",
     "calculate_operation_time",
     "calculate_routing_cost",
     "can_approve",
     "chargeable_operation_time",
+    "company_today",
+    "company_zone",
     "cost_breakdown",
     "effectivity_contains",
     "is_editable",
     "lifecycle_state",
+    "local_date",
     "manufacture_lead_time_days",
+    "net_shift_minutes",
     "referenced_in_use",
+    "require_shift",
     "resolve_working_hours_per_day",
+    "resolve_zone",
+    "roster_mismatch",
+    "shift_lifecycle_state",
+    "shift_minutes",
+    "shift_window",
     "total_lead_time_days",
     "total_routing_minutes",
+    "windows_overlap",
 ]
