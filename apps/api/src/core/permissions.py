@@ -151,6 +151,13 @@ class Permission(StrEnum):
     PURCHASE_RETURN_VIEW = "purchase_return.view"
     PURCHASE_RETURN_CREATE = "purchase_return.create"
 
+    # --- vendor portal ------------------------------------------------------
+    VENDOR_PORTAL_ACCESS = "vendor_portal.access"
+    VENDOR_PORTAL_RESPOND = "vendor_portal.respond"
+    VENDOR_PORTAL_SHIP = "vendor_portal.ship"
+    VENDOR_PORTAL_INVOICE = "vendor_portal.invoice"
+    VENDOR_PORTAL_QUALITY = "vendor_portal.quality"
+
     # --- production ---------------------------------------------------------
     PRODUCTION_ORDER_VIEW = "production_order.view"
     PRODUCTION_ORDER_CREATE = "production_order.create"
@@ -242,6 +249,7 @@ PERMISSION_GROUPS: dict[str, tuple[str, ...]] = {
         "grn",
         "purchase_return",
     ),
+    "Vendor Portal": ("vendor_portal",),
     "Production": (
         "production_order",
         "work_order",
@@ -532,14 +540,7 @@ _ACCOUNTS = frozenset(
 # Vendor-portal roles. A vendor principal is additionally constrained to its own
 # vendor_id and assigned item categories - enforced server-side, never by the
 # permission string alone (section 16/39).
-_VENDOR_BASE = frozenset(
-    {
-        Permission.PURCHASE_ORDER_VIEW,
-        Permission.DISPATCH_VIEW,
-        Permission.DOCUMENT_VIEW,
-        Permission.NOTIFICATION_VIEW,
-    }
-)
+_VENDOR_BASE = frozenset({Permission.VENDOR_PORTAL_ACCESS, Permission.NOTIFICATION_VIEW})
 
 ROLE_PRESETS: dict[str, dict[str, object]] = {
     "SUPER_ADMIN": {
@@ -701,68 +702,45 @@ ROLE_PRESETS: dict[str, dict[str, object]] = {
     # --- vendor portal ------------------------------------------------------
     "VENDOR_OWNER": {
         "name": "Vendor Owner",
-        "description": "Vendor principal with full access to that vendor's records.",
+        "description": "Portal access scoped to the account vendor.",
         "is_system": True,
         "is_vendor_role": True,
         "permissions": _VENDOR_BASE
         | {
-            Permission.PURCHASE_ORDER_UPDATE,
-            Permission.DISPATCH_CREATE,
-            Permission.DISPATCH_UPDATE,
-            Permission.VENDOR_INVOICE_VIEW,
-            Permission.VENDOR_INVOICE_CREATE,
-            Permission.PAYMENT_VIEW,
-            Permission.JOB_WORK_VIEW,
-            Permission.QC_VIEW,
-            Permission.DOCUMENT_UPLOAD,
-            Permission.USER_VIEW,
+            Permission.VENDOR_PORTAL_RESPOND,
+            Permission.VENDOR_PORTAL_SHIP,
+            Permission.VENDOR_PORTAL_INVOICE,
+            Permission.VENDOR_PORTAL_QUALITY,
         },
     },
     "VENDOR_MANAGER": {
         "name": "Vendor Manager",
-        "description": "Vendor staff limited to assigned item categories.",
+        "description": "Portal access scoped to the account vendor.",
         "is_system": True,
         "is_vendor_role": True,
         "permissions": _VENDOR_BASE
-        | {
-            Permission.PURCHASE_ORDER_UPDATE,
-            Permission.DISPATCH_VIEW,
-            Permission.JOB_WORK_VIEW,
-            Permission.DOCUMENT_UPLOAD,
-        },
+        | {Permission.VENDOR_PORTAL_RESPOND, Permission.VENDOR_PORTAL_SHIP},
     },
     "VENDOR_DISPATCH_MANAGER": {
         "name": "Vendor Dispatch Manager",
-        "description": "Vendor staff who record dispatch and courier details.",
+        "description": "Portal access scoped to the account vendor.",
         "is_system": True,
         "is_vendor_role": True,
-        "permissions": _VENDOR_BASE
-        | {
-            Permission.DISPATCH_CREATE,
-            Permission.DISPATCH_UPDATE,
-            Permission.DOCUMENT_UPLOAD,
-        },
+        "permissions": _VENDOR_BASE | {Permission.VENDOR_PORTAL_SHIP},
     },
     "VENDOR_QC_CONTACT": {
-        "name": "Vendor QC Contact",
-        "description": "Vendor quality contact; sees inspection outcomes on own supplies.",
+        "name": "Vendor Qc Contact",
+        "description": "Portal access scoped to the account vendor.",
         "is_system": True,
         "is_vendor_role": True,
-        "permissions": _VENDOR_BASE | {Permission.QC_VIEW, Permission.DOCUMENT_UPLOAD},
+        "permissions": _VENDOR_BASE | {Permission.VENDOR_PORTAL_QUALITY},
     },
     "VENDOR_ACCOUNT_MANAGER": {
         "name": "Vendor Account Manager",
-        "description": "Vendor finance contact: invoices, payment status, ledger.",
+        "description": "Portal access scoped to the account vendor.",
         "is_system": True,
         "is_vendor_role": True,
-        "permissions": _VENDOR_BASE
-        | {
-            Permission.VENDOR_INVOICE_VIEW,
-            Permission.VENDOR_INVOICE_CREATE,
-            Permission.PAYMENT_VIEW,
-            Permission.LEDGER_VIEW,
-            Permission.DOCUMENT_UPLOAD,
-        },
+        "permissions": _VENDOR_BASE | {Permission.VENDOR_PORTAL_INVOICE},
     },
 }
 

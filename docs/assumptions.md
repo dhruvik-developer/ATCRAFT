@@ -1419,3 +1419,30 @@ module is used in production:
    or the customer?
 7. **Partial dispatch.** May a sales-order line be dispatched in more than two
    instalments, and is there a minimum dispatch quantity?
+
+## C1 vendor portal and Web Push
+
+- **?C1-1:** Vendor committed delivery is separate from the buyer's expected date.
+  Staff explicitly accept a commitment into planning; vendor updates never do so.
+- **?C1-2:** Both staff and vendors record full consignments only after acceptance,
+  on ACKNOWLEDGED/PARTIALLY_RECEIVED orders. Partial consignments get sequential numbers.
+- **?C1-3:** Document kinds live in a portal link table; upload an INVOICE file first
+  and pass its `invoice_document_id` when raising the bill. Staff assign cost centres.
+- **?C1-4:** Receipt evidence outranks carrier evidence; today's dispatch is DISPATCHED,
+  older undelivered dispatch is IN_TRANSIT. QC rejection dashboard uses the last
+  VENDOR_QC_LOOKBACK_DAYS (30 UTC days). Counts concern records, not summed quantities.
+- **?C1-5:** Vendors see only sent orders, subsequent states and cancellations of
+  previously sent orders, further constrained by their category scope/assignment.
+- **?C1-6:** Registering a browser is the push opt-in. New per-type preferences default
+  to true; absent devices never add PUSH. Old SPA updates preserve a stored opt-out.
+- **?C1-7:** VAPID derives deterministically from the credential root with HMAC purpose
+  web-push-vapid unless explicitly supplied. Root rotation requires re-subscription.
+- **?C1-8:** An unread grouped repeat updates wording/count but preserves email/push
+  claims, so it does not repeatedly send to a device. A read group gets a new row.
+- **?C1-9:** Portal detail embeds the first 50 shipments/documents/receipts with page
+  metadata; dedicated endpoints page the rest. Financial totals are SQL aggregates.
+
+- **?C1-10:** Existing single-consignment PO header fields remain readable in tracking
+  when no numbered consignment exists. Numbered consignments take precedence.
+  Historical header data is not synthesized into audited shipment records; new
+  full consignments use the new table and mirror their latest values to the header.

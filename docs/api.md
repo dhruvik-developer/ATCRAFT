@@ -25,7 +25,7 @@ CI and the pre-push hook run the same three checks `contract-check` runs.
 
 ### Using the Postman collection
 
-Import `postman_collection.json` (Postman v2.1 format, 516 requests in 27
+Import `postman_collection.json` (Postman v2.1 format, 556 requests in 28
 folders, one per tag). Then:
 
 1. Set the `base_url` variable if it is not `http://127.0.0.1:8000/api/v1`.
@@ -408,3 +408,24 @@ download. No endpoint holds a connection open for a calculation.
 ```
 
 Full request and response schemas are generated from the code at `/docs`.
+
+## Vendor portal and device push
+
+Vendor users use `/vendor-portal`: own profile/dashboard, paged purchase orders,
+accept/decline/date/ready actions, numbered shipments and delivered updates,
+transporter options, typed multipart documents, scoped download, posted receipts
+with QC, invoices, payments/summary, rating and queued PO PDF/jobs. Every route
+requires its literal portal right and a vendor principal. Foreign resources
+answer 404; staff cannot enter the portal. Own invoices require a visible PO,
+omit vendor/cost-centre fields, and accept an optional `invoice_document_id`
+returned by an INVOICE upload. Internal companions live under procurement:
+`inbound-tracking`, PO shipments/create/edit/delivered/documents,
+`accept-vendor-date`, and `pdf`. PDF creation returns 202 and a scoped status URL.
+
+All six `/notifications/push` endpoints require notification.view: config;
+POST/GET subscriptions; DELETE subscriptions/{id}; POST subscriptions/unregister
+by endpoint; POST test. Registration accepts endpoint, keys {p256dh, auth}, optional
+expiration_time (browser milliseconds) and label. Responses never echo provider
+credentials. Lists use keyset pagination; foreign deletion answers 404. PUSH appears
+only with a nonexpired device and enabled preference. A test uses normal notification
+routing, including preferences. Client PWA/service-worker work is C2.

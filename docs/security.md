@@ -183,41 +183,28 @@ another.
 
 ## 4. Vendor portal isolation
 
-Vendor users share the `users` table but carry `vendor_id`, and:
+Vendor users share `users` and carry `vendor_id`. The authenticated dependency
+applies a structural route allow-list: only `/vendor-portal/**`, their own
+`/notifications/**`, and auth self-service (`me`, logout, logout-all,
+change-password, sessions and MFA) are reachable. Every other authenticated
+route returns 403 `SCOPE_DENIED`, before loading business data, even if a vendor
+role was accidentally granted internal permissions. The predicate checks path
+segment boundaries. Temporary-password restrictions still apply first.
 
-- may hold only vendor roles, and vendor roles may only be assigned to them —
-  enforced in both directions;
-- are scoped to their own vendor's records;
-- may be restricted further to specific item categories
-  (`allowed_category_ids`), which is how "Manager 1 → Lock Body, Manager 2 →
-  Handles" is expressed. The list must name live categories of the tenant that
-  the vendor is qualified for (`vendor_categories`); the users service refuses
-  anything else;
-- can be blocked wholesale from internal endpoints with `forbid_vendor_users`,
-  a second line of defence behind the permission check.
+The five system vendor roles hold only `vendor_portal.access/respond/ship/invoice/quality`
+and `notification.view`. Every portal route additionally requires a vendor
+principal; an internal administrator receives 403 and cannot impersonate a
+vendor by naming an id. `TenantContext.vendor_id` supplies ownership. Foreign
+POs, files, jobs and invoices answer 404. PO reads and locks also enforce SENT+
+visibility, vendor ownership and category subtree scope (or explicit assignment).
+Buyer drafts, unapproved prices and internal cost centres stay behind this boundary.
+Portal invoice payloads reject extra fields, require an owned PO, force the vendor,
+and omit header/line cost centres. Payments and invoice repositories add vendor
+scope; device APIs always act on the current user.
 
-**Purchase orders.** `PurchaseOrderRepository._scoped` applies the vendor scope
-to every read and lock, so a vendor cannot reach an order by any path the rule
-does not allow, and an order outside it is "not found", never "forbidden":
-
-- only its own vendor's orders;
-- only orders it has been sent - SENT and every later status, and a CANCELLED
-  order only if it had been sent. A DRAFT, PENDING_APPROVAL, APPROVED or
-  REJECTED order is the buyer's working document, with unapproved prices;
-- when `allowed_category_ids` is not empty, only orders whose
-  `item_category_id` is one of those categories or beneath one, plus any order
-  assigned to that user by name. An empty list is unrestricted.
-
-The buyer-side routes that would otherwise reveal other vendors' orders or the
-requisition book are closed to vendor accounts with `forbid_vendor_users`:
-`POST /procurement/purchase-orders/check-duplicates` (it answers with open
-orders for whichever vendor the payload names), the requisition conversion
-preview and convert routes, and `GET /purchase-orders/{id}/vendor-assignees`.
-An order's `assigned_vendor_user_id` is validated wherever it is set - tenant,
-active, the order's vendor, the vendor-side order right, and the order's
-category or unrestricted - because a UUID foreign key checks none of that.
-
----
+A PO's assigned recipient must be active, in the tenant and vendor, qualified for
+its category, and hold `vendor_portal.respond`. Internal companions continue to
+use staff permissions and `forbid_vendor_users` as an additional safeguard.
 
 ## 5. Input validation
 
@@ -425,3 +412,26 @@ production — Postgres and Redis are reachable only on the internal network.
 - [ ] Rate limits reviewed against expected legitimate traffic
 - [ ] `/docs`, `/redoc` and `/openapi.json` confirmed disabled in production
 - [ ] Audit-log immutability trigger verified present in the deployed schema
+
+## Web Push
+
+Push endpoints are bearer capabilities. Store their SHA-256 digest for unique
+registration and their URL encrypted with purpose-separated Fernet
+(`push-subscription`); never return or log the endpoint, keys or payload. Browser
+registration is opt-in. An endpoint can transfer to the new signed-in owner on a
+shared plant PC; later device updates are guarded by owner and registration stamp.
+Logout-all, password changes/resets and user deactivation remove registrations.
+Delivery requires an active account with a session within the refresh-token window.
+
+The server accepts HTTPS on port 443 only, without userinfo, fragments or IP
+literals. Hosts must match a configured suffix on a dot boundary. Delivery
+revalidates the decrypted endpoint, verifies TLS through HTTPSConnection and
+never follows redirects. No CSP change is needed: provider calls originate from
+the worker, and browser registration uses the browser's Push API. The future
+service worker must have **no fetch handler**; it must not cache authenticated
+API responses or act as an offline ERP proxy.
+
+Encryption and VAPID follow [RFC 8291](https://www.rfc-editor.org/rfc/rfc8291.html)
+and [RFC 8292](https://www.rfc-editor.org/rfc/rfc8292.html). The deterministic VAPID
+key uses a separate HMAC purpose from the root credential key; rotating that root
+requires browsers to re-subscribe unless an explicit VAPID key is configured.

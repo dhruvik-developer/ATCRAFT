@@ -514,6 +514,9 @@ class UserSessionRepository(BaseRepository[UserSession]):
         One UPDATE, not a read-then-write loop: a session that is created
         between the read and the write would otherwise survive the revocation.
         """
+        from src.modules.notifications.push_repository import remove_user_push_devices
+
+        await remove_user_push_devices(self.session, self.tenant.company_id, user_id)
         stmt = (
             update(UserSession)
             .where(

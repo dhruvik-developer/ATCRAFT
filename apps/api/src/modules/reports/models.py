@@ -95,6 +95,7 @@ class ReportKey(StrEnum):
     #: for one packing order. It has a job row here - ``GET /reports/jobs/{id}``
     #: is what the client polls - but no ``ReportDefinition``, because there are
     #: no rows to page, count or cache. See :data:`DOCUMENT_ONLY_REPORT_KEYS`.
+    PURCHASE_ORDER = "PURCHASE_ORDER"
     PACKING_LIST = "PACKING_LIST"
 
 
@@ -105,7 +106,9 @@ class ReportKey(StrEnum):
 #: report - without pretending to be a query with columns. None of them has a
 #: definition, a route of its own under ``/reports`` or a catalogue descriptor,
 #: and ``service`` asserts both halves at import.
-DOCUMENT_ONLY_REPORT_KEYS: frozenset[ReportKey] = frozenset({ReportKey.PACKING_LIST})
+DOCUMENT_ONLY_REPORT_KEYS: frozenset[ReportKey] = frozenset(
+    {ReportKey.PACKING_LIST, ReportKey.PURCHASE_ORDER}
+)
 
 
 class ReportJobStatus(StrEnum):

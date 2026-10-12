@@ -1831,6 +1831,8 @@ async def create_invoice(
     """Record a bill in DRAFT. Nothing posts to the ledger until approval."""
     repo = VendorInvoiceRepository(session, tenant)
     line_repo = VendorInvoiceLineRepository(session, tenant)
+    if tenant.vendor_id is not None and payload.vendor_id != tenant.vendor_id:
+        raise NotFoundError("Vendor", payload.vendor_id)
 
     async with transaction(session):
         vendor = await VendorLookupRepository(session, tenant).get_facts(payload.vendor_id)
@@ -2147,6 +2149,24 @@ async def _transition_invoice(
     VENDOR_INVOICE_LIFECYCLE.assert_transition(current, target)
     invoice.status = target
     await session.flush()
+    if target in (VendorInvoiceStatus.APPROVED, VendorInvoiceStatus.DISPUTED):
+        from src.core.permissions import Permission
+        from src.modules.notifications.models import NotificationType
+        from src.modules.notifications.service import notify_vendor
+
+        await notify_vendor(
+            session,
+            company_id=tenant.company_id,
+            vendor_id=invoice.vendor_id,
+            permission=Permission.VENDOR_PORTAL_INVOICE,
+            notification_type=NotificationType.VENDOR_INVOICE_STATUS,
+            title=f"Invoice {invoice.code}: {target}",
+            body=reason or f"Invoice {invoice.code} is now {target}.",
+            entity_type=AUDIT_VENDOR_INVOICE,
+            entity_id=invoice.id,
+            action_url=f"/vendor/invoices/{invoice.id}",
+            actor_id=tenant.user_id,
+        )
     await record_status_change(
         session,
         company_id=tenant.company_id,
@@ -2850,6 +2870,24 @@ async def approve_payment(
         )
 
         await _post_payment_journal(session, tenant, payment)
+        if payment.party_type == PartyType.VENDOR:
+            from src.core.permissions import Permission
+            from src.modules.notifications.models import NotificationType
+            from src.modules.notifications.service import notify_vendor
+
+            await notify_vendor(
+                session,
+                company_id=tenant.company_id,
+                vendor_id=payment.party_id,
+                permission=Permission.VENDOR_PORTAL_INVOICE,
+                notification_type=NotificationType.VENDOR_PAYMENT_RECORDED,
+                title=f"Payment recorded: {payment.code}",
+                body=f"{payment.currency} {payment.amount} recorded for your account.",
+                entity_type=AUDIT_PAYMENT,
+                entity_id=payment.id,
+                action_url="/vendor/payments",
+                actor_id=tenant.user_id,
+            )
 
         if PaymentType(payment.payment_type) is PaymentType.RECEIPT:
             await apply_outstanding_delta(
@@ -3228,6 +3266,23 @@ async def allocate_payment(
                 },
             },
             context={"replace": payload.replace},
+        )
+        from src.core.permissions import Permission
+        from src.modules.notifications.models import NotificationType
+        from src.modules.notifications.service import notify_vendor
+
+        await notify_vendor(
+            session,
+            company_id=tenant.company_id,
+            vendor_id=payment.party_id,
+            permission=Permission.VENDOR_PORTAL_INVOICE,
+            notification_type=NotificationType.VENDOR_PAYMENT_RECORDED,
+            title=f"Payment allocation updated: {payment.code}",
+            body=f"{payment.currency} {new_allocated} allocated across {len(plan.final)} invoices.",
+            entity_type=AUDIT_PAYMENT,
+            entity_id=payment.id,
+            action_url="/vendor/payments",
+            actor_id=tenant.user_id,
         )
 
     return await _payment_detail(session, tenant, payment)

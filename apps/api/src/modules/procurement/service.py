@@ -3101,6 +3101,35 @@ async def transition_purchase_order(
                 new_values={"assigned_vendor_user_id": order.assigned_vendor_user_id},
             )
 
+        if target is PurchaseOrderStatus.SENT:
+            from src.modules.notifications.models import NotificationType
+            from src.modules.notifications.repository import NotificationRepository
+            from src.modules.notifications.service import notify
+
+            recipient_repo = NotificationRepository(session, tenant)
+            eligible = await recipient_repo.user_ids_for_vendor(
+                order.vendor_id, permission="vendor_portal.respond"
+            )
+            recipients = (
+                [order.assigned_vendor_user_id]
+                if order.assigned_vendor_user_id in eligible
+                else eligible
+                if order.assigned_vendor_user_id is None
+                else []
+            )
+            await notify(
+                session,
+                company_id=tenant.company_id,
+                user_ids=recipients,
+                notification_type=NotificationType.PURCHASE_ORDER_SENT,
+                title=f"New purchase order {order.code}",
+                body=f"Please review and accept {order.code}.",
+                entity_type="purchase_order",
+                entity_id=order.id,
+                action_url=f"/vendor/orders/{order.id}",
+                actor_id=tenant.user_id,
+            )
+
         if target is PurchaseOrderStatus.CLOSED:
             await _short_close_lines(session, tenant, order)
         elif target in (PurchaseOrderStatus.CANCELLED, PurchaseOrderStatus.REJECTED):
@@ -3416,6 +3445,8 @@ async def order_tracking(
         else 0
     )
 
+    from src.modules.procurement.inbound_repository import po_is_late
+
     return PurchaseOrderTracking(
         purchase_order_id=order.id,
         code=order.code,
@@ -3438,7 +3469,12 @@ async def order_tracking(
         # Late only while something is still outstanding: an order delivered a
         # week after the promised date is a supplier performance fact, not a
         # live problem for the tracking board.
-        is_delayed=days_late > 0 and grn_pending,
+        is_delayed=po_is_late(
+            status=str(status),
+            open_quantity=pending,
+            expected_date=order.expected_delivery_date,
+            as_of=as_of,
+        ),
         days_late=days_late,
         grn_pending=grn_pending,
         qc_pending=qc_pending_lines > 0 or status is PurchaseOrderStatus.QC_PENDING,
@@ -4453,6 +4489,23 @@ async def post_goods_receipt(
         )
 
         await _advance_order_after_receipt(session, tenant, context)
+        from src.modules.notifications.models import NotificationType
+        from src.modules.notifications.service import notify_vendor
+
+        await notify_vendor(
+            session,
+            company_id=tenant.company_id,
+            vendor_id=receipt.vendor_id,
+            permission=Permission.VENDOR_PORTAL_ACCESS,
+            notification_type=NotificationType.GOODS_RECEIPT_POSTED,
+            title=f"Goods received against {order.code}",
+            body=f"{receipt.code}: {receipt.total_accepted_quantity} accepted, "
+            f"{receipt.total_rejected_quantity} rejected.",
+            entity_type=AUDIT_GOODS_RECEIPT,
+            entity_id=receipt.id,
+            action_url=f"/vendor/orders/{order.id}/receipts",
+            actor_id=tenant.user_id,
+        )
 
         # The products module documents these two columns as written by goods
         # receipt posting (see ItemVendorLink.last_purchase_price). One

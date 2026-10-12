@@ -63,7 +63,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `routing` | `work_centers`, `machines`, `routings`, `routing_operations` |
 | `sales` | `sales_orders`, `sales_order_lines` |
 | `mrp` | `mrp_runs`, `mrp_demands`, `mrp_requirements`, `mrp_suggestions` |
-| `procurement` | `purchase_requisitions`, `purchase_requisition_lines`, `rfqs`, `rfq_lines`, `vendor_quotations`, `vendor_quotation_lines`, `purchase_orders`, `purchase_order_lines`, `goods_receipts`, `goods_receipt_lines`, `purchase_returns`, `purchase_return_lines` |
+| `procurement` | `purchase_requisitions`, `purchase_requisition_lines`, `rfqs`, `rfq_lines`, `vendor_quotations`, `vendor_quotation_lines`, `purchase_orders`, `purchase_order_lines`, `goods_receipts`, `goods_receipt_lines`, `purchase_returns`, `purchase_return_lines`, `purchase_order_shipments`, `purchase_order_documents` |
 | `production` | `production_orders`, `production_order_components`, `work_orders`, `material_issues`, `material_issue_lines`, `production_entries` |
 | `assembly` | `assembly_orders`, `assembly_order_components` |
 | `job_work` | `job_work_orders`, `job_work_order_lines`, `job_work_challans`, `job_work_challan_lines`, `job_work_receipts`, `job_work_receipt_lines` |
@@ -73,7 +73,8 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `finance` | `ledger_accounts`, `ledger_entries`, `vendor_invoices`, `vendor_invoice_lines`, `payments`, `payment_allocations` |
 | `reports` | `report_snapshots`, `inventory_summary` |
 | `documents` | `documents` |
-| `notifications` | `notifications`, `notification_preferences` |
+| `notifications` | `notifications`, `notification_preferences`, `push_subscriptions` |
+| `vendor_portal` | No owned tables; downstream facade over tenant/vendor-scoped modules |
 | `common` | `document_sequences` |
 
 ### Cost centres
@@ -535,7 +536,8 @@ requisition       (REJECTED from PENDING_APPROVAL; CANCELLED from DRAFT, PENDING
 Purchase order    DRAFT -> PENDING_APPROVAL -> APPROVED -> SENT -> ACKNOWLEDGED
                         -> PARTIALLY_RECEIVED -> RECEIVED -> QC_PENDING -> QC_COMPLETED
                         -> GRN_COMPLETED -> INVOICED -> PAID -> CLOSED
-                  (REJECTED from PENDING_APPROVAL; CANCELLED before receipt)
+                  (SENT -> VENDOR_DECLINED -> SENT or CANCELLED;
+                   REJECTED from PENDING_APPROVAL; CANCELLED before receipt)
 
 Production order  DRAFT -> APPROVED -> RELEASED -> MATERIAL_ISSUED -> IN_PROCESS
                         -> COMPLETED -> CLOSED   (CANCELLED before IN_PROCESS)
@@ -576,6 +578,10 @@ Every transition writes an audit row via `record_status_change`.
 | Dispatch | `allocation.consume`, then `post_movements` (`DISPATCH`) |
 | Sales order confirmed | `allocation.reserve` per line against available stock |
 | Requisition converted | One DRAFT purchase order per (vendor, procurement category, warehouse) through `procurement.service._create_purchase_order` (duplicate check included); `_link_source_documents` adds to each line's `ordered_quantity` and moves the requisition APPROVED → CONVERTED; one CREATE audit row per order and one "Split into …" row per requisition - all in one transaction, or nothing |
+| PO sent / vendor acceptance, decline, date or ready | Same-transaction scoped vendor or internal-buyer notification; vendor dates remain separate until staff accept them into planning |
+| Inbound shipment create/edit/delivered, LR/photo upload | Notify creator, internal approvers and ADMIN with po-shipment:{id} grouping; latest consignment mirrors legacy PO header |
+| GRN posted / vendor QC rejected | Notify same-vendor portal access/quality recipients, alongside the existing inventory and QC effects |
+| Vendor invoice approved/disputed; payment approved/allocated | Notify same-vendor portal invoice recipients in the finance transaction |
 | Vendor invoice approved | `finance.post_journal`: one `PURCHASE_EXPENSE` debit per effective line cost centre (line -> header -> none), input tax, payable |
 | Any write naming a cost centre | `organization.service.require_cost_centre` / `require_cost_centres` (tenant, live, active) before the row is written |
 | Any status change | `audit.record_status_change` in the same transaction |
@@ -621,3 +627,46 @@ aggregations on every request (§25). The order of escalation is fixed:
 6. ClickHouse only when measured volume proves the need — not before
 
 Inventory availability is **never** served from cache (§34).
+
+### Vendor portal and inbound consignments (C1a)
+
+POs add nullable `vendor_committed_date` (distinct from the buyer planning date),
+`vendor_decline_reason`, `ready_for_dispatch_at`, `ready_packages` and `ready_note`.
+The PO machine adds SENT -> VENDOR_DECLINED -> SENT or CANCELLED. Decline retains
+requisition commitment; cancellation uses the existing release path. Declined
+orders are excluded from OPEN_PO_STATUSES: they are not expected supply; existing
+open-line partial indexes need no predicate change. They remain vendor-visible.
+
+`purchase_order_shipments` is a TenantEntity: unique (company, PO, shipment_number),
+carrier/transporter, tracking/LR, vehicle/driver, dispatch/delivery timestamps,
+expected date, packages, Quantity weight, Money freight and notes. The parent PO
+lock serializes numbering. A carrier is required; counts and money cannot be
+negative, delivery cannot precede dispatch. Latest shipment mirrors legacy PO
+courier/tracking/shipped fields. `purchase_order_documents` links generic documents
+to a PO, optional shipment and optional vendor invoice, with the five literal kinds
+INVOICE, DISPATCH_PHOTO, LR_COPY, DELIVERY_CHALLAN, OTHER. Generic document columns
+are unchanged. The PURCHASE_ORDER report key is document-only; its PDF never expires.
+
+One pure ordered tracking rule also produces SQL CASE for dashboard buckets:
+receipt plus open inspections -> QC_PENDING; fully received/closed and decided
+-> GRN_COMPLETED; another receipt -> RECEIVED; delivered consignment without
+receipt -> DELIVERED; today's dispatch -> DISPATCHED; older undelivered dispatch
+-> IN_TRANSIT; ready flag -> READY_FOR_DISPATCH; otherwise NOT_DISPATCHED. Delivery
+expected date is shipment expectation, then vendor commitment, then planning date.
+
+### Notification devices and recovery (C1b)
+
+PUSH is a channel, after IN_APP and EMAIL. Preferences have constant true
+`push_enabled`; registering a device provides opt-in. Null/omitted updates preserve
+an existing push preference using COALESCE. CRITICAL only overrides an in-app mute.
+`notifications.push_delivered_at` is nullable. Both email and push have created_at
+partial recovery indexes for the channel with its delivery marker NULL.
+`push_subscriptions` is a hard-deleted TenantEntity with user CASCADE FK, globally
+unique endpoint hash, encrypted URL, P-256 public/auth keys, user agent/label,
+expiry/seen/success/failure timestamps and nonnegative failure count.
+
+PO sent notifies the assignee or eligible same-vendor responders. Vendor actions
+notify internal buyers; shipment creation/edit/delivery and LR/photo uploads use
+`po-shipment:{id}` grouping and include creator, approvers and ADMIN. GRN posting,
+QC rejection, invoice approved/disputed and payments approved/allocated notify
+same-vendor users with the respective portal right, in the event transaction.

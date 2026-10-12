@@ -1947,6 +1947,25 @@ async def _announce_failure(
         return
 
     refused = to_quantity(disposition.rejected + disposition.scrap)
+    if inspection.vendor_id is not None:
+        from src.core.permissions import Permission
+        from src.modules.notifications.service import notify_vendor
+
+        await notify_vendor(
+            session,
+            company_id=tenant.company_id,
+            vendor_id=inspection.vendor_id,
+            permission=Permission.VENDOR_PORTAL_QUALITY,
+            notification_type=NotificationType.QC_FAILED,
+            severity=NotificationSeverity.WARNING,
+            title=f"Quality rejection: {inspection.code}",
+            body=f"{refused} refused. Reason: {inspection.rejection_reason or 'not stated'}.",
+            entity_type=AUDIT_QC_INSPECTION,
+            entity_id=inspection.id,
+            action_url="/vendor/receipts",
+            group_key=f"vendor-qc:{inspection.id}",
+            actor_id=tenant.user_id,
+        )
     await notify_role(
         session,
         company_id=tenant.company_id,
@@ -2070,7 +2089,10 @@ async def get_inspection_detail(
 
 
 async def inspections_for_reference(
-    session: AsyncSession, tenant: TenantContext, reference_type: str, reference_id: uuid.UUID
+    session: AsyncSession,
+    tenant: TenantContext,
+    reference_type: str,
+    reference_id: uuid.UUID | Sequence[uuid.UUID],
 ) -> list[QcInspection]:
     """Every inspection one document raised.
 

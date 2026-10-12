@@ -63,6 +63,18 @@ def password_change_route_allowed(path: str) -> bool:
     return path.rstrip("/") in allowed
 
 
+def vendor_route_allowed(path: str) -> bool:
+    """The complete authenticated surface available to a vendor account."""
+    prefix = settings.api_v1_prefix.rstrip("/")
+    path = path.rstrip("/")
+    roots = ("vendor-portal", "notifications", "auth/sessions", "auth/mfa")
+    return any(
+        path == f"{prefix}/{root}" or path.startswith(f"{prefix}/{root}/") for root in roots
+    ) or path in {
+        f"{prefix}/auth/{name}" for name in ("me", "logout", "logout-all", "change-password")
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class Principal:
     """The authenticated caller, fully resolved.
@@ -260,6 +272,11 @@ async def get_current_principal(
     if principal.must_change_password and not password_change_route_allowed(request.url.path):
         raise PasswordChangeRequiredError()
 
+    if principal.is_vendor_user and not vendor_route_allowed(request.url.path):
+        raise AuthorizationError(
+            "This endpoint is not available to vendor accounts.", code=ErrorCode.SCOPE_DENIED
+        )
+
     bind_request_context(user_id=principal.user_id, company_id=principal.company_id)
     request.state.principal = principal
     return principal
@@ -317,6 +334,13 @@ def forbid_vendor_users(principal: CurrentUser) -> Principal:
         raise AuthorizationError(
             "This endpoint is not available to vendor accounts.", code=ErrorCode.SCOPE_DENIED
         )
+    return principal
+
+
+def require_vendor_user(principal: CurrentUser) -> Principal:
+    """A portal permission never lets an internal administrator impersonate a vendor."""
+    if not principal.is_vendor_user:
+        raise AuthorizationError("A vendor account is required.", code=ErrorCode.SCOPE_DENIED)
     return principal
 
 

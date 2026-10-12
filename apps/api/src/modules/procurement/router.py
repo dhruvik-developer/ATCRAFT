@@ -24,6 +24,7 @@ from src.core.pagination import PageParams, SortParams, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
 from src.modules.procurement import service
+from src.modules.procurement.inbound_router import router as inbound_router
 from src.modules.procurement.models import (
     GoodsReceiptStatus,
     PurchaseOrderStatus,
@@ -84,6 +85,9 @@ from src.modules.procurement.schemas import (
 )
 
 router = APIRouter(prefix="/procurement", tags=["Procurement"], responses=COMMON_ERROR_RESPONSES)
+
+
+router.include_router(inbound_router)
 
 PageDep = Annotated[PageParams, Depends(page_params)]
 SortDep = Annotated[SortParams, Depends(sort_params)]

@@ -411,7 +411,7 @@ class QcInspectionRepository(BaseRepository[QcInspection]):
         return int((await self.session.execute(stmt)).scalar_one())
 
     async def list_for_reference(
-        self, reference_type: str, reference_id: uuid.UUID
+        self, reference_type: str, reference_id: uuid.UUID | Sequence[uuid.UUID]
     ) -> list[QcInspection]:
         """Every inspection one document raised - the receipt's own QC panel.
 
@@ -422,7 +422,9 @@ class QcInspectionRepository(BaseRepository[QcInspection]):
             self._scoped()
             .where(
                 QcInspection.reference_type == reference_type,
-                QcInspection.reference_id == reference_id,
+                QcInspection.reference_id.in_(
+                    [reference_id] if isinstance(reference_id, uuid.UUID) else reference_id
+                ),
             )
             # created_at is PostgreSQL now() - transaction START time - so every row
             # written in one transaction shares it. The UUIDv7 id is the

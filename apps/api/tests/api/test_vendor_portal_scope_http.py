@@ -103,6 +103,7 @@ async def _raise_order(
         PurchaseOrderCreate(
             vendor_id=vendor.id,
             warehouse_id=warehouse_id,
+            po_date=today() - timedelta(days=3),
             expected_delivery_date=today() + timedelta(days=10),
             lines=[
                 PurchaseOrderLineIn(
@@ -198,184 +199,489 @@ def _sign_in_as_vendor_owner(
     app.dependency_overrides[get_current_principal] = lambda: vendor_principal
 
 
-class TestAnotherVendorsOrder:
-    async def test_it_is_not_found_on_every_route_the_vendor_may_otherwise_use(
-        self, api_client, session: AsyncSession, tenant, principal: Principal, orders
-    ) -> None:
-        ours, _, theirs_order = orders
-        # Sent, so only the vendor scope can be what hides it.
-        await _send(session, tenant, principal, theirs_order.id)
-        _sign_in_as_vendor_owner(principal, ours)
-        path = f"/procurement/purchase-orders/{theirs_order.id}"
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/procurement/purchase-orders",
+        "/dispatch",
+        "/finance/vendor-invoices",
+        "/documents",
+        "/job-work",
+        "/quality/inspections",
+        "/reports/catalogue",
+        "/users",
+    ],
+)
+async def test_real_auth_chain_blocks_vendor_staff_routes(
+    api_client, session, user, principal, orders, path
+):
+    from src.core.deps import get_current_principal
+    from src.core.security import create_access_token
+    from src.main import app
 
-        assert (await api_client.get(path)).status_code == 404
-        acknowledged = await api_client.post(f"{path}/acknowledge", json={"reason": "Accepted"})
-        assert acknowledged.status_code == 404, acknowledged.text
-        shipped = await api_client.post(
-            f"{path}/shipment", json={"courier_name": "Blue Dart", "tracking_reference": "BD-1"}
+    ours, _, _ = orders
+    user.vendor_id = ours.id
+    await session.flush()
+    app.dependency_overrides.pop(get_current_principal, None)
+    token, _ = create_access_token(user.id, principal.company_id)
+    result = await api_client.get(path, headers={"Authorization": f"Bearer {token}"})
+    assert result.status_code == 403, result.text
+    assert result.json()["error"]["code"] == "SCOPE_DENIED"
+
+
+async def test_portal_hides_foreign_and_draft_orders(
+    api_client, session, tenant, principal, orders
+):
+    ours, our_order, theirs = orders
+    await _send(session, tenant, principal, theirs.id)
+    _sign_in_as_vendor_owner(principal, ours)
+    for row in (our_order, theirs):
+        result = await api_client.get(f"/vendor-portal/purchase-orders/{row.id}")
+        assert result.status_code == 404, result.text
+    await _send(session, tenant, principal, our_order.id)
+    listed = await api_client.get("/vendor-portal/purchase-orders")
+    assert listed.status_code == 200, listed.text
+    assert str(our_order.id) in {r["id"] for r in listed.json()["data"]}
+    detail = await api_client.get(f"/vendor-portal/purchase-orders/{our_order.id}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["data"]["tracking"]["tracking_status"] == "NOT_DISPATCHED"
+
+
+async def test_staff_cannot_impersonate_vendor(api_client, orders):
+    result = await api_client.get("/vendor-portal/dashboard")
+    assert result.status_code == 403, result.text
+    assert result.json()["error"]["code"] == "SCOPE_DENIED"
+
+
+async def test_accept_date_ready_ship_deliver_and_board(
+    api_client, session, tenant, principal, orders
+):
+    ours, order, _ = orders
+    order_id = order.id
+    planning_date = order.expected_delivery_date
+    await _send(session, tenant, principal, order_id)
+    _sign_in_as_vendor_owner(principal, ours)
+    committed = today() + timedelta(days=20)
+    result = await api_client.post(
+        f"/vendor-portal/purchase-orders/{order_id}/accept",
+        json={"committed_delivery_date": committed.isoformat()},
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()["data"]["vendor_committed_date"] == committed.isoformat()
+    assert result.json()["data"]["expected_delivery_date"] == planning_date.isoformat()
+    result = await api_client.post(
+        f"/vendor-portal/purchase-orders/{order_id}/ready-for-dispatch", json={"packages": 5}
+    )
+    assert result.status_code == 200, result.text
+    result = await api_client.post(
+        f"/vendor-portal/purchase-orders/{order_id}/shipments",
+        json={
+            "courier_name": "Blue Dart",
+            "shipped_at": utcnow().isoformat(),
+            "packages": 5,
+            "weight_kg": "70",
+            "tracking_reference": "BD-123",
+        },
+    )
+    assert result.status_code == 201, result.text
+    shipment_id = result.json()["data"]["id"]
+    result = await api_client.post(
+        f"/vendor-portal/purchase-orders/{order_id}/shipments/{shipment_id}/delivered", json={}
+    )
+    assert result.status_code == 200, result.text
+    detail = await api_client.get(f"/vendor-portal/purchase-orders/{order_id}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["data"]["tracking"]["tracking_status"] == "DELIVERED"
+    summary = await api_client.get("/vendor-portal/dashboard")
+    assert summary.status_code == 200, summary.text
+
+
+async def test_invoice_rejects_internal_cost_centres(api_client, principal, orders):
+    ours, order, _ = orders
+    _sign_in_as_vendor_owner(principal, ours)
+    result = await api_client.post(
+        "/vendor-portal/invoices",
+        json={
+            "purchase_order_id": str(order.id),
+            "vendor_invoice_number": "X",
+            "invoice_date": today().isoformat(),
+            "cost_centre_id": str(uuid.uuid4()),
+            "lines": [{"description": "Bill", "quantity": "1", "unit_price": "10"}],
+        },
+    )
+    assert result.status_code == 422, result.text
+
+
+async def test_consignments_documents_invoice_and_staff_filters(
+    api_client, session, tenant, principal, orders, other_company, monkeypatch, tmp_path
+):
+    from src.core.config import settings
+    from src.core.deps import get_current_principal
+    from src.main import app
+    from src.modules.procurement.models import PurchaseOrderLine
+    from src.modules.vendors.models import Transporter
+    from src.workers.tasks.reports import render_purchase_order_pdf
+
+    monkeypatch.setattr(settings, "storage_path", tmp_path)
+    ours, order, foreign = orders
+    await _send(session, tenant, principal, order.id)
+    await _send(session, tenant, principal, foreign.id)
+    _sign_in_as_vendor_owner(principal, ours)
+    accepted = await api_client.post(f"/vendor-portal/purchase-orders/{order.id}/accept", json={})
+    assert accepted.status_code == 200
+    changed = await api_client.post(
+        f"/vendor-portal/purchase-orders/{order.id}/delivery-date",
+        json={"date": (today() + timedelta(days=10)).isoformat(), "reason": "Capacity confirmed"},
+    )
+    assert changed.status_code == 200, changed.text
+    await procurement_service.record_shipment(
+        session,
+        tenant,
+        order.id,
+        courier_name="Legacy carrier",
+        tracking_reference="Old header tracking",
+        shipped_at=utcnow() - timedelta(days=1),
+    )
+    legacy = await api_client.get("/vendor-portal/purchase-orders", params={"tab": "dispatched"})
+    legacy_row = next(row for row in legacy.json()["data"] if row["id"] == str(order.id))
+    assert legacy_row["tracking_status"] == "IN_TRANSIT"
+    assert legacy_row["courier_name"] == "Legacy carrier" and legacy_row["latest_shipment"] is None
+    bad_transporter = Transporter(
+        company_id=other_company.id,
+        code=_code("T"),
+        name="Foreign carrier",
+        transporter_type="COURIER",
+    )
+    session.add(bad_transporter)
+    await session.flush()
+    payload = {"transporter_id": str(bad_transporter.id), "shipped_at": utcnow().isoformat()}
+    refused = await api_client.post(
+        f"/vendor-portal/purchase-orders/{order.id}/shipments", json=payload
+    )
+    assert refused.status_code == 404, refused.text
+    payload = {
+        "courier_name": "Blue Dart",
+        "tracking_reference": "BD-456",
+        "packages": 2,
+        "shipped_at": (utcnow() - timedelta(days=1)).isoformat(),
+        "expected_delivery_date": today().isoformat(),
+    }
+    ids = []
+    for number in (1, 2):
+        sent = await api_client.post(
+            f"/vendor-portal/purchase-orders/{order.id}/shipments", json=payload
         )
-        assert shipped.status_code == 404, shipped.text
-
-    async def test_the_buyer_side_edit_is_refused_before_the_order_is_even_looked_up(
-        self, api_client, principal: Principal, orders
-    ) -> None:
-        ours, _, theirs_order = orders
-        _sign_in_as_vendor_owner(principal, ours)
-
-        response = await api_client.patch(
-            f"/procurement/purchase-orders/{theirs_order.id}", json={"notes": "Not mine"}
+        assert sent.status_code == 201, sent.text
+        assert sent.json()["data"]["shipment_number"] == number
+        ids.append(sent.json()["data"]["id"])
+    foreign_send = await api_client.post(
+        f"/vendor-portal/purchase-orders/{foreign.id}/shipments", json=payload
+    )
+    assert foreign_send.status_code == 404
+    pdf = render_purchase_order_pdf({"code": order.code, "lines": []})
+    uploaded = await api_client.post(
+        f"/vendor-portal/purchase-orders/{order.id}/documents",
+        data={"kind": "LR_COPY", "shipment_id": ids[1]},
+        files={"file": ("lorry-receipt.pdf", pdf, "application/pdf")},
+    )
+    assert uploaded.status_code == 201, uploaded.text
+    doc_id = uploaded.json()["data"]["id"]
+    listed = await api_client.get(f"/vendor-portal/purchase-orders/{order.id}/documents")
+    assert listed.json()["data"][0]["kind"] == "LR_COPY"
+    download = await api_client.get(f"/vendor-portal/documents/{doc_id}/download")
+    assert download.status_code == 200 and download.content.startswith(b"%PDF")
+    invoice_file = await api_client.post(
+        f"/vendor-portal/purchase-orders/{order.id}/documents",
+        data={"kind": "INVOICE"},
+        files={"file": ("invoice.pdf", pdf, "application/pdf")},
+    )
+    assert invoice_file.status_code == 201, invoice_file.text
+    line = (
+        await session.execute(
+            select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
         )
-        assert response.status_code == 403, response.text
-        assert response.json()["error"]["code"] == "SCOPE_DENIED"
+    ).scalar_one()
+    bill_payload = {
+        "purchase_order_id": str(order.id),
+        "vendor_invoice_number": _code("BILL"),
+        "invoice_document_id": invoice_file.json()["data"]["id"],
+        "invoice_date": today().isoformat(),
+        "lines": [
+            {
+                "item_id": str(line.item_id),
+                "purchase_order_line_id": str(line.id),
+                "quantity": "1",
+                "unit_price": "40",
+                "tax_rate": "18",
+            }
+        ],
+    }
+    billed = await api_client.post("/vendor-portal/invoices", json=bill_payload)
+    assert billed.status_code == 201, billed.text
+    assert billed.json()["data"]["vendor_id"] == str(ours.id)
+    assert billed.json()["data"]["cost_centre_id"] is None
+    assert billed.json()["data"]["status"] == "PENDING_APPROVAL"
+    second_vendor = await _approved_vendor(session, tenant, "Other portal vendor")
+    _sign_in_as_vendor_owner(principal, second_vendor)
+    assert (await api_client.get(f"/vendor-portal/documents/{doc_id}/download")).status_code == 404
+    assert (
+        await api_client.get(f"/vendor-portal/invoices/{billed.json()['data']['id']}")
+    ).status_code == 404
+    bill_payload["purchase_order_id"] = str(foreign.id)
+    assert (await api_client.post("/vendor-portal/invoices", json=bill_payload)).status_code == 404
+    app.dependency_overrides[get_current_principal] = lambda: principal
+    board = await api_client.get("/procurement/inbound-tracking", params={"in_transit": True})
+    assert board.status_code == 200, board.text
+    row = next(row for row in board.json()["data"] if row["id"] == str(order.id))
+    assert row["tracking_status"] == "IN_TRANSIT" and row["has_lr_copy"]
+    assert row["delivery_expected_date"] == today().isoformat()
+    edited = await api_client.patch(
+        f"/procurement/purchase-orders/{order.id}/shipments/{ids[1]}",
+        json={**payload, "tracking_reference": "Corrected-456"},
+    )
+    assert edited.status_code == 200, edited.text
+    from src.modules.finance import service as finance
+    from src.modules.finance.schemas import AllocationRequest, InvoiceApproval, PaymentCreate
+    from src.modules.procurement.schemas import GoodsReceiptCreate, GoodsReceiptLineIn
+
+    receipt, _ = await procurement_service.create_goods_receipt(
+        session,
+        tenant,
+        GoodsReceiptCreate(
+            purchase_order_id=order.id,
+            lines=[
+                GoodsReceiptLineIn(
+                    line_number=1,
+                    purchase_order_line_id=line.id,
+                    received_quantity=Decimal("1"),
+                    accepted_quantity=Decimal("1"),
+                    requires_qc=True,
+                )
+            ],
+        ),
+    )
+    await procurement_service.post_goods_receipt(session, tenant, principal, receipt.id)
+    invoice_id = uuid.UUID(billed.json()["data"]["id"])
+    await finance.approve_invoice(
+        session,
+        tenant,
+        principal,
+        invoice_id,
+        InvoiceApproval(override_reason="Agreed final vendor price after review"),
+    )
+    payment = await finance.create_payment(
+        session,
+        tenant,
+        PaymentCreate(
+            payment_type="PAYMENT",
+            party_type="VENDOR",
+            party_id=ours.id,
+            payment_date=today(),
+            amount=Decimal("47.20"),
+            payment_method="CASH",
+        ),
+    )
+    await finance.approve_payment(session, tenant, principal, payment.id)
+    await finance.allocate_payment(
+        session,
+        tenant,
+        payment.id,
+        AllocationRequest(allocations=[{"vendor_invoice_id": invoice_id, "amount": "47.20"}]),
+    )
+    current_board = await api_client.get(
+        "/procurement/inbound-tracking", params={"in_transit": True}
+    )
+    assert str(order.id) not in {row["id"] for row in current_board.json()["data"]}
+    _sign_in_as_vendor_owner(principal, ours)
+    receipts = await api_client.get(f"/vendor-portal/purchase-orders/{order.id}/receipts")
+    assert receipts.status_code == 200, receipts.text
+    assert receipts.json()["data"][0]["lines"][0]["accepted_quantity"] == "1.0000"
+    assert receipts.json()["data"][0]["inspections"]
+    paid = await api_client.get("/vendor-portal/payments")
+    assert paid.status_code == 200, paid.text
+    assert paid.json()["data"][0]["id"] == str(payment.id)
+    assert paid.json()["data"][0]["allocations"][0]["vendor_invoice_id"] == str(invoice_id)
+    totals = await api_client.get("/vendor-portal/payments/summary")
+    assert totals.status_code == 200, totals.text
+    assert Decimal(totals.json()["data"][0]["paid_this_month"]) == Decimal("47.20")
+    _sign_in_as_vendor_owner(principal, second_vendor)
+    assert (await api_client.get("/vendor-portal/payments")).json()["data"] == []
 
 
-class TestTheVendorsOwnOrder:
-    async def test_a_draft_is_not_found(self, api_client, principal: Principal, orders) -> None:
-        """Changed deliberately (§56): before WP C0 a vendor could read its own
-        DRAFT and PENDING_APPROVAL orders, unapproved prices included."""
-        ours, our_order, _ = orders
-        _sign_in_as_vendor_owner(principal, ours)
+async def test_decline_resend_cancel(api_client, session, tenant, principal, orders):
+    ours, order, _ = orders
+    await _send(session, tenant, principal, order.id)
+    _sign_in_as_vendor_owner(principal, ours)
+    declined = await api_client.post(
+        f"/vendor-portal/purchase-orders/{order.id}/decline",
+        json={"reason": "Unable to supply in this delivery week"},
+    )
+    assert declined.status_code == 200, declined.text
+    assert declined.json()["data"]["status"] == "VENDOR_DECLINED"
+    await procurement_service.transition_purchase_order(
+        session,
+        tenant,
+        principal,
+        order.id,
+        PurchaseOrderStatus.SENT,
+        reason="Agreed a later delivery week",
+    )
+    declined = await api_client.post(
+        f"/vendor-portal/purchase-orders/{order.id}/decline",
+        json={"reason": "Capacity remains unavailable"},
+    )
+    assert declined.status_code == 200
+    await procurement_service.transition_purchase_order(
+        session,
+        tenant,
+        principal,
+        order.id,
+        PurchaseOrderStatus.CANCELLED,
+        reason="Cancelled after vendor decline",
+    )
+    await session.refresh(order)
+    assert order.status == "CANCELLED"
 
-        draft = await api_client.get(f"/procurement/purchase-orders/{our_order.id}")
-        assert draft.status_code == 404, draft.text
-        listed = await api_client.get("/procurement/purchase-orders")
-        assert listed.status_code == 200
-        assert str(our_order.id) not in {row["id"] for row in listed.json()["data"]}
 
-    async def test_once_sent_it_is_visible_but_the_buyer_side_edit_and_submit_are_scope_denied(
-        self, api_client, session: AsyncSession, tenant, principal: Principal, orders
-    ) -> None:
-        ours, our_order, _ = orders
-        await _send(session, tenant, principal, our_order.id)
-        _sign_in_as_vendor_owner(principal, ours)
-        path = f"/procurement/purchase-orders/{our_order.id}"
+async def test_decline_cancel_releases_requisition(api_client, session, tenant, principal, orders):
+    from src.modules.procurement.models import PurchaseOrderLine, RequisitionStatus
+    from src.modules.procurement.schemas import RequisitionCreate, RequisitionLineIn
 
-        visible = await api_client.get(path)
-        assert visible.status_code == 200, visible.text
-        assert visible.json()["data"]["id"] == str(our_order.id)
-        listed = await api_client.get("/procurement/purchase-orders")
-        assert str(our_order.id) in {row["id"] for row in listed.json()["data"]}
+    ours, source, _ = orders
+    source_line = (
+        await session.execute(
+            select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == source.id)
+        )
+    ).scalar_one()
+    requisition, lines = await procurement_service.create_requisition(
+        session,
+        tenant,
+        principal,
+        RequisitionCreate(
+            warehouse_id=source.warehouse_id,
+            required_date=today() + timedelta(days=30),
+            lines=[
+                RequisitionLineIn(
+                    line_number=1, item_id=source_line.item_id, quantity=Decimal("100")
+                )
+            ],
+        ),
+    )
+    await procurement_service.transition_requisition(
+        session,
+        tenant,
+        principal,
+        requisition.id,
+        RequisitionStatus.PENDING_APPROVAL,
+        reason="Required for next production batch",
+    )
+    await procurement_service.transition_requisition(
+        session,
+        tenant,
+        _approver(principal),
+        requisition.id,
+        RequisitionStatus.APPROVED,
+        reason="Approved planned demand",
+    )
+    order, _, _ = await procurement_service.create_purchase_order(
+        session,
+        tenant,
+        principal,
+        PurchaseOrderCreate(
+            vendor_id=ours.id,
+            warehouse_id=source.warehouse_id,
+            expected_delivery_date=today() + timedelta(days=30),
+            lines=[
+                PurchaseOrderLineIn(
+                    line_number=1,
+                    item_id=source_line.item_id,
+                    quantity=Decimal("100"),
+                    unit_price=Decimal("50"),
+                    requisition_line_id=lines[0].id,
+                )
+            ],
+        ),
+    )
+    await _send(session, tenant, principal, order.id)
+    _sign_in_as_vendor_owner(principal, ours)
+    declined = await api_client.post(
+        f"/vendor-portal/purchase-orders/{order.id}/decline",
+        json={"reason": "Capacity unavailable"},
+    )
+    assert declined.status_code == 200, declined.text
+    detail = await procurement_service.get_requisition_detail(session, tenant, requisition.id)
+    assert detail.lines[0].ordered_quantity == Decimal("100")
+    await procurement_service.transition_purchase_order(
+        session,
+        tenant,
+        principal,
+        order.id,
+        PurchaseOrderStatus.CANCELLED,
+        reason="Released demand after vendor decline",
+    )
+    detail = await procurement_service.get_requisition_detail(session, tenant, requisition.id)
+    assert detail.lines[0].ordered_quantity == 0
 
-        edited = await api_client.patch(path, json={"notes": "Vendor rewriting the order"})
-        assert edited.status_code == 403, edited.text
-        assert edited.json()["error"]["code"] == "SCOPE_DENIED"
 
-        submitted = await api_client.post(f"{path}/submit", json={"reason": "Vendor submitting"})
-        assert submitted.status_code == 403, submitted.text
-        assert submitted.json()["error"]["code"] == "SCOPE_DENIED"
+async def test_po_sent_notifies_only_the_assignee(session, tenant, principal, orders):
+    from src.modules.notifications.models import Notification, NotificationType
+    from src.modules.users.models import Role, User
 
-        status, notes = (
+    ours, order, foreign = orders
+    role = Role(
+        company_id=tenant.company_id,
+        code=_code("ROLE"),
+        name="Vendor owner",
+        permissions=[str(p) for p in ROLE_PRESETS["VENDOR_OWNER"]["permissions"]],
+        is_active=True,
+    )
+    assignee = User(
+        company_id=tenant.company_id,
+        vendor_id=ours.id,
+        email=f"{uuid.uuid4()}@test.local",
+        full_name="Assigned owner",
+        password_hash="unused",
+        roles=[role],
+    )
+    second = User(
+        company_id=tenant.company_id,
+        vendor_id=ours.id,
+        email=f"{uuid.uuid4()}@test.local",
+        full_name="Other owner",
+        password_hash="unused",
+        roles=[role],
+    )
+    outsider = User(
+        company_id=tenant.company_id,
+        vendor_id=foreign.vendor_id,
+        email=f"{uuid.uuid4()}@test.local",
+        full_name="Other vendor",
+        password_hash="unused",
+        roles=[role],
+    )
+    session.add_all([assignee, second, outsider])
+    await session.flush()
+    for target in (PurchaseOrderStatus.PENDING_APPROVAL, PurchaseOrderStatus.APPROVED):
+        await procurement_service.transition_purchase_order(
+            session, tenant, _approver(principal), order.id, target, reason="Approved vendor order"
+        )
+    await procurement_service.transition_purchase_order(
+        session,
+        tenant,
+        principal,
+        order.id,
+        PurchaseOrderStatus.SENT,
+        assigned_vendor_user_id=assignee.id,
+        reason="Sent to assigned owner",
+    )
+    recipients = list(
+        (
             await session.execute(
-                select(PurchaseOrder.status, PurchaseOrder.notes).where(
-                    PurchaseOrder.id == our_order.id
+                select(Notification.user_id).where(
+                    Notification.entity_id == order.id,
+                    Notification.notification_type == NotificationType.PURCHASE_ORDER_SENT,
                 )
             )
-        ).one()
-        assert PurchaseOrderStatus(status) is PurchaseOrderStatus.SENT
-        assert notes is None
-
-    async def test_an_order_cancelled_before_it_was_sent_stays_hidden(
-        self, api_client, session: AsyncSession, tenant, principal: Principal, orders
-    ) -> None:
-        ours, our_order, _ = orders
-        await procurement_service.transition_purchase_order(
-            session, tenant, principal, our_order.id, PurchaseOrderStatus.CANCELLED, reason="No"
-        )
-        _sign_in_as_vendor_owner(principal, ours)
-        response = await api_client.get(f"/procurement/purchase-orders/{our_order.id}")
-        assert response.status_code == 404
-
-
-class TestCategoryScope:
-    async def test_a_category_manager_sees_its_categories_and_what_is_assigned_to_it(
-        self, api_client, session: AsyncSession, tenant, principal: Principal
-    ) -> None:
-        uom = await seed_support.seed_uom(session, company_id=tenant.company_id)
-        warehouse = await seed_support.seed_warehouse(
-            session, company_id=tenant.company_id, code=_code("WH")
-        )
-        vendor = await _approved_vendor(session, tenant, "Precision Fasteners")
-        locks = await seed_support.seed_category(session, company_id=tenant.company_id)
-        lock_body = await seed_support.seed_category(
-            session, company_id=tenant.company_id, parent=locks
-        )
-        handles = await seed_support.seed_category(session, company_id=tenant.company_id)
-
-        def order_in(category: ItemCategory):
-            return _raise_order(
-                session,
-                tenant,
-                principal,
-                vendor=vendor,
-                warehouse_id=warehouse.id,
-                uom_id=uom.id,
-                category=category,
-            )
-
-        in_scope = await order_in(locks)
-        beneath_scope = await order_in(lock_body)
-        out_of_scope = await order_in(handles)
-        assigned_out_of_scope = await order_in(handles)
-        for order in (in_scope, beneath_scope, out_of_scope, assigned_out_of_scope):
-            await _send(session, tenant, principal, order.id)
-        # Assigned by name - as when a manager's scope is narrowed after the
-        # order was sent to them. The name keeps the order in view.
-        assigned_out_of_scope.assigned_vendor_user_id = principal.user_id
-        await session.flush()
-
-        _sign_in_as_vendor_owner(principal, vendor, allowed_category_ids=(locks.id,))
-
-        def get(order: PurchaseOrder):
-            return api_client.get(f"/procurement/purchase-orders/{order.id}")
-
-        assert (await get(in_scope)).status_code == 200
-        assert (await get(beneath_scope)).status_code == 200
-        assert (await get(out_of_scope)).status_code == 404
-        assert (await get(assigned_out_of_scope)).status_code == 200
-
-        listed = await api_client.get("/procurement/purchase-orders")
-        ids = {row["id"] for row in listed.json()["data"]}
-        assert {str(in_scope.id), str(beneath_scope.id), str(assigned_out_of_scope.id)} <= ids
-        assert str(out_of_scope.id) not in ids
-
-
-class TestBuyerOnlyRoutes:
-    async def test_the_duplicate_check_is_closed_to_vendors(
-        self, api_client, principal: Principal, orders
-    ) -> None:
-        """It answers with other vendors' open orders for a vendor the caller names."""
-        ours, _, theirs_order = orders
-        _sign_in_as_vendor_owner(principal, ours)
-        response = await api_client.post(
-            "/procurement/purchase-orders/check-duplicates",
-            json={
-                "vendor_id": str(theirs_order.vendor_id),
-                "warehouse_id": str(theirs_order.warehouse_id),
-                "lines": [{"item_id": str(uuid.uuid4())}],
-            },
-        )
-        assert response.status_code == 403, response.text
-        assert response.json()["error"]["code"] == "SCOPE_DENIED"
-
-    async def test_the_conversion_and_the_assignee_list_are_closed_to_vendors(
-        self, api_client, principal: Principal, orders
-    ) -> None:
-        ours, our_order, _ = orders
-        _sign_in_as_vendor_owner(principal, ours)
-        for method, path, body in (
-            ("post", f"/procurement/purchase-requisitions/{uuid.uuid4()}/conversion-preview", {}),
-            ("post", f"/procurement/purchase-requisitions/{uuid.uuid4()}/convert-to-orders", {}),
-            (
-                "post",
-                "/procurement/purchase-requisitions/convert-to-orders",
-                {"requisition_ids": [str(uuid.uuid4())]},
-            ),
-            ("get", f"/procurement/purchase-orders/{our_order.id}/vendor-assignees", None),
-        ):
-            if method == "get":
-                response = await api_client.get(path)
-            else:
-                response = await api_client.post(path, json=body)
-            # The vendor preset lacks purchase_order.create/send, so the
-            # permission answers first; either way a vendor never gets in.
-            assert response.status_code == 403, (path, response.text)
+        ).scalars()
+    )
+    assert recipients == [assignee.id]

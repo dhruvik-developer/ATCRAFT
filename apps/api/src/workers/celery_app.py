@@ -69,6 +69,11 @@ celery_app.conf.update(
         "maintenance.*": {"queue": "default"},
     },
     beat_schedule={
+        "dispatch-pending-deliveries": {
+            "task": "notifications.dispatch_pending_deliveries",
+            "schedule": 120.0,
+            "options": {"queue": "notifications", "expires": 110},
+        },
         # Section 25: dashboards read summary tables, not hot transactional ones.
         "refresh-inventory-summary": {
             "task": "maintenance.refresh_summary_views",
@@ -211,6 +216,8 @@ def _on_task_end(
 MAIL_TASKS = frozenset(
     {
         "notifications.send_email",
+        "notifications.send_push",
+        "notifications.dispatch_pending_deliveries",
         "notifications.send_password_reset_email",
         "notifications.dispatch_pending_password_resets",
     }

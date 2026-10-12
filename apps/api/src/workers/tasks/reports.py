@@ -290,6 +290,124 @@ def render_packing_list_pdf(data: dict[str, Any]) -> bytes:
     return buffer.getvalue()
 
 
+def indian_money(value: Any) -> str:
+    """Decimal amount with Indian digit grouping; shared with future invoices."""
+    amount = f"{Decimal(str(value or 0)):.2f}"
+    integer, fraction = amount.split(".")
+    sign = "-" if integer.startswith("-") else ""
+    digits = integer.lstrip("-")
+    tail = digits[-3:]
+    head = digits[:-3]
+    groups: list[str] = []
+    while head:
+        groups.insert(0, head[-2:])
+        head = head[:-2]
+    return sign + ",".join([*groups, tail]) + "." + fraction
+
+
+def render_purchase_order_pdf(data: dict[str, Any]) -> bytes:
+    """Pure multipage PO renderer, escaping every stored value as literal text."""
+    from xml.sax.saxutils import escape
+
+    styles = _styles()
+    buffer = io.BytesIO()
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=PAGE_MARGIN,
+        rightMargin=PAGE_MARGIN,
+        topMargin=PAGE_MARGIN,
+        bottomMargin=PAGE_MARGIN,
+        title=f"Purchase order {data.get('code', '')}",
+    )
+
+    def paragraph(value: Any) -> Paragraph:
+        return Paragraph(escape(str(value or "")), styles["body"])
+
+    story: list[Any] = [Paragraph("PURCHASE ORDER", styles["heading"])]
+    for label in ("company", "vendor"):
+        block = data.get(label, {})
+        story.append(paragraph(f"{label.title()}: {block.get('name', '')}"))
+        story.append(
+            paragraph(
+                " · ".join(
+                    str(block.get(k))
+                    for k in (
+                        "address_line1",
+                        "address_line2",
+                        "city",
+                        "state",
+                        "postal_code",
+                        "gstin",
+                    )
+                    if block.get(k)
+                )
+            )
+        )
+    story.extend(
+        [
+            Spacer(1, 8),
+            paragraph(f"{data.get('code')} · {data.get('po_date')} · {data.get('status')}"),
+            paragraph(f"Delivery address: {data.get('delivery_address') or ''}"),
+            Spacer(1, 8),
+        ]
+    )
+    rows: list[list[Any]] = [
+        [
+            paragraph(v)
+            for v in (
+                "Item / vendor code",
+                "Description / HSN",
+                "Qty / UoM",
+                "Rate",
+                "Discount",
+                "Tax",
+                "Total",
+            )
+        ]
+    ]
+    for line in data.get("lines", []):
+        rows.append(
+            [
+                paragraph(f"{line.get('code', '')} {line.get('vendor_item_code') or ''}"),
+                paragraph(f"{line.get('description', '')} {line.get('hsn') or ''}"),
+                paragraph(f"{line.get('quantity')} {line.get('uom') or ''}"),
+                *[
+                    paragraph(indian_money(line.get(k)))
+                    for k in ("unit_price", "discount", "tax", "total")
+                ],
+            ]
+        )
+    table = Table(rows, colWidths=[70, 125, 50, 60, 50, 50, 65], repeatRows=1)
+    table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("GRID", (0, 0), (-1, -1), 0.3, colors.lightgrey),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+            ]
+        )
+    )
+    story.append(table)
+    for key in ("subtotal", "discount", "tax_amount", "freight_amount", "total_amount"):
+        story.append(
+            paragraph(
+                f"{key.replace('_', ' ').title()}: {data.get('currency', 'INR')} "
+                f"{indian_money(data.get(key))}"
+            )
+        )
+    story.extend(
+        [
+            Spacer(1, 10),
+            paragraph(data.get("terms")),
+            Spacer(1, 24),
+            paragraph("Authorised signatory"),
+        ]
+    )
+    document.build(story)
+    return buffer.getvalue()
+
+
 # -----------------------------------------------------------------------------
 # Filesystem primitives - blocking, handed to a worker thread
 # -----------------------------------------------------------------------------
@@ -1064,3 +1182,144 @@ __all__ = [
     "render_packing_list_pdf",
     "render_report_xlsx",
 ]
+
+
+@async_task(name="reports.generate_purchase_order", queue="reports")
+async def generate_purchase_order(
+    purchase_order_id: str,
+    snapshot_id: str,
+    company_id: str,
+    user_id: str,
+    request_id: str | None = None,
+    **_: Any,
+) -> dict[str, Any]:
+    """Render one purchase order's PDF and file it in the document store.
+
+    The job row (``snapshot_id``) is driven through the same lifecycle as every
+    other background report: claimed on entry, completed with the document id
+    once the row is written, and failed on a fresh session if anything raises -
+    see :func:`generate_report` for why each of those matters. Without it the
+    client polls a job that stays QUEUED for ever.
+
+    Arguments are plain strings because Celery serialises task payloads as JSON;
+    ``request_id`` is not used here but is read by the ``task_prerun`` signal so
+    the API's correlation id follows the work into the worker's logs (section 55).
+    """
+    from src.modules.procurement.purchase_order_pdf_repository import purchase_order_pdf_data
+
+    tenant = TenantContext(company_id=uuid.UUID(company_id), user_id=uuid.UUID(user_id))
+    order_id = uuid.UUID(purchase_order_id)
+    identifier = uuid.UUID(snapshot_id)
+    moment = utcnow()
+
+    try:
+        async with session_scope() as session:
+            try:
+                snapshot = await reports_service.start_snapshot(session, tenant, identifier)
+            except InvalidStateTransitionError:
+                log.warning("reports.purchase_order_not_queued", snapshot_id=snapshot_id)
+                return {
+                    "snapshot_id": snapshot_id,
+                    "status": "SKIPPED",
+                    "reason": "the job is no longer queued",
+                }
+
+            data = await purchase_order_pdf_data(session, tenant, order_id)
+
+            payload = await anyio.to_thread.run_sync(render_purchase_order_pdf, data)
+            checksum = hashlib.sha256(payload).hexdigest()
+
+            rule = KNOWN_TYPES[PDF_MIME_TYPE]
+            storage_key = build_storage_key(
+                category=DocumentCategory.REPORT,
+                company_id=tenant.company_id,
+                rule=rule,
+                moment=moment,
+                file_id=new_id(),
+            )
+            destination = resolve_storage_path(storage_key)
+            await anyio.to_thread.run_sync(_write_bytes, destination, payload)
+
+            try:
+                document = Document(
+                    file_name=f"purchase-order-{str(data.get('code', '')).replace('/', '-')}.pdf",
+                    storage_key=storage_key,
+                    mime_type=PDF_MIME_TYPE,
+                    size_bytes=len(payload),
+                    checksum_sha256=checksum,
+                    category=DocumentCategory.REPORT,
+                    entity_type="purchase_order",
+                    entity_id=order_id,
+                    uploaded_by_id=tenant.user_id,
+                    is_public=False,
+                    expires_at=None,
+                )
+                DocumentRepository(session, tenant).add(document)
+                await session.flush()
+
+                await record_audit(
+                    session,
+                    company_id=tenant.company_id,
+                    action=AuditAction.DATA_EXPORT,
+                    entity_type="purchase_order",
+                    entity_id=order_id,
+                    entity_code=str(data.get("code", "")),
+                    summary=(
+                        f"Generated the purchase order PDF for {data.get('code', '')} "
+                        f"({len(payload)} bytes)"
+                    ),
+                    user_id=tenant.user_id,
+                    new_values={
+                        "document_id": document.id,
+                        "file_name": document.file_name,
+                        "size_bytes": document.size_bytes,
+                        "checksum_sha256": checksum,
+                        "line_count": len(data.get("lines", [])),
+                    },
+                )
+
+                await reports_service.complete_snapshot(
+                    session,
+                    tenant,
+                    snapshot_id=snapshot.id,
+                    row_count=len(data.get("lines", [])),
+                    document_id=document.id,
+                )
+            except Exception:
+                # The row never committed, so nothing will ever reference these
+                # bytes. Removing them here is the only cheap chance to do so.
+                await anyio.to_thread.run_sync(_unlink, destination)
+                raise
+
+            document_id = str(document.id)
+            size_bytes = document.size_bytes
+
+    except Exception as exc:
+        # A separate session: the one the failure happened on cannot be used to
+        # write anything, so the job would otherwise stay RUNNING for ever.
+        async with session_scope() as session:
+            await reports_service.fail_snapshot(
+                session, tenant, snapshot_id=identifier, error=_failure_message(exc)
+            )
+        log.error(
+            "reports.purchase_order_failed", snapshot_id=snapshot_id, error=str(exc), exc_info=exc
+        )
+        raise
+
+    log.info(
+        "reports.purchase_order_generated",
+        snapshot_id=snapshot_id,
+        purchase_order_id=purchase_order_id,
+        document_id=document_id,
+        size_bytes=size_bytes,
+    )
+    return {
+        "snapshot_id": snapshot_id,
+        "status": "COMPLETED",
+        "purchase_order_id": purchase_order_id,
+        "purchase_order_code": str(data.get("code", "")),
+        "document_id": document_id,
+        "size_bytes": size_bytes,
+        "checksum_sha256": checksum,
+        "line_count": len(data.get("lines", [])),
+    }

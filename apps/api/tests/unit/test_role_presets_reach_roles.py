@@ -81,3 +81,22 @@ def test_a_system_role_is_one_whose_permissions_the_client_does_not_own() -> Non
         "VENDOR_OWNER",
         "VENDOR_QC_CONTACT",
     ]
+
+
+def test_vendor_system_presets_have_only_their_portal_rights() -> None:
+    base = {Permission.VENDOR_PORTAL_ACCESS, Permission.NOTIFICATION_VIEW}
+    expected = {
+        "VENDOR_OWNER": base
+        | {
+            Permission.VENDOR_PORTAL_RESPOND,
+            Permission.VENDOR_PORTAL_SHIP,
+            Permission.VENDOR_PORTAL_INVOICE,
+            Permission.VENDOR_PORTAL_QUALITY,
+        },
+        "VENDOR_MANAGER": base | {Permission.VENDOR_PORTAL_RESPOND, Permission.VENDOR_PORTAL_SHIP},
+        "VENDOR_DISPATCH_MANAGER": base | {Permission.VENDOR_PORTAL_SHIP},
+        "VENDOR_QC_CONTACT": base | {Permission.VENDOR_PORTAL_QUALITY},
+        "VENDOR_ACCOUNT_MANAGER": base | {Permission.VENDOR_PORTAL_INVOICE},
+    }
+    for code, permissions in expected.items():
+        assert ROLE_PRESETS[code]["permissions"] == permissions

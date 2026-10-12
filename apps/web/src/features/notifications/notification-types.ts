@@ -25,6 +25,15 @@ export type Severity = (typeof SEVERITIES)[number]
  * order the API happens to return.
  */
 export const NOTIFICATION_TYPES = [
+  'PURCHASE_ORDER_SENT',
+  'PURCHASE_ORDER_ACKNOWLEDGED',
+  'PURCHASE_ORDER_DECLINED',
+  'PURCHASE_ORDER_DATE_CHANGED',
+  'PURCHASE_ORDER_READY',
+  'PURCHASE_ORDER_SHIPPED',
+  'VENDOR_INVOICE_STATUS',
+  'VENDOR_PAYMENT_RECORDED',
+
   'APPROVAL_PENDING',
   'APPROVAL_GRANTED',
   'APPROVAL_REJECTED',
@@ -81,6 +90,7 @@ export interface NotificationPreference {
   notification_type: string
   in_app_enabled: boolean
   email_enabled: boolean
+  push_enabled?: boolean
   /** False when this row is still the system default rather than a choice. */
   is_customised?: boolean
 }

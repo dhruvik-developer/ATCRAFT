@@ -373,6 +373,24 @@ PURCHASE_ORDER_LIFECYCLE: StateMachine[PurchaseOrderStatus] = StateMachine(
             permission=Permission.PURCHASE_ORDER_UPDATE,
             label="Close",
         ),
+        Transition(
+            PurchaseOrderStatus.SENT,
+            PurchaseOrderStatus.VENDOR_DECLINED,
+            permission=Permission.VENDOR_PORTAL_RESPOND,
+            label="Vendor declined",
+        ),
+        Transition(
+            PurchaseOrderStatus.VENDOR_DECLINED,
+            PurchaseOrderStatus.CANCELLED,
+            permission=Permission.PURCHASE_ORDER_CANCEL,
+            label="Cancel declined order",
+        ),
+        Transition(
+            PurchaseOrderStatus.VENDOR_DECLINED,
+            PurchaseOrderStatus.SENT,
+            permission=Permission.PURCHASE_ORDER_SEND,
+            label="Resend declined order",
+        ),
     ),
     terminal=frozenset(
         {
@@ -1298,7 +1316,7 @@ def recommendation_reason(ranked: list[RankedOffer], *, vendor_names: dict[uuid.
 # portal's acknowledge and shipment actions are gated on today. Held in one
 # constant so the dedicated portal right that replaces it is a one-line change
 # (docs/assumptions.md §54).
-VENDOR_PO_RESPOND_PERMISSION: Permission = Permission.PURCHASE_ORDER_UPDATE
+VENDOR_PO_RESPOND_PERMISSION: Permission = Permission.VENDOR_PORTAL_RESPOND
 
 #: One conversion raises at most this many purchase orders. Each order is a
 #: bounded run of writes inside the one transaction - an advisory lock, the

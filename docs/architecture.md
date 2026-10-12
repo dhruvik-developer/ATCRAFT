@@ -234,6 +234,21 @@ POST /mrp/runs
 Queues are separated by shape — `mrp`, `reports`, `notifications`, `default` —
 so a four-minute planning run never sits in front of a 200 ms notification.
 
+Web Push shares the notifications queue. Business transactions stage email and
+push tasks until the outer commit; nested SAVEPOINT commits do not publish.
+Workers claim under a notification lock, close the transaction before transport,
+then update devices in a second transaction. If every device needs retry, a
+compare-and-release UPDATE makes the notification available again. Permanent
+failures keep the claim; GONE removes a device. Collapse preserves delivery
+markers and never re-sends an already-delivered unread notification. A 120-second
+sweep requeues up to 100 unclaimed email/push rows less than 24 hours old, recovering
+broker outages. Claimed rows intentionally retain the existing at-most-once crash
+window: a process killed after claiming may require operator replay.
+
+Auth and user-admin repositories call the notification device cleanup helper in
+their revocation transaction. Quality's inspection pull facade accepts a batch
+of receipt references so portal receipt pages avoid N+1 reads.
+
 ## Request lifecycle
 
 ```

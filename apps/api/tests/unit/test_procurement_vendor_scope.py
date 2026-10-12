@@ -186,6 +186,7 @@ def test_the_visible_statuses_are_sent_and_everything_after_it() -> None:
 
     assert set(VENDOR_VISIBLE_PO_STATUSES) == {
         PurchaseOrderStatus.SENT,
+        PurchaseOrderStatus.VENDOR_DECLINED,
         PurchaseOrderStatus.ACKNOWLEDGED,
         PurchaseOrderStatus.PARTIALLY_RECEIVED,
         PurchaseOrderStatus.RECEIVED,

@@ -50,6 +50,7 @@ services:
       APP_DEBUG: "true"
       LOG_JSON: "false"
       DB_ECHO: "false"
+      WEB_PUSH_ENABLED: "true"
       CORS_ORIGINS: "http://localhost:5173,http://localhost:3000,http://localhost"
     volumes:
       - ./apps/api/src:/app/src              # hot reload
@@ -67,6 +68,7 @@ services:
     environment:
       APP_ENV: development
       APP_DEBUG: "true"
+      WEB_PUSH_ENABLED: "true"
     volumes:
       - ./apps/api/src:/app/src
       - ./storage:/storage

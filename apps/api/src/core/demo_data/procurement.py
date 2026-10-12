@@ -1940,3 +1940,6 @@ async def seed(ctx: DemoContext) -> None:
     await _seed_returns(ctx)
 
     await _note_serial_gap(ctx)
+    from src.core.demo_data.vendor_portal import seed as seed_vendor_portal
+
+    await seed_vendor_portal(ctx)

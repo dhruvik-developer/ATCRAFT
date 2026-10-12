@@ -465,8 +465,8 @@ class TestTheRespondRight:
             code="VENDOR_MANAGER", permissions=permissions, is_active=active, deleted_at=None
         )
 
-    def test_the_right_is_purchase_order_update_for_now(self) -> None:
-        assert VENDOR_PO_RESPOND_PERMISSION is Permission.PURCHASE_ORDER_UPDATE
+    def test_the_right_is_the_portal_respond_permission(self) -> None:
+        assert VENDOR_PO_RESPOND_PERMISSION is Permission.VENDOR_PORTAL_RESPOND
 
     def test_a_role_granting_the_right_makes_the_user_eligible(self) -> None:
         facts = self._facts(self._role(str(VENDOR_PO_RESPOND_PERMISSION)))

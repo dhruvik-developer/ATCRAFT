@@ -173,6 +173,7 @@ class PurchaseOrderStatus(StrEnum):
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     SENT = "SENT"
+    VENDOR_DECLINED = "VENDOR_DECLINED"
     ACKNOWLEDGED = "ACKNOWLEDGED"
     PARTIALLY_RECEIVED = "PARTIALLY_RECEIVED"
     RECEIVED = "RECEIVED"
@@ -307,6 +308,7 @@ OPEN_REQUISITION_STATUSES: tuple[RequisitionStatus, ...] = (
 # given, with prices nobody has approved yet (docs/assumptions.md §56).
 VENDOR_VISIBLE_PO_STATUSES: tuple[PurchaseOrderStatus, ...] = (
     PurchaseOrderStatus.SENT,
+    PurchaseOrderStatus.VENDOR_DECLINED,
     PurchaseOrderStatus.ACKNOWLEDGED,
     PurchaseOrderStatus.PARTIALLY_RECEIVED,
     PurchaseOrderStatus.RECEIVED,
@@ -937,6 +939,12 @@ class PurchaseOrder(TenantEntity, OptimisticLockMixin):
     tracking_reference: Mapped[str | None] = mapped_column(String(120), nullable=True)
     shipped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    vendor_committed_date: Mapped[date | None] = mapped_column(Date)
+    vendor_decline_reason: Mapped[str | None] = mapped_column(String(255))
+    ready_for_dispatch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ready_packages: Mapped[int | None] = mapped_column(Integer)
+    ready_note: Mapped[str | None] = mapped_column(Text)
+
     vendor_reference: Mapped[str | None] = mapped_column(String(64), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -1563,3 +1571,9 @@ __all__ = [
     "VendorQuotation",
     "VendorQuotationLine",
 ]
+
+# Registry discovery imports this model module; consignments live in a focused file.
+from src.modules.procurement.inbound_models import (  # noqa: E402, F401
+    PurchaseOrderDocument,
+    PurchaseOrderShipment,
+)

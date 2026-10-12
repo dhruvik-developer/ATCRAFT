@@ -114,6 +114,7 @@ const STATUS_VARIANTS: Record<
   'default' | 'secondary' | 'success' | 'warning' | 'destructive' | 'muted' | 'outline'
 > = {
   // neutral / early lifecycle
+  VENDOR_DECLINED: 'destructive',
   DRAFT: 'muted',
   OPEN: 'default',
   PENDING: 'warning',

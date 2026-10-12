@@ -624,6 +624,10 @@ class PurchaseOrderLineIn(BaseModel):
 
 
 class PurchaseOrderLineRead(BaseModel):
+    item_code: str | None = None
+    item_name: str | None = None
+    item_category_id: uuid.UUID | None = None
+    uom_code: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
@@ -750,6 +754,10 @@ class PurchaseOrderSummary(BaseModel):
     #: column of dashes. ``None`` when the order has no category.
     item_category_code: str | None = None
     item_category_name: str | None = None
+    vendor_committed_date: date | None = None
+    ready_for_dispatch_at: datetime | None = None
+    ready_packages: int | None = None
+    vendor_decline_reason: str | None = None
     version: int
     created_at: datetime
 

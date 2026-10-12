@@ -88,9 +88,18 @@ class NotificationChannel(StrEnum):
 
     IN_APP = "IN_APP"
     EMAIL = "EMAIL"
+    PUSH = "PUSH"
 
 
 class NotificationType(StrEnum):
+    PURCHASE_ORDER_SENT = "PURCHASE_ORDER_SENT"
+    PURCHASE_ORDER_ACKNOWLEDGED = "PURCHASE_ORDER_ACKNOWLEDGED"
+    PURCHASE_ORDER_DECLINED = "PURCHASE_ORDER_DECLINED"
+    PURCHASE_ORDER_DATE_CHANGED = "PURCHASE_ORDER_DATE_CHANGED"
+    PURCHASE_ORDER_READY = "PURCHASE_ORDER_READY"
+    PURCHASE_ORDER_SHIPPED = "PURCHASE_ORDER_SHIPPED"
+    VENDOR_INVOICE_STATUS = "VENDOR_INVOICE_STATUS"
+    VENDOR_PAYMENT_RECORDED = "VENDOR_PAYMENT_RECORDED"
     """The closed vocabulary of things the system notifies about.
 
     Closed rather than free text because it is the key of
@@ -189,6 +198,7 @@ class Notification(TenantEntity):
     email_delivered_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    push_delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     #: Collapse key. Alerts sharing (recipient, type, group_key) fold into one
     #: unread row - see the module docstring and the partial unique index below.
@@ -201,6 +211,16 @@ class Notification(TenantEntity):
     )
 
     __table_args__ = (
+        Index(
+            "ix_notifications_pending_push",
+            "created_at",
+            postgresql_where=text("push_delivered_at IS NULL AND 'PUSH' = ANY(channels)"),
+        ),
+        Index(
+            "ix_notifications_pending_email",
+            "created_at",
+            postgresql_where=text("email_delivered_at IS NULL AND 'EMAIL' = ANY(channels)"),
+        ),
         # The feed index. ``is_read`` leads the sort keys because the list is
         # ordered unread-first, and the DESC pair matches the keyset predicate
         # exactly so paging deep into an old backlog stays constant cost.
@@ -285,6 +305,9 @@ class NotificationPreference(TenantEntity):
     email_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+    push_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
 
     __table_args__ = (
         # Also the arbiter index for the preferences upsert.
@@ -294,10 +317,33 @@ class NotificationPreference(TenantEntity):
     )
 
 
+class PushSubscription(TenantEntity):
+    """One browser opt-in. Endpoints are credentials and are encrypted at rest."""
+
+    __tablename__ = "push_subscriptions"
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("users.id", ondelete="CASCADE"))
+    endpoint_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    endpoint_ciphertext: Mapped[str] = mapped_column(Text)
+    p256dh: Mapped[str] = mapped_column(String(128))
+    auth: Mapped[str] = mapped_column(String(32))
+    user_agent: Mapped[str | None] = mapped_column(String(512))
+    device_label: Mapped[str | None] = mapped_column(String(120))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_failure_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failure_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    __table_args__ = (
+        Index("ix_push_subscriptions_owner", "company_id", "user_id"),
+        CheckConstraint("failure_count >= 0", name="failure_count_nonnegative"),
+    )
+
+
 __all__ = [
     "Notification",
     "NotificationChannel",
     "NotificationPreference",
     "NotificationSeverity",
     "NotificationType",
+    "PushSubscription",
 ]

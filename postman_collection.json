@@ -8810,6 +8810,70 @@
     {
       "item": [
         {
+          "name": "Delete Subscription",
+          "request": {
+            "description": "Delete Subscription",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "subscriptions",
+                ":subscription_id"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/subscriptions/{subscription_id}",
+              "variable": [
+                {
+                  "description": "subscription_id of the record",
+                  "key": "subscription_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Subscriptions",
+          "request": {
+            "description": "List Subscriptions",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "subscriptions"
+              ],
+              "query": [
+                {
+                  "description": "Opaque cursor from the previous page",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/subscriptions?"
+            }
+          }
+        },
+        {
           "name": "List my notifications",
           "request": {
             "description": "Unread first, then newest first within each group. Keyset-paginated: pass the `next_cursor` from the previous page rather than a page number, so paging stays constant-cost however large the history grows.",
@@ -8835,7 +8899,7 @@
                   "description": "",
                   "disabled": true,
                   "key": "notification_type",
-                  "value": "APPROVAL_PENDING"
+                  "value": "PURCHASE_ORDER_SENT"
                 },
                 {
                   "description": "",
@@ -8929,6 +8993,83 @@
           }
         },
         {
+          "name": "Push Config",
+          "request": {
+            "description": "Push Config",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "config"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/config"
+            }
+          }
+        },
+        {
+          "name": "Subscribe",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"endpoint\": \"\",\n  \"keys\": {\n    \"auth\": \"\",\n    \"p256dh\": \"\"\n  },\n  \"device_label\": \"\",\n  \"expiration_time\": 0\n}"
+            },
+            "description": "Subscribe",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "subscriptions"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/subscriptions"
+            }
+          }
+        },
+        {
+          "name": "Test Push",
+          "request": {
+            "description": "Test Push",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "test"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/test"
+            }
+          }
+        },
+        {
           "name": "Unread badge count",
           "request": {
             "description": "Counts up to a ceiling and reports whether it was reached, so the badge can render `500+` without counting an unbounded backlog on every poll.",
@@ -8949,6 +9090,42 @@
           }
         },
         {
+          "name": "Unregister",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"endpoint\": \"\"\n}"
+            },
+            "description": "Unregister",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "subscriptions",
+                "unregister"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/subscriptions/unregister"
+            }
+          }
+        },
+        {
           "name": "Update my delivery preferences",
           "request": {
             "body": {
@@ -8958,7 +9135,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"preferences\": [\n    {\n      \"email_enabled\": {},\n      \"in_app_enabled\": {},\n      \"notification_type\": {}\n    }\n  ]\n}"
+              "raw": "{\n  \"preferences\": [\n    {\n      \"email_enabled\": {},\n      \"in_app_enabled\": {},\n      \"notification_type\": {},\n      \"push_enabled\": {}\n    }\n  ]\n}"
             },
             "description": "Submits the changed rows in one request. CRITICAL alerts are still delivered in-app regardless of the in-app setting.",
             "header": [
@@ -11165,6 +11342,35 @@
     {
       "item": [
         {
+          "name": "Accept Vendor Date",
+          "request": {
+            "description": "Accept Vendor Date",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "accept-vendor-date"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/accept-vendor-date",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Approve a purchase order",
           "request": {
             "body": {
@@ -11737,6 +11943,49 @@
           }
         },
         {
+          "name": "Create Shipment",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"shipped_at\": \"2026-01-01T00:00:00Z\",\n  \"courier_name\": \"\",\n  \"driver_mobile\": \"\",\n  \"driver_name\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"freight_amount\": 0,\n  \"lr_number\": \"\",\n  \"notes\": \"\",\n  \"packages\": 0,\n  \"tracking_reference\": \"\",\n  \"transporter_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vehicle_number\": \"\",\n  \"weight_kg\": 0\n}"
+            },
+            "description": "Create Shipment",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "shipments"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/shipments",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Delete a draft requisition",
           "request": {
             "description": "Only a DRAFT may be deleted. Anything further along is cancelled instead.",
@@ -11766,6 +12015,105 @@
                 {
                   "description": "requisition_id of the record",
                   "key": "requisition_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delivered",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"delivered_at\": \"2026-01-01T00:00:00Z\"\n}"
+            },
+            "description": "Delivered",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "shipments",
+                ":shipment_id",
+                "delivered"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/shipments/{shipment_id}/delivered",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                },
+                {
+                  "description": "shipment_id of the record",
+                  "key": "shipment_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Edit Shipment",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"shipped_at\": \"2026-01-01T00:00:00Z\",\n  \"courier_name\": \"\",\n  \"driver_mobile\": \"\",\n  \"driver_name\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"freight_amount\": 0,\n  \"lr_number\": \"\",\n  \"notes\": \"\",\n  \"packages\": 0,\n  \"tracking_reference\": \"\",\n  \"transporter_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vehicle_number\": \"\",\n  \"weight_kg\": 0\n}"
+            },
+            "description": "Edit Shipment",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "shipments",
+                ":shipment_id"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/shipments/{shipment_id}",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                },
+                {
+                  "description": "shipment_id of the record",
+                  "key": "shipment_id",
                   "value": ""
                 }
               ]
@@ -11941,6 +12289,88 @@
           }
         },
         {
+          "name": "Inbound Tracking",
+          "request": {
+            "description": "Inbound Tracking",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "inbound-tracking"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "overdue",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "not_acknowledged",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/inbound-tracking?"
+            }
+          }
+        },
+        {
           "name": "Inbound dispatch tracking for one order",
           "request": {
             "description": "Master rules section 23: courier and tracking reference, the promised date and whether the order is late, what is still to be received, and whether quantity is sitting on QC hold awaiting inspection.",
@@ -11959,6 +12389,104 @@
                 "tracking"
               ],
               "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/tracking",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Documents",
+          "request": {
+            "description": "List Documents",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "documents"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/documents?",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Shipments",
+          "request": {
+            "description": "List Shipments",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "shipments"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/shipments?",
               "variable": [
                 {
                   "description": "order_id of the record",
@@ -12566,6 +13094,35 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/procurement/quotations?"
+            }
+          }
+        },
+        {
+          "name": "Pdf",
+          "request": {
+            "description": "Pdf",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "pdf"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/pdf",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },
@@ -13555,6 +14112,35 @@
                 ":order_id"
               ],
               "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Upload Document",
+          "request": {
+            "description": "Upload Document",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "documents"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/documents",
               "variable": [
                 {
                   "description": "order_id of the record",
@@ -22535,6 +23121,928 @@
         }
       ],
       "name": "Users"
+    },
+    {
+      "item": [
+        {
+          "name": "Accept",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"committed_delivery_date\": \"2026-01-01\",\n  \"note\": \"\",\n  \"vendor_reference\": \"\"\n}"
+            },
+            "description": "Accept",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "accept"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/accept",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Dashboard",
+          "request": {
+            "description": "Dashboard",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "dashboard"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/dashboard"
+            }
+          }
+        },
+        {
+          "name": "Decline",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Decline",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "decline"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/decline",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delivered",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"delivered_at\": \"2026-01-01T00:00:00Z\"\n}"
+            },
+            "description": "Delivered",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "shipments",
+                ":shipment_id",
+                "delivered"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/shipments/{shipment_id}/delivered",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                },
+                {
+                  "description": "shipment_id of the record",
+                  "key": "shipment_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delivery Date",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"date\": \"2026-01-01\",\n  \"reason\": \"\"\n}"
+            },
+            "description": "Delivery Date",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "delivery-date"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/delivery-date",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Documents",
+          "request": {
+            "description": "Documents",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "documents"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/documents?",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Download",
+          "request": {
+            "description": "Download",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "documents",
+                ":document_id",
+                "download"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/documents/{document_id}/download",
+              "variable": [
+                {
+                  "description": "document_id of the record",
+                  "key": "document_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Invoice",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"invoice_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"quantity\": {},\n      \"unit_price\": {},\n      \"description\": {},\n      \"discount_amount\": {},\n      \"goods_receipt_line_id\": {},\n      \"hsn_code\": {},\n      \"is_interstate\": {},\n      \"item_id\": {},\n      \"notes\": {},\n      \"purchase_order_line_id\": {},\n      \"tax_rate\": {},\n      \"uom_id\": {}\n    }\n  ],\n  \"purchase_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vendor_invoice_number\": \"\",\n  \"currency\": \"\",\n  \"due_date\": \"2026-01-01\",\n  \"goods_receipt_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"invoice_document_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"round_off_amount\": 0\n}"
+            },
+            "description": "Invoice",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "invoices"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/invoices"
+            }
+          }
+        },
+        {
+          "name": "Invoice Detail",
+          "request": {
+            "description": "Invoice Detail",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "invoices",
+                ":invoice_id"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/invoices/{invoice_id}",
+              "variable": [
+                {
+                  "description": "invoice_id of the record",
+                  "key": "invoice_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Invoices",
+          "request": {
+            "description": "Invoices",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "invoices"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/invoices?"
+            }
+          }
+        },
+        {
+          "name": "Job",
+          "request": {
+            "description": "Job",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "jobs",
+                ":job_id"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/jobs/{job_id}",
+              "variable": [
+                {
+                  "description": "job_id of the record",
+                  "key": "job_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "description": "Me",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "me"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/me"
+            }
+          }
+        },
+        {
+          "name": "Order",
+          "request": {
+            "description": "Order",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Order Receipts",
+          "request": {
+            "description": "Order Receipts",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "receipts"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/receipts?",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Orders",
+          "request": {
+            "description": "Orders",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "tab",
+                  "value": "all"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "assigned_to_me",
+                  "value": "False"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders?"
+            }
+          }
+        },
+        {
+          "name": "Payment Summary",
+          "request": {
+            "description": "Payment Summary",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "payments",
+                "summary"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/payments/summary"
+            }
+          }
+        },
+        {
+          "name": "Payments",
+          "request": {
+            "description": "Payments",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "payments"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/payments?"
+            }
+          }
+        },
+        {
+          "name": "Pdf",
+          "request": {
+            "description": "Pdf",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "pdf"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/pdf",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Rating",
+          "request": {
+            "description": "Rating",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "rating"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/rating"
+            }
+          }
+        },
+        {
+          "name": "Ready For Dispatch",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"note\": \"\",\n  \"packages\": 0,\n  \"ready_on\": \"2026-01-01T00:00:00Z\"\n}"
+            },
+            "description": "Ready For Dispatch",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "ready-for-dispatch"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/ready-for-dispatch",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Receipts",
+          "request": {
+            "description": "Receipts",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "receipts"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/receipts?"
+            }
+          }
+        },
+        {
+          "name": "Shipment",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"shipped_at\": \"2026-01-01T00:00:00Z\",\n  \"courier_name\": \"\",\n  \"driver_mobile\": \"\",\n  \"driver_name\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"freight_amount\": 0,\n  \"lr_number\": \"\",\n  \"notes\": \"\",\n  \"packages\": 0,\n  \"tracking_reference\": \"\",\n  \"transporter_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vehicle_number\": \"\",\n  \"weight_kg\": 0\n}"
+            },
+            "description": "Shipment",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "shipments"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/shipments",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Shipments",
+          "request": {
+            "description": "Shipments",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "shipments"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/shipments?",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Transporters",
+          "request": {
+            "description": "Transporters",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "transporters",
+                "options"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/transporters/options?"
+            }
+          }
+        },
+        {
+          "name": "Upload",
+          "request": {
+            "description": "Upload",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "documents"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/documents",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "name": "Vendor Portal"
     },
     {
       "item": [
