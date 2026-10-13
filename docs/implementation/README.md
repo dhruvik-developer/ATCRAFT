@@ -12,6 +12,24 @@ and [the traceability audit](trace/trace.json).
 
 ## Current checkpoint
 
+Updated 13 October 2026, about 09:50 IST. **Resumed by a Cursor agent (Claude Opus) as orchestrator, at the user's request.**
+
+Between the checkpoint below and this resume, lane B committed B2 (`c768493`) and lane C committed its C1a/C1b review fixes (`e1c0e7b`). Both lanes are clean and verified. Lanes A, D and E still held uncommitted work; nothing had been written in any lane since 12 October about 19:51.
+
+Each lane now has exactly one subagent holding it:
+
+| Lane | Holder (Cursor subagent) | Step |
+|---|---|---|
+| A | lane-A takeover agent | Take over E1a and A2, then finish, verify and commit. A review of each package follows. |
+| B | lane-B build agent | R3 B3a job-work invoice, full package. Starts now because B2 is done. |
+| C | lane-C build agent | R3 C2a vendor app frontend, full package. Starts now because C1a/C1b are done. |
+| D | lane-D takeover agent | Take over E8a, then finish, verify and commit. A review follows. |
+| E | lane-E takeover agent | Take over the partial E4 backend, then finish the backend and build the frontend. A review follows. |
+
+The next integration merges all five lanes once each holds only committed, reviewed work. Round 2 and the started round-3 packages go in together.
+
+### Previous checkpoint
+
 Updated 12 October 2026, about 19:25 IST. **Resumed by Codex at the user's request.**
 
 - `main` is round 1 integrated (`fd90655`), plus this directory.
