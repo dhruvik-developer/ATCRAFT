@@ -22,7 +22,7 @@ Lane holders:
 |---|---|---|
 | A | lane-A takeover agent | Take over E1a and A2, then finish, verify and commit. A review of each package follows. |
 | B | lane-B build agent | R3 B3a job-work invoice, full package. Starts now because B2 is done. |
-| C | nobody | Idle. The user deferred the vendor mobile app (C2a and C2b) on 13 October. C1a/C1b stay committed at `e1c0e7b`. Do not start C2a or C2b until the user asks. |
+| C | lane-C dealer-portal agent | R4 C3a dealer portal backend. C2a and C2b (vendor mobile app, PWA shell, push opt-in, inbound board) stay deferred until the user asks. Do not build them. |
 | D | lane-D takeover agent | Take over E8a, then finish, verify and commit. A review follows. |
 | E | lane-E takeover agent | Take over the partial E4 backend, then finish the backend and build the frontend. A review follows. |
 
