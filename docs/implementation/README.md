@@ -21,10 +21,10 @@ Lane holders:
 | Lane | Holder (Cursor subagent) | Step |
 |---|---|---|
 | A | lane-A takeover agent (restarted) | The first takeover stopped on a usage limit before it edited anything. The uncommitted E1a and A2 work is unchanged. Take it over, finish, verify and commit. |
-| B | lane-B build agent | R3 B3a job-work invoice, full package. Starts now because B2 is done. |
+| B | lane-B build agent (restarted) | The first B3a run stopped on a usage limit before it wrote anything. The lane is still clean at `c768493`. Build the job-work invoice. |
 | C | lane-C dealer-portal agent | R4 C3a dealer portal backend. C2a and C2b (vendor mobile app, PWA shell, push opt-in, inbound board) stay deferred until the user asks. Do not build them. |
-| D | lane-D takeover agent | Take over E8a, then finish, verify and commit. A review follows. |
-| E | lane-E takeover agent | Take over the partial E4 backend, then finish the backend and build the frontend. A review follows. |
+| D | lane-D takeover agent (restarted) | The first takeover stopped on a usage limit before it edited the uncommitted E8a work. Take it over, finish, verify and commit. |
+| E | lane-E takeover agent (restarted) | The first takeover stopped on a usage limit before it edited the partial E4 backend. Finish the backend, then the frontend. |
 
 The next integration merges all five lanes once each holds only committed, reviewed work. Round 2 and the started round-3 packages go in together.
 
