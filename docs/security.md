@@ -425,3 +425,14 @@ production — Postgres and Redis are reachable only on the internal network.
 - [ ] Rate limits reviewed against expected legitimate traffic
 - [ ] `/docs`, `/redoc` and `/openapi.json` confirmed disabled in production
 - [ ] Audit-log immutability trigger verified present in the deployed schema
+
+
+Sales invoices are tenant scoped in every source lookup, list, detail, issue,
+cancellation and PDF operation. Viewing/preview/PDF require sales_invoice.view;
+issue requires sales_invoice.create; cancellation requires sales_invoice.cancel.
+System ADMIN/SUPER_ADMIN roles receive cancellation through a grant migration;
+new Accounts presets include it, while client-managed roles remain client owned.
+Receipt allocation uses payment.record and verifies customer and currency under
+payment/invoice locks. Customer receipt cancellation releases allocations and
+reverses its journal atomically. Permanent PDF downloads use the existing
+report-job/document authorisation and tenant checks. No public surface is added.

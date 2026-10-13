@@ -153,6 +153,7 @@ const SCREENS = [
 
   // --- money and evidence -------------------------------------------------
   { file: '80-finance', route: '/finance', title: 'Finance overview', settle: 2500 },
+  { file: '81a-sales-invoices', route: '/finance/sales-invoices', title: 'Sales invoices' },
   { file: '81-vendor-invoices', route: '/finance/vendor-invoices', title: 'Vendor invoices' },
   { file: '82-payments', route: '/finance/payments', title: 'Payments' },
   { file: '83-accounts', route: '/finance/accounts', title: 'Chart of accounts' },

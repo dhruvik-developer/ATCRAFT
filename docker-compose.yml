@@ -250,7 +250,7 @@ services:
       labels:
         org.opencontainers.image.revision: ${SOURCE_REVISION:-unknown}
     image: ${IMAGE_PREFIX:-atcraft}/api:${IMAGE_TAG:-local}
-    command: ["celery", "-A", "src.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=${CELERY_CONCURRENCY:-4}"]
+    command: ["celery", "-A", "src.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=${CELERY_CONCURRENCY:-4}", "-Q", "default,mrp,reports"]
     environment: *api-env
     volumes:
       - storage-data:/storage

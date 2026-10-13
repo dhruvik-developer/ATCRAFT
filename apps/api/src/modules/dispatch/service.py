@@ -1160,7 +1160,13 @@ async def list_dispatches(
 ) -> tuple[list[DispatchSummary], OffsetPagination]:
     repo = DispatchRepository(session, tenant)
     rows, pagination = await repo.list_page_filtered(filters, params, sort, as_of=today())
-    return [DispatchSummary.model_validate(row) for row in rows], pagination
+    invoice_ids = await repo.live_invoice_ids([row.id for row in rows])
+    return [
+        DispatchSummary.model_validate(row).model_copy(
+            update={"sales_invoice_id": invoice_ids.get(row.id)}
+        )
+        for row in rows
+    ], pagination
 
 
 async def open_dispatch_quantities(
@@ -1343,6 +1349,10 @@ async def update_dispatch(
     async with transaction(session):
         dispatch = await _lock_dispatch(repo, dispatch_id)
         _assert_editable(dispatch)
+        if await repo.has_live_invoice(dispatch.id):
+            raise BusinessRuleError(
+                "This dispatch has a live sales invoice. Cancel the invoice first."
+            )
         before = snapshot(dispatch, DISPATCH_AUDITED_FIELDS)
 
         sent = payload.model_dump(exclude_unset=True)
@@ -1515,6 +1525,10 @@ async def cancel_dispatch(
 
     async with transaction(session):
         dispatch = await _lock_dispatch(repo, dispatch_id)
+        if await repo.has_live_invoice(dispatch.id):
+            raise BusinessRuleError(
+                "This dispatch has a live sales invoice. Cancel the invoice first."
+            )
         await _transition(
             session,
             tenant,
@@ -1845,6 +1859,29 @@ async def _advance_sales_order(
             reason=f"Dispatch {dispatch_code}",
         )
         current = target
+    if (
+        fully_dispatched
+        and current == SalesOrderStatus.DISPATCHED
+        and await SalesOrderLineRepository(session, tenant).uninvoiced_line_count(sales_order.id)
+        == 0
+    ):
+        SALES_ORDER_LIFECYCLE.assert_transition(current, SalesOrderStatus.INVOICED)
+        sales_order.status = SalesOrderStatus.INVOICED
+        sales_order.updated_by_id = tenant.user_id
+        await record_status_change(
+            session,
+            company_id=tenant.company_id,
+            entity_type=AUDIT_SALES_ORDER,
+            entity_id=sales_order.id,
+            entity_code=sales_order.code,
+            from_status=str(current),
+            to_status=str(SalesOrderStatus.INVOICED),
+            user_id=tenant.user_id,
+            action=AuditAction.DISPATCH_CHANGE,
+            reason=f"Dispatch {dispatch_code} completed already-invoiced goods",
+        )
+        await session.flush()
+        current = SalesOrderStatus.INVOICED
     return str(current)
 
 

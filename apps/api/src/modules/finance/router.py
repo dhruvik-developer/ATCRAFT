@@ -40,7 +40,7 @@ from src.core.responses import (
     ApiResponse,
     PaginatedResponse,
 )
-from src.modules.finance import service
+from src.modules.finance import sales_invoice_service, service
 from src.modules.finance.models import (
     LedgerAccountType,
     MatchStatus,
@@ -48,7 +48,16 @@ from src.modules.finance.models import (
     PaymentMethod,
     PaymentStatus,
     PaymentType,
+    SalesInvoiceStatus,
     VendorInvoiceStatus,
+)
+from src.modules.finance.sales_invoice_schemas import (
+    SalesInvoiceCancel,
+    SalesInvoiceCreate,
+    SalesInvoiceDetail,
+    SalesInvoiceFilters,
+    SalesInvoicePreview,
+    SalesInvoiceSummary,
 )
 from src.modules.finance.schemas import (
     AgeingReport,
@@ -751,8 +760,8 @@ async def outstanding(
     summary="Ageing analysis bucketed 0-30 / 31-60 / 61-90 / 90+, per currency",
     description=(
         "One row per party and denomination in one aggregate query. Payables are aged from "
-        "the invoice due date. Receivables have no invoice document in this schema, so they "
-        "are netted out of the ledger oldest-first and aged from the posting date.\n\n"
+        "the invoice due date. Receivables are FIFO-netted per customer and currency; sales "
+        "invoice debits age from their due dates, legacy journals from posting dates.\n\n"
         "There is no exchange-rate table in this schema, so nothing here is summed across "
         "denominations. The response carries one block per currency the company has an open "
         "item in, and `currencies[0]` - the block whose figures are also restated at the top "
@@ -867,8 +876,9 @@ async def export_inventory_valuation(
     response_model=ApiResponse[GstSummary],
     summary="Output and input GST for a period",
     description=(
-        "Output tax is recognised when goods leave - each dispatch line's share of its sales "
-        "order line's tax, apportioned by quantity - and input tax comes from vendor invoices "
+        "Output tax comes from issued, non-cancelled sales invoice lines by invoice date, "
+        "using the snapshotted HSN. Uninvoiced dispatches are reported separately. "
+        "Input tax comes from vendor invoices "
         "accepted into the books. Both are grouped by HSN and rate slab, which is the shape a "
         "return is read from."
     ),
@@ -885,3 +895,130 @@ async def gst_summary(
 
 
 __all__ = ["router"]
+
+
+# Sales invoices are issued directly; preview never allocates a document number.
+
+
+def sales_invoice_filters(
+    search: Annotated[str | None, Query(max_length=120)] = None,
+    invoice_status: Annotated[SalesInvoiceStatus | None, Query(alias="status")] = None,
+    customer_id: uuid.UUID | None = None,
+    sales_order_id: uuid.UUID | None = None,
+    dispatch_id: uuid.UUID | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    overdue_only: bool = False,
+    open_only: bool = False,
+) -> SalesInvoiceFilters:
+    return SalesInvoiceFilters(
+        search=search,
+        status=invoice_status,
+        customer_id=customer_id,
+        sales_order_id=sales_order_id,
+        dispatch_id=dispatch_id,
+        date_from=date_from,
+        date_to=date_to,
+        overdue_only=overdue_only,
+        open_only=open_only,
+    )
+
+
+@router.get(
+    "/sales-invoices",
+    response_model=PaginatedResponse[SalesInvoiceSummary],
+    summary="List issued sales invoices",
+    dependencies=[require_permission(Permission.SALES_INVOICE_VIEW)],
+)
+async def list_sales_invoices(
+    session: DbSession,
+    tenant: Tenant,
+    filters: Annotated[SalesInvoiceFilters, Depends(sales_invoice_filters)],
+    params: PageDep,
+    sort: SortDep,
+) -> PaginatedResponse[SalesInvoiceSummary]:
+    rows, pagination = await sales_invoice_service.list_sales_invoices(
+        session, tenant, filters, params, sort
+    )
+    return PaginatedResponse[SalesInvoiceSummary](data=rows, pagination=pagination)
+
+
+@router.get(
+    "/sales-invoices/preview",
+    response_model=ApiResponse[SalesInvoicePreview],
+    summary="Preview a tax invoice without issuing it",
+    dependencies=[require_permission(Permission.SALES_INVOICE_VIEW)],
+)
+async def preview_sales_invoice(
+    dispatch_id: uuid.UUID, session: DbSession, tenant: Tenant, invoice_date: date | None = None
+) -> ApiResponse[SalesInvoicePreview]:
+    return ApiResponse[SalesInvoicePreview].ok(
+        await sales_invoice_service.preview_sales_invoice(
+            session, tenant, SalesInvoiceCreate(dispatch_id=dispatch_id, invoice_date=invoice_date)
+        )
+    )
+
+
+@router.post(
+    "/sales-invoices",
+    response_model=ApiResponse[SalesInvoiceDetail],
+    status_code=status.HTTP_201_CREATED,
+    summary="Issue and post a GST sales invoice",
+    dependencies=[require_permission(Permission.SALES_INVOICE_CREATE)],
+)
+async def issue_sales_invoice(
+    payload: SalesInvoiceCreate, session: DbSession, tenant: Tenant
+) -> ApiResponse[SalesInvoiceDetail]:
+    return ApiResponse[SalesInvoiceDetail].ok(
+        await sales_invoice_service.issue_sales_invoice(session, tenant, payload),
+        "Sales invoice issued",
+    )
+
+
+@router.get(
+    "/sales-invoices/{invoice_id}",
+    response_model=ApiResponse[SalesInvoiceDetail],
+    summary="Read an issued sales invoice",
+    dependencies=[require_permission(Permission.SALES_INVOICE_VIEW)],
+)
+async def get_sales_invoice(
+    invoice_id: uuid.UUID, session: DbSession, tenant: Tenant
+) -> ApiResponse[SalesInvoiceDetail]:
+    return ApiResponse[SalesInvoiceDetail].ok(
+        await sales_invoice_service.get_sales_invoice(session, tenant, invoice_id)
+    )
+
+
+@router.post(
+    "/sales-invoices/{invoice_id}/cancel",
+    response_model=ApiResponse[SalesInvoiceDetail],
+    summary="Cancel an unpaid invoice within its cancellation window",
+    dependencies=[require_permission(Permission.SALES_INVOICE_CANCEL)],
+)
+async def cancel_sales_invoice(
+    invoice_id: uuid.UUID, payload: SalesInvoiceCancel, session: DbSession, tenant: Tenant
+) -> ApiResponse[SalesInvoiceDetail]:
+    return ApiResponse[SalesInvoiceDetail].ok(
+        await sales_invoice_service.cancel_sales_invoice(
+            session, tenant, invoice_id, reason=payload.reason
+        ),
+        "Sales invoice cancelled",
+    )
+
+
+@router.post(
+    "/sales-invoices/{invoice_id}/pdf",
+    response_model=AcceptedJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Generate a permanent GST sales invoice PDF",
+    dependencies=[require_permission(Permission.SALES_INVOICE_VIEW)],
+)
+async def sales_invoice_pdf(
+    invoice_id: uuid.UUID, session: DbSession, tenant: Tenant
+) -> AcceptedJobResponse:
+    job_id = await sales_invoice_service.queue_sales_invoice_pdf(session, tenant, invoice_id)
+    return AcceptedJobResponse.create(
+        job_id=job_id,
+        status_url=reports_service.job_status_url(job_id),
+        message="Sales invoice PDF queued",
+    )

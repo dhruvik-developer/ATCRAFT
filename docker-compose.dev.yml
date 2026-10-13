@@ -63,7 +63,7 @@ services:
     build:
       target: development
     # --pool=solo keeps tracebacks readable and reloads predictable in dev.
-    command: ["watchfiles", "--filter", "python", "celery -A src.workers.celery_app:celery_app worker --loglevel=INFO --pool=solo", "/app/src"]
+    command: ["watchfiles", "--filter", "python", "celery -A src.workers.celery_app:celery_app worker -Q default,mrp,reports --loglevel=INFO --pool=solo", "/app/src"]
     environment:
       APP_ENV: development
       APP_DEBUG: "true"

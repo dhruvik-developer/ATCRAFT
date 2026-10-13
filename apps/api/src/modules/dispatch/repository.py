@@ -484,6 +484,19 @@ class SalesOrderLineRepository(BaseRepository[SalesOrderLine]):
         )
         return int((await self.session.execute(stmt)).scalar_one())
 
+    async def uninvoiced_line_count(self, order_id: uuid.UUID) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(SalesOrderLine)
+            .where(
+                SalesOrderLine.company_id == self.tenant.company_id,
+                SalesOrderLine.sales_order_id == order_id,
+                SalesOrderLine.status != "CANCELLED",
+                SalesOrderLine.invoiced_quantity < SalesOrderLine.quantity,
+            )
+        )
+        return int((await self.session.execute(stmt)).scalar_one())
+
 
 # -----------------------------------------------------------------------------
 # The module's own tables
@@ -841,6 +854,39 @@ class DispatchRepository(BaseRepository[Dispatch]):
             self.session, self.delayed_stmt(as_of=as_of, warehouse_id=warehouse_id), params
         )
         return [_delayed_row(row, as_of=as_of) for row in rows], pagination
+
+    async def live_invoice_ids(
+        self, dispatch_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, uuid.UUID]:
+        from src.core.models import Base
+
+        table = Base.metadata.tables.get("sales_invoices")
+        if table is None or not dispatch_ids:
+            return {}
+        stmt = select(table.c.dispatch_id, table.c.id).where(
+            table.c.company_id == self.tenant.company_id,
+            table.c.dispatch_id.in_(dispatch_ids),
+            table.c.status != "CANCELLED",
+        )
+        return {row.dispatch_id: row.id for row in (await self.session.execute(stmt)).all()}
+
+    async def has_live_invoice(self, dispatch_id: uuid.UUID) -> bool:
+        # Finance owns this upper-layer table. Resolve its read-only seam without importing it.
+        from src.core.models import Base
+
+        table = Base.metadata.tables.get("sales_invoices")
+        if table is None:
+            return False
+        stmt = (
+            select(table.c.id)
+            .where(
+                table.c.company_id == self.tenant.company_id,
+                table.c.dispatch_id == dispatch_id,
+                table.c.status != "CANCELLED",
+            )
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).first() is not None
 
 
 # -----------------------------------------------------------------------------

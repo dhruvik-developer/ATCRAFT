@@ -504,9 +504,16 @@ class ReasonRequest(BaseModel):
 class PaymentAllocationIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    vendor_invoice_id: uuid.UUID
+    vendor_invoice_id: uuid.UUID | None = None
+    sales_invoice_id: uuid.UUID | None = None
     amount: PositiveMoney
     notes: Notes | None = None
+
+    @model_validator(mode="after")
+    def _one_invoice(self) -> PaymentAllocationIn:
+        if (self.vendor_invoice_id is None) == (self.sales_invoice_id is None):
+            raise ValueError("Exactly one sales or vendor invoice must be named.")
+        return self
 
 
 class PaymentCreate(BaseModel):
@@ -581,13 +588,18 @@ class AllocationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     allocations: Annotated[
-        list[PaymentAllocationIn], Field(min_length=1, max_length=MAX_PAYMENT_ALLOCATIONS)
+        list[PaymentAllocationIn], Field(min_length=0, max_length=MAX_PAYMENT_ALLOCATIONS)
     ]
     replace: bool = False
 
     @model_validator(mode="after")
     def _no_duplicate_invoices(self) -> AllocationRequest:
-        seen = {allocation.vendor_invoice_id for allocation in self.allocations}
+        if not self.allocations and not self.replace:
+            raise ValueError("An empty allocation set requires replace=true.")
+        seen = {
+            (allocation.vendor_invoice_id, allocation.sales_invoice_id)
+            for allocation in self.allocations
+        }
         if len(seen) != len(self.allocations):
             raise ValueError("The same invoice is allocated twice in one request.")
         return self
@@ -597,7 +609,8 @@ class PaymentAllocationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    vendor_invoice_id: uuid.UUID
+    vendor_invoice_id: uuid.UUID | None
+    sales_invoice_id: uuid.UUID | None
     invoice_code: str | None = None
     vendor_invoice_number: str | None = None
     amount: Decimal
@@ -937,6 +950,7 @@ class GstSummary(BaseModel):
     date_from: date
     date_to: date
     output: GstSection
+    dispatched_not_invoiced: GstSection
     input: GstSection
     #: Output minus input. Positive means tax is payable; negative is credit
     #: carried forward.

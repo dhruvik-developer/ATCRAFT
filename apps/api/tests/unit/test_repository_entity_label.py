@@ -123,9 +123,14 @@ class TestTheRealRepositories:
         import src.modules
 
         offenders: list[str] = []
-        for info in pkgutil.iter_modules(src.modules.__path__):
+        names = [
+            f"src.modules.{info.name}.repository"
+            for info in pkgutil.iter_modules(src.modules.__path__)
+        ]
+        names.append("src.modules.finance.sales_invoice_repository")
+        for name in names:
             try:
-                module = importlib.import_module(f"src.modules.{info.name}.repository")
+                module = importlib.import_module(name)
             except ModuleNotFoundError:
                 continue
             for name, value in vars(module).items():

@@ -193,6 +193,10 @@ extended if Atcraft exports.
 
 ---
 
+
+Issued sales invoice lines reuse `sales.compute_line_amounts`, preserving the
+same independently rounded CGST/SGST halves as the sales order.
+
 ## 10. Reservation release policy
 
 **Assumed.** Reservations are released automatically when their demand document
@@ -249,7 +253,7 @@ item nobody stocks or buys.
 ## 13. Financial year and document numbering
 
 **Assumed.** The financial year runs April to March. Statutory document series
-(`SO`, `INV`, `PO`, `GRN`, …) reset each financial year and are formatted
+(`SO`, `SI`, `PO`, `GRN`, …) reset each financial year and are formatted
 `PREFIX/2026-27/00042`. Internal documents (stock transfer, adjustment,
 physical count) do not reset.
 
@@ -263,6 +267,11 @@ baked in.
 disruptive once documents exist. Confirm before go-live.
 
 ---
+
+
+The sales invoice prefix is SI with five digits (`SI/2026-27/00042`), meeting
+the 16-character GST limit. Rollout refuses an existing sales_invoice sequence
+until its previous numbering has been reviewed.
 
 ## 14. Refresh-token storage in the browser
 
@@ -629,6 +638,11 @@ revaluation — and none of it should be improvised here.
 
 ---
 
+
+Receivable FIFO debits sourced by a sales invoice age from its due date;
+legacy charges still age from their entry date. The not-due bucket therefore
+includes issued invoices within their agreed customer credit period.
+
 ## 28. A company with no receivable control account has no receivables
 
 **Assumed.** A company with no `ACCOUNTS_RECEIVABLE` control account gets an
@@ -646,6 +660,10 @@ empty result: the safe reading of "nothing matches" is nothing, never everything
 expect a warning. Raising instead would be defensible; returning everything is not.
 
 ---
+
+
+Issuing a sales invoice provisions the AR account before posting. The empty
+account set still returns an empty ageing result rather than all ledger entries.
 
 ## 29. MRP runs are rate limited per company
 
@@ -717,29 +735,21 @@ dispatch that reads it - never the column alone.
 
 ---
 
-## 32. Customer charges are receivable journals, not invoices
+## 32. Customer charges are issued invoices; adjustments remain separate
 
-**Assumed.** No customer-invoice document exists. Customer charges are posted as
-receivable journals through finance (`post_customer_adjustment`,
-`POST /finance/customer-adjustments`, gated on `payment.approve`), and the
-cached `customers.outstanding_amount` is only ever moved alongside such a
-journal - `OutstandingAdjustment.reference_type` / `reference_code` are
-required for that reason. The former `POST /customers/{id}/outstanding` route,
-which moved the cache with no ledger document, was removed.
+**Assumed.** A priced SALES dispatch is billed through an issued GST sales
+invoice with its own SI series and receivable journal. Manual customer
+adjustments remain the non-GST correction path for interest, write-offs and
+legacy balances. Historical customer_charge journals are retained.
 
-**Why.** A cached balance that can change without a ledger row is a figure
-nobody can reconcile: the ageing report reads the ledger, the credit check reads
-the cache, and the two drift apart on the first hand edit. Requiring the
-reference makes every movement of the cache traceable to the document that
-caused it.
+**Why.** Customers need a statutory document and due date, while both invoice
+and adjustment postings must reconcile to the cached outstanding balance.
 
-**Where.** `src/modules/finance/service.py` - `post_customer_adjustment`;
-`src/modules/customers/schemas.py` - `OutstandingAdjustment`.
+**Where.** `finance/sales_invoice_service.py`, `finance/service.py` and the
+customer outstanding-delta service.
 
-**Impact if wrong.** If Atcraft needs a real customer invoice - a statutory GST
-series, e-invoicing - that is a new document with its own numbering and posting
-path, and the adjustment route becomes the correction path beside it, not the
-charge path.
+**Impact if wrong.** E-invoicing, exports, SEZ and reverse-charge treatment need
+additional explicit business rules; they must not be inferred from this series.
 
 ---
 
@@ -1428,6 +1438,101 @@ floor, `conversion_delivery_date` takes the vendor's lead time as a third input.
 
 ---
 
+## §A2-1. An invoice may precede removal
+
+**Assumed.** A SALES dispatch may issue a tax invoice once ready, or afterwards. Invoice date defaults to dispatch date and cannot precede the SO date or enter a closed year.
+
+**Why.** CGST Act section 31 places the tax invoice at or before removal.
+
+**Where.** `sales_invoice_service.preview_sales_invoice.`
+
+**Impact if wrong.** Different statutory timing requires explicit workflow changes.
+
+---
+
+## §A2-2. Issue and number allocation are atomic
+
+**Assumed.** There is no draft invoice; preview persists nothing, and the number is allocated inside the issuing transaction. Cancelled numbers remain on cancelled invoices.
+
+**Why.** Failed issues must not consume numbers and issued history must not be renumbered.
+
+**Where.** `issue_sales_invoice and next_document_number.`
+
+**Impact if wrong.** A separate approval stage would need a reserved-number policy.
+
+---
+
+## §A2-3. Sales numbering fits the GST limit
+
+**Assumed.** The SI prefix and five-digit pad produce a 16-character financial-year number. Existing sales_invoice sequences stop migration for review.
+
+**Why.** GST Rule 46 constrains the serial number length.
+
+**Where.** `DocTypes.SALES_INVOICE and invoice schema migration.`
+
+**Impact if wrong.** Any previous series needs a deliberate migration instead of silently changing its prefix.
+
+---
+
+## §A2-4. Unpaid cancellation is time bounded
+
+**Assumed.** Only ISSUED invoices with no allocations or credit notes can cancel within 24 hours of issued_at. Closed sales orders require a credit note.
+
+**Why.** The window mirrors e-invoice cancellation and prevents reversing settled or closed business.
+
+**Where.** `INVOICE_CANCEL_WINDOW_HOURS and cancel_sales_invoice.`
+
+**Impact if wrong.** Different filing rules require a configuration or credit-note workflow.
+
+---
+
+## §A2-5. Invoice totals round to rupees
+
+**Assumed.** The total rounds HALF_UP to Decimal(1), with an explicit ledger round-off leg. A rounded total must be positive; zero-value supplies need a separate free-of-charge document. Flat discounts share pro rata, and the final invoice takes the remainder.
+
+**Why.** Printed totals, journals and partial invoices must reconcile exactly.
+
+**Where.** `ROUND_INVOICE_TOTAL_TO, apportion_discount and sales_invoice_journal_lines.`
+
+**Impact if wrong.** Different rounding precision needs coordinated statutory and ledger changes.
+
+---
+
+## §A2-6. Statutory invoice records never expire
+
+**Assumed.** Invoice job snapshots and REPORT documents have no expiry; the header retains immutable bank and terms snapshots too.
+
+**Why.** An issued statutory document must remain reproducible after masters change.
+
+**Where.** `queue_sales_invoice_pdf, sales_invoice_print_data and reports.generate_sales_invoice.`
+
+**Impact if wrong.** Any archive policy must preserve document retrieval and evidence.
+
+---
+
+## §A2-7. An invoice requires agreed source pricing
+
+**Assumed.** An unlinked free-stock SALES dispatch cannot issue this invoice until linked to a priced sales order. Its existing stock movement behavior remains available.
+
+**Why.** The issue payload has no pricing inputs, so current item prices cannot safely replace an agreed order price.
+
+**Where.** `preview_sales_invoice source linkage guard.`
+
+**Impact if wrong.** A true cash/direct-sale invoice needs an explicit agreed-price entry flow.
+
+---
+
+## §A2-8. A pre-removal invoice temporarily counts staged goods
+
+**Assumed.** For READY_FOR_DISPATCH, invoiced quantity is capped by dispatched quantity plus this dispatch staged quantity, itself rechecked against the live reservation. Order INVOICED still requires actual departure.
+
+**Why.** The specification permits pre-removal invoicing but the departure counter has not moved yet.
+
+**Where.** `preview_sales_invoice and dispatch._advance_sales_order.`
+
+**Impact if wrong.** If invoices must be post-departure only, remove READY eligibility and this staged cap.
+
+---
 
 ## Open questions for Atcraft
 

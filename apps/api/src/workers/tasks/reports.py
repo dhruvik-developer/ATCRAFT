@@ -70,7 +70,13 @@ from src.modules.documents.service import (
     default_expiry,
     resolve_storage_path,
 )
+from src.modules.finance import sales_invoice_service
 from src.modules.finance.repository import InventoryValuationRepository
+from src.modules.finance.sales_invoice_pdf import render_sales_invoice_pdf
+from src.modules.finance.sales_invoice_repository import (
+    SalesInvoiceRepository,
+    SalesInvoiceSourceRepository,
+)
 from src.modules.finance.schemas import ValuationFilters
 from src.modules.finance.service import valuation_row
 from src.modules.notifications.models import NotificationSeverity, NotificationType
@@ -87,6 +93,7 @@ XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sh
 #: What the generated document is filed against, so "every artefact for this
 #: packing order" is one indexed lookup on ``documents``.
 PACKING_LIST_ENTITY = "packing_order"
+SALES_INVOICE_ENTITY = "sales_invoice"
 
 #: Page geometry. 15 mm margins keep the table inside the printable area of every
 #: office printer we have met, without wasting a column of width.
@@ -461,6 +468,154 @@ async def generate_packing_list(
         "size_bytes": size_bytes,
         "checksum_sha256": checksum,
         "carton_count": len(data.get("cartons", [])),
+    }
+
+
+@async_task(name="reports.generate_sales_invoice", queue="reports")
+async def generate_sales_invoice(
+    sales_invoice_id: str,
+    snapshot_id: str,
+    company_id: str,
+    user_id: str,
+    request_id: str | None = None,
+    **_: Any,
+) -> dict[str, Any]:
+    """Render one issued sales invoice and file it in the document store.
+
+    The job row (``snapshot_id``) is driven through the same lifecycle as every
+    other background report: claimed on entry, completed with the document id
+    once the row is written, and failed on a fresh session if anything raises -
+    see :func:`generate_report` for why each of those matters. Without it the
+    client polls a job that stays QUEUED for ever.
+
+    Arguments are plain strings because Celery serialises task payloads as JSON;
+    ``request_id`` is not used here but is read by the ``task_prerun`` signal so
+    the API's correlation id follows the work into the worker's logs (section 55).
+    """
+    tenant = TenantContext(company_id=uuid.UUID(company_id), user_id=uuid.UUID(user_id))
+    order_id = uuid.UUID(sales_invoice_id)
+    identifier = uuid.UUID(snapshot_id)
+    moment = utcnow()
+
+    try:
+        async with session_scope() as session:
+            try:
+                snapshot = await reports_service.start_snapshot(session, tenant, identifier)
+            except InvalidStateTransitionError:
+                log.warning("reports.sales_invoice_not_queued", snapshot_id=snapshot_id)
+                return {
+                    "snapshot_id": snapshot_id,
+                    "status": "SKIPPED",
+                    "reason": "the job is no longer queued",
+                }
+
+            data = await sales_invoice_service.sales_invoice_print_data(session, tenant, order_id)
+
+            payload = await anyio.to_thread.run_sync(render_sales_invoice_pdf, data)
+            checksum = hashlib.sha256(payload).hexdigest()
+
+            rule = KNOWN_TYPES[PDF_MIME_TYPE]
+            storage_key = build_storage_key(
+                category=DocumentCategory.REPORT,
+                company_id=tenant.company_id,
+                rule=rule,
+                moment=moment,
+                file_id=new_id(),
+            )
+            destination = resolve_storage_path(storage_key)
+            await anyio.to_thread.run_sync(_write_bytes, destination, payload)
+
+            try:
+                document = Document(
+                    file_name=_safe_file_name(str(data.get("code", ""))).replace(
+                        "packing-list-", "sales-invoice-", 1
+                    ),
+                    storage_key=storage_key,
+                    mime_type=PDF_MIME_TYPE,
+                    size_bytes=len(payload),
+                    checksum_sha256=checksum,
+                    category=DocumentCategory.REPORT,
+                    entity_type=SALES_INVOICE_ENTITY,
+                    entity_id=order_id,
+                    uploaded_by_id=tenant.user_id,
+                    is_public=False,
+                    expires_at=default_expiry(DocumentCategory.REPORT, moment),
+                )
+                DocumentRepository(session, tenant).add(document)
+                await session.flush()
+                dispatch = await SalesInvoiceSourceRepository(session, tenant).dispatch(
+                    uuid.UUID(str(data["dispatch_id"])), lock=True
+                )
+                invoice = await SalesInvoiceRepository(session, tenant).lock_header(order_id)
+                invoice.pdf_document_id = document.id
+                dispatch.invoice_document_id = document.id
+                await session.flush()
+
+                await record_audit(
+                    session,
+                    company_id=tenant.company_id,
+                    action=AuditAction.DATA_EXPORT,
+                    entity_type=SALES_INVOICE_ENTITY,
+                    entity_id=order_id,
+                    entity_code=str(data.get("code", "")),
+                    summary=(
+                        f"Generated the sales invoice for {data.get('code', '')} "
+                        f"({len(payload)} bytes)"
+                    ),
+                    user_id=tenant.user_id,
+                    new_values={
+                        "document_id": document.id,
+                        "file_name": document.file_name,
+                        "size_bytes": document.size_bytes,
+                        "checksum_sha256": checksum,
+                        "line_count": len(data.get("lines", [])),
+                    },
+                )
+
+                await reports_service.complete_snapshot(
+                    session,
+                    tenant,
+                    snapshot_id=snapshot.id,
+                    row_count=len(data.get("lines", [])),
+                    document_id=document.id,
+                )
+            except Exception:
+                # The row never committed, so nothing will ever reference these
+                # bytes. Removing them here is the only cheap chance to do so.
+                await anyio.to_thread.run_sync(_unlink, destination)
+                raise
+
+            document_id = str(document.id)
+            size_bytes = document.size_bytes
+
+    except Exception as exc:
+        # A separate session: the one the failure happened on cannot be used to
+        # write anything, so the job would otherwise stay RUNNING for ever.
+        async with session_scope() as session:
+            await reports_service.fail_snapshot(
+                session, tenant, snapshot_id=identifier, error=_failure_message(exc)
+            )
+        log.error(
+            "reports.sales_invoice_failed", snapshot_id=snapshot_id, error=str(exc), exc_info=exc
+        )
+        raise
+
+    log.info(
+        "reports.sales_invoice_generated",
+        snapshot_id=snapshot_id,
+        sales_invoice_id=sales_invoice_id,
+        document_id=document_id,
+        size_bytes=size_bytes,
+    )
+    return {
+        "snapshot_id": snapshot_id,
+        "status": "COMPLETED",
+        "sales_invoice_id": sales_invoice_id,
+        "sales_invoice_code": str(data.get("code", "")),
+        "document_id": document_id,
+        "size_bytes": size_bytes,
+        "checksum_sha256": checksum,
+        "line_count": len(data.get("lines", [])),
     }
 
 

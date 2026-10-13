@@ -1103,6 +1103,23 @@ describe('what the detail screen shows', () => {
     expect(within(screen.getByRole('alert')).getByText('No such sales order')).toBeVisible()
   })
 })
+
+describe('closing an invoiced order', () => {
+  it('posts close only after the order is invoiced', async () => {
+    const { user, fetch } = renderDetail({
+      order: orderDetail({ status: 'INVOICED' }),
+      permissions: [P.SALES_ORDER_VIEW, P.SALES_ORDER_UPDATE],
+      routes: { [`POST /sales/${ORDER_ID}/close`]: ok(orderRow({ status: 'CLOSED' })) },
+    })
+    await user.click(await screen.findByRole('button', { name: 'Close order' }))
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', `/sales/${ORDER_ID}/close`)).toEqual({
+        reason: 'Fully invoiced order closed from detail',
+      }),
+    )
+  })
+})
+
 // ------------------------------------------------------------ fulfilment ----
 
 /**

@@ -237,6 +237,12 @@ SALES_ORDER_LIFECYCLE: StateMachine[SalesOrderStatus] = StateMachine(
             permission=Permission.SALES_ORDER_UPDATE,
             label="Close",
         ),
+        Transition(
+            SalesOrderStatus.INVOICED,
+            SalesOrderStatus.DISPATCHED,
+            permission=Permission.SALES_INVOICE_CANCEL,
+            label="Invoice cancelled",
+        ),
         # Cancellation is reachable only before anything has shipped
         # (database.md section 7): a document that moved stock cannot claim
         # never to have existed.
@@ -1558,6 +1564,11 @@ async def _update_confirmed(
                 details={"line_number": sent.line_number},
             )
         new_quantity = to_quantity(sent.quantity)
+        if new_quantity < Decimal(line.invoiced_quantity):
+            raise BusinessRuleError(
+                f"Line {sent.line_number}: {line.invoiced_quantity} has already been invoiced, "
+                "so the quantity cannot be reduced below it."
+            )
         if new_quantity < Decimal(line.dispatched_quantity):
             raise BusinessRuleError(
                 f"Line {sent.line_number}: {line.dispatched_quantity} has already been "
@@ -2142,6 +2153,10 @@ async def cancel_order(
         if order is None:
             raise NotFoundError(SALES_ORDER_ENTITY, order_id)
 
+        if await repo.has_live_invoice(order.id):
+            raise BusinessRuleError(
+                "This order has a live sales invoice. Cancel the invoice first."
+            )
         SALES_ORDER_LIFECYCLE.assert_transition(
             SalesOrderStatus(order.status), SalesOrderStatus.CANCELLED
         )
@@ -2269,3 +2284,16 @@ __all__ = [
     "sum_order_totals",
     "update_order",
 ]
+
+
+async def close_order(
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID, *, reason: str
+) -> SalesOrder:
+    repo = SalesOrderRepository(session, tenant)
+    async with transaction(session):
+        order = await repo.lock_for_update(order_id)
+        if order is None:
+            raise NotFoundError(SALES_ORDER_ENTITY, order_id)
+        return await _transition(
+            session, tenant, order, SalesOrderStatus.CLOSED, reason=reason, repo=repo
+        )

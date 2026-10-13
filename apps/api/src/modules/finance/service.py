@@ -496,6 +496,7 @@ DEFAULT_CHART: tuple[ChartSeed, ...] = (
     ChartSeed(
         SystemAccount.PURCHASE_EXPENSE, "5100", "Purchases and Services", LedgerAccountType.EXPENSE
     ),
+    ChartSeed(SystemAccount.SALES_REVENUE, "4500", "Sales Revenue", LedgerAccountType.INCOME),
     ChartSeed(SystemAccount.ROUND_OFF, "5900", "Rounding Differences", LedgerAccountType.EXPENSE),
 )
 
@@ -990,6 +991,14 @@ def statement_direction(party_type: PartyType) -> int:
 # -----------------------------------------------------------------------------
 
 
+def first_free_account_code(preferred: str, used_codes: set[str]) -> str:
+    """Codes are tenant-owned; skip all existing codes, retired rows included."""
+    candidate = int(preferred)
+    while str(candidate) in used_codes:
+        candidate += 1
+    return str(candidate)
+
+
 async def ensure_system_accounts(
     session: AsyncSession, tenant: TenantContext
 ) -> dict[str, LedgerAccount]:
@@ -1013,10 +1022,13 @@ async def ensure_system_accounts(
         existing = await repo.by_system_codes([seed.system_code for seed in DEFAULT_CHART])
         missing = [seed for seed in DEFAULT_CHART if str(seed.system_code) not in existing]
 
+        used_codes = await repo.all_codes()
         for seed in missing:
+            free_code = first_free_account_code(seed.code, used_codes)
+            used_codes.add(free_code)
             account = repo.add(
                 LedgerAccount(
-                    code=seed.code,
+                    code=free_code,
                     name=seed.name,
                     account_type=seed.account_type,
                     is_active=True,
@@ -2633,10 +2645,15 @@ def payment_detail(
             PaymentAllocationRead(
                 id=allocation.id,
                 vendor_invoice_id=allocation.vendor_invoice_id,
-                invoice_code=invoice_codes.get(allocation.vendor_invoice_id, (None, None))[0],
-                vendor_invoice_number=invoice_codes.get(allocation.vendor_invoice_id, (None, None))[
-                    1
-                ],
+                sales_invoice_id=allocation.sales_invoice_id,
+                invoice_code=invoice_codes.get(
+                    allocation.vendor_invoice_id or allocation.sales_invoice_id or uuid.UUID(int=0),
+                    (None, None),
+                )[0],
+                vendor_invoice_number=invoice_codes.get(
+                    allocation.vendor_invoice_id or allocation.sales_invoice_id or uuid.UUID(int=0),
+                    (None, None),
+                )[1],
                 amount=allocation.amount,
                 notes=allocation.notes,
             )
@@ -2671,8 +2688,17 @@ async def _payment_detail(
     allocation_repo = PaymentAllocationRepository(session, tenant)
     allocations = await allocation_repo.list_for_payment(payment.id)
     codes = await allocation_repo.invoice_codes(
-        [allocation.vendor_invoice_id for allocation in allocations]
+        [
+            allocation.vendor_invoice_id
+            for allocation in allocations
+            if allocation.vendor_invoice_id is not None
+        ]
     )
+    from src.modules.finance.sales_invoice_repository import SalesInvoiceRepository
+
+    sales_ids = [row.sales_invoice_id for row in allocations if row.sales_invoice_id is not None]
+    for invoice in await SalesInvoiceRepository(session, tenant).get_many(sales_ids):
+        codes[invoice.id] = (invoice.code, "")
     return payment_detail(payment, allocations, codes)
 
 
@@ -2956,6 +2982,15 @@ async def cancel_payment(
                 f"{payment.code} is already cancelled.",
                 details={"payment_id": str(payment.id), "status": str(current)},
             )
+        if PaymentType(payment.payment_type) is PaymentType.RECEIPT:
+            await get_customer_for_order(session, tenant, payment.party_id, lock=True)
+        if (
+            to_money(payment.allocated_amount) > ZERO
+            and PaymentType(payment.payment_type) is PaymentType.RECEIPT
+        ):
+            from src.modules.finance.sales_invoice_service import release_sales_receipt
+
+            await release_sales_receipt(session, tenant, payment)
         if to_money(payment.allocated_amount) > ZERO:
             raise BusinessRuleError(
                 f"{payment.code} still has {payment.allocated_amount} allocated to invoices. "
@@ -3127,23 +3162,30 @@ async def allocate_payment(
                 f"{payment.code} is {status}; only an approved payment can settle invoices.",
                 details={"status": str(status)},
             )
-        if PaymentType(payment.payment_type) is not PaymentType.PAYMENT:
-            raise BusinessRuleError(
-                "A customer receipt has no invoice to allocate against: it reduces the "
-                "customer's outstanding balance directly.",
-                details={"payment_type": str(payment.payment_type)},
-            )
+        if PaymentType(payment.payment_type) is PaymentType.RECEIPT:
+            from src.modules.finance.sales_invoice_service import allocate_sales_receipt
+
+            await allocate_sales_receipt(session, tenant, payment, payload)
+            return await _payment_detail(session, tenant, payment)
+        if any(row.sales_invoice_id is not None for row in payload.allocations):
+            raise ValidationError("A vendor payment must allocate to vendor invoices.")
 
         existing_rows = await allocation_repo.list_for_payment(payment.id)
-        existing_by_invoice = {row.vendor_invoice_id: row for row in existing_rows}
+        existing_by_invoice = {
+            row.vendor_invoice_id: row for row in existing_rows if row.vendor_invoice_id is not None
+        }
         existing_amounts = {
             invoice_id: to_money(row.amount) for invoice_id, row in existing_by_invoice.items()
         }
         requested = {
-            request.vendor_invoice_id: to_money(request.amount) for request in payload.allocations
+            request.vendor_invoice_id: to_money(request.amount)
+            for request in payload.allocations
+            if request.vendor_invoice_id is not None
         }
         requested_notes = {
-            request.vendor_invoice_id: request.notes for request in payload.allocations
+            request.vendor_invoice_id: request.notes
+            for request in payload.allocations
+            if request.vendor_invoice_id is not None
         }
         plan = plan_allocation(
             existing=existing_amounts, requested=requested, replace=payload.replace
@@ -3984,6 +4026,13 @@ async def gst_summary(
         date_from=date_from,
         date_to=date_to,
         output=output,
+        dispatched_not_invoiced=summarise_gst_rows(
+            await _bounded_gst_rows(
+                session,
+                repo.dispatched_uninvoiced_rows_stmt(date_from=date_from, date_to=date_to),
+                "dispatched not invoiced",
+            )
+        ),
         input=purchases,
         net_cgst=to_money(output.cgst_amount - purchases.cgst_amount),
         net_sgst=to_money(output.sgst_amount - purchases.sgst_amount),

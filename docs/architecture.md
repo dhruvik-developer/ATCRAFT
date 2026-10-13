@@ -337,3 +337,12 @@ server does not care.
 Scale in this order: SQL and indexes → Redis → Celery → bigger server → separate
 database host → read replicas → split the genuinely hot component. Only then
 consider anything above.
+
+
+Sales invoice models live in finance; dedicated `sales_invoice_service.py`,
+`sales_invoice_repository.py`, `sales_invoice_schemas.py` and a pure PDF renderer
+keep posting and settlement separate from the vendor invoice implementation.
+Finance reads sales/dispatch through tenant-scoped repositories. Dispatch's
+live-invoice cancellation guard uses a read-only metadata seam and does not
+import finance. Scheduled top-up lives in the maintenance adapter and calls
+sales per tenant/order; stock-producing modules do not import sales.

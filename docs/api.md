@@ -25,7 +25,7 @@ CI and the pre-push hook run the same three checks `contract-check` runs.
 
 ### Using the Postman collection
 
-Import `postman_collection.json` (Postman v2.1 format, 516 requests in 27
+Import `postman_collection.json` (Postman v2.1 format, 524 requests in 27
 folders, one per tag). Then:
 
 1. Set the `base_url` variable if it is not `http://127.0.0.1:8000/api/v1`.
@@ -414,3 +414,19 @@ Sales fulfilment: `POST /sales/{id}/allocate` (sales_order.update) tops up live
 reservations, and `POST /sales/{id}/close` closes an INVOICED order. Allocation
 status reports reserved, dispatchable-now and short quantities. Order-linked
 SALES dispatches require a matching order-line id on every line.
+
+Sales invoices: `/finance/sales-invoices` supports paged GET filters for status,
+customer, sales order, dispatch, date range, open/overdue only and number/customer
+search; POST issues the invoice. `GET /preview?dispatch_id=...&invoice_date=...`
+persists nothing. `GET /{id}` returns snapshots, tax, receipts and cancellation
+eligibility; `POST /{id}/cancel` requires a reason and sales_invoice.cancel.
+List/detail/preview/PDF use sales_invoice.view, and issue uses
+sales_invoice.create. `POST /{id}/pdf` returns 202 with the existing report job
+status URL. The filed REPORT document is permanent and linked to the dispatch.
+
+Receipt allocations accept exactly one sales_invoice_id or vendor_invoice_id
+per row. Customer receipts target sales invoices of the same customer/currency;
+`replace: true` with an empty array releases the allocation set. Receipt
+cancellation releases its invoice settlements before reversing its posting.
+Receivable ageing uses invoice due dates with legacy entry-date fallback; GST
+output uses invoice HSN snapshots and reports uninvoiced dispatches separately.

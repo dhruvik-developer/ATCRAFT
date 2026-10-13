@@ -112,6 +112,8 @@ from src.modules.finance.models import (
     Payment,
     PaymentAllocation,
     PaymentStatus,
+    SalesInvoice,
+    SalesInvoiceLine,
     SystemAccount,
     VendorInvoice,
     VendorInvoiceLine,
@@ -266,6 +268,10 @@ class LedgerAccountRepository(BaseRepository[LedgerAccount]):
         if filters.is_system is not None:
             stmt = stmt.where(LedgerAccount.is_system.is_(filters.is_system))
         return stmt
+
+    async def all_codes(self) -> set[str]:
+        stmt = select(LedgerAccount.code).where(LedgerAccount.company_id == self.tenant.company_id)
+        return set((await self.session.execute(stmt)).scalars().all())
 
     async def list_page(
         self,
@@ -629,9 +635,18 @@ class LedgerEntryRepository(BaseRepository[LedgerEntry]):
                 LedgerEntry.party_id.label("party_id"),
                 LedgerEntry.currency.label("currency"),
                 LedgerEntry.entry_date.label("entry_date"),
+                func.coalesce(SalesInvoice.due_date, LedgerEntry.entry_date).label("due_date"),
                 LedgerEntry.id.label("entry_id"),
                 LedgerEntry.debit_amount.label("debit_amount"),
                 LedgerEntry.credit_amount.label("credit_amount"),
+            )
+            .outerjoin(
+                SalesInvoice,
+                and_(
+                    SalesInvoice.company_id == LedgerEntry.company_id,
+                    SalesInvoice.id == LedgerEntry.reference_id,
+                    LedgerEntry.reference_type == "sales_invoice",
+                ),
             )
             .where(*scope)
             .subquery("ageing_base")
@@ -652,6 +667,7 @@ class LedgerEntryRepository(BaseRepository[LedgerEntry]):
                 base.c.party_id.label("party_id"),
                 base.c.currency.label("currency"),
                 base.c.entry_date.label("entry_date"),
+                base.c.due_date.label("due_date"),
                 base.c.debit_amount.label("debit_amount"),
                 func.sum(base.c.debit_amount)
                 .over(
@@ -676,7 +692,7 @@ class LedgerEntryRepository(BaseRepository[LedgerEntry]):
             select(
                 debits.c.party_id.label("party_id"),
                 debits.c.currency.label("currency"),
-                debits.c.entry_date.label("entry_date"),
+                debits.c.due_date.label("entry_date"),
                 open_amount.label("open_amount"),
             )
             .select_from(
@@ -1737,6 +1753,34 @@ class GstRepository(BaseRepository[VendorInvoiceLine]):
     model = VendorInvoiceLine
 
     def output_rows_stmt(self, *, date_from: date, date_to: date) -> Select[Any]:
+        return (
+            select(
+                SalesInvoiceLine.hsn_code.label("hsn_code"),
+                SalesInvoiceLine.tax_rate.label("tax_rate"),
+                func.sum(SalesInvoiceLine.taxable_amount).label("taxable_amount"),
+                func.sum(SalesInvoiceLine.cgst_amount).label("cgst_amount"),
+                func.sum(SalesInvoiceLine.sgst_amount).label("sgst_amount"),
+                func.sum(SalesInvoiceLine.igst_amount).label("igst_amount"),
+                func.count(func.distinct(SalesInvoice.id)).label("document_count"),
+            )
+            .join(
+                SalesInvoice,
+                and_(
+                    SalesInvoice.id == SalesInvoiceLine.sales_invoice_id,
+                    SalesInvoice.company_id == SalesInvoiceLine.company_id,
+                ),
+            )
+            .where(
+                SalesInvoiceLine.company_id == self.tenant.company_id,
+                SalesInvoice.status != "CANCELLED",
+                SalesInvoice.invoice_date >= date_from,
+                SalesInvoice.invoice_date <= date_to,
+            )
+            .group_by(SalesInvoiceLine.hsn_code, SalesInvoiceLine.tax_rate)
+            .order_by(SalesInvoiceLine.tax_rate, SalesInvoiceLine.hsn_code)
+        )
+
+    def dispatched_uninvoiced_rows_stmt(self, *, date_from: date, date_to: date) -> Select[Any]:
         # Share of the ordered line this consignment carried. The order line's
         # quantity is > 0 by CHECK, so the division is safe.
         share = DispatchLine.quantity / SalesOrderLine.quantity
@@ -1775,6 +1819,13 @@ class GstRepository(BaseRepository[VendorInvoiceLine]):
             )
             .where(
                 DispatchLine.company_id == self.tenant.company_id,
+                ~select(SalesInvoice.id)
+                .where(
+                    SalesInvoice.company_id == self.tenant.company_id,
+                    SalesInvoice.dispatch_id == Dispatch.id,
+                    SalesInvoice.status != "CANCELLED",
+                )
+                .exists(),
                 Dispatch.status.in_(TAXABLE_DISPATCH_STATUSES),
                 Dispatch.dispatch_date >= date_from,
                 Dispatch.dispatch_date <= date_to,

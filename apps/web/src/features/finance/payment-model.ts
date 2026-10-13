@@ -16,11 +16,9 @@
  *
  * Two consequences that shape every screen here:
  *
- * * **Allocation is payables-only.** `PaymentAllocationIn` names a
- *   `vendor_invoice_id` and there is no receivable counterpart in this
- *   contract, so a customer receipt is never allocated - it reduces the
- *   customer's outstanding balance at approval and that is the whole story.
- *   `POST /allocate` refuses a RECEIPT outright.
+ * * **Allocations name exactly one invoice.** Vendor payments settle vendor
+ *   invoices; customer receipts settle issued sales invoices. Approval already
+ *   posts the money; allocating identifies the invoices that it paid.
  * * **Money is decimal strings.** Every figure here is computed with decimal.js
  *   and formatted at the very end. The server sends `unallocated_amount`
  *   already derived, so no screen subtracts two columns and disagrees with it.
@@ -200,11 +198,10 @@ export const isDraft = (payment: { status: PaymentStatus }): boolean => payment.
 /**
  * Whether this payment can settle invoices at all.
  *
- * Both halves are the server's rules: a receipt has no invoice to allocate
- * against, and money that has not been approved has not moved.
+ * Money must be approved before it can settle either kind of invoice.
  */
 export const canSettleInvoices = (payment: PaymentRow | PaymentDetail): boolean =>
-  payment.payment_type === 'PAYMENT' && ALLOCATABLE_STATUSES.has(payment.status)
+  ALLOCATABLE_STATUSES.has(payment.status)
 
 /**
  * Whether a cancellation would be accepted.
@@ -215,7 +212,8 @@ export const canSettleInvoices = (payment: PaymentRow | PaymentDetail): boolean 
  * no-op, because the reversal would run a second time.
  */
 export const canCancel = (payment: PaymentRow | PaymentDetail): boolean =>
-  payment.status !== 'CANCELLED' && toDecimal(payment.allocated_amount).isZero()
+  payment.status !== 'CANCELLED' &&
+  (payment.payment_type === 'RECEIPT' || toDecimal(payment.allocated_amount).isZero())
 
 // -------------------------------------------------------------- commands ----
 

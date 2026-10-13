@@ -51,6 +51,7 @@ const QualityPage = lazy(routeLoaders['/quality'])
 const PackingPage = lazy(routeLoaders['/packing'])
 const DispatchPage = lazy(routeLoaders['/dispatch'])
 const FinancePage = lazy(routeLoaders['/finance'])
+const SalesInvoicesPage = lazy(routeLoaders['/finance/sales-invoices'])
 const VendorInvoicesPage = lazy(routeLoaders['/finance/vendor-invoices'])
 const ReportsPage = lazy(routeLoaders['/reports'])
 const AuditPage = lazy(routeLoaders['/audit'])
@@ -319,6 +320,11 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
   { path: '/dispatch', element: <DispatchPage />, permissions: [P.DISPATCH_VIEW] },
 
   { path: '/finance', element: <FinancePage />, permissions: [P.FINANCE_VIEW] },
+  {
+    path: '/finance/sales-invoices',
+    element: <SalesInvoicesPage />,
+    permissions: [P.SALES_INVOICE_VIEW],
+  },
   {
     path: '/finance/vendor-invoices',
     element: <VendorInvoicesPage />,

@@ -38,7 +38,7 @@ const ROUTES = [
   '/vendors', '/transporters',
   '/production', '/production/work-orders', '/assembly', '/job-work',
   '/quality', '/quality/templates', '/packing', '/dispatch',
-  '/finance', '/finance/vendor-invoices', '/finance/payments', '/finance/accounts',
+  '/finance', '/finance/sales-invoices', '/finance/vendor-invoices', '/finance/payments', '/finance/accounts',
   '/documents', '/reports', '/audit',
   '/admin/users', '/admin/organisation', '/notifications', '/profile',
 ]

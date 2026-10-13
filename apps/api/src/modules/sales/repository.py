@@ -614,6 +614,23 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
             has_previous=params.page > 1,
         )
 
+    async def has_live_invoice(self, order_id: uuid.UUID) -> bool:
+        from src.core.models import Base
+
+        table = Base.metadata.tables.get("sales_invoices")
+        if table is None:
+            return False
+        stmt = (
+            select(table.c.id)
+            .where(
+                table.c.company_id == self.tenant.company_id,
+                table.c.sales_order_id == order_id,
+                table.c.status != "CANCELLED",
+            )
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).first() is not None
+
 
 __all__ = [
     "AvailabilityRepository",

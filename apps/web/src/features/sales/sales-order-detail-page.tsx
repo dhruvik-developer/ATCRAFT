@@ -73,6 +73,7 @@ import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
+import { FulfilmentLinks } from './fulfilment-links'
 import { SalesOrderFormDialog } from './sales-order-form-dialog'
 import { SalesOrderLineDialog } from './sales-order-line-dialog'
 import {
@@ -369,6 +370,14 @@ export default function SalesOrderDetailPage() {
 
   const [editOpen, setEditOpen] = useState(false)
   const [dispatchOpen, setDispatchOpen] = useState(false)
+  const close = useMutation({
+    mutationFn: () =>
+      api.post(`/sales/${orderId}/close`, { reason: 'Fully invoiced order closed from detail' }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sales.all })
+      toast.success('Sales order closed')
+    },
+  })
   const [lineEditor, setLineEditor] = useState<{ index: number | null } | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [approveOpen, setApproveOpen] = useState(false)
@@ -725,6 +734,11 @@ export default function SalesOrderDetailPage() {
         }
         actions={
           <>
+            {order.status === 'INVOICED' && can(P.SALES_ORDER_UPDATE) && (
+              <Button variant="outline" loading={close.isPending} onClick={() => close.mutate()}>
+                Close order
+              </Button>
+            )}
             {/*
               `dispatch.create`, the right `POST /dispatch` declares. Offered on
               every status a consignment may leave against - a CONFIRMED order
@@ -897,6 +911,8 @@ export default function SalesOrderDetailPage() {
           // endpoint never asks for.
           <AllocationPanel order={order} />
         )}
+
+        {!draft && <FulfilmentLinks orderId={order.id} />}
       </div>
 
       {can(P.SALES_ORDER_UPDATE) && draft && (

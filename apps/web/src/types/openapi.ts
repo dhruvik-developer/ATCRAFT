@@ -1598,7 +1598,7 @@ export interface paths {
         };
         /**
          * Ageing analysis bucketed 0-30 / 31-60 / 61-90 / 90+, per currency
-         * @description One row per party and denomination in one aggregate query. Payables are aged from the invoice due date. Receivables have no invoice document in this schema, so they are netted out of the ledger oldest-first and aged from the posting date.
+         * @description One row per party and denomination in one aggregate query. Payables are aged from the invoice due date. Receivables are FIFO-netted per customer and currency; sales invoice debits age from their due dates, legacy journals from posting dates.
          *
          *     There is no exchange-rate table in this schema, so nothing here is summed across denominations. The response carries one block per currency the company has an open item in, and `currencies[0]` - the block whose figures are also restated at the top level - is `currency` if you asked for one, otherwise the company's own currency if anything is open in it, and failing that the currency with the most open documents. Blocks are ordered by open-document count, never by amount: two denominations cannot be compared by size without a rate this schema does not hold. Asking for nothing therefore returns the whole book, never an empty page.
          *
@@ -1642,7 +1642,7 @@ export interface paths {
         };
         /**
          * Output and input GST for a period
-         * @description Output tax is recognised when goods leave - each dispatch line's share of its sales order line's tax, apportioned by quantity - and input tax comes from vendor invoices accepted into the books. Both are grouped by HSN and rate slab, which is the shape a return is read from.
+         * @description Output tax comes from issued, non-cancelled sales invoice lines by invoice date, using the snapshotted HSN. Uninvoiced dispatches are reported separately. Input tax comes from vendor invoices accepted into the books. Both are grouped by HSN and rate slab, which is the shape a return is read from.
          */
         get: operations["gst_summary_api_v1_finance_gst_summary_get"];
         put?: never;
@@ -1849,6 +1849,92 @@ export interface paths {
          * @description An approved payment is reversed rather than deleted - the original journal stays and its mirror image is posted beside it. Refused while allocations stand.
          */
         post: operations["cancel_payment_api_v1_finance_payments__payment_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/sales-invoices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List issued sales invoices */
+        get: operations["list_sales_invoices_api_v1_finance_sales_invoices_get"];
+        put?: never;
+        /** Issue and post a GST sales invoice */
+        post: operations["issue_sales_invoice_api_v1_finance_sales_invoices_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/sales-invoices/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preview a tax invoice without issuing it */
+        get: operations["preview_sales_invoice_api_v1_finance_sales_invoices_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/sales-invoices/{invoice_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read an issued sales invoice */
+        get: operations["get_sales_invoice_api_v1_finance_sales_invoices__invoice_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/sales-invoices/{invoice_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel an unpaid invoice within its cancellation window */
+        post: operations["cancel_sales_invoice_api_v1_finance_sales_invoices__invoice_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance/sales-invoices/{invoice_id}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate a permanent GST sales invoice PDF */
+        post: operations["sales_invoice_pdf_api_v1_finance_sales_invoices__invoice_id__pdf_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6429,6 +6515,26 @@ export interface paths {
         patch: operations["update_order_api_v1_sales__order_id__patch"];
         trace?: never;
     };
+    "/api/v1/sales/{order_id}/allocate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Allocate newly available stock to a short order
+         * @description The allocation top-up. Reserves stock that has become free at the order's warehouse for each line still short, in line order, and moves a CONFIRMED order to ALLOCATED once every open line is covered. The scheduled sweep `maintenance.allocate_short_orders` runs the same service for every short order. Allowed on CONFIRMED and PARTIALLY_DISPATCHED orders.
+         */
+        post: operations["allocate_order_api_v1_sales__order_id__allocate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/{order_id}/allocation-status": {
         parameters: {
             query?: never;
@@ -6437,8 +6543,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Per-line reserved versus shortfall
-         * @description What each line has reserved, what it is still short of, and how much free stock there is at the order's warehouse right now.
+         * Per-line reserved, dispatchable-now and shortfall
+         * @description What each line's reservation still holds live, how much a new consignment may carry for it right now (the live reservation, less what other open consignments already carry), what it is still short of, and how much free stock there is at the order's warehouse.
          */
         get: operations["allocation_status_api_v1_sales__order_id__allocation_status_get"];
         put?: never;
@@ -6480,6 +6586,23 @@ export interface paths {
         put?: never;
         /** Cancel an order and release its reservations */
         post: operations["cancel_order_api_v1_sales__order_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/{order_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Close an invoiced sales order */
+        post: operations["close_order_api_v1_sales__order_id__close_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7657,6 +7780,17 @@ export interface components {
             party_type: components["schemas"]["PartyType"];
             /** Total Outstanding */
             total_outstanding: string;
+        };
+        /**
+         * AllocateOrderRequest
+         * @description ``POST /sales/{id}/allocate``: top a short order up from free stock.
+         */
+        AllocateOrderRequest: {
+            /**
+             * Reason
+             * @default Newly available stock allocated to the order
+             */
+            reason: string;
         };
         /**
          * AllocationRequest
@@ -9233,6 +9367,34 @@ export interface components {
         /** ApiResponse[RoutingSummary] */
         ApiResponse_RoutingSummary_: {
             data?: components["schemas"]["RoutingSummary"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[SalesInvoiceDetail] */
+        ApiResponse_SalesInvoiceDetail_: {
+            data?: components["schemas"]["SalesInvoiceDetail"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[SalesInvoicePreview] */
+        ApiResponse_SalesInvoicePreview_: {
+            data?: components["schemas"]["SalesInvoicePreview"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -12987,6 +13149,8 @@ export interface components {
             notes: string | null;
             /** Packing Order Id */
             packing_order_id: string | null;
+            /** Sales Invoice Id */
+            sales_invoice_id?: string | null;
             /** Sales Order Id */
             sales_order_id: string | null;
             status: components["schemas"]["DispatchStatus"];
@@ -13172,6 +13336,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Sales Invoice Id */
+            sales_invoice_id?: string | null;
             /** Sales Order Id */
             sales_order_id: string | null;
             status: components["schemas"]["DispatchStatus"];
@@ -13905,6 +14071,7 @@ export interface components {
              * Format: date
              */
             date_to: string;
+            dispatched_not_invoiced: components["schemas"]["GstSection"];
             input: components["schemas"]["GstSection"];
             /** Net Cgst */
             net_cgst: string;
@@ -15219,12 +15386,20 @@ export interface components {
          *     ``shortfall`` is the number MRP has to cover. It is reported per line on the
          *     confirm response so the salesperson sees it immediately rather than
          *     discovering it when the picking list comes up short.
+         *
+         *     ``reserved_quantity`` is what the line's reservation still holds *live* - a
+         *     reservation released, expired or consumed elsewhere counts as nothing, which
+         *     is why it can be below ``allocated_quantity`` until the order is topped up.
+         *     ``dispatchable_quantity`` is what a new consignment may carry for the line
+         *     right now (``sales.service.dispatchable_quantity``).
          */
         LineAllocationRead: {
             /** Allocated Quantity */
             allocated_quantity: string;
             /** Available Quantity */
             available_quantity?: string | null;
+            /** Dispatchable Quantity */
+            dispatchable_quantity: string;
             /** Dispatched Quantity */
             dispatched_quantity: string;
             /** Item Code */
@@ -15247,6 +15422,8 @@ export interface components {
             required_date?: string | null;
             /** Reservation Id */
             reservation_id?: string | null;
+            /** Reserved Quantity */
+            reserved_quantity: string;
             /** Shortfall Quantity */
             shortfall_quantity: string;
             status: components["schemas"]["SalesOrderLineStatus"];
@@ -17683,6 +17860,22 @@ export interface components {
              */
             success: boolean;
         };
+        /** PaginatedResponse[SalesInvoiceSummary] */
+        PaginatedResponse_SalesInvoiceSummary_: {
+            /** Data */
+            data?: components["schemas"]["SalesInvoiceSummary"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
         /** PaginatedResponse[SalesOrderSummary] */
         PaginatedResponse_SalesOrderSummary_: {
             /** Data */
@@ -18207,11 +18400,10 @@ export interface components {
             amount: number | string;
             /** Notes */
             notes?: string | null;
-            /**
-             * Vendor Invoice Id
-             * Format: uuid
-             */
-            vendor_invoice_id: string;
+            /** Sales Invoice Id */
+            sales_invoice_id?: string | null;
+            /** Vendor Invoice Id */
+            vendor_invoice_id?: string | null;
         };
         /** PaymentAllocationRead */
         PaymentAllocationRead: {
@@ -18226,11 +18418,10 @@ export interface components {
             invoice_code?: string | null;
             /** Notes */
             notes: string | null;
-            /**
-             * Vendor Invoice Id
-             * Format: uuid
-             */
-            vendor_invoice_id: string;
+            /** Sales Invoice Id */
+            sales_invoice_id: string | null;
+            /** Vendor Invoice Id */
+            vendor_invoice_id: string | null;
             /** Vendor Invoice Number */
             vendor_invoice_number?: string | null;
         };
@@ -21083,7 +21274,7 @@ export interface components {
          *     catalogue asserts at import that every member has exactly one definition.
          * @enum {string}
          */
-        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "PACKING_LIST";
+        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "PACKING_LIST" | "SALES_INVOICE";
         /**
          * RequisitionBatchConversionRequest
          * @description The batch form: several approved requisitions converted together.
@@ -22446,6 +22637,400 @@ export interface components {
             notes?: string | null;
             /** Operations */
             operations?: components["schemas"]["RoutingOperationIn"][] | null;
+        };
+        /** SalesInvoiceCancel */
+        SalesInvoiceCancel: {
+            /** Reason */
+            reason: string;
+        };
+        /** SalesInvoiceCreate */
+        SalesInvoiceCreate: {
+            /**
+             * Dispatch Id
+             * Format: uuid
+             */
+            dispatch_id: string;
+            /** Eway Bill Number */
+            eway_bill_number?: string | null;
+            /** Invoice Date */
+            invoice_date?: string | null;
+            /** Lr Number */
+            lr_number?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Transporter Name */
+            transporter_name?: string | null;
+            /** Vehicle Number */
+            vehicle_number?: string | null;
+        };
+        /** SalesInvoiceDetail */
+        SalesInvoiceDetail: {
+            /** Balance Amount */
+            balance_amount: string;
+            /** Bank Account Name */
+            bank_account_name: string | null;
+            /** Bank Account Number */
+            bank_account_number: string | null;
+            /** Bank Branch */
+            bank_branch: string | null;
+            /** Bank Ifsc */
+            bank_ifsc: string | null;
+            /** Bank Name */
+            bank_name: string | null;
+            /** Billing Address */
+            billing_address: string;
+            /** Buyer Gstin */
+            buyer_gstin: string | null;
+            /** Buyer Name */
+            buyer_name: string;
+            /** Buyer State Code */
+            buyer_state_code: string | null;
+            /** Buyer State Name */
+            buyer_state_name: string | null;
+            /** Can Cancel */
+            can_cancel: boolean;
+            /** Cancellation Reason */
+            cancellation_reason: string | null;
+            /** Cancelled At */
+            cancelled_at: string | null;
+            /** Cancelled By Id */
+            cancelled_by_id: string | null;
+            /** Cgst Amount */
+            cgst_amount: string;
+            /** Code */
+            code: string;
+            /** Currency */
+            currency: string;
+            /**
+             * Customer Id
+             * Format: uuid
+             */
+            customer_id: string;
+            /** Discount Amount */
+            discount_amount: string;
+            /**
+             * Dispatch Id
+             * Format: uuid
+             */
+            dispatch_id: string;
+            /**
+             * Due Date
+             * Format: date
+             */
+            due_date: string;
+            /** Eway Bill Number */
+            eway_bill_number: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Igst Amount */
+            igst_amount: string;
+            /**
+             * Invoice Date
+             * Format: date
+             */
+            invoice_date: string;
+            /** Invoice Terms */
+            invoice_terms: string | null;
+            /** Is Interstate */
+            is_interstate: boolean;
+            /**
+             * Issued At
+             * Format: date-time
+             */
+            issued_at: string;
+            /**
+             * Issued By Id
+             * Format: uuid
+             */
+            issued_by_id: string;
+            /**
+             * Journal Id
+             * Format: uuid
+             */
+            journal_id: string;
+            /** Lines */
+            lines: components["schemas"]["SalesInvoiceLineRead"][];
+            /** Lr Number */
+            lr_number: string | null;
+            /** Notes */
+            notes: string | null;
+            /** Overdue Days */
+            overdue_days: number;
+            /** Paid Amount */
+            paid_amount: string;
+            /** Payments */
+            payments: components["schemas"]["SalesInvoicePaymentRead"][];
+            /** Pdf Document Id */
+            pdf_document_id: string | null;
+            /** Place Of Supply State Code */
+            place_of_supply_state_code: string | null;
+            /** Round Off Amount */
+            round_off_amount: string;
+            /**
+             * Sales Order Id
+             * Format: uuid
+             */
+            sales_order_id: string;
+            /** Seller Address */
+            seller_address: string;
+            /** Seller Gstin */
+            seller_gstin: string | null;
+            /** Seller Name */
+            seller_name: string;
+            /** Seller State Code */
+            seller_state_code: string | null;
+            /** Seller State Name */
+            seller_state_name: string | null;
+            /** Sgst Amount */
+            sgst_amount: string;
+            /** Shipping Address */
+            shipping_address: string;
+            status: components["schemas"]["SalesInvoiceStatus"];
+            /** Subtotal */
+            subtotal: string;
+            /** Tax Amount */
+            tax_amount: string;
+            /** Taxable Amount */
+            taxable_amount: string;
+            /** Total Amount */
+            total_amount: string;
+            /** Transporter Name */
+            transporter_name: string | null;
+            /** Vehicle Number */
+            vehicle_number: string | null;
+        };
+        /** SalesInvoiceLineRead */
+        SalesInvoiceLineRead: {
+            /** Cgst Amount */
+            cgst_amount: string;
+            /** Description */
+            description: string;
+            /** Discount Amount */
+            discount_amount: string;
+            /**
+             * Dispatch Line Id
+             * Format: uuid
+             */
+            dispatch_line_id: string;
+            /** Hsn Code */
+            hsn_code: string | null;
+            /** Igst Amount */
+            igst_amount: string;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Line Number */
+            line_number: number;
+            /** Line Total */
+            line_total: string;
+            /** Quantity */
+            quantity: string;
+            /**
+             * Sales Order Line Id
+             * Format: uuid
+             */
+            sales_order_line_id: string;
+            /** Sgst Amount */
+            sgst_amount: string;
+            /** Subtotal */
+            subtotal: string;
+            /** Tax Amount */
+            tax_amount: string;
+            /** Tax Rate */
+            tax_rate: string;
+            /** Taxable Amount */
+            taxable_amount: string;
+            /** Unit Price */
+            unit_price: string;
+            /** Uom Code */
+            uom_code: string;
+            /**
+             * Uom Id
+             * Format: uuid
+             */
+            uom_id: string;
+        };
+        /** SalesInvoicePaymentRead */
+        SalesInvoicePaymentRead: {
+            /** Amount */
+            amount: string;
+            /** Payment Code */
+            payment_code: string;
+            /**
+             * Payment Date
+             * Format: date
+             */
+            payment_date: string;
+            /**
+             * Payment Id
+             * Format: uuid
+             */
+            payment_id: string;
+        };
+        /** SalesInvoicePreview */
+        SalesInvoicePreview: {
+            /** Bank Account Name */
+            bank_account_name: string | null;
+            /** Bank Account Number */
+            bank_account_number: string | null;
+            /** Bank Branch */
+            bank_branch: string | null;
+            /** Bank Ifsc */
+            bank_ifsc: string | null;
+            /** Bank Name */
+            bank_name: string | null;
+            /** Billing Address */
+            billing_address: string;
+            /** Buyer Gstin */
+            buyer_gstin: string | null;
+            /** Buyer Name */
+            buyer_name: string;
+            /** Buyer State Code */
+            buyer_state_code: string | null;
+            /** Buyer State Name */
+            buyer_state_name: string | null;
+            /** Cgst Amount */
+            cgst_amount: string;
+            /** Currency */
+            currency: string;
+            /**
+             * Customer Id
+             * Format: uuid
+             */
+            customer_id: string;
+            /** Discount Amount */
+            discount_amount: string;
+            /**
+             * Dispatch Id
+             * Format: uuid
+             */
+            dispatch_id: string;
+            /**
+             * Due Date
+             * Format: date
+             */
+            due_date: string;
+            /** Eway Bill Number */
+            eway_bill_number: string | null;
+            /** Igst Amount */
+            igst_amount: string;
+            /**
+             * Invoice Date
+             * Format: date
+             */
+            invoice_date: string;
+            /** Invoice Terms */
+            invoice_terms: string | null;
+            /** Is Interstate */
+            is_interstate: boolean;
+            /** Lines */
+            lines: components["schemas"]["SalesInvoiceLineRead"][];
+            /** Lr Number */
+            lr_number: string | null;
+            /** Notes */
+            notes: string | null;
+            /** Place Of Supply State Code */
+            place_of_supply_state_code: string | null;
+            /** Round Off Amount */
+            round_off_amount: string;
+            /**
+             * Sales Order Id
+             * Format: uuid
+             */
+            sales_order_id: string;
+            /** Seller Address */
+            seller_address: string;
+            /** Seller Gstin */
+            seller_gstin: string | null;
+            /** Seller Name */
+            seller_name: string;
+            /** Seller State Code */
+            seller_state_code: string | null;
+            /** Seller State Name */
+            seller_state_name: string | null;
+            /** Sgst Amount */
+            sgst_amount: string;
+            /** Shipping Address */
+            shipping_address: string;
+            /** Subtotal */
+            subtotal: string;
+            /** Tax Amount */
+            tax_amount: string;
+            /** Taxable Amount */
+            taxable_amount: string;
+            /** Total Amount */
+            total_amount: string;
+            /** Transporter Name */
+            transporter_name: string | null;
+            /** Vehicle Number */
+            vehicle_number: string | null;
+        };
+        /**
+         * SalesInvoiceStatus
+         * @enum {string}
+         */
+        SalesInvoiceStatus: "ISSUED" | "PARTIALLY_PAID" | "PAID" | "CANCELLED";
+        /** SalesInvoiceSummary */
+        SalesInvoiceSummary: {
+            /** Balance Amount */
+            balance_amount: string;
+            /** Buyer Name */
+            buyer_name: string;
+            /** Can Cancel */
+            can_cancel: boolean;
+            /** Code */
+            code: string;
+            /** Currency */
+            currency: string;
+            /**
+             * Customer Id
+             * Format: uuid
+             */
+            customer_id: string;
+            /**
+             * Dispatch Id
+             * Format: uuid
+             */
+            dispatch_id: string;
+            /**
+             * Due Date
+             * Format: date
+             */
+            due_date: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Invoice Date
+             * Format: date
+             */
+            invoice_date: string;
+            /**
+             * Issued At
+             * Format: date-time
+             */
+            issued_at: string;
+            /** Overdue Days */
+            overdue_days: number;
+            /** Paid Amount */
+            paid_amount: string;
+            /** Pdf Document Id */
+            pdf_document_id: string | null;
+            /**
+             * Sales Order Id
+             * Format: uuid
+             */
+            sales_order_id: string;
+            status: components["schemas"]["SalesInvoiceStatus"];
+            /** Total Amount */
+            total_amount: string;
         };
         /**
          * SalesOrderCreate
@@ -38455,6 +39040,595 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_PaymentDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_sales_invoices_api_v1_finance_sales_invoices_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                status?: components["schemas"]["SalesInvoiceStatus"] | null;
+                customer_id?: string | null;
+                sales_order_id?: string | null;
+                dispatch_id?: string | null;
+                date_from?: string | null;
+                date_to?: string | null;
+                overdue_only?: boolean;
+                open_only?: boolean;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+                /** @description Field to sort by */
+                sort_by?: string | null;
+                /** @description Sort direction */
+                sort_dir?: "asc" | "desc";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_SalesInvoiceSummary_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    issue_sales_invoice_api_v1_finance_sales_invoices_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesInvoiceCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_SalesInvoiceDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    preview_sales_invoice_api_v1_finance_sales_invoices_preview_get: {
+        parameters: {
+            query: {
+                dispatch_id: string;
+                invoice_date?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_SalesInvoicePreview_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_sales_invoice_api_v1_finance_sales_invoices__invoice_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invoice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_SalesInvoiceDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    cancel_sales_invoice_api_v1_finance_sales_invoices__invoice_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invoice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesInvoiceCancel"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_SalesInvoiceDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    sales_invoice_pdf_api_v1_finance_sales_invoices__invoice_id__pdf_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invoice_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
                 };
             };
             /** @description Malformed request */
@@ -71315,6 +72489,104 @@ export interface operations {
             };
         };
     };
+    allocate_order_api_v1_sales__order_id__allocate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AllocateOrderRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_OrderAllocationRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     allocation_status_api_v1_sales__order_id__allocation_status_get: {
         parameters: {
             query?: never;
@@ -71519,6 +72791,104 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CancelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_SalesOrderSummary_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    close_order_api_v1_sales__order_id__close_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmRequest"];
             };
         };
         responses: {

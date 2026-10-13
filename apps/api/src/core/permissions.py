@@ -124,6 +124,7 @@ class Permission(StrEnum):
     SALES_ORDER_CANCEL = "sales_order.cancel"
     SALES_INVOICE_VIEW = "sales_invoice.view"
     SALES_INVOICE_CREATE = "sales_invoice.create"
+    SALES_INVOICE_CANCEL = "sales_invoice.cancel"
 
     # --- MRP ----------------------------------------------------------------
     MRP_VIEW = "mrp.view"
@@ -509,6 +510,7 @@ _ACCOUNTS = frozenset(
         Permission.INVENTORY_VALUATION_VIEW,
         Permission.SALES_INVOICE_VIEW,
         Permission.SALES_INVOICE_CREATE,
+        Permission.SALES_INVOICE_CANCEL,
         Permission.PURCHASE_ORDER_VIEW,
         Permission.GRN_VIEW,
         Permission.CUSTOMER_VIEW,

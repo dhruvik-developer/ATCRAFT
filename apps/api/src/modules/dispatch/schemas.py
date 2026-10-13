@@ -304,6 +304,7 @@ class DispatchSummary(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    sales_invoice_id: uuid.UUID | None = None
     id: uuid.UUID
     code: str
     dispatch_type: DispatchType

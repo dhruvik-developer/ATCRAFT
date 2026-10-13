@@ -336,3 +336,18 @@ async def allocation_status(
 
 
 __all__ = ["router"]
+
+
+@router.post(
+    "/{order_id}/close",
+    response_model=ApiResponse[SalesOrderSummary],
+    summary="Close an invoiced sales order",
+    dependencies=[require_permission(Permission.SALES_ORDER_UPDATE)],
+)
+async def close_order(
+    order_id: uuid.UUID, payload: ConfirmRequest, session: DbSession, tenant: Tenant
+) -> ApiResponse[SalesOrderSummary]:
+    order = await service.close_order(session, tenant, order_id, reason=payload.reason)
+    return ApiResponse[SalesOrderSummary].ok(
+        SalesOrderSummary.model_validate(order), "Sales order closed"
+    )

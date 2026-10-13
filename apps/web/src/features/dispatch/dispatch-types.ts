@@ -104,6 +104,7 @@ export const isSettled = (status: string): boolean => SETTLED.has(status)
 
 /** One row of `GET /dispatch` (`DispatchSummary`). */
 export interface DispatchRow {
+  sales_invoice_id: string | null
   id: string
   code: string
   dispatch_type: DispatchType

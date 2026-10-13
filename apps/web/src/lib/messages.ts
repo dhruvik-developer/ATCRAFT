@@ -206,3 +206,13 @@ export const messages = {
   errorDescription,
   raisedDocuments,
 } as const
+
+export const salesInvoiceMessages = {
+  issued: 'Sales invoice issued',
+  preview:
+    'Review the dispatch quantities, agreed prices and tax before issuing. The number is assigned when you confirm.',
+  snapshot: 'Party details, prices and tax are fixed as they were at issue.',
+  cancel:
+    'The receivable journal and invoiced quantities are reversed together. Paid invoices or invoices outside the cancellation window need a credit note.',
+  gst: 'Output GST comes from issued sales invoice lines by invoice date. Uninvoiced dispatches are shown separately for follow-up.',
+} as const

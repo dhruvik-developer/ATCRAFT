@@ -91,6 +91,7 @@ const RESOURCES = [
   ['qc template', '/quality/templates', '/quality/templates/{id}'],
   ['packing order', '/packing', '/packing/{id}'],
   ['dispatch', '/dispatch', '/dispatch/{id}'],
+  ['sales invoice', '/finance/sales-invoices', '/finance/sales-invoices/{id}'],
   ['vendor invoice', '/finance/vendor-invoices', '/finance/vendor-invoices/{id}'],
   ['payment', '/finance/payments', '/finance/payments/{id}'],
   ['account', '/finance/accounts', '/finance/accounts/{id}'],
