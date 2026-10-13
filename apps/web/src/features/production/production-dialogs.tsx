@@ -40,6 +40,7 @@ import {
 import { Alert, AlertDescription, Input, Label, Textarea } from '@/components/ui/primitives'
 import { CostCentreSelect } from '@/features/admin/cost-centre-select'
 import { useAuth } from '@/features/auth/auth-context'
+import { LocationPicker } from '@/features/inventory/location-picker'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { useUserOptions } from '@/hooks/use-user-options'
 import { api } from '@/lib/api-client'
@@ -447,6 +448,7 @@ const issueSchema = z.object({
       // legitimately carry the same part on two lines.
       line_number: z.number(),
       label: z.string(),
+      location_id: z.string().optional(),
       quantity: z
         .string()
         .trim()
@@ -493,6 +495,7 @@ export function IssueMaterialDialog({
     handleSubmit,
     reset,
     setError,
+    watch,
     formState: { errors },
   } = useForm<IssueFormValues>({
     resolver: zodResolver(issueSchema),
@@ -535,6 +538,7 @@ export function IssueMaterialDialog({
             component_id: line.component_id,
             line_number: line.line_number,
             quantity: asDecimal(line.quantity),
+            ...(line.location_id ? { location_id: line.location_id } : {}),
           })),
       })
 
@@ -677,6 +681,21 @@ export function IssueMaterialDialog({
                         aria-invalid={Boolean(errors.lines?.[index]?.quantity)}
                       />
                       <FieldError message={errors.lines?.[index]?.quantity?.message} />
+                      <Controller
+                        control={control}
+                        name={`lines.${index}.location_id`}
+                        render={({ field: bin }) => (
+                          <LocationPicker
+                            id={`issue-bin-${index}`}
+                            warehouseId={
+                              watch('warehouse_id') || components[index]?.warehouse_id || ''
+                            }
+                            itemId={components[index]?.item_id ?? ''}
+                            value={bin.value || null}
+                            onChange={(value) => bin.onChange(value ?? '')}
+                          />
+                        )}
+                      />
                     </div>
                   </div>
                 )

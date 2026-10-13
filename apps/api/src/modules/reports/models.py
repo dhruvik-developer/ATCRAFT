@@ -91,6 +91,11 @@ class ReportKey(StrEnum):
     #: Income and expense per cost centre and account over a period, read from
     #: the posted ledger - the "cost centre statement".
     COST_CENTRE_EXPENSE = "COST_CENTRE_EXPENSE"
+    #: Scrap in by source and scrap out by disposal over a period, read from the
+    #: stock ledger and valued at what the scrap cost.
+    SCRAP_REGISTER = "SCRAP_REGISTER"
+    #: Posted internal issues per department / cost centre and item over a period.
+    CONSUMPTION_BY_DEPARTMENT = "CONSUMPTION_BY_DEPARTMENT"
     #: A rendered document rather than a tabular report: the packing-list PDF
     #: for one packing order. It has a job row here - ``GET /reports/jobs/{id}``
     #: is what the client polls - but no ``ReportDefinition``, because there are

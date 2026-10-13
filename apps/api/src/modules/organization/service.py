@@ -1386,6 +1386,32 @@ async def require_cost_centre(
     return centre
 
 
+async def require_department(
+    session: AsyncSession,
+    tenant: TenantContext,
+    department_id: uuid.UUID,
+    *,
+    field: str = "department_id",
+) -> Department:
+    """The department a write is about to name, if it may name it.
+
+    The same contract as :func:`require_cost_centre`: live and in this tenant,
+    or :class:`NotFoundError` - another company's id included, because a
+    foreign key to ``departments.id`` alone accepts it. Active, or a 422 against
+    ``details.fields[field]``. For a *new* assignment only.
+    """
+    department = await DepartmentRepository(session, tenant).get(department_id)
+    if department is None:
+        raise NotFoundError("Department", department_id)
+    if not department.is_active:
+        message = inactive_record("Department", department.code, _NOT_ASSIGNABLE)
+        raise ValidationError(
+            message,
+            details={"fields": {field: [message]}, "department_id": str(department.id)},
+        )
+    return department
+
+
 async def require_cost_centres(
     session: AsyncSession,
     tenant: TenantContext,
@@ -1755,4 +1781,5 @@ __all__ = [
     "referenced_in_use",
     "require_cost_centre",
     "require_cost_centres",
+    "require_department",
 ]

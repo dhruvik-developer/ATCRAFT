@@ -1015,7 +1015,8 @@
             "The production type and the capabilities must agree: Make needs 'Manufacturable', Buy needs 'Purchasable', Make or buy needs both, and Job work needs 'Job work'. Otherwise planning would raise a suggestion to make something no production order can be created for.",
             "The item group is a reporting classification only. It never decides what an item is allowed to do \u2014 the capabilities do that, and nothing re-reads the group afterwards.",
             "A purchase or sale unit must be convertible to the base unit, and the conversion must already be defined under Masters. This is checked when you save, so the problem surfaces at the desk rather than at a goods receipt with the vendor's lorry at the gate.",
-            "GST rate cannot exceed 100 percent and lead time cannot exceed 3650 days."
+            "GST rate cannot exceed 100 percent and lead time cannot exceed 3650 days.",
+            "An optional default bin must belong to the item's default warehouse. Receipt and material-issue pickers prefill it only in that warehouse; you can clear or choose a different bin. Reassign the default before retiring its bin."
           ],
           "permission": "Anyone who may view items can open this screen. New item appears only for someone with the right to create items. The Standard cost column is shown only to someone with the right to see item costs \u2014 the figure is withheld by the system itself, not merely hidden. The category and unit pickers need the separate rights to view categories and to view units; without them those drop-downs simply come up empty. The brand filter, and the Brand and Manufacturer boxes on the form, need the rights to view brands and manufacturers; without them the boxes offer only 'None', and editing an item keeps whatever brand and maker it already records.",
           "notes": "Two honest gaps worth knowing before the screenshot is taken. (1) The grid deliberately carries no stock or reorder-level column \u2014 stock for one item is answered on that item's Stock tab, and putting it in a list of 50 rows would mean a separate stock look-up per row. (2) Nothing in the application deactivates an item, so the 'Inactive only' filter will normally return an empty list; items leave service by being retired, not deactivated. There is no delete on this screen. On a fresh system the capability icons on each row will look sparse, because the create form starts with every capability unticked rather than pre-ticking the ones usual for the chosen group."
@@ -2180,7 +2181,8 @@
             "Posting also writes the price paid back onto the item-and-vendor record as the last purchase price, so the next buyer sees what this vendor last charged.",
             "A short delivery leaves the order Partially received; a complete one moves it to Received and then straight on \u2014 to QC pending if any line is held for inspection, otherwise to receipt complete.",
             "A posted receipt is final. It can never be edited, cancelled or retracted; the way to correct it is a purchase return, which posts the opposite movement.",
-            "A receipt does not create a bill. It is the delivery half of the check the accounts team runs when the vendor's invoice arrives: the invoice is recorded in the finance area against this order and this receipt, checked against both, and only then does the order move on to Invoiced and later Paid."
+            "A receipt does not create a bill. It is the delivery half of the check the accounts team runs when the vendor's invoice arrives: the invoice is recorded in the finance area against this order and this receipt, checked against both, and only then does the order move on to Invoiced and later Paid.",
+            "A receipt line requiring incoming inspection is received at warehouse level. After acceptance, put it away with a bin move. Other lines can receive directly into their selected bin."
           ],
           "permission": "The right to view goods receipts opens the list \u2014 a Store Keeper has it. Recording a receipt needs the right to create them, which a Store Keeper also has. Posting one is a separate right, and of the ready-made roles only an administrator carries it, so out of the box a storekeeper keys the delivery and somebody else posts it. That split is deliberate and can be changed by granting the posting right to a role.",
           "notes": "There is no page for a single receipt \u2014 the register plus the receive dialog is the whole screen. The system can cancel an unposted draft receipt but no screen offers it. The receive form will not let you enter more than a line still has outstanding, so the 5% over-delivery tolerance the system allows cannot be used from this screen; a genuine over-delivery has to have the purchase order amended. The form does not record which transporter brought the goods, only the vehicle number, even though the underlying document can hold a carrier."
@@ -3256,7 +3258,8 @@
             "Stock put on QC hold does not come off On hand. The goods have not gone anywhere \u2014 they have only stopped being usable \u2014 so they stay in On hand and are subtracted from Available.",
             "In-transit stock is counted at the warehouse it is travelling to, not the one it left. That is where the question gets asked: a receiving storekeeper and a planner both want to know what is coming to them.",
             "A red mark against a line means nothing is left to promise. An amber mark means free stock has fallen below the item's reorder level.",
-            "Availability is never cached anywhere in the system, on purpose. It costs a moment more to read and it is the number the whole promise chain depends on."
+            "Availability is never cached anywhere in the system, on purpose. It costs a moment more to read and it is the number the whole promise chain depends on.",
+            "The Bin column identifies a location within the warehouse. Choose a warehouse and then its bin to filter a position. Scrap is shown separately from on-hand and available stock; it stays owned until disposed of."
           ],
           "permission": "Anyone with the right to view stock can open this screen. The Stock value column needs the separate right to see stock valuation \u2014 the standard Store Keeper role deliberately does not carry it, so a storekeeper sees quantities and not money.",
           "notes": "Two honest gaps worth knowing before the screenshot is taken. (1) The **Allocated** column will show 0.0000 on every line: the figure exists in the database but nothing in the system currently writes it, so it is always zero. Consider cropping it out of the screenshot or captioning it. (2) There is **no Location column**, although stock can be held down to bin level and the server can filter by bin \u2014 so a warehouse that racks its stock will show several lines for the same item and warehouse with no visible reason. The server also accepts filters by item and by batch that this screen does not offer."
@@ -3375,18 +3378,18 @@
         },
         {
           "route": "/inventory/movements",
-          "title": "Transfers, adjustments and stock counts",
-          "purpose": "Three kinds of paperwork share this screen because they are one job seen three ways: stock moved, and here is why. A **transfer** moves stock from one of your warehouses to another. An **adjustment** changes what the system believes without a receipt or an issue behind it \u2014 damage, theft, expiry, a correction. A **stock count** compares the shelves against the system and posts the difference. They live together because the person comparing a count's variance against the adjustment it produced should not have to walk between screens. Every button here moves real stock, so each asks you to confirm before it goes and each is fenced by the right that authorises it.",
-          "whoUses": "The storekeeper raises and posts; a second person approves. On the counts tab, whoever walks the aisles and whoever accepts what they wrote down are deliberately two different people.",
+          "title": "Transfers, adjustments, counts, putaway, scrap and internal issues",
+          "purpose": "Record why stock moved. Transfers move it between warehouses; bin moves put it away within one warehouse. Adjustments correct the book quantity and stock counts reconcile the shelves. Scrap disposals clear stock already set aside as scrap. Internal issues record what a department or cost centre consumes.",
+          "whoUses": "Storekeepers record and move stock. Separate approvers review larger adjustments and internal issues. The person who accepts a physical count needs the separate reconciliation right.",
           "keyActions": [
             {
-              "action": "Switch between the three kinds of paperwork",
-              "how": "The Transfers / Adjustments / Physical counts tabs at the top.",
-              "note": "Changing tab clears the page number, the search and the sort, because none of them mean anything on the next list."
+              "action": "Choose the stock document",
+              "how": "Use Transfers, Adjustments, Physical counts, Bin moves, Scrap disposals or Internal issues.",
+              "note": "Each tab has its own searchable, paginated register."
             },
             {
               "action": "Raise a transfer",
-              "how": "Transfers tab, \"New transfer\": choose the warehouse the stock leaves and the one it arrives at, the date, a reason, and one line per item with a quantity. Save.",
+              "how": "New transfer: choose source and destination warehouses, a reason and item quantities. Batch-tracked items require a batch. Choose source and destination bins when the stock occupies them.",
               "note": "Nothing moves on creation. The transfer is a draft waiting for approval."
             },
             {
@@ -3396,12 +3399,12 @@
             },
             {
               "action": "Raise an adjustment",
-              "how": "Adjustments tab, \"New adjustment\": choose the warehouse and date, classify the cause (damage, theft, count variance, expiry, correction, opening), describe in at least ten characters what actually happened, then key one line per item with a signed quantity \u2014 minus writes stock off, plus writes it on.",
+              "how": "New adjustment: choose the warehouse, reason code and explanation, then enter signed quantities. Choose the batch and bin for each position. A positive quantity adds stock; a negative quantity removes it. With cost-view rights you can enter the write-up unit cost; otherwise the server uses its fallback cost.",
               "note": "The reason code says what kind of loss it was; the description says what happened. Both are kept on the ledger forever. Someone who may see cost centres can also name the cost centre that bears the write-off; for anyone else the adjustment is raised unallocated."
             },
             {
               "action": "Move an adjustment along",
-              "how": "One button at the end of the row, and it is always the only step available: Submit (when the value is over the approval limit), Approve (for whoever holds that right), or Post.",
+              "how": "Edit a draft, submit a larger adjustment, approve or reject it with a reason, then post it. Cancel a draft or other cancellable document with a reason. The cost centre is shown in the register and approval dialog when you may view it.",
               "note": "Posting is what changes stock. Everything before it is paperwork."
             },
             {
@@ -3426,6 +3429,21 @@
             {
               "action": "Abandon a count",
               "how": "Cancel on a sheet that has not been confirmed, with a reason. Nothing is posted; the figures stay on record and never reach the ledger, and the warehouse is free to open a new count."
+            },
+            {
+              "action": "Put stock away",
+              "how": "Bin moves: choose one warehouse, the item, batch, source bin and destination bin, quantity and reason. Leave a bin empty for the unbinned position.",
+              "note": "Saving posts both sides immediately. Quantity and original stock cost move together."
+            },
+            {
+              "action": "Dispose of scrap",
+              "how": "Scrap disposals: choose the warehouse and scrap position, quantity, Sale, Write off or Recycle, and the reason. Add the buyer or reference and any realised amount.",
+              "note": "Saving permanently removes that quantity from scrap. A write-off realises zero. It cannot remove usable stock."
+            },
+            {
+              "action": "Issue to a department or cost centre",
+              "how": "Internal issues: name the receiving department and/or cost centre and enter the materials, positions, quantities and reason. Save the draft, then Post a smaller issue or Submit one requiring approval.",
+              "note": "Above 25,000 in company currency, another approver reviews and approves the issue. Approval posts the stock. A pending issue can be rejected with a reason; a draft or pending issue can be cancelled."
             }
           ],
           "flow": [
@@ -3447,10 +3465,15 @@
             "A count sheet covering more than 5,000 positions is refused. Count a narrower scope \u2014 which is what cycle counting means.",
             "Confirming a count posts the difference between what was counted and what the system says at that moment, not the difference from the snapshot taken when the sheet was opened. Otherwise every receipt and issue made while the count was running would be silently reversed and booked as shrinkage.",
             "A line nobody counted is left alone. It is not written down to zero.",
-            "A transfer, adjustment or count involving a warehouse you are not assigned to is refused, whatever rights you hold. Rights say whether you may adjust stock; your warehouse assignment says where."
+            "A transfer, adjustment or count involving a warehouse you are not assigned to is refused, whatever rights you hold. Rights say whether you may adjust stock; your warehouse assignment says where.",
+            "New scrap is refused for an item whose Can scrap capability is off. Record unusable inspected stock as damaged instead. Existing scrap can still be disposed of after the capability is disabled.",
+            "Scrap disposal uses what that scrap originally cost. A later, more expensive receipt does not reprice it. FIFO cost columns are visible only with cost-view rights.",
+            "Bin moves and scrap disposals post when saved. Review the positions and quantities before saving; a posted document is corrected with a further stock document.",
+            "Internal issue approval is measured against the actual oldest stock consumed. If its value rises beyond the limit at posting, nothing moves until it has approval.",
+            "The consumables warehouse is a classification. Internal issues may consume permitted stock from any warehouse you are allowed to operate."
           ],
-          "permission": "Seeing all three lists needs only the right to view stock. Raising, approving, dispatching and receiving transfers all need the right to transfer stock. Raising, submitting and posting an adjustment need the right to adjust stock; approving or rejecting one needs the separate right to approve adjustments. Opening, starting, keying and cancelling a count need the right to run a stock count; confirming it and posting the variance needs the different right to reconcile stock \u2014 whoever walks the aisles is not automatically the person who accepts what they wrote down.",
-          "notes": "The busiest screen in the chapter and worth three screenshots, one per tab. Gaps the deck should not paper over: (1) there is **no detail view** for a transfer or an adjustment \u2014 once created you can see the code, the warehouses, the line count and the total, but not the lines; (2) the transfer list has an **Expected column that will always be blank**, because the New transfer form has no field to set an expected date; (3) there is **no Cancel button on the transfers or adjustments tabs**, although the system does allow a draft or approved document to be cancelled \u2014 only counts can be cancelled from the screen; (4) neither the transfer nor the adjustment line has a place to name a **batch or a bin**, so a batch-tracked item keyed onto a transfer is refused when the transfer is saved, and onto an adjustment when it is posted; (5) the New count form always covers the **whole warehouse**, positions currently holding stock only \u2014 the system underneath can narrow a count to one bin or a chosen list of items, and the screen does not offer it, which matters given the 5,000-position ceiling."
+          "permission": "Seeing all three lists needs only the right to view stock. Raising, approving, dispatching and receiving transfers all need the right to transfer stock. Raising, submitting and posting an adjustment need the right to adjust stock; approving or rejecting one needs the separate right to approve adjustments. Opening, starting, keying and cancelling a count need the right to run a stock count; confirming it and posting the variance needs the different right to reconcile stock \u2014 whoever walks the aisles is not automatically the person who accepts what they wrote down. Bin moves use the transfer right. Scrap disposal has its own disposal right. Internal issue creation and approval have separate rights. Existing customised roles may need the administrator to grant the new rights.",
+          "notes": "The six tabs share the stock register. Batch and bin are part of the stock position: selecting the wrong position is not corrected by having enough total stock in the warehouse. Serial-tracked transfers and these new operation documents remain unavailable until the serial identity workflow can record the units."
         },
         {
           "route": "/warehouses",
@@ -3678,7 +3701,7 @@
             },
             {
               "action": "Charge a bill, or one of its lines, to a cost centre",
-              "how": "Vendor invoices → Record invoice (or Amend) → the Cost centre box under the bill's details, and the cost centre box on any line that belongs somewhere else",
+              "how": "Vendor invoices \u2192 Record invoice (or Amend) \u2192 the Cost centre box under the bill's details, and the cost centre box on any line that belongs somewhere else",
               "note": "Shown only to someone who may see cost centres. A line left on \"As the invoice\" follows the bill's cost centre, decided when the bill is approved; approval then posts the purchase cost to the ledger split by cost centre, which is what the Cost centre statement reads. A bill whose cost centre was switched off after it was keyed is refused at approval until it is changed."
             },
             {
@@ -4015,6 +4038,16 @@
               "action": "Run Cost centre statement",
               "how": "Reports \u2192 Cost centre statement",
               "note": "What each cost centre was charged and earned over the period, account by account, read from the posted ledger - today, approved vendor invoices. Net is cost minus income, so a negative net is income. The search box finds a centre by code or name."
+            },
+            {
+              "action": "Run Scrap register",
+              "how": "Reports \u2192 Scrap register",
+              "note": "Scrap entering and leaving by source over the period, at the cost recorded when it was scrapped."
+            },
+            {
+              "action": "Run Consumption by department",
+              "how": "Reports \u2192 Consumption by department",
+              "note": "Posted internal issues grouped by department, cost centre and item over the period."
             }
           ],
           "flow": [
@@ -4026,14 +4059,16 @@
             "Read the table, page through it, or use the search box to find a row.",
             "If the result was too large to show, wait for the download strip and press Download to open the spreadsheet."
           ],
-          "notes": "Twenty reports exist and every one of them is listed above \u2014 this list is worth its own page in the deck. Two things to be accurate about. First, the six filters are the same on every report, so the screen offers a Customer filter on a machine-utilisation report where it does nothing; that is a known simplification, not a fault. Second, the filter set has no category picker even though the system would accept one, and the Status filter expects the exact status word rather than offering a dropdown. The management dashboard tiles (open orders, stock value, QC pending and so on) are a separate screen, not part of this one. The packing list PDF is produced from the Packing screen, not from here.",
+          "notes": "Twenty-two reports exist and every one of them is listed above \u2014 this list is worth its own page in the deck. Two things to be accurate about. First, the six filters are the same on every report, so the screen offers a Customer filter on a machine-utilisation report where it does nothing; that is a known simplification, not a fault. Second, the filter set has no category picker even though the system would accept one, and the Status filter expects the exact status word rather than offering a dropdown. The management dashboard tiles (open orders, stock value, QC pending and so on) are a separate screen, not part of this one. The packing list PDF is produced from the Packing screen, not from here.",
           "permission": "Needs the right to view reports \u2014 that one right opens every report in the catalogue. Producing a large report as a downloadable file additionally needs the right to export reports; without it, a report that returns too many rows is refused with a message asking you to narrow the dates or filters instead.",
           "rules": [
             "A report period may cover at most 366 days. An unbounded query over years of history is how a reporting screen takes the whole system down, so the limit is enforced rather than suggested.",
             "A result of up to 5,000 rows is shown on screen. Anything larger is prepared in the background as an Excel file, because no screen and no waiting user should sit on a query of that size.",
             "A generated file is reused for 24 hours for the same report and the same parameters. Five people opening the same link do not queue five identical exports \u2014 the later ones simply collect the file the first one produced.",
             "Stock availability is never served from a stored copy, because an allocation decision made on a five-minute-old availability figure is an allocation of stock that may already be gone. The same applies to the tracking board and the valuation.",
-            "The list of reports is served by the system itself rather than being written into the screen, so a report added later appears here without anything else changing."
+            "The list of reports is served by the system itself rather than being written into the screen, so a report added later appears here without anything else changing.",
+            "Scrap register shows scrap entering and leaving by source, at its recorded cost, over a chosen period.",
+            "Consumption by department groups only posted internal issues by department, cost centre and item over a chosen period."
           ]
         },
         {

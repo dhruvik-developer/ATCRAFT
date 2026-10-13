@@ -92,6 +92,9 @@ class Permission(StrEnum):
     INVENTORY_RECONCILE = "inventory.reconcile"
     INVENTORY_PHYSICAL_COUNT = "inventory.physical_count"
     INVENTORY_VALUATION_VIEW = "inventory.valuation_view"
+    INVENTORY_SCRAP_DISPOSE = "inventory.scrap_dispose"
+    INTERNAL_ISSUE_CREATE = "internal_issue.create"
+    INTERNAL_ISSUE_APPROVE = "internal_issue.approve"
 
     # --- reservation / allocation ------------------------------------------
     RESERVATION_VIEW = "reservation.view"
@@ -230,7 +233,7 @@ PERMISSION_GROUPS: dict[str, tuple[str, ...]] = {
         "price",
     ),
     "Warehouses": ("warehouse", "location"),
-    "Inventory": ("inventory", "reservation", "allocation"),
+    "Inventory": ("inventory", "reservation", "allocation", "internal_issue"),
     "Engineering": ("bom", "routing", "work_center", "machine"),
     "Sales": ("sales_order", "sales_invoice"),
     "Planning": ("mrp",),
@@ -333,6 +336,9 @@ _STORE = frozenset(
         Permission.INVENTORY_VIEW,
         Permission.INVENTORY_LEDGER_VIEW,
         Permission.INVENTORY_TRANSFER,
+        Permission.INVENTORY_SCRAP_DISPOSE,
+        Permission.INTERNAL_ISSUE_CREATE,
+        Permission.DEPARTMENT_VIEW,
         Permission.INVENTORY_ADJUST,
         Permission.INVENTORY_PHYSICAL_COUNT,
         Permission.INVENTORY_RECONCILE,
@@ -562,6 +568,7 @@ ROLE_PRESETS: dict[str, dict[str, object]] = {
         | _QC
         | {
             Permission.PRODUCTION_ORDER_APPROVE,
+            Permission.INTERNAL_ISSUE_APPROVE,
             Permission.PRODUCTION_ORDER_CANCEL,
             Permission.ALLOCATION_APPROVE,
             Permission.ALLOCATION_REALLOCATE,

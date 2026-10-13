@@ -28,7 +28,7 @@ import {
   ThumbsUp,
   X,
 } from 'lucide-react'
-import { useMemo, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
@@ -37,6 +37,7 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/overlays'
 import { Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { CostCentreName } from '@/features/admin/cost-centre-select'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MIN_LENGTH } from '@/lib/constants'
@@ -75,6 +76,9 @@ import {
 const transfersKey = (params: unknown) => ['inventory', 'transfers', params] as const
 const adjustmentsKey = (params: unknown) => ['inventory', 'adjustments', params] as const
 const physicalCountsKey = (params: unknown) => ['inventory', 'physical-counts', params] as const
+const OperationTab = lazy(() => import('./operation-tabs'))
+const EditTransferDialog = lazy(() => import('./edit-transfer-dialog'))
+const EditAdjustmentDialog = lazy(() => import('./edit-adjustment-dialog'))
 
 /**
  * The transitions each document actually has, taken from the state machines in
@@ -108,6 +112,8 @@ interface PendingAction {
    * empty body.
    */
   requiresReason?: boolean
+  reasonField?: 'reason' | 'note'
+  extra?: ReactNode
 }
 
 /** A transition offered on a row: the button, plus the confirmation behind it. */
@@ -211,7 +217,7 @@ function ActionConfirm({ pending, onDone }: { pending: PendingAction | null; onD
 
   const run = useMutation({
     mutationFn: ({ action, why }: { action: PendingAction; why: string }) =>
-      api.post(action.path, action.requiresReason ? { reason: why } : {}),
+      api.post(action.path, action.requiresReason ? { [action.reasonField ?? 'reason']: why } : {}),
     onSuccess: (_result, { action }) => {
       toast.success(action.successTitle, action.successBody)
       void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
@@ -246,6 +252,7 @@ function ActionConfirm({ pending, onDone }: { pending: PendingAction | null; onD
       loading={run.isPending}
       onConfirm={confirm}
     >
+      {pending.extra}
       {pending.requiresReason && (
         <div>
           <Label htmlFor="movement-action-reason" required>
@@ -280,6 +287,7 @@ function TransfersTab() {
 
   const [createOpen, setCreateOpen] = useState(false)
   const [pending, setPending] = useState<PendingAction | null>(null)
+  const [editing, setEditing] = useState<StockTransferRow | null>(null)
 
   const list = useListQuery<StockTransferRow>({
     path: '/inventory/transfers',
@@ -337,6 +345,40 @@ function TransfersTab() {
         accessorKey: 'status',
         header: 'Status',
         cell: ({ row }) => <StatusBadge status={row.original.status} />,
+      },
+      {
+        id: 'manage',
+        header: 'Manage',
+        enableSorting: false,
+        cell: ({ row }) => {
+          const transfer = row.original
+          if (!canTransfer || !['DRAFT', 'APPROVED'].includes(transfer.status)) return null
+          return (
+            <div className="flex flex-wrap justify-end gap-2">
+              {transfer.status === 'DRAFT' && (
+                <Button variant="outline" size="sm" onClick={() => setEditing(transfer)}>
+                  Edit draft
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setPending({
+                    path: `/inventory/transfers/${transfer.id}/cancel`,
+                    title: `Cancel ${transfer.code}?`,
+                    description: 'Cancel this transfer before its stock leaves the source.',
+                    confirmLabel: 'Cancel transfer',
+                    successTitle: success.cancelled('Transfer'),
+                    requiresReason: true,
+                  })
+                }
+              >
+                Cancel
+              </Button>
+            </div>
+          )
+        },
       },
       {
         id: 'actions',
@@ -467,6 +509,11 @@ function TransfersTab() {
       />
 
       {canTransfer && <CreateTransferDialog open={createOpen} onOpenChange={setCreateOpen} />}
+      {canTransfer && editing && (
+        <Suspense fallback={null}>
+          <EditTransferDialog transfer={editing} onClose={() => setEditing(null)} />
+        </Suspense>
+      )}
       <ActionConfirm pending={pending} onDone={() => setPending(null)} />
     </>
   )
@@ -478,9 +525,11 @@ function AdjustmentsTab() {
   const { can } = useAuth()
   const canAdjust = can(P.INVENTORY_ADJUST)
   const canApprove = can(P.INVENTORY_ADJUST_APPROVE)
+  const canViewCentre = can(P.COST_CENTRE_VIEW)
 
   const [createOpen, setCreateOpen] = useState(false)
   const [pending, setPending] = useState<PendingAction | null>(null)
+  const [editing, setEditing] = useState<string | null>(null)
 
   const list = useListQuery<StockAdjustmentRow>({
     path: '/inventory/adjustments',
@@ -514,6 +563,18 @@ function AdjustmentsTab() {
         enableSorting: false,
         cell: ({ row }) => humanise(row.original.reason_code),
       },
+      ...(canViewCentre
+        ? [
+            {
+              id: 'cost_centre',
+              header: 'Cost centre',
+              enableSorting: false,
+              cell: ({ row }: { row: { original: StockAdjustmentRow } }) => (
+                <CostCentreName id={row.original.cost_centre_id} />
+              ),
+            },
+          ]
+        : []),
       {
         id: 'reason',
         header: 'Reason',
@@ -565,17 +626,76 @@ function AdjustmentsTab() {
         cell: ({ row }) => {
           const adjustment = row.original
           const action = nextAdjustmentAction(adjustment, { canAdjust, canApprove })
-          if (!action) return null
           return (
-            <Button variant="outline" size="sm" onClick={() => setPending(action)}>
-              {action.icon}
-              {action.label}
-            </Button>
+            <div className="flex flex-wrap justify-end gap-2">
+              {canAdjust && adjustment.status === 'DRAFT' && (
+                <Button variant="outline" size="sm" onClick={() => setEditing(adjustment.id)}>
+                  Edit draft
+                </Button>
+              )}
+              {action && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setPending({
+                      ...action,
+                      extra: canViewCentre ? (
+                        <p className="text-sm">
+                          Cost centre: <CostCentreName id={adjustment.cost_centre_id} />
+                        </p>
+                      ) : undefined,
+                    })
+                  }
+                >
+                  {action.icon}
+                  {action.label}
+                </Button>
+              )}
+              {canApprove && adjustment.status === 'PENDING_APPROVAL' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setPending({
+                      path: `/inventory/adjustments/${adjustment.id}/reject`,
+                      title: `Reject ${adjustment.code}?`,
+                      description: 'Record why the adjustment is refused.',
+                      confirmLabel: 'Reject adjustment',
+                      successTitle: success.rejected('Adjustment'),
+                      requiresReason: true,
+                      reasonField: 'note',
+                    })
+                  }
+                >
+                  Reject
+                </Button>
+              )}
+              {canAdjust &&
+                ['DRAFT', 'PENDING_APPROVAL', 'APPROVED'].includes(adjustment.status) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setPending({
+                        path: `/inventory/adjustments/${adjustment.id}/cancel`,
+                        title: `Cancel ${adjustment.code}?`,
+                        description: 'The adjustment is cancelled before stock moves.',
+                        confirmLabel: 'Cancel adjustment',
+                        successTitle: success.cancelled('Adjustment'),
+                        requiresReason: true,
+                      })
+                    }
+                  >
+                    Cancel
+                  </Button>
+                )}
+            </div>
           )
         },
       },
     ],
-    [canAdjust, canApprove],
+    [canAdjust, canApprove, canViewCentre],
   )
 
   return (
@@ -608,6 +728,11 @@ function AdjustmentsTab() {
       />
 
       {canAdjust && <CreateAdjustmentDialog open={createOpen} onOpenChange={setCreateOpen} />}
+      {canAdjust && editing && (
+        <Suspense fallback={null}>
+          <EditAdjustmentDialog id={editing} onClose={() => setEditing(null)} />
+        </Suspense>
+      )}
       <ActionConfirm pending={pending} onDone={() => setPending(null)} />
     </>
   )
@@ -896,6 +1021,9 @@ const TABS = [
   { value: 'transfers', label: 'Transfers', icon: ArrowLeftRight },
   { value: 'adjustments', label: 'Adjustments', icon: Scale },
   { value: 'counts', label: 'Physical counts', icon: ClipboardList },
+  { value: 'bin-moves', label: 'Bin moves', icon: ArrowLeftRight },
+  { value: 'scrap-disposals', label: 'Scrap disposals', icon: Scale },
+  { value: 'internal-issues', label: 'Internal issues', icon: Send },
 ] as const
 
 export default function MovementsPage() {
@@ -924,7 +1052,7 @@ export default function MovementsPage() {
       />
 
       <Tabs value={tab} onValueChange={changeTab}>
-        <TabsList>
+        <TabsList className="flex h-auto flex-wrap justify-start">
           {TABS.map(({ value, label, icon: Icon }) => (
             <TabsTrigger key={value} value={value}>
               <Icon className="h-4 w-4" aria-hidden />
@@ -942,6 +1070,15 @@ export default function MovementsPage() {
         <TabsContent value="counts">
           <PhysicalCountsTab />
         </TabsContent>
+        {(['bin-moves', 'scrap-disposals', 'internal-issues'] as const).map((kind) => (
+          <TabsContent key={kind} value={kind}>
+            <Suspense
+              fallback={<p className="p-4 text-sm text-muted-foreground">Loading movements...</p>}
+            >
+              <OperationTab kind={kind} />
+            </Suspense>
+          </TabsContent>
+        ))}
       </Tabs>
     </div>
   )

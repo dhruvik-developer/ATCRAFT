@@ -30,7 +30,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, ChevronsUpDown, Loader2, PackageCheck, Search, ShieldAlert } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { useFieldArray, useForm } from 'react-hook-form'
+import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
 import { EmptyState, FieldError } from '@/components/shared'
@@ -58,6 +58,7 @@ import {
   Textarea,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { LocationPicker } from '@/features/inventory/location-picker'
 import { useUomOptions } from '@/features/items/item-model'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
@@ -240,6 +241,7 @@ function OpenPurchaseOrderPicker({
 // ------------------------------------------------------------------ form ----
 
 const lineSchema = z.object({
+  location_id: z.string().optional(),
   purchase_order_line_id: z.string(),
   line_number: z.number(),
   item_id: z.string(),
@@ -467,6 +469,7 @@ export function GrnReceiveDialog({
           rejected_quantity: line.rejected_quantity.trim() || '0',
           batch_number: orNull(line.batch_number),
           rejection_reason: orNull(line.rejection_reason),
+          ...(!line.requires_qc && line.location_id ? { location_id: line.location_id } : {}),
         })),
       }
 
@@ -771,6 +774,27 @@ export function GrnReceiveDialog({
                           </p>
                         </div>
 
+                        {!field.requires_qc && (
+                          <Controller
+                            control={control}
+                            name={`lines.${index}.location_id`}
+                            render={({ field: bin }) => (
+                              <LocationPicker
+                                id={`grn-bin-${index}`}
+                                warehouseId={detail.data?.warehouse_id ?? ''}
+                                itemId={line?.item_id ?? ''}
+                                value={bin.value || null}
+                                onChange={(value) => bin.onChange(value ?? '')}
+                              />
+                            )}
+                          />
+                        )}
+                        {field.requires_qc && (
+                          <p className="text-xs text-muted-foreground">
+                            Receive at warehouse level for inspection. Put accepted stock into its
+                            bin with a bin move.
+                          </p>
+                        )}
                         {toDecimal(line?.rejected_quantity ?? '').greaterThan(0) && (
                           <div className="sm:col-span-2 lg:col-span-4">
                             <Label htmlFor={`grn-rejection-${index}`} required>

@@ -55,7 +55,7 @@ from src.modules.products.models import (
 )
 from src.modules.products.schemas import ItemFilters
 from src.modules.vendors.models import Vendor
-from src.modules.warehouses.models import Warehouse
+from src.modules.warehouses.models import StorageLocation, Warehouse
 
 #: Balance columns that mean "this item is still holding something, somewhere".
 #: ``available_quantity`` is deliberately absent: it is a generated column
@@ -628,6 +628,15 @@ class UomConversionRepository(BaseRepository[UomConversion]):
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
 
+@dataclass(frozen=True, slots=True)
+class DefaultLocationFacts:
+    """What the default-bin rule needs to know about a bin."""
+
+    warehouse_id: uuid.UUID
+    code: str
+    is_active: bool
+
+
 class ItemRepository(BaseRepository[Item]):
     model = Item
     searchable_fields = ("code", "name")
@@ -681,6 +690,32 @@ class ItemRepository(BaseRepository[Item]):
             )
         )
         return bool((await self.session.execute(stmt)).scalar())
+
+    async def lock_default_location(self, location_id: uuid.UUID) -> DefaultLocationFacts | None:
+        """The bin an item is about to name as its default bin, share-locked.
+
+        Live and in this tenant, or ``None`` - another company's bin answers
+        exactly as a missing one does. ``FOR SHARE`` conflicts with the lock
+        the warehouses module takes before switching a bin off
+        (``StorageLocationRepository.lock_for_retirement``), so an assignment
+        and a retirement cannot both pass their checks against a state the
+        other is changing.
+        """
+        stmt = (
+            select(StorageLocation.warehouse_id, StorageLocation.code, StorageLocation.is_active)
+            .where(
+                StorageLocation.id == location_id,
+                StorageLocation.company_id == self.tenant.company_id,
+                StorageLocation.deleted_at.is_(None),
+            )
+            .with_for_update(read=True)
+        )
+        row = (await self.session.execute(stmt)).first()
+        if row is None:
+            return None
+        return DefaultLocationFacts(
+            warehouse_id=row.warehouse_id, code=row.code, is_active=row.is_active
+        )
 
     async def has_stock_balance(self, item_id: uuid.UUID) -> bool:
         """Does this item hold anything, anywhere in this company?

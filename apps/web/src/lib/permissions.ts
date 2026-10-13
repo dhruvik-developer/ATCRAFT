@@ -82,6 +82,9 @@ export const P = {
   INVENTORY_ADJUST_APPROVE: 'inventory.adjust_approve',
   INVENTORY_PHYSICAL_COUNT: 'inventory.physical_count',
   INVENTORY_VALUATION_VIEW: 'inventory.valuation_view',
+  INVENTORY_SCRAP_DISPOSE: 'inventory.scrap_dispose',
+  INTERNAL_ISSUE_CREATE: 'internal_issue.create',
+  INTERNAL_ISSUE_APPROVE: 'internal_issue.approve',
   INVENTORY_RECONCILE: 'inventory.reconcile',
 
   // allocation

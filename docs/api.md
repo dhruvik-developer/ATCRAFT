@@ -25,7 +25,7 @@ CI and the pre-push hook run the same three checks `contract-check` runs.
 
 ### Using the Postman collection
 
-Import `postman_collection.json` (Postman v2.1 format, 516 requests in 27
+Import `postman_collection.json` (Postman v2.1 format, 533 requests in 27
 folders, one per tag). Then:
 
 1. Set the `base_url` variable if it is not `http://127.0.0.1:8000/api/v1`.
@@ -408,3 +408,13 @@ download. No endpoint holds a connection open for a calculation.
 ```
 
 Full request and response schemas are generated from the code at `/docs`.
+
+## Inventory operation documents
+
+`/inventory/bin-moves`, `/inventory/scrap-disposals` and `/inventory/internal-issues` each provide paginated lists, detail reads and creation. All reads require `inventory.view` and apply tenant and warehouse scope. Bin moves use `from_location_id` and `to_location_id`; their date is `move_date`. Scrap disposal uses `disposal_date`; internal issue uses `issue_date`.
+
+Bin moves post on creation with `inventory.transfer`; scrap disposal posts with `inventory.scrap_dispose`. Internal issues start in DRAFT with `internal_issue.create`, which also authorises submit, post and cancel. Approval and rejection require `internal_issue.approve`. Cancellation and rejection record a reason. Higher-value issues need a separate approver.
+
+Responses use each document's Read or ReadWithCost schema. FIFO unit cost, line cost and total value are omitted unless the principal has `item.cost_view` or `inventory.valuation_view`. Disposal proceeds remain part of the visible document. Report endpoints are `/reports/scrap-register` and `/reports/consumption-by-department`, with the standard bounded-period filters and inline/background report contract.
+
+`PATCH /inventory/adjustments/{id}` replaces a draft's header and lines. Explicit write-up costs require a cost-view right. Posted or submitted adjustments cannot be edited.

@@ -171,7 +171,9 @@ class TestBalanceEffects:
         assert effect.on_hand_quantity == -1
         assert effect.damaged_quantity == -1
 
-    @pytest.mark.parametrize("transaction_type", sorted(ON_HAND_NEUTRAL_TYPES))
+    @pytest.mark.parametrize(
+        "transaction_type", [TransactionType.QC_HOLD, TransactionType.QC_RELEASE]
+    )
     def test_qc_movements_do_not_move_physical_stock(
         self, transaction_type: TransactionType
     ) -> None:
@@ -511,3 +513,101 @@ class TestTraceabilityGatesArrivalsNotDepartures:
             self._validate(item, warehouse)
         assert excinfo.value.code is ErrorCode.SERIAL_REQUIRED
         assert excinfo.value.details["item_code"] == item.code
+
+
+class TestTheScrapPool:
+    """``can_scrap``, and scrap leaving the company only through a disposal."""
+
+    @pytest.mark.parametrize(
+        "source",
+        [StockState.AVAILABLE, StockState.QC_HOLD, StockState.DAMAGED, StockState.JOB_WORK],
+    )
+    def test_an_item_that_may_not_be_scrapped_is_refused_from_every_pool(
+        self, source: StockState
+    ) -> None:
+        """A direct scrap, a QC scrap verdict and a vendor's scrap all land here."""
+        item, warehouse = _item(can_scrap=False), _warehouse()
+        with pytest.raises(BusinessRuleError, match="cannot be scrapped"):
+            validate_movement(
+                _movement(
+                    item,
+                    warehouse,
+                    transaction_type=TransactionType.SCRAP,
+                    from_state=source,
+                    stock_state=StockState.SCRAP,
+                ),
+                item=item,
+                warehouse=warehouse,
+                batch_owner=None,
+                serial_owner=None,
+            )
+
+    def test_the_default_scrap_movement_is_refused_too(self) -> None:
+        item, warehouse = _item(can_scrap=False), _warehouse()
+        with pytest.raises(BusinessRuleError, match="cannot be scrapped"):
+            validate_movement(
+                _movement(item, warehouse, transaction_type=TransactionType.SCRAP),
+                item=item,
+                warehouse=warehouse,
+                batch_owner=None,
+                serial_owner=None,
+            )
+
+    def test_scrap_the_item_already_holds_may_still_be_disposed_of(self) -> None:
+        """The flag gates stock going in; it never traps the scrap that is there."""
+        item, warehouse = _item(can_scrap=False), _warehouse()
+        validate_movement(
+            _movement(
+                item,
+                warehouse,
+                transaction_type=TransactionType.SCRAP_DISPOSAL,
+                stock_state=StockState.SCRAP,
+            ),
+            item=item,
+            warehouse=warehouse,
+            batch_owner=None,
+            serial_owner=None,
+        )
+
+    def test_a_scrappable_item_passes(self) -> None:
+        item, warehouse = _item(can_scrap=True), _warehouse()
+        validate_movement(
+            _movement(item, warehouse, transaction_type=TransactionType.SCRAP),
+            item=item,
+            warehouse=warehouse,
+            batch_owner=None,
+            serial_owner=None,
+        )
+
+    def test_a_disposal_takes_the_scrap_pool_and_leaves_on_hand_alone(self) -> None:
+        effect = movement_effect(TransactionType.SCRAP_DISPOSAL)
+        assert effect.scrap_quantity == -1
+        assert effect.on_hand_quantity == 0
+        assert effect.qc_hold_quantity == effect.damaged_quantity == 0
+
+    def test_naming_the_scrap_pool_on_a_disposal_changes_nothing(self) -> None:
+        assert movement_effect(TransactionType.SCRAP_DISPOSAL, StockState.SCRAP) == movement_effect(
+            TransactionType.SCRAP_DISPOSAL
+        )
+
+    @pytest.mark.parametrize(
+        "transaction_type", [TransactionType.QC_RELEASE, TransactionType.ADJUSTMENT_INCREASE]
+    )
+    def test_scrap_may_not_be_drawn_back_into_a_pool(
+        self, transaction_type: TransactionType
+    ) -> None:
+        """Bringing scrap back is a write-up with a reason, never a reclassification."""
+        item, warehouse = _item(), _warehouse()
+        with pytest.raises(BusinessRuleError, match="only through a scrap disposal"):
+            validate_movement(
+                _movement(
+                    item,
+                    warehouse,
+                    transaction_type=transaction_type,
+                    from_state=StockState.SCRAP,
+                ),
+                item=item,
+                warehouse=warehouse,
+                batch_owner=None,
+                serial_owner=None,
+            )

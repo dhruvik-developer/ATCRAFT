@@ -2053,7 +2053,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Edit a draft stock adjustment
+         * @description Replaces the draft's header and lines and re-prices it against the FIFO layers as they stand now. Only a DRAFT can be edited. A line's unit cost may be stated only by a caller holding item.cost_view or inventory.valuation_view.
+         */
+        patch: operations["update_adjustment_api_v1_inventory_adjustments__adjustment_id__patch"];
         trace?: never;
     };
     "/api/v1/inventory/adjustments/{adjustment_id}/approve": {
@@ -2203,6 +2207,167 @@ export interface paths {
          * @description A batch-tracked item cannot receive stock until the lot exists: the engine refuses any movement of such an item without a batch.
          */
         post: operations["create_batch_api_v1_inventory_batches_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/bin-moves": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List bin moves */
+        get: operations["list_bin_moves_api_v1_inventory_bin_moves_get"];
+        put?: never;
+        /**
+         * Move stock between bins of one warehouse
+         * @description Putaway and re-slotting. Posted as soon as it is raised: each line is a TRANSFER_OUT at the source bin and a TRANSFER_IN at the destination bin, the destination re-opening exactly the FIFO cost layers the source gave up.
+         */
+        post: operations["create_bin_move_api_v1_inventory_bin_moves_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/bin-moves/{bin_move_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fetch one bin move with its lines */
+        get: operations["get_bin_move_api_v1_inventory_bin_moves__bin_move_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/internal-issues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List internal issues */
+        get: operations["list_internal_issues_api_v1_inventory_internal_issues_get"];
+        put?: never;
+        /**
+         * Draft an issue of stock to a department or cost centre
+         * @description Nothing moves until the draft is posted. Lines are valued at what the FIFO cost layers say the stock cost; above INTERNAL_ISSUE_APPROVAL_VALUE in the inventory service the issue must be submitted and approved by a second person, and approving it posts it.
+         */
+        post: operations["create_internal_issue_api_v1_inventory_internal_issues_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/internal-issues/{issue_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fetch one internal issue with its lines */
+        get: operations["get_internal_issue_api_v1_inventory_internal_issues__issue_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/internal-issues/{issue_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a pending internal issue, which posts it */
+        post: operations["approve_internal_issue_api_v1_inventory_internal_issues__issue_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/internal-issues/{issue_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel an internal issue before it posts */
+        post: operations["cancel_internal_issue_api_v1_inventory_internal_issues__issue_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/internal-issues/{issue_id}/post": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post an internal issue below the approval value */
+        post: operations["post_internal_issue_api_v1_inventory_internal_issues__issue_id__post_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/internal-issues/{issue_id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject a pending internal issue */
+        post: operations["reject_internal_issue_api_v1_inventory_internal_issues__issue_id__reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/internal-issues/{issue_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit an internal issue for approval */
+        post: operations["submit_internal_issue_api_v1_inventory_internal_issues__issue_id__submit_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2389,6 +2554,44 @@ export interface paths {
         put?: never;
         /** Start counting */
         post: operations["start_count_api_v1_inventory_physical_counts__count_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/scrap-disposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List scrap disposals */
+        get: operations["list_scrap_disposals_api_v1_inventory_scrap_disposals_get"];
+        put?: never;
+        /**
+         * Dispose of scrap - sell, recycle or write it off
+         * @description Takes stock out of the SCRAP pool for good. Posted as soon as it is raised: one SCRAP_DISPOSAL movement per line, valued from the scrap cost layers it consumes. A WRITE_OFF realises nothing; a SALE or RECYCLE records what was received.
+         */
+        post: operations["create_scrap_disposal_api_v1_inventory_scrap_disposals_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/scrap-disposals/{disposal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fetch one scrap disposal with its lines */
+        get: operations["get_scrap_disposal_api_v1_inventory_scrap_disposals__disposal_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5582,6 +5785,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/consumption-by-department": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Consumption By Department */
+        get: operations["consumption_by_department_api_v1_reports_consumption_by_department_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/cost-centre-expense": {
         parameters: {
             query?: never;
@@ -5895,6 +6115,23 @@ export interface paths {
         };
         /** Sales order status */
         get: operations["sales_order_status_api_v1_reports_sales_order_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/scrap-register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Scrap Register */
+        get: operations["scrap_register_api_v1_reports_scrap_register_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -9426,10 +9663,55 @@ export interface components {
              */
             success: boolean;
         };
+        /** ApiResponse[Union[BinMoveRead, BinMoveReadWithCost]] */
+        ApiResponse_Union_BinMoveRead__BinMoveReadWithCost__: {
+            /** Data */
+            data?: components["schemas"]["BinMoveRead"] | components["schemas"]["BinMoveReadWithCost"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
         /** ApiResponse[Union[BrowserLoginResponse, MfaChallengeResponse]] */
         ApiResponse_Union_BrowserLoginResponse__MfaChallengeResponse__: {
             /** Data */
             data?: components["schemas"]["BrowserLoginResponse"] | components["schemas"]["MfaChallengeResponse"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[Union[InternalIssueRead, InternalIssueReadWithCost]] */
+        ApiResponse_Union_InternalIssueRead__InternalIssueReadWithCost__: {
+            /** Data */
+            data?: components["schemas"]["InternalIssueRead"] | components["schemas"]["InternalIssueReadWithCost"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[Union[ScrapDisposalRead, ScrapDisposalReadWithCost]] */
+        ApiResponse_Union_ScrapDisposalRead__ScrapDisposalReadWithCost__: {
+            /** Data */
+            data?: components["schemas"]["ScrapDisposalRead"] | components["schemas"]["ScrapDisposalReadWithCost"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -10331,6 +10613,219 @@ export interface components {
          * @enum {string}
          */
         BatchStatus: "ACTIVE" | "QUARANTINED" | "EXPIRED" | "CONSUMED";
+        /**
+         * BinMoveCreate
+         * @description A putaway: posted the moment it is raised (docs/assumptions.md §E8-1).
+         */
+        BinMoveCreate: {
+            /** Lines */
+            lines: components["schemas"]["BinMoveLineCreate"][];
+            /** Move Date */
+            move_date?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Reason */
+            reason: string;
+            /**
+             * Warehouse Id
+             * Format: uuid
+             */
+            warehouse_id: string;
+        };
+        /** BinMoveLineCreate */
+        BinMoveLineCreate: {
+            /** Batch Id */
+            batch_id?: string | null;
+            /** From Location Id */
+            from_location_id?: string | null;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Quantity */
+            quantity: number | string;
+            /** To Location Id */
+            to_location_id?: string | null;
+        };
+        /** BinMoveLineRead */
+        BinMoveLineRead: {
+            /** Batch Code */
+            batch_code?: string | null;
+            /** Batch Id */
+            batch_id: string | null;
+            /** From Location Code */
+            from_location_code?: string | null;
+            /** From Location Id */
+            from_location_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Item Code */
+            item_code?: string | null;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Item Name */
+            item_name?: string | null;
+            /** Line Number */
+            line_number: number;
+            /** Quantity */
+            quantity: string;
+            /** To Location Code */
+            to_location_code?: string | null;
+            /** To Location Id */
+            to_location_id: string | null;
+        };
+        /** BinMoveLineReadWithCost */
+        BinMoveLineReadWithCost: {
+            /** Batch Code */
+            batch_code?: string | null;
+            /** Batch Id */
+            batch_id: string | null;
+            /** From Location Code */
+            from_location_code?: string | null;
+            /** From Location Id */
+            from_location_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Item Code */
+            item_code?: string | null;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Item Name */
+            item_name?: string | null;
+            /** Line Number */
+            line_number: number;
+            /** Quantity */
+            quantity: string;
+            /** To Location Code */
+            to_location_code?: string | null;
+            /** To Location Id */
+            to_location_id: string | null;
+            /** Total Cost */
+            total_cost: string;
+            /** Unit Cost */
+            unit_cost: string;
+        };
+        /** BinMoveRead */
+        BinMoveRead: {
+            /** Code */
+            code: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By Id */
+            created_by_id?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Line Count */
+            line_count: number;
+            /** Lines */
+            lines?: components["schemas"]["BinMoveLineRead"][];
+            /**
+             * Move Date
+             * Format: date
+             */
+            move_date: string;
+            /** Notes */
+            notes: string | null;
+            /** Posted At */
+            posted_at: string | null;
+            /** Reason */
+            reason: string;
+            status: components["schemas"]["BinMoveStatus"];
+            /** Total Quantity */
+            total_quantity: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Warehouse Code */
+            warehouse_code?: string | null;
+            /**
+             * Warehouse Id
+             * Format: uuid
+             */
+            warehouse_id: string;
+        };
+        /** BinMoveReadWithCost */
+        BinMoveReadWithCost: {
+            /** Code */
+            code: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By Id */
+            created_by_id?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Line Count */
+            line_count: number;
+            /** Lines */
+            lines?: components["schemas"]["BinMoveLineReadWithCost"][];
+            /**
+             * Move Date
+             * Format: date
+             */
+            move_date: string;
+            /** Notes */
+            notes: string | null;
+            /** Posted At */
+            posted_at: string | null;
+            /** Reason */
+            reason: string;
+            status: components["schemas"]["BinMoveStatus"];
+            /** Total Quantity */
+            total_quantity: string;
+            /** Total Value */
+            total_value: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Warehouse Code */
+            warehouse_code?: string | null;
+            /**
+             * Warehouse Id
+             * Format: uuid
+             */
+            warehouse_id: string;
+        };
+        /**
+         * BinMoveStatus
+         * @description Bin move (putaway) lifecycle.
+         *
+         *     A bin move is raised and posted in one request, so ``DRAFT`` is only ever
+         *     seen inside that transaction. It is kept rather than writing ``POSTED``
+         *     directly because the status column changes through a state machine
+         *     everywhere in this system, and the audit trail then reads the same way it
+         *     does for every other posted document.
+         * @enum {string}
+         */
+        BinMoveStatus: "DRAFT" | "POSTED";
         /**
          * BlockRequest
          * @description Put an account on credit hold.
@@ -12673,7 +13168,7 @@ export interface components {
         };
         /**
          * DecisionRequest
-         * @description Approval or rejection note, recorded on the document and in the audit log.
+         * @description Approval note, recorded on the document and in the audit log.
          */
         DecisionRequest: {
             /** Note */
@@ -14175,6 +14670,237 @@ export interface components {
             warehouse_id: string;
         };
         /**
+         * InternalIssueCreate
+         * @description A draft issue to a department and/or a cost centre. Nothing moves until it posts.
+         */
+        InternalIssueCreate: {
+            /** Cost Centre Id */
+            cost_centre_id?: string | null;
+            /** Department Id */
+            department_id?: string | null;
+            /** Issue Date */
+            issue_date?: string | null;
+            /** Lines */
+            lines: components["schemas"]["InternalIssueLineCreate"][];
+            /** Notes */
+            notes?: string | null;
+            /** Reason */
+            reason: string;
+            /**
+             * Warehouse Id
+             * Format: uuid
+             */
+            warehouse_id: string;
+        };
+        /** InternalIssueLineCreate */
+        InternalIssueLineCreate: {
+            /** Batch Id */
+            batch_id?: string | null;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Location Id */
+            location_id?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Quantity */
+            quantity: number | string;
+        };
+        /** InternalIssueLineRead */
+        InternalIssueLineRead: {
+            /** Batch Code */
+            batch_code?: string | null;
+            /** Batch Id */
+            batch_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Item Code */
+            item_code?: string | null;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Item Name */
+            item_name?: string | null;
+            /** Line Number */
+            line_number: number;
+            /** Location Code */
+            location_code?: string | null;
+            /** Location Id */
+            location_id: string | null;
+            /** Notes */
+            notes: string | null;
+            /** Quantity */
+            quantity: string;
+        };
+        /** InternalIssueLineReadWithCost */
+        InternalIssueLineReadWithCost: {
+            /** Batch Code */
+            batch_code?: string | null;
+            /** Batch Id */
+            batch_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Item Code */
+            item_code?: string | null;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Item Name */
+            item_name?: string | null;
+            /** Line Number */
+            line_number: number;
+            /** Location Code */
+            location_code?: string | null;
+            /** Location Id */
+            location_id: string | null;
+            /** Notes */
+            notes: string | null;
+            /** Quantity */
+            quantity: string;
+            /** Total Cost */
+            total_cost: string;
+            /** Unit Cost */
+            unit_cost: string;
+        };
+        /** InternalIssueRead */
+        InternalIssueRead: {
+            /** Approved At */
+            approved_at: string | null;
+            /** Approved By Id */
+            approved_by_id: string | null;
+            /** Code */
+            code: string;
+            /** Cost Centre Id */
+            cost_centre_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By Id */
+            created_by_id?: string | null;
+            /** Decision Note */
+            decision_note: string | null;
+            /** Department Id */
+            department_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Issue Date
+             * Format: date
+             */
+            issue_date: string;
+            /** Line Count */
+            line_count: number;
+            /** Lines */
+            lines?: components["schemas"]["InternalIssueLineRead"][];
+            /** Notes */
+            notes: string | null;
+            /** Posted At */
+            posted_at: string | null;
+            /** Reason */
+            reason: string;
+            /** Requires Approval */
+            requires_approval: boolean;
+            status: components["schemas"]["InternalIssueStatus"];
+            /** Total Quantity */
+            total_quantity: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Warehouse Code */
+            warehouse_code?: string | null;
+            /**
+             * Warehouse Id
+             * Format: uuid
+             */
+            warehouse_id: string;
+        };
+        /** InternalIssueReadWithCost */
+        InternalIssueReadWithCost: {
+            /** Approved At */
+            approved_at: string | null;
+            /** Approved By Id */
+            approved_by_id: string | null;
+            /** Code */
+            code: string;
+            /** Cost Centre Id */
+            cost_centre_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By Id */
+            created_by_id?: string | null;
+            /** Decision Note */
+            decision_note: string | null;
+            /** Department Id */
+            department_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Issue Date
+             * Format: date
+             */
+            issue_date: string;
+            /** Line Count */
+            line_count: number;
+            /** Lines */
+            lines?: components["schemas"]["InternalIssueLineReadWithCost"][];
+            /** Notes */
+            notes: string | null;
+            /** Posted At */
+            posted_at: string | null;
+            /** Reason */
+            reason: string;
+            /** Requires Approval */
+            requires_approval: boolean;
+            status: components["schemas"]["InternalIssueStatus"];
+            /** Total Quantity */
+            total_quantity: string;
+            /** Total Value */
+            total_value: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Warehouse Code */
+            warehouse_code?: string | null;
+            /**
+             * Warehouse Id
+             * Format: uuid
+             */
+            warehouse_id: string;
+        };
+        /**
+         * InternalIssueStatus
+         * @description Issue of stock to a department or cost centre for its own consumption.
+         * @enum {string}
+         */
+        InternalIssueStatus: "DRAFT" | "PENDING_APPROVAL" | "POSTED" | "CANCELLED";
+        /**
          * InventoryValuationPage
          * @description A page of valuation rows with the totals for the whole filtered set.
          *
@@ -14413,6 +15139,8 @@ export interface components {
              * @default 0
              */
             dealer_price: number | string;
+            /** Default Location Id */
+            default_location_id?: string | null;
             /** Default Warehouse Id */
             default_warehouse_id?: string | null;
             /** Description */
@@ -14588,6 +15316,8 @@ export interface components {
             colour_id?: string | null;
             /** Dealer Price */
             dealer_price?: number | string | null;
+            /** Default Location Id */
+            default_location_id?: string | null;
             /** Default Warehouse Id */
             default_warehouse_id?: string | null;
             /** Description */
@@ -17843,6 +18573,54 @@ export interface components {
              */
             success: boolean;
         };
+        /** PaginatedResponse[Union[BinMoveRead, BinMoveReadWithCost]] */
+        PaginatedResponse_Union_BinMoveRead__BinMoveReadWithCost__: {
+            /** Data */
+            data?: (components["schemas"]["BinMoveRead"] | components["schemas"]["BinMoveReadWithCost"])[];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** PaginatedResponse[Union[InternalIssueRead, InternalIssueReadWithCost]] */
+        PaginatedResponse_Union_InternalIssueRead__InternalIssueReadWithCost__: {
+            /** Data */
+            data?: (components["schemas"]["InternalIssueRead"] | components["schemas"]["InternalIssueReadWithCost"])[];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** PaginatedResponse[Union[ScrapDisposalRead, ScrapDisposalReadWithCost]] */
+        PaginatedResponse_Union_ScrapDisposalRead__ScrapDisposalReadWithCost__: {
+            /** Data */
+            data?: (components["schemas"]["ScrapDisposalRead"] | components["schemas"]["ScrapDisposalReadWithCost"])[];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
         /** PaginatedResponse[UomConversionOut] */
         PaginatedResponse_UomConversionOut_: {
             /** Data */
@@ -20978,6 +21756,18 @@ export interface components {
          * @enum {string}
          */
         RejectionAction: "RETURN_TO_STOCK" | "REWORK_AT_VENDOR" | "SCRAP_AT_VENDOR";
+        /**
+         * RejectionRequest
+         * @description Why an approver refused a document.
+         *
+         *     Required, unlike an approval note: a rejection ends the document, and the
+         *     person who raised it can only act on the refusal if it says what was wrong
+         *     (section 83 - a reason for every irreversible action).
+         */
+        RejectionRequest: {
+            /** Note */
+            note: string;
+        };
         /** ReleaseResult */
         ReleaseResult: {
             /** Bom Code */
@@ -21083,7 +21873,7 @@ export interface components {
          *     catalogue asserts at import that every member has exactly one definition.
          * @enum {string}
          */
-        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "PACKING_LIST";
+        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "SCRAP_REGISTER" | "CONSUMPTION_BY_DEPARTMENT" | "PACKING_LIST";
         /**
          * RequisitionBatchConversionRequest
          * @description The batch form: several approved requisitions converted together.
@@ -22826,6 +23616,235 @@ export interface components {
          */
         SamplingPlan: "ALL" | "PERCENTAGE" | "FIXED_SAMPLE" | "AQL";
         /**
+         * ScrapDisposalCreate
+         * @description Stock out of the SCRAP pool for good. Posted the moment it is raised.
+         */
+        ScrapDisposalCreate: {
+            /** Buyer Reference */
+            buyer_reference?: string | null;
+            /** Disposal Date */
+            disposal_date?: string | null;
+            disposal_kind: components["schemas"]["ScrapDisposalKind"];
+            /** Lines */
+            lines: components["schemas"]["ScrapDisposalLineCreate"][];
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Realised Amount
+             * @default 0
+             */
+            realised_amount: number | string;
+            /** Reason */
+            reason: string;
+            /**
+             * Warehouse Id
+             * Format: uuid
+             */
+            warehouse_id: string;
+        };
+        /**
+         * ScrapDisposalKind
+         * @description How scrap leaves the company.
+         *
+         *     ``SALE`` - sold to a buyer for the realised amount. ``RECYCLE`` - handed to
+         *     a recycler, possibly for a credit. ``WRITE_OFF`` - destroyed or dumped,
+         *     realising nothing.
+         * @enum {string}
+         */
+        ScrapDisposalKind: "SALE" | "WRITE_OFF" | "RECYCLE";
+        /** ScrapDisposalLineCreate */
+        ScrapDisposalLineCreate: {
+            /** Batch Id */
+            batch_id?: string | null;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Location Id */
+            location_id?: string | null;
+            /** Quantity */
+            quantity: number | string;
+        };
+        /** ScrapDisposalLineRead */
+        ScrapDisposalLineRead: {
+            /** Batch Code */
+            batch_code?: string | null;
+            /** Batch Id */
+            batch_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Item Code */
+            item_code?: string | null;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Item Name */
+            item_name?: string | null;
+            /** Line Number */
+            line_number: number;
+            /** Location Code */
+            location_code?: string | null;
+            /** Location Id */
+            location_id: string | null;
+            /** Quantity */
+            quantity: string;
+        };
+        /** ScrapDisposalLineReadWithCost */
+        ScrapDisposalLineReadWithCost: {
+            /** Batch Code */
+            batch_code?: string | null;
+            /** Batch Id */
+            batch_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Item Code */
+            item_code?: string | null;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Item Name */
+            item_name?: string | null;
+            /** Line Number */
+            line_number: number;
+            /** Location Code */
+            location_code?: string | null;
+            /** Location Id */
+            location_id: string | null;
+            /** Quantity */
+            quantity: string;
+            /** Total Cost */
+            total_cost: string;
+            /** Unit Cost */
+            unit_cost: string;
+        };
+        /** ScrapDisposalRead */
+        ScrapDisposalRead: {
+            /** Buyer Reference */
+            buyer_reference: string | null;
+            /** Code */
+            code: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By Id */
+            created_by_id?: string | null;
+            /** Currency */
+            currency: string;
+            /**
+             * Disposal Date
+             * Format: date
+             */
+            disposal_date: string;
+            disposal_kind: components["schemas"]["ScrapDisposalKind"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Line Count */
+            line_count: number;
+            /** Lines */
+            lines?: components["schemas"]["ScrapDisposalLineRead"][];
+            /** Notes */
+            notes: string | null;
+            /** Posted At */
+            posted_at: string | null;
+            /** Realised Amount */
+            realised_amount: string;
+            /** Reason */
+            reason: string;
+            status: components["schemas"]["ScrapDisposalStatus"];
+            /** Total Quantity */
+            total_quantity: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Warehouse Code */
+            warehouse_code?: string | null;
+            /**
+             * Warehouse Id
+             * Format: uuid
+             */
+            warehouse_id: string;
+        };
+        /** ScrapDisposalReadWithCost */
+        ScrapDisposalReadWithCost: {
+            /** Buyer Reference */
+            buyer_reference: string | null;
+            /** Code */
+            code: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By Id */
+            created_by_id?: string | null;
+            /** Currency */
+            currency: string;
+            /**
+             * Disposal Date
+             * Format: date
+             */
+            disposal_date: string;
+            disposal_kind: components["schemas"]["ScrapDisposalKind"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Line Count */
+            line_count: number;
+            /** Lines */
+            lines?: components["schemas"]["ScrapDisposalLineReadWithCost"][];
+            /** Notes */
+            notes: string | null;
+            /** Posted At */
+            posted_at: string | null;
+            /** Realised Amount */
+            realised_amount: string;
+            /** Reason */
+            reason: string;
+            status: components["schemas"]["ScrapDisposalStatus"];
+            /** Total Quantity */
+            total_quantity: string;
+            /** Total Value */
+            total_value: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Warehouse Code */
+            warehouse_code?: string | null;
+            /**
+             * Warehouse Id
+             * Format: uuid
+             */
+            warehouse_id: string;
+        };
+        /**
+         * ScrapDisposalStatus
+         * @description Scrap disposal lifecycle - raised and posted in one request, like a bin move.
+         * @enum {string}
+         */
+        ScrapDisposalStatus: "DRAFT" | "POSTED";
+        /**
          * SealCartonRequest
          * @description Close a carton: freeze its contents and issue the box from stock.
          */
@@ -23042,6 +24061,28 @@ export interface components {
             updated_at: string;
             /** Warehouse Code */
             warehouse_code?: string | null;
+            /**
+             * Warehouse Id
+             * Format: uuid
+             */
+            warehouse_id: string;
+        };
+        /**
+         * StockAdjustmentUpdate
+         * @description Replace a draft adjustment; posted and submitted documents are immutable.
+         */
+        StockAdjustmentUpdate: {
+            /** Adjustment Date */
+            adjustment_date?: string | null;
+            /** Cost Centre Id */
+            cost_centre_id?: string | null;
+            /** Lines */
+            lines: components["schemas"]["StockAdjustmentLineCreate"][];
+            /** Notes */
+            notes?: string | null;
+            /** Reason */
+            reason: string;
+            reason_code: components["schemas"]["AdjustmentReason"];
             /**
              * Warehouse Id
              * Format: uuid
@@ -23882,7 +24923,7 @@ export interface components {
          *     to express an issue.
          * @enum {string}
          */
-        TransactionType: "PURCHASE_RECEIPT" | "PRODUCTION_RECEIPT" | "JOB_WORK_RECEIPT" | "MATERIAL_RETURN" | "ASSEMBLY_RECEIPT" | "CUSTOMER_RETURN" | "TRANSFER_IN" | "ADJUSTMENT_INCREASE" | "OPENING_BALANCE" | "QC_RELEASE" | "MATERIAL_ISSUE" | "JOB_WORK_ISSUE" | "DISPATCH" | "PURCHASE_RETURN" | "ASSEMBLY_CONSUME" | "TRANSFER_OUT" | "ADJUSTMENT_DECREASE" | "SCRAP" | "QC_HOLD";
+        TransactionType: "PURCHASE_RECEIPT" | "PRODUCTION_RECEIPT" | "JOB_WORK_RECEIPT" | "MATERIAL_RETURN" | "ASSEMBLY_RECEIPT" | "CUSTOMER_RETURN" | "TRANSFER_IN" | "ADJUSTMENT_INCREASE" | "OPENING_BALANCE" | "QC_RELEASE" | "MATERIAL_ISSUE" | "JOB_WORK_ISSUE" | "DISPATCH" | "PURCHASE_RETURN" | "ASSEMBLY_CONSUME" | "TRANSFER_OUT" | "ADJUSTMENT_DECREASE" | "SCRAP" | "QC_HOLD" | "SCRAP_DISPOSAL";
         /**
          * TransferStatus
          * @description Stock transfer document lifecycle.
@@ -25697,7 +26738,7 @@ export interface components {
          *     receive), reporting groups, and the shop-floor pickers.
          * @enum {string}
          */
-        WarehouseType: "RAW_MATERIAL" | "COMPONENT" | "WIP" | "ASSEMBLY" | "FINISHED_GOODS" | "PACKING" | "SCRAP" | "RETURN" | "QC_HOLD" | "JOB_WORK" | "IN_TRANSIT";
+        WarehouseType: "RAW_MATERIAL" | "COMPONENT" | "WIP" | "ASSEMBLY" | "FINISHED_GOODS" | "PACKING" | "SCRAP" | "RETURN" | "QC_HOLD" | "JOB_WORK" | "IN_TRANSIT" | "CONSUMABLES";
         /**
          * WarehouseUpdate
          * @description Partial update. Only the keys present in the request are applied.
@@ -39917,6 +40958,104 @@ export interface operations {
             };
         };
     };
+    update_adjustment_api_v1_inventory_adjustments__adjustment_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                adjustment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockAdjustmentUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_StockAdjustmentRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     approve_adjustment_api_v1_inventory_adjustments__adjustment_id__approve_post: {
         parameters: {
             query?: never;
@@ -40218,7 +41357,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["DecisionRequest"];
+                "application/json": components["schemas"]["RejectionRequest"];
             };
         };
         responses: {
@@ -40728,6 +41867,1086 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_StockBatchRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_bin_moves_api_v1_inventory_bin_moves_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["BinMoveStatus"] | null;
+                warehouse_id?: string | null;
+                /** @description ISO date lower bound */
+                date_from?: string | null;
+                /** @description ISO date upper bound */
+                date_to?: string | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+                /** @description Field to sort by */
+                sort_by?: string | null;
+                /** @description Sort direction */
+                sort_dir?: "asc" | "desc";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bin moves; values only for a caller who may see costs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_Union_BinMoveRead__BinMoveReadWithCost__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    create_bin_move_api_v1_inventory_bin_moves_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BinMoveCreate"];
+            };
+        };
+        responses: {
+            /** @description The bin move, already posted. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Union_BinMoveRead__BinMoveReadWithCost__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_bin_move_api_v1_inventory_bin_moves__bin_move_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bin_move_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The bin move; values only for a caller who may see costs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Union_BinMoveRead__BinMoveReadWithCost__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_internal_issues_api_v1_inventory_internal_issues_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["InternalIssueStatus"] | null;
+                warehouse_id?: string | null;
+                department_id?: string | null;
+                cost_centre_id?: string | null;
+                /** @description ISO date lower bound */
+                date_from?: string | null;
+                /** @description ISO date upper bound */
+                date_to?: string | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+                /** @description Field to sort by */
+                sort_by?: string | null;
+                /** @description Sort direction */
+                sort_dir?: "asc" | "desc";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Internal issues; values only for a caller who may see costs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_Union_InternalIssueRead__InternalIssueReadWithCost__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    create_internal_issue_api_v1_inventory_internal_issues_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InternalIssueCreate"];
+            };
+        };
+        responses: {
+            /** @description The draft internal issue. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Union_InternalIssueRead__InternalIssueReadWithCost__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_internal_issue_api_v1_inventory_internal_issues__issue_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                issue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The internal issue; values only for a caller who may see costs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Union_InternalIssueRead__InternalIssueReadWithCost__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    approve_internal_issue_api_v1_inventory_internal_issues__issue_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                issue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The internal issue; values only for a caller who may see costs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Union_InternalIssueRead__InternalIssueReadWithCost__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    cancel_internal_issue_api_v1_inventory_internal_issues__issue_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                issue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["src__modules__inventory__schemas__ReasonRequest"];
+            };
+        };
+        responses: {
+            /** @description The internal issue; values only for a caller who may see costs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Union_InternalIssueRead__InternalIssueReadWithCost__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_internal_issue_api_v1_inventory_internal_issues__issue_id__post_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                issue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The internal issue; values only for a caller who may see costs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Union_InternalIssueRead__InternalIssueReadWithCost__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    reject_internal_issue_api_v1_inventory_internal_issues__issue_id__reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                issue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["src__modules__inventory__schemas__ReasonRequest"];
+            };
+        };
+        responses: {
+            /** @description The internal issue; values only for a caller who may see costs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Union_InternalIssueRead__InternalIssueReadWithCost__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    submit_internal_issue_api_v1_inventory_internal_issues__issue_id__submit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                issue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The internal issue; values only for a caller who may see costs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Union_InternalIssueRead__InternalIssueReadWithCost__"];
                 };
             };
             /** @description Malformed request */
@@ -41820,6 +44039,307 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_PhysicalCountRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_scrap_disposals_api_v1_inventory_scrap_disposals_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["ScrapDisposalStatus"] | null;
+                warehouse_id?: string | null;
+                disposal_kind?: components["schemas"]["ScrapDisposalKind"] | null;
+                /** @description ISO date lower bound */
+                date_from?: string | null;
+                /** @description ISO date upper bound */
+                date_to?: string | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+                /** @description Field to sort by */
+                sort_by?: string | null;
+                /** @description Sort direction */
+                sort_dir?: "asc" | "desc";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Scrap disposals; their cost only for a caller who may see costs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_Union_ScrapDisposalRead__ScrapDisposalReadWithCost__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    create_scrap_disposal_api_v1_inventory_scrap_disposals_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScrapDisposalCreate"];
+            };
+        };
+        responses: {
+            /** @description The scrap disposal, already posted. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Union_ScrapDisposalRead__ScrapDisposalReadWithCost__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_scrap_disposal_api_v1_inventory_scrap_disposals__disposal_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                disposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The scrap disposal; its cost only for a caller who may see costs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_Union_ScrapDisposalRead__ScrapDisposalReadWithCost__"];
                 };
             };
             /** @description Malformed request */
@@ -65059,6 +67579,127 @@ export interface operations {
             };
         };
     };
+    consumption_by_department_api_v1_reports_consumption_by_department_get: {
+        parameters: {
+            query?: {
+                /** @description First day of the period, inclusive */
+                date_from?: string | null;
+                /** @description Last day of the period, inclusive */
+                date_to?: string | null;
+                item_id?: string | null;
+                warehouse_id?: string | null;
+                vendor_id?: string | null;
+                customer_id?: string | null;
+                category_id?: string | null;
+                status?: string | null;
+                /** @description Age threshold in days, where the report uses one */
+                min_days?: number | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report, paginated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Too large to return inline. Generated in the background; poll the status URL. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     cost_centre_expense_api_v1_reports_cost_centre_expense_get: {
         parameters: {
             query?: {
@@ -67053,6 +69694,127 @@ export interface operations {
         };
     };
     sales_order_status_api_v1_reports_sales_order_status_get: {
+        parameters: {
+            query?: {
+                /** @description First day of the period, inclusive */
+                date_from?: string | null;
+                /** @description Last day of the period, inclusive */
+                date_to?: string | null;
+                item_id?: string | null;
+                warehouse_id?: string | null;
+                vendor_id?: string | null;
+                customer_id?: string | null;
+                category_id?: string | null;
+                status?: string | null;
+                /** @description Age threshold in days, where the report uses one */
+                min_days?: number | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report, paginated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Too large to return inline. Generated in the background; poll the status URL. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    scrap_register_api_v1_reports_scrap_register_get: {
         parameters: {
             query?: {
                 /** @description First day of the period, inclusive */

@@ -67,6 +67,7 @@ from src.modules.reports.repository import (
     paginate_rows,
 )
 from src.modules.reports.schemas import (
+    ConsumptionByDepartmentRow,
     CostCentreExpenseRow,
     CourierTrackingRow,
     DashboardRead,
@@ -90,6 +91,7 @@ from src.modules.reports.schemas import (
     ReportPeriod,
     ReportRowBase,
     SalesOrderStatusRow,
+    ScrapRegisterRow,
     StockAvailabilityRow,
     VendorDispatchHistoryRow,
     VendorPerformanceRow,
@@ -756,6 +758,33 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         # Not cached: a period still open takes postings - an approved bill, a
         # reversal - and a statement that lags the ledger it is read from would
         # disagree with the account statement for the same day.
+        cacheable=False,
+    ),
+    ReportKey.SCRAP_REGISTER: ReportDefinition(
+        key=ReportKey.SCRAP_REGISTER,
+        title="Scrap register",
+        description=(
+            "Every movement into the scrap pool by its source document, and every "
+            "disposal out of it, with what the scrap cost. Out is valued from the "
+            "scrap cost layers the disposal consumed."
+        ),
+        row_model=ScrapRegisterRow,
+        build=lambda repo, ctx: repo.scrap_register(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        # Not cached: read straight from the stock ledger, which a disposal or a
+        # QC scrap verdict can extend at any moment (section 34).
+        cacheable=False,
+    ),
+    ReportKey.CONSUMPTION_BY_DEPARTMENT: ReportDefinition(
+        key=ReportKey.CONSUMPTION_BY_DEPARTMENT,
+        title="Consumption by department",
+        description=(
+            "What each department and cost centre consumed through posted internal "
+            "issues over the period, item by item, at what the stock cost."
+        ),
+        row_model=ConsumptionByDepartmentRow,
+        build=lambda repo, ctx: repo.consumption_by_department(ctx.require_period(), ctx.filters),
+        requires_period=True,
         cacheable=False,
     ),
 }

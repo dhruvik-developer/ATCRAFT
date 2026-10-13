@@ -81,7 +81,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.core.models import ImmutableLedgerEntity, TenantEntity
+from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
+from src.core.models import ImmutableLedgerEntity, TenantEntity, sql_in_list
 from src.core.types import GUID, Money, Quantity, UnitPrice
 
 #: Stand-in for NULL in the balance grain's unique index. The nil UUID is not a
@@ -131,14 +132,21 @@ class TransactionType(StrEnum):
     ADJUSTMENT_DECREASE = "ADJUSTMENT_DECREASE"
     SCRAP = "SCRAP"
     QC_HOLD = "QC_HOLD"
+    #: Stock leaving the company out of the SCRAP pool - sold, recycled or
+    #: written off by a scrap disposal document. The only movement that draws
+    #: on scrap: bringing scrap back into stock is a write-up with a reason
+    #: (``state_change_type`` refuses it), never a reclassification.
+    SCRAP_DISPOSAL = "SCRAP_DISPOSAL"
 
 
 #: Fixed sign per transaction type. ``+1`` adds to the available pool, ``-1``
-#: removes from it. For every type except QC_HOLD/QC_RELEASE this is also the
-#: sign of the change to ``on_hand_quantity``; those two move stock between
-#: sub-pools of on-hand without changing the physical total, which is what the
-#: generated ``available_quantity`` column requires. See ``movement_effect`` in
-#: service.py, where that distinction is made once and tested.
+#: removes from it. For every type except QC_HOLD, QC_RELEASE and
+#: SCRAP_DISPOSAL this is also the sign of the change to ``on_hand_quantity``.
+#: The first two move stock between sub-pools of on-hand without changing the
+#: physical total, which is what the generated ``available_quantity`` column
+#: requires; the third takes stock out of the scrap pool, which sits outside
+#: on-hand. See ``movement_effect`` in service.py, where that distinction is
+#: made once and tested.
 TRANSACTION_SIGNS: dict[TransactionType, int] = {
     TransactionType.PURCHASE_RECEIPT: 1,
     TransactionType.PRODUCTION_RECEIPT: 1,
@@ -159,6 +167,7 @@ TRANSACTION_SIGNS: dict[TransactionType, int] = {
     TransactionType.ADJUSTMENT_DECREASE: -1,
     TransactionType.SCRAP: -1,
     TransactionType.QC_HOLD: -1,
+    TransactionType.SCRAP_DISPOSAL: -1,
 }
 
 INCREASE_TYPES: frozenset[TransactionType] = frozenset(
@@ -183,8 +192,9 @@ DECREASE_TYPES: frozenset[TransactionType] = frozenset(
 # stays exact. Change it here if Atcraft wants holds to physically move stock
 # into a QC warehouse instead, which is the other defensible model.
 
-#: The two types whose *default* transition moves stock between sub-pools of
-#: on-hand without changing the physical total.
+#: The types whose *default* transition leaves ``on_hand_quantity`` alone: the
+#: two that move stock between sub-pools of on-hand, and the scrap disposal,
+#: whose quantity comes out of the scrap pool outside on-hand.
 #:
 #: This is a statement about the default transition only, and it is NOT a
 #: reconciliation predicate. A caller that names a ``stock_state`` or a
@@ -196,7 +206,7 @@ DECREASE_TYPES: frozenset[TransactionType] = frozenset(
 #: ``(transaction_type, stock_state, source_state)`` - see
 #: ``LedgerRepository.posted_quantity``.
 ON_HAND_NEUTRAL_TYPES: frozenset[TransactionType] = frozenset(
-    {TransactionType.QC_HOLD, TransactionType.QC_RELEASE}
+    {TransactionType.QC_HOLD, TransactionType.QC_RELEASE, TransactionType.SCRAP_DISPOSAL}
 )
 
 
@@ -313,6 +323,65 @@ class PhysicalCountStatus(StrEnum):
     COUNTED = "COUNTED"
     CONFIRMED = "CONFIRMED"
     CANCELLED = "CANCELLED"
+
+
+class BinMoveStatus(StrEnum):
+    """Bin move (putaway) lifecycle.
+
+    A bin move is raised and posted in one request, so ``DRAFT`` is only ever
+    seen inside that transaction. It is kept rather than writing ``POSTED``
+    directly because the status column changes through a state machine
+    everywhere in this system, and the audit trail then reads the same way it
+    does for every other posted document.
+    """
+
+    DRAFT = "DRAFT"
+    POSTED = "POSTED"
+
+
+class ScrapDisposalStatus(StrEnum):
+    """Scrap disposal lifecycle - raised and posted in one request, like a bin move."""
+
+    DRAFT = "DRAFT"
+    POSTED = "POSTED"
+
+
+class ScrapDisposalKind(StrEnum):
+    """How scrap leaves the company.
+
+    ``SALE`` - sold to a buyer for the realised amount. ``RECYCLE`` - handed to
+    a recycler, possibly for a credit. ``WRITE_OFF`` - destroyed or dumped,
+    realising nothing.
+    """
+
+    SALE = "SALE"
+    WRITE_OFF = "WRITE_OFF"
+    RECYCLE = "RECYCLE"
+
+
+class InternalIssueStatus(StrEnum):
+    """Issue of stock to a department or cost centre for its own consumption."""
+
+    DRAFT = "DRAFT"
+    PENDING_APPROVAL = "PENDING_APPROVAL"
+    POSTED = "POSTED"
+    CANCELLED = "CANCELLED"
+
+
+class CostLayerPool(StrEnum):
+    """Which of a position's two FIFO queues a cost layer belongs to.
+
+    ``ON_HAND`` is the queue the whole valuation rests on: its open layers add
+    up to ``on_hand_quantity`` and to ``stock_value``. ``SCRAP`` remembers what
+    the stock now standing in ``scrap_quantity`` cost when it was scrapped, so a
+    scrap disposal can be valued from the layers it consumes rather than from
+    whatever usable stock happens to remain beside it. Scrap carries no book
+    value - the scrapping movement already charged its cost - so the ``SCRAP``
+    queue is never part of ``stock_value`` or of any valuation total.
+    """
+
+    ON_HAND = "ON_HAND"
+    SCRAP = "SCRAP"
 
 
 class StatusEnum(TypeDecorator[Any]):
@@ -723,6 +792,16 @@ class InventoryCostLayer(TenantEntity):
 
     #: What was booked in. Never changes.
     original_quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    #: The queue this layer is part of - see :class:`CostLayerPool`. Fixed when
+    #: the layer is opened: a scrap layer is never consumed by an ordinary issue
+    #: or counted by the on-hand reconciliation, and an on-hand layer is never
+    #: drawn by a scrap disposal.
+    pool: Mapped[CostLayerPool] = mapped_column(
+        StatusEnum(CostLayerPool, 16),
+        nullable=False,
+        default=CostLayerPool.ON_HAND,
+        server_default=CostLayerPool.ON_HAND.value,
+    )
     #: What is left to consume. Falls to zero and stays there.
     remaining_quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
     #: What one unit of this layer cost. Never changes - a layer is a fact about
@@ -800,6 +879,7 @@ class InventoryCostLayer(TenantEntity):
             "remaining_quantity <= original_quantity", name="remaining_within_original"
         ),
         CheckConstraint("unit_cost >= 0", name="unit_cost_non_negative"),
+        CheckConstraint(f"pool IN ({sql_in_list(CostLayerPool)})", name="pool_known"),
         {"comment": "FIFO cost layers. One row per inbound movement, consumed oldest first."},
     )
 
@@ -1472,6 +1552,387 @@ class PhysicalCountLine(TenantEntity):
     )
 
 
+# -----------------------------------------------------------------------------
+# Bin move (putaway) document
+# -----------------------------------------------------------------------------
+
+
+class BinMove(TenantEntity):
+    """Stock moved between bins of one warehouse - putaway and re-slotting.
+
+    A stock transfer cannot do this: it moves stock between two warehouses, and
+    the stock spends time in transit on the way. A bin move never leaves the
+    building, so it is posted the moment it is raised, as a pair of movements
+    per line - ``TRANSFER_OUT`` at the source bin and ``TRANSFER_IN`` at the
+    destination bin, in one batch, the inbound leg re-opening exactly the FIFO
+    layers the outbound leg consumed (docs/assumptions.md §E8-1).
+    """
+
+    __tablename__ = "bin_moves"
+
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[BinMoveStatus] = mapped_column(
+        StatusEnum(BinMoveStatus),
+        nullable=False,
+        default=BinMoveStatus.DRAFT,
+        server_default=BinMoveStatus.DRAFT.value,
+    )
+    warehouse_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=False
+    )
+    move_date: Mapped[date] = mapped_column(Date, nullable=False)
+    reason: Mapped[str] = mapped_column(String(255), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    line_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    total_quantity: Mapped[Decimal] = mapped_column(
+        Quantity, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: The FIFO value that changed bins. Moving stock inside a warehouse does
+    #: not change what it is worth, so this is the same figure on both legs.
+    total_value: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    lines: Mapped[list[BinMoveLine]] = relationship(
+        back_populates="bin_move",
+        lazy="raise",
+        cascade="all, delete-orphan",
+        order_by="BinMoveLine.line_number",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "code", name="uq_bin_moves_company_id_code"),
+        Index("ix_bin_moves_warehouse", "company_id", "warehouse_id", "move_date"),
+        Index("ix_bin_moves_date", "company_id", "move_date"),
+        CheckConstraint(f"status IN ({sql_in_list(BinMoveStatus)})", name="status_known"),
+        CheckConstraint("total_quantity >= 0", name="total_quantity_non_negative"),
+        CheckConstraint("total_value >= 0", name="total_value_non_negative"),
+        CheckConstraint(
+            "status <> 'POSTED' OR posted_at IS NOT NULL", name="posted_moves_carry_a_time"
+        ),
+    )
+
+
+class BinMoveLine(TenantEntity):
+    """One position moved from one bin to another."""
+
+    __tablename__ = "bin_move_lines"
+
+    bin_move_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("bin_moves.id", ondelete="CASCADE"), nullable=False
+    )
+    line_number: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=False
+    )
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("stock_batches.id", ondelete="RESTRICT"), nullable=True
+    )
+    #: NULL is the warehouse's unbinned position - where a receipt that named no
+    #: bin put the stock, and what a putaway usually starts from.
+    from_location_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("storage_locations.id", ondelete="RESTRICT"), nullable=True
+    )
+    to_location_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("storage_locations.id", ondelete="RESTRICT"), nullable=True
+    )
+    quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    #: What the moved stock cost, from the layers the outbound leg consumed.
+    unit_cost: Mapped[Decimal] = mapped_column(
+        UnitPrice, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    total_cost: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+
+    bin_move: Mapped[BinMove] = relationship(back_populates="lines", lazy="raise")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "bin_move_id", "line_number", name="uq_bin_move_lines_bin_move_id_line_number"
+        ),
+        Index("ix_bin_move_lines_bin_move", "bin_move_id"),
+        Index("ix_bin_move_lines_item", "company_id", "item_id"),
+        CheckConstraint("quantity > 0", name="quantity_positive"),
+        CheckConstraint("unit_cost >= 0", name="unit_cost_non_negative"),
+        CheckConstraint("total_cost >= 0", name="total_cost_non_negative"),
+        # Same warehouse, so the same bin on both ends describes no movement.
+        CheckConstraint("from_location_id IS DISTINCT FROM to_location_id", name="bins_differ"),
+    )
+
+
+# -----------------------------------------------------------------------------
+# Scrap disposal document
+# -----------------------------------------------------------------------------
+
+
+class ScrapDisposal(TenantEntity):
+    """Stock taken out of the SCRAP pool for good - sold, recycled or written off.
+
+    Nothing else can take stock out of scrap (``state_change_type`` refuses it),
+    so without this document the pool only ever grows. Each line posts one
+    ``SCRAP_DISPOSAL`` movement, valued from the scrap cost layers it consumes:
+    what the scrap cost when it was scrapped, which is what ``realised_amount``
+    is weighed against. Posted the moment it is raised.
+    """
+
+    __tablename__ = "scrap_disposals"
+
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[ScrapDisposalStatus] = mapped_column(
+        StatusEnum(ScrapDisposalStatus),
+        nullable=False,
+        default=ScrapDisposalStatus.DRAFT,
+        server_default=ScrapDisposalStatus.DRAFT.value,
+    )
+    warehouse_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=False
+    )
+    disposal_date: Mapped[date] = mapped_column(Date, nullable=False)
+    disposal_kind: Mapped[ScrapDisposalKind] = mapped_column(
+        StatusEnum(ScrapDisposalKind, 16), nullable=False
+    )
+    #: Who took it, or the reference of the paper that went with it - a scrap
+    #: dealer's name, a weighbridge slip, a pollution-board manifest.
+    buyer_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    #: What the company was paid for it. Zero for a write-off.
+    realised_amount: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    currency: Mapped[str] = mapped_column(
+        String(CURRENCY_CODE_LENGTH),
+        nullable=False,
+        default=DEFAULT_CURRENCY,
+        server_default=DEFAULT_CURRENCY,
+    )
+    reason: Mapped[str] = mapped_column(String(255), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    line_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    total_quantity: Mapped[Decimal] = mapped_column(
+        Quantity, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: What the disposed scrap cost, from its scrap cost layers.
+    total_value: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    lines: Mapped[list[ScrapDisposalLine]] = relationship(
+        back_populates="scrap_disposal",
+        lazy="raise",
+        cascade="all, delete-orphan",
+        order_by="ScrapDisposalLine.line_number",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "code", name="uq_scrap_disposals_company_id_code"),
+        Index("ix_scrap_disposals_warehouse", "company_id", "warehouse_id", "disposal_date"),
+        Index("ix_scrap_disposals_date", "company_id", "disposal_date"),
+        CheckConstraint(f"status IN ({sql_in_list(ScrapDisposalStatus)})", name="status_known"),
+        CheckConstraint(
+            f"disposal_kind IN ({sql_in_list(ScrapDisposalKind)})", name="disposal_kind_known"
+        ),
+        CheckConstraint("realised_amount >= 0", name="realised_amount_non_negative"),
+        # A write-off realises nothing; money received is a sale or a recycle.
+        CheckConstraint(
+            "disposal_kind <> 'WRITE_OFF' OR realised_amount = 0",
+            name="write_off_realises_nothing",
+        ),
+        CheckConstraint("total_quantity >= 0", name="total_quantity_non_negative"),
+        CheckConstraint("total_value >= 0", name="total_value_non_negative"),
+        CheckConstraint(
+            "status <> 'POSTED' OR posted_at IS NOT NULL", name="posted_disposals_carry_a_time"
+        ),
+    )
+
+
+class ScrapDisposalLine(TenantEntity):
+    """One scrap position disposed of."""
+
+    __tablename__ = "scrap_disposal_lines"
+
+    scrap_disposal_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("scrap_disposals.id", ondelete="CASCADE"), nullable=False
+    )
+    line_number: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=False
+    )
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("stock_batches.id", ondelete="RESTRICT"), nullable=True
+    )
+    location_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("storage_locations.id", ondelete="RESTRICT"), nullable=True
+    )
+    quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    unit_cost: Mapped[Decimal] = mapped_column(
+        UnitPrice, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    total_cost: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+
+    scrap_disposal: Mapped[ScrapDisposal] = relationship(back_populates="lines", lazy="raise")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "scrap_disposal_id",
+            "line_number",
+            name="uq_scrap_disposal_lines_scrap_disposal_id_line_number",
+        ),
+        Index("ix_scrap_disposal_lines_scrap_disposal", "scrap_disposal_id"),
+        Index("ix_scrap_disposal_lines_item", "company_id", "item_id"),
+        CheckConstraint("quantity > 0", name="quantity_positive"),
+        CheckConstraint("unit_cost >= 0", name="unit_cost_non_negative"),
+        CheckConstraint("total_cost >= 0", name="total_cost_non_negative"),
+    )
+
+
+# -----------------------------------------------------------------------------
+# Internal issue document
+# -----------------------------------------------------------------------------
+
+
+class InternalIssue(TenantEntity):
+    """Stock issued to a department or cost centre for its own use.
+
+    Consumables, maintenance spares, tools: stock that is used up by the
+    business rather than built into a product, so no production order or BOM is
+    behind it. Each line posts a ``MATERIAL_ISSUE`` with
+    ``reference_type="internal_issue"``. A document worth more than
+    ``INTERNAL_ISSUE_APPROVAL_VALUE`` is approved by a second person before it
+    posts, measured on the FIFO cost the issue will really consume.
+    """
+
+    __tablename__ = "internal_issues"
+
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[InternalIssueStatus] = mapped_column(
+        StatusEnum(InternalIssueStatus),
+        nullable=False,
+        default=InternalIssueStatus.DRAFT,
+        server_default=InternalIssueStatus.DRAFT.value,
+    )
+    warehouse_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=False
+    )
+    issue_date: Mapped[date] = mapped_column(Date, nullable=False)
+    #: Who consumes the stock. At least one of the two is named.
+    department_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("departments.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    #: Who bears the cost. On the document, not on the ledger rows - the same
+    #: split ``stock_adjustments.cost_centre_id`` makes.
+    cost_centre_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("cost_centres.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    reason: Mapped[str] = mapped_column(String(255), nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    line_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    total_quantity: Mapped[Decimal] = mapped_column(
+        Quantity, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: FIFO value of the issue: previewed on the draft, restated from the
+    #: ledger on posting. What the approval threshold is measured against.
+    total_value: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    requires_approval: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+
+    approved_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Why it was cancelled or rejected.
+    decision_note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    lines: Mapped[list[InternalIssueLine]] = relationship(
+        back_populates="internal_issue",
+        lazy="raise",
+        cascade="all, delete-orphan",
+        order_by="InternalIssueLine.line_number",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "code", name="uq_internal_issues_company_id_code"),
+        Index("ix_internal_issues_status", "company_id", "status", "issue_date"),
+        Index("ix_internal_issues_warehouse", "company_id", "warehouse_id", "issue_date"),
+        # The approval queue: "what is waiting for me to sign off?"
+        Index(
+            "ix_internal_issues_pending",
+            "company_id",
+            "issue_date",
+            postgresql_where=text("status = 'PENDING_APPROVAL'"),
+        ),
+        CheckConstraint(f"status IN ({sql_in_list(InternalIssueStatus)})", name="status_known"),
+        CheckConstraint(
+            "department_id IS NOT NULL OR cost_centre_id IS NOT NULL", name="names_a_recipient"
+        ),
+        CheckConstraint("total_quantity >= 0", name="total_quantity_non_negative"),
+        CheckConstraint("total_value >= 0", name="total_value_non_negative"),
+        CheckConstraint(
+            "status <> 'POSTED' OR posted_at IS NOT NULL", name="posted_issues_carry_a_time"
+        ),
+        CheckConstraint(
+            "status <> 'CANCELLED' OR decision_note IS NOT NULL",
+            name="cancelled_issues_carry_a_reason",
+        ),
+    )
+
+
+class InternalIssueLine(TenantEntity):
+    """One position issued for internal consumption."""
+
+    __tablename__ = "internal_issue_lines"
+
+    internal_issue_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("internal_issues.id", ondelete="CASCADE"), nullable=False
+    )
+    line_number: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=False
+    )
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("stock_batches.id", ondelete="RESTRICT"), nullable=True
+    )
+    location_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("storage_locations.id", ondelete="RESTRICT"), nullable=True
+    )
+    quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    unit_cost: Mapped[Decimal] = mapped_column(
+        UnitPrice, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    total_cost: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    internal_issue: Mapped[InternalIssue] = relationship(back_populates="lines", lazy="raise")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "internal_issue_id",
+            "line_number",
+            name="uq_internal_issue_lines_internal_issue_id_line_number",
+        ),
+        Index("ix_internal_issue_lines_internal_issue", "internal_issue_id"),
+        Index("ix_internal_issue_lines_item", "company_id", "item_id"),
+        CheckConstraint("quantity > 0", name="quantity_positive"),
+        CheckConstraint("unit_cost >= 0", name="unit_cost_non_negative"),
+        CheckConstraint("total_cost >= 0", name="total_cost_non_negative"),
+    )
+
+
 __all__ = [
     "BALANCE_GRAIN_SQL",
     "DECREASE_TYPES",
@@ -1485,11 +1946,22 @@ __all__ = [
     "AdjustmentReason",
     "AdjustmentStatus",
     "BatchStatus",
+    "BinMove",
+    "BinMoveLine",
+    "BinMoveStatus",
+    "CostLayerPool",
+    "InternalIssue",
+    "InternalIssueLine",
+    "InternalIssueStatus",
     "InventoryBalance",
     "InventoryTransaction",
     "PhysicalCount",
     "PhysicalCountLine",
     "PhysicalCountStatus",
+    "ScrapDisposal",
+    "ScrapDisposalKind",
+    "ScrapDisposalLine",
+    "ScrapDisposalStatus",
     "SerialStatus",
     "StatusEnum",
     "StockAdjustment",

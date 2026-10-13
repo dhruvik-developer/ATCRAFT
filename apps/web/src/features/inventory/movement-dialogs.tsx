@@ -14,8 +14,15 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Loader2, Plus, Trash2 } from 'lucide-react'
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
-import { Controller, useFieldArray, useForm, type Control, type FieldErrors } from 'react-hook-form'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import {
+  Controller,
+  useFieldArray,
+  useForm,
+  useWatch,
+  type Control,
+  type FieldErrors,
+} from 'react-hook-form'
 import { z } from 'zod'
 
 import { DataTable } from '@/components/data-table'
@@ -44,6 +51,7 @@ import {
   Textarea,
 } from '@/components/ui/primitives'
 import { CostCentreSelect } from '@/features/admin/cost-centre-select'
+import BatchSelect from './movement-batch-picker'
 import { useAuth } from '@/features/auth/auth-context'
 import { api, ApiError } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE, LOOKUP_LIST_LIMIT } from '@/lib/constants'
@@ -61,8 +69,10 @@ import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
+import type { SchemaOf } from '@/types/api'
 
 import { ItemPicker, WarehouseSelect } from './pickers'
+import { LocationPicker } from './location-picker'
 import { ADJUSTMENT_REASON_CODES, type PhysicalCountLineRow, type PhysicalCountRow } from './types'
 
 /**
@@ -95,7 +105,15 @@ const today = () => toDateInput(new Date())
 // ------------------------------------------------------- line editor -------
 
 interface LineFields {
-  lines: { item_id: string; quantity: string }[]
+  lines: {
+    item_id: string
+    quantity: string
+    batch_id?: string
+    location_id?: string
+    from_location_id?: string
+    to_location_id?: string
+    unit_cost?: string
+  }[]
 }
 
 /**
@@ -114,6 +132,9 @@ function LineEditor<T extends LineFields>({
   signed = false,
   itemFilters,
   itemEmptyMessage,
+  warehouseId,
+  toWarehouseId,
+  canEditCost = false,
 }: {
   control: Control<T>
   errors: FieldErrors<LineFields>
@@ -125,6 +146,9 @@ function LineEditor<T extends LineFields>({
    *  every item in the master. */
   itemFilters?: Record<string, unknown>
   itemEmptyMessage?: string
+  warehouseId: string
+  toWarehouseId?: string
+  canEditCost?: boolean
 }) {
   // `useFieldArray` is generic over the form shape; the cast narrows T to the
   // part this component actually edits.
@@ -132,6 +156,8 @@ function LineEditor<T extends LineFields>({
     control: control as unknown as Control<LineFields>,
     name: 'lines',
   })
+  const lineControl = control as unknown as Control<LineFields>
+  const values = useWatch({ control: lineControl, name: 'lines' })
 
   return (
     <fieldset className="space-y-2">
@@ -203,6 +229,69 @@ function LineEditor<T extends LineFields>({
             <FieldError message={errors.lines?.[index]?.item_id?.message} />
             <FieldError message={errors.lines?.[index]?.quantity?.message} />
           </div>
+          <div className="grid gap-3 sm:col-span-3 sm:grid-cols-3">
+            {values?.[index]?.item_id && (
+              <Controller
+                control={lineControl}
+                name={`lines.${index}.batch_id`}
+                render={({ field: batch }) => (
+                  <BatchSelect
+                    id={`${idPrefix}-batch-${index}`}
+                    itemId={values?.[index]?.item_id ?? ''}
+                    value={batch.value ?? ''}
+                    onChange={batch.onChange}
+                  />
+                )}
+              />
+            )}
+            <Controller
+              control={lineControl}
+              name={`lines.${index}.${toWarehouseId !== undefined ? 'from_location_id' : 'location_id'}`}
+              render={({ field: bin }) => (
+                <LocationPicker
+                  id={`${idPrefix}-bin-${index}`}
+                  label={toWarehouseId !== undefined ? 'From bin' : 'Bin'}
+                  warehouseId={warehouseId}
+                  itemId={values?.[index]?.item_id ?? ''}
+                  value={bin.value || null}
+                  onChange={(value) => bin.onChange(value ?? '')}
+                />
+              )}
+            />
+            {toWarehouseId !== undefined && (
+              <Controller
+                control={lineControl}
+                name={`lines.${index}.to_location_id`}
+                render={({ field: bin }) => (
+                  <LocationPicker
+                    id={`${idPrefix}-to-bin-${index}`}
+                    label="To bin"
+                    warehouseId={toWarehouseId}
+                    value={bin.value || null}
+                    onChange={(value) => bin.onChange(value ?? '')}
+                  />
+                )}
+              />
+            )}
+            {canEditCost && (
+              <Controller
+                control={lineControl}
+                name={`lines.${index}.unit_cost`}
+                render={({ field: cost }) => (
+                  <div className="space-y-1.5">
+                    <Label htmlFor={`${idPrefix}-cost-${index}`}>Unit cost for write-up</Label>
+                    <Input
+                      id={`${idPrefix}-cost-${index}`}
+                      inputMode="decimal"
+                      {...cost}
+                      value={cost.value ?? ''}
+                      placeholder="Use item cost"
+                    />
+                  </div>
+                )}
+              />
+            )}
+          </div>
         </div>
       ))}
 
@@ -236,6 +325,9 @@ const transferSchema = z
       .array(
         z.object({
           item_id: z.string().min(1, 'Choose an item.'),
+          batch_id: z.string().optional(),
+          from_location_id: z.string().optional(),
+          to_location_id: z.string().optional(),
           quantity: z
             .string()
             .refine(isPositiveQuantity, 'Enter a quantity greater than zero, to 4 decimal places.'),
@@ -279,6 +371,9 @@ export function CreateTransferDialog({
         lines: values.lines.map((line) => ({
           item_id: line.item_id,
           quantity: line.quantity.trim(),
+          ...(line.batch_id ? { batch_id: line.batch_id } : {}),
+          ...(line.from_location_id ? { from_location_id: line.from_location_id } : {}),
+          ...(line.to_location_id ? { to_location_id: line.to_location_id } : {}),
         })),
       }),
     onSuccess: (result) => {
@@ -370,6 +465,8 @@ export function CreateTransferDialog({
             control={form.control}
             errors={errors}
             idPrefix="transfer"
+            warehouseId={form.watch('from_warehouse_id')}
+            toWarehouseId={form.watch('to_warehouse_id')}
             quantityLabel="Quantity"
             // docs/assumptions.md 25: a stock transfer refuses a serial-tracked
             // item outright, because `stock_transfer_lines` has nowhere to name
@@ -420,6 +517,15 @@ const adjustmentSchema = z.object({
     .array(
       z.object({
         item_id: z.string().min(1, 'Choose an item.'),
+        batch_id: z.string().optional(),
+        location_id: z.string().optional(),
+        unit_cost: z
+          .string()
+          .optional()
+          .refine(
+            (value) => !value || /^\d+(\.\d{1,6})?$/.test(value.trim()),
+            'Enter a non-negative cost, to 6 decimal places.',
+          ),
         quantity: z
           .string()
           .refine(
@@ -436,15 +542,18 @@ type AdjustmentForm = z.infer<typeof adjustmentSchema>
 export function CreateAdjustmentDialog({
   open,
   onOpenChange,
+  adjustment,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  adjustment?: SchemaOf<'StockAdjustmentRead'>
 }) {
   const { can } = useAuth()
   const queryClient = useQueryClient()
   // A storekeeper raising a write-off usually holds no `cost_centre.view`; the
   // adjustment is then raised unallocated rather than behind a refused picker.
   const canPickCostCentre = can(P.COST_CENTRE_VIEW)
+  const canEditCost = can(P.INVENTORY_VALUATION_VIEW) || can(P.ITEM_COST_VIEW)
   const form = useForm<AdjustmentForm>({
     resolver: zodResolver(adjustmentSchema),
     defaultValues: {
@@ -456,10 +565,30 @@ export function CreateAdjustmentDialog({
       lines: [{ item_id: '', quantity: '' }],
     },
   })
+  const editingId = adjustment?.id
+  useEffect(() => {
+    if (open && adjustment)
+      form.reset({
+        warehouse_id: adjustment.warehouse_id,
+        adjustment_date: adjustment.adjustment_date,
+        reason_code: adjustment.reason_code,
+        reason: adjustment.reason,
+        cost_centre_id: adjustment.cost_centre_id ?? '',
+        lines: (adjustment.lines ?? []).map((line) => ({
+          item_id: line.item_id,
+          quantity: line.quantity,
+          batch_id: line.batch_id ?? '',
+          location_id: line.location_id ?? '',
+          unit_cost: line.unit_cost,
+        })),
+      })
+    // Reset only when opening a different document; background data never replaces edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editingId])
 
   const create = useMutation({
-    mutationFn: (values: AdjustmentForm) =>
-      api.post<{ code: string }>('/inventory/adjustments', {
+    mutationFn: (values: AdjustmentForm) => {
+      const payload = {
         warehouse_id: values.warehouse_id,
         adjustment_date: values.adjustment_date,
         reason_code: values.reason_code,
@@ -470,10 +599,21 @@ export function CreateAdjustmentDialog({
         lines: values.lines.map((line) => ({
           item_id: line.item_id,
           quantity: line.quantity.trim(),
+          ...(line.batch_id ? { batch_id: line.batch_id } : {}),
+          ...(line.location_id ? { location_id: line.location_id } : {}),
+          ...(canEditCost && line.unit_cost ? { unit_cost: line.unit_cost.trim() } : {}),
         })),
-      }),
+        ...(adjustment ? { notes: adjustment.notes } : {}),
+      }
+      return adjustment
+        ? api.patch<{ code: string }>(`/inventory/adjustments/${adjustment.id}`, payload)
+        : api.post<{ code: string }>('/inventory/adjustments', payload)
+    },
     onSuccess: (result) => {
-      toast.success('Adjustment raised', result.code + ' has been created as a draft.')
+      toast.success(
+        adjustment ? success.updated('Adjustment') : 'Adjustment raised',
+        result.code + ' is saved as a draft.',
+      )
       void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
       form.reset()
       onOpenChange(false)
@@ -487,7 +627,9 @@ export function CreateAdjustmentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="lg">
         <DialogHeader>
-          <DialogTitle>New stock adjustment</DialogTitle>
+          <DialogTitle>
+            {adjustment ? `Edit ${adjustment.code}` : 'New stock adjustment'}
+          </DialogTitle>
           <DialogDescription>
             An adjustment changes stock without a document behind it, so it is approved separately
             and the reason is kept on the ledger forever.
@@ -592,10 +734,17 @@ export function CreateAdjustmentDialog({
             control={form.control}
             errors={errors}
             idPrefix="adjustment"
+            warehouseId={form.watch('warehouse_id')}
+            canEditCost={canEditCost}
             quantityLabel="Quantity"
             quantityHint="Negative writes stock off, positive adds it."
             signed
           />
+          {!canEditCost && (
+            <p className="text-xs text-muted-foreground">
+              Write-ups use the item's cost basis. Cost entry requires permission to view costs.
+            </p>
+          )}
 
           <FieldError message={errors.root?.message} />
         </DialogBody>
@@ -608,7 +757,7 @@ export function CreateAdjustmentDialog({
             onClick={form.handleSubmit((values) => create.mutate(values))}
             loading={create.isPending}
           >
-            Raise adjustment
+            {adjustment ? 'Save changes' : 'Raise adjustment'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -619,6 +768,7 @@ export function CreateAdjustmentDialog({
 // ------------------------------------------------------ physical count -----
 
 const physicalCountSchema = z.object({
+  location_id: z.string().optional(),
   warehouse_id: z.string().min(1, 'Choose the warehouse being counted.'),
   count_date: z.string().min(1, 'A count date is required.'),
   // Required by the API, not optional decoration. It was missing entirely, so
@@ -650,6 +800,7 @@ export function CreatePhysicalCountDialog({
         count_date: values.count_date,
         reason: values.reason.trim(),
         notes: values.notes?.trim() || null,
+        ...(values.location_id ? { location_id: values.location_id } : {}),
       }),
     onSuccess: (result) => {
       toast.success('Count sheet opened', result.code + ' is ready to be counted.')
@@ -690,6 +841,19 @@ export function CreatePhysicalCountDialog({
             />
             <FieldError message={errors.warehouse_id?.message} />
           </div>
+          <Controller
+            control={form.control}
+            name="location_id"
+            render={({ field }) => (
+              <LocationPicker
+                id="count-bin"
+                label="Bin (leave empty for the whole warehouse)"
+                warehouseId={form.watch('warehouse_id')}
+                value={field.value || null}
+                onChange={(value) => field.onChange(value ?? '')}
+              />
+            )}
+          />
 
           <div className="space-y-1.5">
             <Label htmlFor="count-date" required>

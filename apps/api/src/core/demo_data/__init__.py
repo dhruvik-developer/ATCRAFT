@@ -182,6 +182,7 @@ STAGE_ORDER: tuple[str, ...] = (
     "engineering",
     "procurement",
     "operations",
+    "inventory_ops",
     "finance",
     # Last, because a document is filed against a record: every other stage has
     # to have made its documents before there is anything to attach a file to.

@@ -322,6 +322,60 @@ class StorageLocationRepository(BaseRepository[StorageLocation]):
     }
     searchable_fields = ("code", "name", "barcode")
 
+    async def lock_for_retirement(self, location_id: uuid.UUID) -> StorageLocation | None:
+        """Take the bin's row lock before deciding whether it may be switched off.
+
+        ``FOR NO KEY UPDATE`` conflicts with the ``FOR SHARE`` the item service
+        takes on a bin it is about to make an item's default bin, so a retirement
+        and an assignment cannot both pass their checks against a state the other
+        is about to change - one of them waits and then sees the other's write.
+        ``populate_existing`` so the flags are re-read after the lock.
+        """
+        stmt = (
+            self._scoped()
+            .where(StorageLocation.id == location_id)
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def lock_for_warehouse_retirement(self, warehouse_id: uuid.UUID) -> None:
+        """The same lock over every live bin of a warehouse, in primary-key order."""
+        await self.session.execute(
+            self._scoped()
+            .where(StorageLocation.warehouse_id == warehouse_id)
+            .order_by(StorageLocation.id)
+            .with_for_update(key_share=True)
+        )
+
+    async def has_item_defaults(
+        self, *, location_id: uuid.UUID | None = None, warehouse_id: uuid.UUID | None = None
+    ) -> bool:
+        """Is this bin - or any bin of this warehouse - some live item's default bin?
+
+        Probed with raw SQL so this module never imports the item master that
+        sits above it (docs/architecture.md, dependency direction). Tenant
+        scoped on both tables. Whichever of the two arguments is ``None`` does
+        not narrow the probe.
+        """
+        statement = text(
+            "SELECT 1 FROM items i JOIN storage_locations l "
+            "ON l.id = i.default_location_id AND l.company_id = i.company_id "
+            "WHERE i.company_id = :company_id AND i.deleted_at IS NULL "
+            "AND l.id = coalesce(CAST(:location_id AS UUID), l.id) "
+            "AND l.warehouse_id = coalesce(CAST(:warehouse_id AS UUID), l.warehouse_id) LIMIT 1"
+        )
+        return (
+            await self.session.execute(
+                statement,
+                {
+                    "company_id": self.tenant.company_id,
+                    "location_id": location_id,
+                    "warehouse_id": warehouse_id,
+                },
+            )
+        ).first() is not None
+
     def _scoped(self, *, include_deleted: bool = False) -> Select[tuple[StorageLocation]]:
         """Tenant filter plus the principal's warehouse restriction."""
         stmt = super()._scoped(include_deleted=include_deleted)
