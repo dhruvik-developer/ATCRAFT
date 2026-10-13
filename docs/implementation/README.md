@@ -16,13 +16,13 @@ Updated 13 October 2026, about 09:50 IST. **Resumed by a Cursor agent (Claude Op
 
 Between the checkpoint below and this resume, lane B committed B2 (`c768493`) and lane C committed its C1a/C1b review fixes (`e1c0e7b`). Both lanes are clean and verified. Lanes A, D and E still held uncommitted work; nothing had been written in any lane since 12 October about 19:51.
 
-Each lane now has exactly one subagent holding it:
+Lane holders:
 
 | Lane | Holder (Cursor subagent) | Step |
 |---|---|---|
 | A | lane-A takeover agent | Take over E1a and A2, then finish, verify and commit. A review of each package follows. |
 | B | lane-B build agent | R3 B3a job-work invoice, full package. Starts now because B2 is done. |
-| C | lane-C build agent | R3 C2a vendor app frontend, full package. Starts now because C1a/C1b are done. |
+| C | nobody | Idle. The user deferred the vendor mobile app (C2a and C2b) on 13 October. C1a/C1b stay committed at `e1c0e7b`. Do not start C2a or C2b until the user asks. |
 | D | lane-D takeover agent | Take over E8a, then finish, verify and commit. A review follows. |
 | E | lane-E takeover agent | Take over the partial E4 backend, then finish the backend and build the frontend. A review follows. |
 
