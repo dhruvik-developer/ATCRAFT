@@ -42,7 +42,13 @@ import { fail, ok, page, renderScreen, type FetchRecorder, type RouteTable } fro
 
 import SalesOrderDetailPage from './sales-order-detail-page'
 import SalesOrdersPage from './sales-orders-page'
-import type { SalesOrderDetail, SalesOrderLine, SalesOrderRow } from './sales-types'
+import type {
+  AllocationLineStatus,
+  SalesOrderAllocation,
+  SalesOrderDetail,
+  SalesOrderLine,
+  SalesOrderRow,
+} from './sales-types'
 
 // ------------------------------------------------------------- fixtures ----
 
@@ -1061,6 +1067,8 @@ describe('what the detail screen shows', () => {
               item_code: 'FG-HINGE-4',
               ordered_quantity: '10.0000',
               allocated_quantity: '6.0000',
+              reserved_quantity: '6.0000',
+              dispatchable_quantity: '6.0000',
               dispatched_quantity: '0.0000',
               shortfall_quantity: '4.0000',
               available_quantity: '0.0000',
@@ -1093,5 +1101,213 @@ describe('what the detail screen shows', () => {
 
     expect(await screen.findByText('Could not load this order')).toBeVisible()
     expect(within(screen.getByRole('alert')).getByText('No such sales order')).toBeVisible()
+  })
+})
+// ------------------------------------------------------------ fulfilment ----
+
+/**
+ * The order's allocation read, as `GET /sales/{id}/allocation-status` answers
+ * it: 500 ordered, 200 reserved and dispatchable now, 300 short - the
+ * proposal's own K08 case.
+ */
+function allocationView(
+  overrides: Partial<AllocationLineStatus> = {},
+  status: SalesOrderAllocation['status'] = 'CONFIRMED',
+): SalesOrderAllocation {
+  const line: AllocationLineStatus = {
+    line_id: LINE_ID,
+    line_number: 1,
+    item_id: ITEM_ID,
+    item_code: 'FG-HINGE-4',
+    ordered_quantity: '500.0000',
+    allocated_quantity: '200.0000',
+    reserved_quantity: '200.0000',
+    dispatchable_quantity: '200.0000',
+    dispatched_quantity: '0.0000',
+    shortfall_quantity: '300.0000',
+    status: 'PARTIALLY_ALLOCATED',
+    reservation_id: null,
+    available_quantity: '0.0000',
+    required_date: '2026-09-30',
+    ...overrides,
+  }
+  const short = toDecimalString(line.shortfall_quantity) !== '0'
+  return {
+    order_id: ORDER_ID,
+    code: 'SO-0001',
+    status,
+    warehouse_id: WAREHOUSE_ID,
+    fully_allocated: !short,
+    total_shortfall_lines: short ? 1 : 0,
+    lines: [line],
+  }
+}
+
+function toDecimalString(value: string): string {
+  return String(Number(value))
+}
+
+describe('fulfilment on the detail screen', () => {
+  const CONFIRMED = orderDetail({ status: 'CONFIRMED' })
+
+  it('reads reserved, dispatchable-now and short straight from the engine', async () => {
+    renderDetail({
+      order: CONFIRMED,
+      permissions: [P.SALES_ORDER_VIEW],
+      routes: { [`GET /sales/${ORDER_ID}/allocation-status`]: ok(allocationView()) },
+    })
+
+    expect(await screen.findByText('Dispatchable now')).toBeVisible()
+    expect(screen.getByText('Reserved')).toBeVisible()
+    expect(screen.getByText('Short')).toBeVisible()
+    expect((await screen.findAllByText(/^200(\.0+)?$/)).length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText(/^300(\.0+)?$/)).toBeVisible()
+  })
+
+  it('offers Dispatch on a confirmed order to a holder of dispatch.create', async () => {
+    // `POST /dispatch` declares `dispatch.create`; a CONFIRMED order may ship
+    // what it has reserved, so the action is there before ALLOCATED.
+    renderDetail({
+      order: CONFIRMED,
+      permissions: [P.SALES_ORDER_VIEW, P.DISPATCH_CREATE],
+      routes: { [`GET /sales/${ORDER_ID}/allocation-status`]: ok(allocationView()) },
+    })
+
+    expect(await screen.findByRole('button', { name: /^dispatch$/i })).toBeEnabled()
+  })
+
+  it('withholds Dispatch without the right, and on orders nothing can leave against', async () => {
+    const { unmount } = renderDetail({
+      order: CONFIRMED,
+      permissions: [P.SALES_ORDER_VIEW],
+      routes: { [`GET /sales/${ORDER_ID}/allocation-status`]: ok(allocationView()) },
+    })
+    await screen.findByRole('heading', { name: 'SO-0001' })
+    expect(screen.queryByRole('button', { name: /^dispatch$/i })).not.toBeInTheDocument()
+    unmount()
+
+    for (const status of ['DRAFT', 'DISPATCHED'] as const) {
+      const view = renderDetail({
+        order: orderDetail({ status }),
+        permissions: [P.SALES_ORDER_VIEW, P.DISPATCH_CREATE],
+        routes: { [`GET /sales/${ORDER_ID}/allocation-status`]: ok(allocationView({}, status)) },
+      })
+      await screen.findByRole('heading', { name: 'SO-0001' })
+      expect(screen.queryByRole('button', { name: /^dispatch$/i })).not.toBeInTheDocument()
+      view.unmount()
+    }
+  })
+
+  it('opens the dispatch dialog on the order, pre-filled from its reserved lines', async () => {
+    const { user } = renderDetail({
+      order: CONFIRMED,
+      permissions: [P.SALES_ORDER_VIEW, P.DISPATCH_CREATE],
+      routes: {
+        [`GET /sales/${ORDER_ID}/allocation-status`]: ok(allocationView()),
+        'GET /sales': page([orderRow({ status: 'CONFIRMED' })]),
+        [`GET /customers/${CUSTOMER_ID}`]: ok(CUSTOMER),
+        'GET /customers': page([CUSTOMER]),
+        'GET /warehouses': page([WAREHOUSE]),
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: /^dispatch$/i }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Dispatch SO-0001' })
+    expect(await within(dialog).findByLabelText('Quantity for line 1')).toHaveValue('200')
+    // Only the order's lines: nothing else can be added to this consignment.
+    expect(within(dialog).queryByRole('button', { name: 'Add line' })).not.toBeInTheDocument()
+  })
+
+  it('offers the top-up while a line is short, and posts it', async () => {
+    const { user, fetch } = renderDetail({
+      order: CONFIRMED,
+      permissions: [P.SALES_ORDER_VIEW, P.SALES_ORDER_UPDATE],
+      routes: {
+        [`GET /sales/${ORDER_ID}/allocation-status`]: ok(allocationView()),
+        [`POST /sales/${ORDER_ID}/allocate`]: ok(
+          allocationView({ reserved_quantity: '500.0000', shortfall_quantity: '0.0000' }),
+        ),
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Allocate available stock' }))
+
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', `/sales/${ORDER_ID}/allocate`)).toEqual({
+        reason: 'Available stock allocated from the order page',
+      }),
+    )
+  })
+
+  it('withholds the top-up from a reader, and when nothing is short', async () => {
+    const { unmount } = renderDetail({
+      order: CONFIRMED,
+      permissions: [P.SALES_ORDER_VIEW],
+      routes: { [`GET /sales/${ORDER_ID}/allocation-status`]: ok(allocationView()) },
+    })
+    expect(await screen.findByText('1 line short')).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: 'Allocate available stock' }),
+    ).not.toBeInTheDocument()
+    unmount()
+
+    renderDetail({
+      order: orderDetail({ status: 'ALLOCATED' }),
+      permissions: [P.SALES_ORDER_VIEW, P.SALES_ORDER_UPDATE],
+      routes: {
+        [`GET /sales/${ORDER_ID}/allocation-status`]: ok(
+          allocationView(
+            { reserved_quantity: '500.0000', shortfall_quantity: '0.0000' },
+            'ALLOCATED',
+          ),
+        ),
+      },
+    })
+    expect(await screen.findByText('Fully allocated')).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: 'Allocate available stock' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it("lists the order's consignments for a reader of dispatches", async () => {
+    renderDetail({
+      order: CONFIRMED,
+      permissions: [P.SALES_ORDER_VIEW, P.DISPATCH_VIEW],
+      routes: {
+        [`GET /sales/${ORDER_ID}/allocation-status`]: ok(allocationView()),
+        'GET /dispatch': ({ url }) => {
+          // Narrowed by the server, never by filtering a page in the browser.
+          expect(url.searchParams.get('sales_order_id')).toBe(ORDER_ID)
+          return page([
+            {
+              id: 'dsp-1',
+              code: 'DSP/2026-27/00007',
+              dispatch_type: 'SALES',
+              status: 'DISPATCHED',
+              customer_id: CUSTOMER_ID,
+              vendor_id: null,
+              warehouse_id: WAREHOUSE_ID,
+              sales_order_id: ORDER_ID,
+              dispatch_date: '2026-09-10',
+              expected_delivery_date: null,
+              actual_delivery_date: null,
+              transporter_id: null,
+              courier_name: null,
+              tracking_id: 'TRK-1',
+              total_boxes: 1,
+              total_weight_kg: '0.000',
+              created_at: '2026-09-10T05:00:00Z',
+            },
+          ])
+        },
+      },
+    })
+
+    expect(await screen.findByText('DSP/2026-27/00007')).toBeVisible()
+    expect(screen.getByRole('link', { name: 'Open on the dispatch register' })).toHaveAttribute(
+      'href',
+      `/dispatch?sales_order_id=${ORDER_ID}`,
+    )
   })
 })

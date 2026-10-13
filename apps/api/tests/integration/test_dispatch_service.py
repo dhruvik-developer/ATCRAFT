@@ -38,7 +38,12 @@ from sqlalchemy.pool import NullPool
 from src.core.config import settings
 from src.core.database import transaction
 from src.core.deps import TenantContext
-from src.core.errors import BusinessRuleError, InvalidStateTransitionError, NotFoundError
+from src.core.errors import (
+    BusinessRuleError,
+    InvalidStateTransitionError,
+    NotFoundError,
+    ValidationError,
+)
 from src.core.models import Base
 from src.core.pagination import CursorParams, PageParams, SortParams
 from src.modules.allocation import service as allocation
@@ -568,28 +573,51 @@ async def test_an_order_shipped_complete_in_one_go_is_walked_through_both_status
     ]
 
 
-async def test_shipping_more_than_remains_is_refused_and_moves_nothing(ctx: Ctx) -> None:
+async def test_a_second_plan_cannot_claim_what_an_open_consignment_already_carries(
+    ctx: Ctx,
+) -> None:
     bench = await seed_bench(ctx, ordered="100")
 
-    # Both consignments are planned while the balance still covers them: 70 + 40
-    # only becomes impossible once the first one has actually left. This is the
-    # race the row lock and the re-check under it exist for, and planning both up
-    # front is the only way to reach it.
-    second = await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("40"))
-    await service.mark_ready(ctx.session, ctx.tenant, second.id, reason="Loaded")
+    # The first plan has not left, so the order line's dispatched quantity has not
+    # moved - but 40 of the 100 are already spoken for. Counting open consignments
+    # when a plan is saved is what stops 70 + 40 from both being accepted.
+    first = await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("40"))
+    await service.mark_ready(ctx.session, ctx.tenant, first.id, reason="Loaded")
 
-    await send(ctx, bench, "70")
+    with pytest.raises(ValidationError) as excinfo:
+        await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("70"))
+    assert excinfo.value.details["dispatchable"] == "60.0000"
+    assert excinfo.value.details["on_open_dispatches"] == "40.0000"
+    assert "Line 1" in excinfo.value.message
 
-    detail = second
-    with pytest.raises(BusinessRuleError) as excinfo:
+    # What is left is exactly plannable.
+    await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("60"))
+    balance = await balance_of(ctx, bench)
+    assert balance.on_hand_quantity == Decimal("100.0000")
+
+
+async def test_a_plan_overtaken_before_it_leaves_is_refused_and_moves_nothing(
+    ctx: Ctx,
+) -> None:
+    bench = await seed_bench(ctx, ordered="100")
+
+    # Planned while the reservation covered it; the promise is then given back
+    # from the allocation side. The re-check under the locks at departure is the
+    # authority - the plan-time read is worthless by then.
+    detail = await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("70"))
+    await service.mark_ready(ctx.session, ctx.tenant, detail.id, reason="Loaded")
+    await allocation.release(
+        ctx.session, ctx.tenant, reservation_id=bench.reservation.id, reason="Promise withdrawn"
+    )
+
+    with pytest.raises(ValidationError, match="no live stock reservation") as excinfo:
         await service.dispatch_consignment(
-            ctx.session, ctx.tenant, detail.id, DispatchRequest(reason="Second load")
+            ctx.session, ctx.tenant, detail.id, DispatchRequest(reason="Leaving anyway")
         )
-    assert excinfo.value.details["remaining"] == "30.0000"
+    assert excinfo.value.details["reserved"] == "0.0000"
 
     balance = await balance_of(ctx, bench)
-    assert balance.on_hand_quantity == Decimal("30.0000")
-
+    assert balance.on_hand_quantity == Decimal("100.0000")
     refused = (
         await ctx.session.execute(
             select(Dispatch)
@@ -898,8 +926,78 @@ async def test_a_line_cannot_reference_another_orders_line(ctx: Ctx) -> None:
     payload = bench.payload("10")
     payload.lines[0].sales_order_line_id = other.line.id
 
-    with pytest.raises(BusinessRuleError):
+    with pytest.raises(ValidationError, match="different sales order"):
         await service.create_dispatch(ctx.session, ctx.tenant, payload)
+
+
+async def test_a_consignment_against_an_order_must_name_the_order_line_of_every_line(
+    ctx: Ctx,
+) -> None:
+    bench = await seed_bench(ctx)
+    payload = bench.payload("10")
+    payload.lines[0].sales_order_line_id = None
+
+    # The defect this closes: a line with no order line skipped the reservation
+    # and the order-line arithmetic, shipped free stock, and still walked the
+    # order to PARTIALLY_DISPATCHED.
+    with pytest.raises(ValidationError, match="Line 1") as excinfo:
+        await service.create_dispatch(ctx.session, ctx.tenant, payload)
+    assert excinfo.value.details["line"] == 1
+
+
+async def test_a_consignment_against_an_order_leaves_from_the_orders_own_warehouse(
+    ctx: Ctx,
+) -> None:
+    bench = await seed_bench(ctx)
+    elsewhere = await seed_warehouse(ctx)
+
+    # The reservation is held at the order's warehouse and is consumed there; a
+    # document naming another store would record goods leaving where they never were.
+    with pytest.raises(ValidationError, match="must leave from that warehouse"):
+        await service.create_dispatch(
+            ctx.session, ctx.tenant, bench.payload("10", warehouse_id=elsewhere.id)
+        )
+
+
+async def test_a_line_for_an_item_the_order_does_not_carry_is_refused(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    stranger = await seed_item(ctx, bench.uom)
+    payload = bench.payload("10")
+    payload.lines[0].item_id = stranger.id
+
+    with pytest.raises(ValidationError, match="different item"):
+        await service.create_dispatch(ctx.session, ctx.tenant, payload)
+
+
+async def test_one_order_line_may_appear_on_a_consignment_only_once(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    payload = bench.payload("10")
+    payload.lines.append(
+        DispatchLineIn(
+            item_id=bench.item.id, quantity=Decimal("5"), sales_order_line_id=bench.line.id
+        )
+    )
+
+    with pytest.raises(ValidationError, match="two lines"):
+        await service.create_dispatch(ctx.session, ctx.tenant, payload)
+
+
+async def test_a_direct_sale_with_no_order_still_ships_from_free_stock(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx, ordered="40", on_hand="100")
+    payload = bench.payload("25", sales_order_id=None)
+    payload.lines[0].sales_order_line_id = None
+
+    detail = await service.create_dispatch(ctx.session, ctx.tenant, payload)
+    await service.mark_ready(ctx.session, ctx.tenant, detail.id, reason="Loaded")
+    result = await service.dispatch_consignment(
+        ctx.session, ctx.tenant, detail.id, DispatchRequest(reason="Counter sale")
+    )
+
+    assert result.consumed_reservation_ids == []
+    balance = await balance_of(ctx, bench)
+    # 100 on hand, 40 promised to the order and untouched by the counter sale.
+    assert balance.on_hand_quantity == Decimal("75.0000")
+    assert balance.reserved_quantity == Decimal("40.0000")
 
 
 async def test_a_consignment_with_no_lines_cannot_be_made_ready(ctx: Ctx) -> None:

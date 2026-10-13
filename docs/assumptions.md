@@ -1392,6 +1392,43 @@ floor, `conversion_delivery_date` takes the vendor's lead time as a third input.
 
 ---
 
+## §E1-1. A reservation caps order-linked dispatch
+
+**Assumed.** Only a live reservation can back an order-linked dispatch. Other open consignments reduce the order-line balance before a new plan is accepted.
+
+**Why.** The reservation is the stock promise; free stock must not bypass it.
+
+**Where.** `sales.dispatchable_quantity; dispatch validation and departure.`
+
+**Impact if wrong.** Allowing unreserved shipment would need a different allocation contract.
+
+---
+
+## §E1-2. Stock arrivals top up short orders on a bounded schedule
+
+**Assumed.** The default top-up cadence is 900 seconds, at most 200 short orders per company, ranked by priority, required date, order date and id. Each order commits separately.
+
+**Why.** Arrivals flow to waiting demand without coupling GRN, production or transfers to sales.
+
+**Where.** `SO_TOPUP_INTERVAL_SECONDS; maintenance.allocate_short_orders.`
+
+**Impact if wrong.** A shorter cadence or explicit event-driven wake-up can be added without changing reservations.
+
+---
+
+## §E1-3. Quantity growth restores the shortage state
+
+**Assumed.** An ALLOCATED order returns to CONFIRMED when quantity changes leave any live shortfall.
+
+**Why.** Allocated must mean fully covered; closed reservations count as zero.
+
+**Where.** `sales._update_confirmed and SALES_ORDER_LIFECYCLE.`
+
+**Impact if wrong.** Any different meaning for ALLOCATED would require retuning dispatch and planning gates.
+
+---
+
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant

@@ -526,6 +526,8 @@ permitted to change a status column.
 
 ```
 Sales order       DRAFT -> CONFIRMED -> ALLOCATED -> PARTIALLY_DISPATCHED -> DISPATCHED -> INVOICED -> CLOSED
+                  CONFIRMED -> PARTIALLY_DISPATCHED (reserved portion may ship)
+                  ALLOCATED -> CONFIRMED (quantity increase restores a shortage)
                   (CANCELLED reachable from DRAFT/CONFIRMED/ALLOCATED only)
 
 Purchase          DRAFT -> PENDING_APPROVAL -> APPROVED -> CONVERTED -> CLOSED
@@ -575,6 +577,7 @@ Every transition writes an audit row via `record_status_change`.
 | QC rejection | `change_stock_state` to `DAMAGED`/`SCRAP`, raise return/rework |
 | Dispatch | `allocation.consume`, then `post_movements` (`DISPATCH`) |
 | Sales order confirmed | `allocation.reserve` per line against available stock |
+| Stock arrives for a short sales order | `maintenance.allocate_short_orders` finds live shortfalls, then calls `sales.allocate_order` per order in its own transaction; default cadence 900 seconds, at most 200 orders per company |
 | Requisition converted | One DRAFT purchase order per (vendor, procurement category, warehouse) through `procurement.service._create_purchase_order` (duplicate check included); `_link_source_documents` adds to each line's `ordered_quantity` and moves the requisition APPROVED → CONVERTED; one CREATE audit row per order and one "Split into …" row per requisition - all in one transaction, or nothing |
 | Vendor invoice approved | `finance.post_journal`: one `PURCHASE_EXPENSE` debit per effective line cost centre (line -> header -> none), input tax, payable |
 | Any write naming a cost centre | `organization.service.require_cost_centre` / `require_cost_centres` (tenant, live, active) before the row is written |
@@ -621,3 +624,12 @@ aggregations on every request (§25). The order of escalation is fixed:
 6. ClickHouse only when measured volume proves the need — not before
 
 Inventory availability is **never** served from cache (§34).
+
+
+### Sales fulfilment and issued tax invoices
+
+A SALES dispatch naming an order must name a matching `sales_order_line_id` on
+ every line. Dispatchable quantity is `max(0, min(live reservation remaining,
+ordered - dispatched - other open dispatch quantities))`; closed reservations
+are zero. Planning and departure both validate it under the order lock. A SALES
+consignment without an order retains the direct free-stock movement path.

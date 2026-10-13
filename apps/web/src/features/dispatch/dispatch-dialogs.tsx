@@ -24,7 +24,7 @@
  */
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Boxes, MapPin, Plus, ScanBarcode, Trash2, Truck } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
@@ -59,7 +59,11 @@ import {
 import { useAuth } from '@/features/auth/auth-context'
 import { CustomerPicker } from '@/features/customers/customer-picker'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
-import type { SalesOrderRow } from '@/features/sales/sales-types'
+import type {
+  SalesOrderAllocation,
+  SalesOrderDetail,
+  SalesOrderRow,
+} from '@/features/sales/sales-types'
 import { useTransporterOptions } from '@/features/transporters/transporter-model'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
@@ -75,7 +79,7 @@ import {
   toDateInput,
   toDecimal,
 } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { fulfilment, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -90,11 +94,13 @@ import {
   QUANTITY_INPUT,
   WEIGHT_INPUT,
   dispatchKeys,
+  itemFactsQuery,
   useItemFacts,
   type DispatchDetail,
   type DispatchLineIn,
   type DispatchRow,
   type DispatchTrackingEvent,
+  type ItemFacts,
 } from './dispatch-types'
 
 /** Which counterparty a type needs, mirroring `_counterparty_matches_type`. */
@@ -261,13 +267,6 @@ function LineEditor({
 // ------------------------------------------------------ sales order link ----
 
 /**
- * Which order this consignment is shipping against.
- *
- * Optional, but it is what lets the release consume the order's reservations and
- * move its lines on, so it is offered whenever the customer is known. Only the
- * customer's open orders are asked for - the server does the narrowing.
- */
-/**
  * Pick the carrier from the Transporters register.
  *
  * `courier_name` beside it is free text and stays: a one-off carrier does not
@@ -318,14 +317,25 @@ function TransporterSelect({
   )
 }
 
+/**
+ * Which order this consignment is shipping against.
+ *
+ * Optional - a SALES consignment naming no order is a direct sale from free
+ * stock - but choosing one is what makes the release consume the order's
+ * reservations and move its lines on, so it is offered whenever the customer is
+ * known. Only the customer's open orders are asked for; the server narrows.
+ * Once an order is chosen the lines come from it (see `OrderLines`).
+ */
 function SalesOrderSelect({
   customerId,
   value,
   onChange,
+  disabled = false,
 }: {
   customerId: string | null
   value: string
   onChange: (value: string) => void
+  disabled?: boolean
 }) {
   const params = {
     customer_id: customerId,
@@ -348,7 +358,7 @@ function SalesOrderSelect({
   return (
     <div className="space-y-1.5">
       <Label htmlFor="dispatch-sales-order">Against sales order</Label>
-      <Select value={value} onValueChange={onChange} disabled={!customerId}>
+      <Select value={value} onValueChange={onChange} disabled={disabled || !customerId}>
         <SelectTrigger id="dispatch-sales-order">
           <SelectValue />
         </SelectTrigger>
@@ -369,10 +379,156 @@ function SalesOrderSelect({
           offered here.
         </p>
       )}
-      <p className="text-xs text-muted-foreground">
-        Naming it lets the release consume the order's reservations and move its lines on.
-      </p>
+      <p className="text-xs text-muted-foreground">{fulfilment.linkedDispatch}</p>
     </div>
+  )
+}
+
+// ------------------------------------------------------------ order lines ----
+
+/**
+ * One line of the chosen sales order, pre-filled with what it may carry now.
+ *
+ * The quantity starts at `dispatchable_quantity` - the line's live reservation
+ * less what other open consignments carry - and may only be lowered: the server
+ * refuses anything above it, and a line the order does not have cannot be added
+ * at all, because the order's lines are the only ones offered.
+ */
+interface OrderDraftLine {
+  lineId: string
+  lineNumber: number
+  itemId: string
+  itemCode: string
+  /** The most this line may carry now. */
+  dispatchable: string
+  quantity: string
+  batchId: string
+  serialIds: string[]
+}
+
+/** The lines a consignment against this order may carry, at their full allowance. */
+function orderDraftLines(allocation: SalesOrderAllocation): OrderDraftLine[] {
+  return allocation.lines
+    .filter((line) => toDecimal(line.dispatchable_quantity).greaterThan(0))
+    .map((line) => ({
+      lineId: line.line_id,
+      lineNumber: line.line_number,
+      itemId: line.item_id,
+      itemCode: line.item_code ?? line.item_id,
+      dispatchable: String(line.dispatchable_quantity),
+      quantity: toDecimal(line.dispatchable_quantity).toString(),
+      batchId: '',
+      serialIds: [],
+    }))
+}
+
+/** Why a pre-filled line cannot be sent as it stands, or null when it can. */
+function orderLineProblem(line: OrderDraftLine, item: ItemFacts | undefined): string | null {
+  const quantity = line.quantity.trim()
+  if (!QUANTITY_INPUT.test(quantity) || !toDecimal(quantity).greaterThan(0)) {
+    return fulfilment.quantityInvalid
+  }
+  if (toDecimal(quantity).greaterThan(toDecimal(line.dispatchable))) {
+    return fulfilment.quantityTooHigh(formatQuantity(line.dispatchable))
+  }
+  if (item?.is_batch_tracked && !line.batchId) {
+    return `${item.code} is batch tracked - name the batch being shipped.`
+  }
+  if (item?.is_serial_tracked && !toDecimal(quantity).equals(line.serialIds.length)) {
+    return `${line.serialIds.length} serial(s) chosen for a quantity of ${formatQuantity(quantity)} - a serialised line needs exactly one per unit.`
+  }
+  return null
+}
+
+function toOrderLineIn(line: OrderDraftLine, item: ItemFacts | undefined): DispatchLineIn {
+  return {
+    item_id: line.itemId,
+    sales_order_line_id: line.lineId,
+    quantity: line.quantity.trim(),
+    batch_id: line.batchId || null,
+    serial_ids: item?.is_serial_tracked ? line.serialIds : [],
+    carton_ids: [],
+  }
+}
+
+function OrderLines({
+  lines,
+  facts,
+  warehouseId,
+  showProblems,
+  onChange,
+  onRemove,
+}: {
+  lines: OrderDraftLine[]
+  facts: (ItemFacts | undefined)[]
+  warehouseId: string
+  showProblems: boolean
+  onChange: (lineId: string, patch: Partial<OrderDraftLine>) => void
+  onRemove: (lineId: string) => void
+}) {
+  return (
+    <ul className="divide-y rounded-lg border">
+      {lines.map((line, index) => {
+        const item = facts[index]
+        const problem = orderLineProblem(line, item)
+        const inputId = `dispatch-order-line-${line.lineNumber}`
+        return (
+          <li key={line.lineId} className="space-y-3 p-3 text-sm">
+            <div className="flex flex-wrap items-end gap-3">
+              <Boxes className="mb-2 h-4 w-4 text-muted-foreground" aria-hidden />
+              <div className="min-w-0 flex-1">
+                <span className="block truncate font-medium">
+                  Line {line.lineNumber} - {line.itemCode}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  {formatQuantity(line.dispatchable)} may leave now
+                </span>
+              </div>
+              <div className="w-full sm:w-36">
+                <Label htmlFor={inputId}>Quantity</Label>
+                <Input
+                  id={inputId}
+                  aria-label={`Quantity for line ${line.lineNumber}`}
+                  inputMode="decimal"
+                  value={line.quantity}
+                  onChange={(event) => onChange(line.lineId, { quantity: event.target.value })}
+                  aria-invalid={showProblems && problem !== null}
+                  className="mt-1.5 text-right tabular"
+                />
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Remove line ${line.lineNumber}`}
+                onClick={() => onRemove(line.lineId)}
+              >
+                <Trash2 className="text-destructive" />
+              </Button>
+            </div>
+            {item?.is_batch_tracked && (
+              <BatchSelect
+                id={`${inputId}-batch`}
+                itemId={line.itemId}
+                value={line.batchId}
+                onChange={(batchId) => onChange(line.lineId, { batchId })}
+              />
+            )}
+            {item?.is_serial_tracked && (
+              <SerialPicker
+                idPrefix={inputId}
+                itemId={line.itemId}
+                warehouseId={warehouseId}
+                quantity={line.quantity}
+                selected={line.serialIds}
+                onChange={(serialIds) => onChange(line.lineId, { serialIds })}
+              />
+            )}
+            {showProblems && problem && <FieldError message={problem} />}
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
@@ -479,17 +635,35 @@ interface DraftLine {
   label: string
 }
 
+/**
+ * Raise a consignment.
+ *
+ * `order` opens the dialog from a sales order's own page: the type, customer,
+ * order and warehouse are then fixed to that order, and only its lines are
+ * offered. The same happens when an order is chosen in the dialog - a
+ * consignment against an order ships that order's reserved lines and nothing
+ * else (the server refuses anything else; this keeps the form from offering it).
+ */
 export function CreateDispatchDialog({
   open,
   onOpenChange,
+  order,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  order?: SalesOrderDetail
 }) {
   const { can } = useAuth()
   const queryClient = useQueryClient()
   const [lines, setLines] = useState<DraftLine[]>([])
   const [linesTouched, setLinesTouched] = useState(false)
+  // Keyed by the order they were loaded for: a refetch of the same order never
+  // overwrites what the dispatcher has lowered or removed, and lines loaded for
+  // one order are never shown against another.
+  const [orderLines, setOrderLines] = useState<{
+    orderId: string
+    lines: OrderDraftLine[]
+  } | null>(null)
 
   const {
     register,
@@ -497,6 +671,7 @@ export function CreateDispatchDialog({
     handleSubmit,
     reset,
     setError,
+    setValue,
     watch,
     formState: { errors },
   } = useForm<CreateFormValues>({
@@ -505,16 +680,70 @@ export function CreateDispatchDialog({
   })
 
   useEffect(() => {
-    if (open) return
-    reset(emptyCreate())
-    setLines([])
-    setLinesTouched(false)
-  }, [open, reset])
+    if (!open) {
+      reset(emptyCreate())
+      setLines([])
+      setLinesTouched(false)
+      setOrderLines(null)
+      return
+    }
+    if (order) {
+      reset({
+        ...emptyCreate(),
+        customer_id: order.customer_id,
+        warehouse_id: order.warehouse_id,
+        sales_order_id: order.id,
+      })
+    }
+  }, [open, order, reset])
 
   const dispatchType = watch('dispatch_type')
   const warehouseId = watch('warehouse_id')
+  const salesOrderId = watch('sales_order_id')
   const needsCustomer = CUSTOMER_TYPES.has(dispatchType)
   const needsVendor = VENDOR_TYPES.has(dispatchType)
+  const againstOrder = needsCustomer && salesOrderId !== SELECT_NONE
+
+  // The same read, under the same key, as the order page's allocation panel.
+  const allocation = useQuery({
+    queryKey: [...queryKeys.sales.detail(salesOrderId), 'allocation-status'],
+    queryFn: () => api.get<SalesOrderAllocation>(`/sales/${salesOrderId}/allocation-status`),
+    enabled: open && againstOrder,
+    staleTime: staleTimes.live,
+  })
+
+  useEffect(() => {
+    const data = allocation.data
+    if (!againstOrder || !data || data.order_id !== salesOrderId) return
+    if (orderLines?.orderId === salesOrderId) return
+    setOrderLines({ orderId: salesOrderId, lines: orderDraftLines(data) })
+    // The order's stock is reserved at its own warehouse, and it leaves from there.
+    setValue('warehouse_id', data.warehouse_id, { shouldValidate: true })
+  }, [againstOrder, allocation.data, orderLines, salesOrderId, setValue])
+
+  const shownOrderLines =
+    againstOrder && orderLines?.orderId === salesOrderId ? orderLines.lines : []
+  const orderLineFacts = useQueries({
+    queries: shownOrderLines.map((line) => itemFactsQuery(line.itemId, can(P.ITEM_VIEW))),
+  }).map((query) => query.data)
+
+  const changeOrderLine = (lineId: string, patch: Partial<OrderDraftLine>) =>
+    setOrderLines((current) =>
+      current === null
+        ? current
+        : {
+            ...current,
+            lines: current.lines.map((line) =>
+              line.lineId === lineId ? { ...line, ...patch } : line,
+            ),
+          },
+    )
+  const removeOrderLine = (lineId: string) =>
+    setOrderLines((current) =>
+      current === null
+        ? current
+        : { ...current, lines: current.lines.filter((line) => line.lineId !== lineId) },
+    )
 
   const create = useMutation({
     mutationFn: (values: CreateFormValues) =>
@@ -544,13 +773,17 @@ export function CreateDispatchDialog({
         freight_amount: orNull(values.freight_amount),
         freight_paid_by: values.freight_paid_by === SELECT_NONE ? null : values.freight_paid_by,
         notes: orNull(values.notes),
-        lines: lines.map((draft) => draft.line),
+        lines: againstOrder
+          ? shownOrderLines.map((line, index) => toOrderLineIn(line, orderLineFacts[index]))
+          : lines.map((draft) => draft.line),
       }),
     onSuccess: (dispatch) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.dispatch.all })
       // Creating a consignment moves nothing - stock leaves on the dispatch
-      // transition - but allocation now shows the units spoken for.
+      // transition - but allocation now shows the units spoken for, and the
+      // order's dispatchable-now figures count this plan.
       void queryClient.invalidateQueries({ queryKey: queryKeys.allocation.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sales.all })
       toast.success(
         success.created('Dispatch'),
         `${dispatch.code} is staged. Mark it ready, then release it to move the stock.`,
@@ -561,8 +794,13 @@ export function CreateDispatchDialog({
   })
 
   const submit = (values: CreateFormValues) => {
-    if (lines.length === 0) {
-      setLinesTouched(true)
+    setLinesTouched(true)
+    if (againstOrder) {
+      const blocked = shownOrderLines.some(
+        (line, index) => orderLineProblem(line, orderLineFacts[index]) !== null,
+      )
+      if (shownOrderLines.length === 0 || blocked) return
+    } else if (lines.length === 0) {
       return
     }
     create.mutate(values)
@@ -572,7 +810,7 @@ export function CreateDispatchDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="xl">
         <DialogHeader>
-          <DialogTitle>Create a dispatch</DialogTitle>
+          <DialogTitle>{order ? `Dispatch ${order.code}` : 'Create a dispatch'}</DialogTitle>
           <DialogDescription>
             What is going out, from where, and everything it can be traced by - recorded once, at
             the gate. Nothing leaves stock until the consignment is released.
@@ -590,7 +828,11 @@ export function CreateDispatchDialog({
                   control={control}
                   name="dispatch_type"
                   render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
+                    <Select
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      disabled={Boolean(order)}
+                    >
                       <SelectTrigger
                         id="dispatch-type"
                         className="mt-1.5"
@@ -621,9 +863,14 @@ export function CreateDispatchDialog({
                         id="dispatch-customer"
                         label="Customer"
                         value={field.value}
-                        onChange={field.onChange}
+                        onChange={(next) => {
+                          field.onChange(next)
+                          // Another customer's order cannot travel on this lorry.
+                          setValue('sales_order_id', SELECT_NONE)
+                        }}
                         invalid={Boolean(errors.customer_id)}
                         placeholder="Choose a customer"
+                        disabled={Boolean(order)}
                       />
                     )}
                   />
@@ -660,6 +907,7 @@ export function CreateDispatchDialog({
                       customerId={watch('customer_id')}
                       value={field.value}
                       onChange={field.onChange}
+                      disabled={Boolean(order)}
                     />
                   )}
                 />
@@ -677,10 +925,16 @@ export function CreateDispatchDialog({
                         value={field.value}
                         onChange={field.onChange}
                         invalid={Boolean(errors.warehouse_id)}
+                        disabled={againstOrder}
                       />
                     )}
                   />
                   <FieldError message={errors.warehouse_id?.message} />
+                  {againstOrder && (
+                    <p className="mt-1.5 text-xs text-muted-foreground">
+                      {fulfilment.orderWarehouse}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
@@ -894,61 +1148,89 @@ export function CreateDispatchDialog({
               </div>
             </div>
 
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium">
-                Lines <span className="text-muted-foreground">({lines.length})</span>
-              </h3>
+            {againstOrder ? (
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium">
+                  Order lines{' '}
+                  <span className="text-muted-foreground">({shownOrderLines.length})</span>
+                </h3>
+                {allocation.isLoading && (
+                  <p className="text-sm text-muted-foreground">{fulfilment.loadingDispatchable}</p>
+                )}
+                {allocation.error && <FieldError message={allocation.error.message} />}
+                {allocation.data && shownOrderLines.length === 0 && (
+                  <Alert variant="warning">
+                    <AlertDescription>{fulfilment.nothingDispatchable}</AlertDescription>
+                  </Alert>
+                )}
+                {shownOrderLines.length > 0 && (
+                  <OrderLines
+                    lines={shownOrderLines}
+                    facts={orderLineFacts}
+                    warehouseId={warehouseId}
+                    showProblems={linesTouched}
+                    onChange={changeOrderLine}
+                    onRemove={removeOrderLine}
+                  />
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium">
+                  Lines <span className="text-muted-foreground">({lines.length})</span>
+                </h3>
 
-              {lines.length === 0 ? (
-                <p className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-                  A consignment is created with what it carries. Add at least one line.
-                </p>
-              ) : (
-                <ul className="divide-y rounded-lg border">
-                  {lines.map((draft, index) => (
-                    <li key={`${draft.line.item_id}-${index}`} className="flex gap-3 p-3 text-sm">
-                      <Boxes
-                        className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
-                        aria-hidden
-                      />
-                      <div className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">{draft.label}</span>
-                        <span className="block truncate text-xs text-muted-foreground">
-                          {formatQuantity(draft.line.quantity)}
-                          {draft.line.batch_id ? ' - batch named' : ''}
-                          {draft.line.serial_ids.length > 0
-                            ? ` - ${draft.line.serial_ids.length} serial(s) identified`
-                            : ''}
-                        </span>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Remove line ${index + 1}`}
-                        onClick={() =>
-                          setLines((current) => current.filter((_, at) => at !== index))
-                        }
-                      >
-                        <Trash2 className="text-destructive" />
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+                {lines.length === 0 ? (
+                  <p className="rounded-md border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
+                    A consignment is created with what it carries. Add at least one line.
+                  </p>
+                ) : (
+                  <ul className="divide-y rounded-lg border">
+                    {lines.map((draft, index) => (
+                      <li key={`${draft.line.item_id}-${index}`} className="flex gap-3 p-3 text-sm">
+                        <Boxes
+                          className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+                          aria-hidden
+                        />
+                        <div className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">{draft.label}</span>
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {formatQuantity(draft.line.quantity)}
+                            {draft.line.batch_id ? ' - batch named' : ''}
+                            {draft.line.serial_ids.length > 0
+                              ? ` - ${draft.line.serial_ids.length} serial(s) identified`
+                              : ''}
+                          </span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Remove line ${index + 1}`}
+                          onClick={() =>
+                            setLines((current) => current.filter((_, at) => at !== index))
+                          }
+                        >
+                          <Trash2 className="text-destructive" />
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
 
-              {linesTouched && lines.length === 0 && (
-                <FieldError message="A consignment needs at least one line" />
-              )}
+                {linesTouched && lines.length === 0 && (
+                  <FieldError message="A consignment needs at least one line" />
+                )}
 
-              <LineEditor
-                warehouseId={warehouseId}
-                onAdd={(line, label) => {
-                  setLines((current) => [...current, { line, label }])
-                  setLinesTouched(false)
-                }}
-              />
-            </div>
+                <LineEditor
+                  warehouseId={warehouseId}
+                  onAdd={(line, label) => {
+                    setLines((current) => [...current, { line, label }])
+                    setLinesTouched(false)
+                  }}
+                />
+              </div>
+            )}
 
             <div>
               <Label htmlFor="dispatch-notes">Notes</Label>

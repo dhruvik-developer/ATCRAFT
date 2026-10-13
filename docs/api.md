@@ -408,3 +408,9 @@ download. No endpoint holds a connection open for a calculation.
 ```
 
 Full request and response schemas are generated from the code at `/docs`.
+
+
+Sales fulfilment: `POST /sales/{id}/allocate` (sales_order.update) tops up live
+reservations, and `POST /sales/{id}/close` closes an INVOICED order. Allocation
+status reports reserved, dispatchable-now and short quantities. Order-linked
+SALES dispatches require a matching order-line id on every line.

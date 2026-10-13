@@ -73,6 +73,9 @@ x-api-env: &api-env
   DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
   CELERY_BROKER_URL: redis://redis:6379/1
   CELERY_RESULT_BACKEND: redis://redis:6379/2
+  # How often the allocation top-up reserves newly arrived stock for short
+  # sales orders (docs/assumptions.md section E1-2).
+  SO_TOPUP_INTERVAL_SECONDS: ${SO_TOPUP_INTERVAL_SECONDS:-900}
   # Per deployment, and never shared: a token minted by one deployment must not
   # authenticate against the other. The issuer and audience make that a
   # deliberate rejection rather than an accident of key rotation.

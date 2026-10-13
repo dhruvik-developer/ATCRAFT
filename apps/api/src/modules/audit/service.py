@@ -17,6 +17,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.ids import persisted_actor
 from src.core.logging import (
     get_request_id,
     ip_address_ctx,
@@ -143,7 +144,9 @@ async def record_audit(
         new_values=new_clean,
         changed_fields=changed or None,
         context=_clean(context),
-        created_by_id=user_id,
+        # A scheduled job's placeholder actor is recorded as nobody, not as a
+        # foreign key to a user that cannot exist (src.core.ids.persisted_actor).
+        created_by_id=persisted_actor(user_id),
         actor_label=actor_label,
         request_id=get_request_id(),
         ip_address=ip_address_ctx.get(),

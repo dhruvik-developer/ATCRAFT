@@ -2037,6 +2037,11 @@ SALES_ORDERS: tuple[_SalesSpec, ...] = (
                 quantity="12",
                 note="Antique brass, 52 mm rose. Dealer price list.",
             ),
+            _SalesLineSpec(
+                item=("FG", "DIGILOCK"),
+                quantity="4",
+                note="Showroom display stock, priced on the dealer order.",
+            ),
         ),
     ),
     _SalesSpec(
@@ -2334,10 +2339,10 @@ async def _seed_mrp(ctx: DemoContext, look: _Lookup) -> None:
 # One shipment, boxed properly: two cartons of handle sets and a third holding
 # four digital locks by serial number.
 #
-# The locks are on the packing order without a sales-order line behind them, which
-# the module explicitly allows - a shipment routinely carries something the
-# customer did not order on a line, a sample or a replacement - and here they are
-# showroom samples for the dealer. They are also the only way a serialised unit
+# The locks are priced display stock on the same dealer sales order, reserved for
+# it at confirmation like the handle sets. Packing and despatch both name that
+# order line, so the consignment consumes the order's own reservation rather than
+# shipping free stock beside it. They are also the only way a serialised unit
 # gets into a carton in this database, which is what makes "which box is unit
 # DL900-24A0119 in?" a question with an answer.
 #
@@ -2397,6 +2402,7 @@ async def _seed_packing(
         _seen(ctx, "packing_order", tag, order.id, created=False)
     else:
         handle_line = await _sales_line(ctx, sales_order_id, handle.id)
+        lock_line = await _sales_line(ctx, sales_order_id, lock.id) if lock else None
         lines = [
             PackingOrderLineIn(
                 item_id=handle.id,
@@ -2411,8 +2417,7 @@ async def _seed_packing(
                     item_id=lock.id,
                     quantity_to_pack=Decimal("4"),
                     uom_id=lock.base_uom_id,
-                    # No order line: these are samples the dealer did not order.
-                    sales_order_line_id=None,
+                    sales_order_line_id=lock_line.id if lock_line is not None else None,
                 )
             )
         try:
@@ -2608,17 +2613,17 @@ async def _fill_cartons(
 # be able to show: one that has left with a carrier tracking number against it,
 # one that has arrived and been signed for, and one still being loaded.
 #
-# The first two draw on sales orders that were fully allocated, and that is not a
-# presentational choice: the sales lifecycle has no CONFIRMED -> DISPATCHED edge,
-# so an order that was only partly covered cannot ship until the rest of it is.
-# Trying it would be refused by the state machine, which is the correct answer -
-# a part-allocated order is a promise nobody has finished making.
+# Every line names the sales-order line it ships, which is what a consignment
+# against an order has to do: the line's live reservation is what leaves, and the
+# order line's dispatched quantity moves with it. The first two draw on orders
+# that were fully allocated. The third is a partly reserved order shipping only
+# its reserved part ahead of the rest - the K08 case - because a line may carry
+# no more than its live reservation covers.
 #
-# The samples travel on the first consignment on a line of their own with no
-# order line behind it. That is also the only way they *can* travel: a
-# reservation cannot name a serial number, so the despatch module refuses to
-# consume one for a serialised line and posts the units directly instead - one
-# ledger row per unit, each naming the object that left.
+# The digital locks travel on the first consignment on a line of their own, by
+# serial number. A reservation never names a unit, so the line does: the
+# despatch consumes the order's reservation one unit at a time, one ledger row
+# per unit, each naming the object that left.
 
 
 async def _seed_dispatches(
@@ -2634,7 +2639,7 @@ async def _seed_dispatches(
         ctx, look, packed, handle=handle, warehouse_id=warehouse_id, serials=serials
     )
     await _dispatch_delivered(ctx, look, handle=handle, warehouse_id=warehouse_id)
-    await _dispatch_being_loaded(ctx, look, warehouse_id=warehouse_id)
+    await _dispatch_being_loaded(ctx, look, handle=handle, warehouse_id=warehouse_id)
 
 
 async def _dispatch_shipped(
@@ -2656,6 +2661,7 @@ async def _dispatch_shipped(
     if existing is None:
         handle_line = await _sales_line(ctx, packed.sales_order_id, handle.id)
         lock = await look.item("FG", "DIGILOCK")
+        lock_line = await _sales_line(ctx, packed.sales_order_id, lock.id) if lock else None
         cartons = list(packed.carton_ids)
 
         lines = [
@@ -2667,14 +2673,15 @@ async def _dispatch_shipped(
                 notes="Two cartons, six sets each.",
             )
         ]
-        if lock is not None and len(serials) >= 4 and len(cartons) >= 3:
+        if lock is not None and lock_line is not None and len(serials) >= 4 and len(cartons) >= 3:
             lines.append(
                 DispatchLineIn(
                     item_id=lock.id,
                     quantity=Decimal("4"),
+                    sales_order_line_id=lock_line.id,
                     serial_ids=list(serials[:4]),
                     carton_ids=cartons[2:3],
-                    notes="Showroom samples; each unit identified by serial number.",
+                    notes="Priced showroom display stock; each unit identified by serial number.",
                 )
             )
 
@@ -2793,19 +2800,24 @@ async def _dispatch_delivered(
 
 
 async def _dispatch_being_loaded(
-    ctx: DemoContext, look: _Lookup, *, warehouse_id: uuid.UUID
+    ctx: DemoContext, look: _Lookup, *, handle: _ItemRef, warehouse_id: uuid.UUID
 ) -> None:
-    """The distributor's consignment, still on the loading plan.
+    """The Whitefield site's first tranche, still on the loading plan.
 
-    Left in ``NOT_DISPATCHED`` on purpose. Nothing has moved and nothing is
-    promised: this is the plan a despatch clerk works from in the morning, and a
-    tracking board with no such row on it hides half of what the screen is for.
+    Left in ``NOT_DISPATCHED`` on purpose. Nothing has moved yet: this is the plan
+    a despatch clerk works from in the morning, and a tracking board with no such
+    row on it hides half of what the screen is for.
+
+    It is raised against the part-allocated site order on purpose, too. The
+    order is still CONFIRMED - its locksets are not made - but the handle sets it
+    *has* reserved may ship ahead of them (K08): a consignment carries what each
+    line's live reservation covers, and nothing more. The distributor's monthly
+    order, which has nothing reserved at all, could not be loaded this way.
     """
     tag = ctx.code("DSP", "LOADING")
-    sales_order_id = ctx.maybe_id("sales_order", ctx.code("SO", "CONFIRMED"))
-    lever_ss = await look.item("FG", "LEVER-SS")
-    if sales_order_id is None or lever_ss is None:
-        _skip(ctx, f"{tag} not raised: the distributor order or its item is missing")
+    sales_order_id = ctx.maybe_id("sales_order", ctx.code("SO", "PARTIAL"))
+    if sales_order_id is None:
+        _skip(ctx, f"{tag} not raised: the site order does not exist")
         return
 
     found = await _find_tagged(ctx, Dispatch, tag)
@@ -2813,7 +2825,7 @@ async def _dispatch_being_loaded(
         _seen(ctx, "dispatch", tag, found.id, created=False)
         return
 
-    line = await _sales_line(ctx, sales_order_id, lever_ss.id)
+    line = await _sales_line(ctx, sales_order_id, handle.id)
     try:
         detail = await dispatch_service.create_dispatch(
             ctx.session,
@@ -2823,22 +2835,23 @@ async def _dispatch_being_loaded(
                 warehouse_id=warehouse_id,
                 dispatch_date=_days_after(3),
                 expected_delivery_date=_days_after(7),
-                customer_id=await look.customer("DIST", "WEST"),
+                customer_id=await look.customer("CUST", "SKYLINE"),
                 sales_order_id=sales_order_id,
                 transporter_id=await look.transporter("TRN", "VRL"),
-                total_boxes=4,
+                total_boxes=1,
                 freight_paid_by=FreightPaidBy.CONSIGNOR,
                 notes=_tagged(
                     tag,
-                    "First tranche of the distributor's monthly order. Being made up "
-                    "at the bench; no lorry booked and no LR number yet.",
+                    "First tranche of the Whitefield site release: the handle sets the "
+                    "order has reserved, going ahead of the locksets still to be made. "
+                    "Being made up at the bench; no lorry booked and no LR number yet.",
                 ),
                 lines=[
                     DispatchLineIn(
-                        item_id=lever_ss.id,
-                        quantity=Decimal("20"),
+                        item_id=handle.id,
+                        quantity=Decimal("6"),
                         sales_order_line_id=line.id if line is not None else None,
-                        notes="Part shipment against the month's order.",
+                        notes="Six of the ten reserved sets, for the second-floor east wing.",
                     )
                 ],
             ),

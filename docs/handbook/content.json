@@ -1345,6 +1345,14 @@
             {
               "action": "Clear the filters",
               "how": "Clear, which appears once at least one filter is set."
+            },
+            {
+              "action": "Dispatch reserved goods",
+              "how": "Open an order, choose Dispatch, review the prefilled order lines and lower quantities if needed. Record vehicle/LR/tracking evidence, then create the consignment."
+            },
+            {
+              "action": "Allocate arriving stock",
+              "how": "For a confirmed or partially dispatched order with a shortage, choose Allocate available stock on Allocation. The scheduled sweep also checks waiting orders every fifteen minutes."
             }
           ],
           "flow": [
@@ -1359,7 +1367,7 @@
             "Priority is a rank from 1 to 9 (5 is normal), and urgency is a separate flag. The two are shown separately because they mean different things: priority decides who gets scarce stock first, urgency is a marker for the desk."
           ],
           "permission": "Anyone with the right to see sales orders can open this list. The New order button appears only for someone who may create them. The standard Sales Executive role has both.",
-          "notes": "There is no customer name column \u2014 the order row carries a customer reference, not a name, so the customer is offered as a filter instead. Worth saying in the caption so the client does not read it as an omission. A screenshot with a mix of statuses, one red late date and one Approval badge will carry the whole page."
+          "notes": "There is no customer name column \u2014 the order row carries a customer reference, not a name, so the customer is offered as a filter instead. Worth saying in the caption so the client does not read it as an omission. A screenshot with a mix of statuses, one red late date and one Approval badge will carry the whole page. Reserved / Dispatchable now / Short are live figures. Closed reservations do not permit shipment; short confirmed orders may dispatch their reserved part."
         },
         {
           "route": "/sales-orders/:id",
@@ -1405,6 +1413,14 @@
             {
               "action": "Take a shortfall to planning",
               "how": "Run MRP to plan the balance, in the amber box at the top of the Allocation panel."
+            },
+            {
+              "action": "Dispatch reserved goods",
+              "how": "Open an order, choose Dispatch, review the prefilled order lines and lower quantities if needed. Record vehicle/LR/tracking evidence, then create the consignment."
+            },
+            {
+              "action": "Allocate arriving stock",
+              "how": "For a confirmed or partially dispatched order with a shortage, choose Allocate available stock on Allocation. The scheduled sweep also checks waiting orders every fifteen minutes."
             }
           ],
           "flow": [
@@ -1427,7 +1443,7 @@
             "Cancelling releases every reservation the order held back to free stock, in the same step. A cancelled order cannot be reopened, and it cannot be cancelled once anything has shipped \u2014 a document that moved stock cannot claim never to have existed."
           ],
           "permission": "Opening the order needs the right to see sales orders. Edit, Add line, and Confirm all need the right to change sales orders \u2014 the same right, so anyone who can edit an order can confirm one. Approve pricing needs the separate right to approve sales orders. Cancel order needs the right to cancel them. The standard Sales Executive role can view, create and update but cannot approve or cancel \u2014 those sit with a manager.",
-          "notes": "Two honest gaps worth knowing before the deck is written. First, there is no Delete button for a draft, even though a draft can technically be removed; in practice anything past draft must be cancelled anyway, so cancellation is the only path this screen offers. Second, the system will accept a quantity or delivery-date change on a confirmed order and will move the reservation to match, but this screen does not offer it \u2014 a confirmed order is read-only here. Also: a line shows the description that was keyed against it plus the item's reference, not an item code, because the line record does not carry one. For the screenshot, use a confirmed order with at least one short line so the Allocation panel and its amber banner are both visible; on a draft the panel is replaced by a one-line notice."
+          "notes": "Two honest gaps worth knowing before the deck is written. First, there is no Delete button for a draft, even though a draft can technically be removed; in practice anything past draft must be cancelled anyway, so cancellation is the only path this screen offers. Second, the system will accept a quantity or delivery-date change on a confirmed order and will move the reservation to match, but this screen does not offer it \u2014 a confirmed order is read-only here. Also: a line shows the description that was keyed against it plus the item's reference, not an item code, because the line record does not carry one. For the screenshot, use a confirmed order with at least one short line so the Allocation panel and its amber banner are both visible; on a draft the panel is replaced by a one-line notice. Reserved / Dispatchable now / Short are live figures. Closed reservations do not permit shipment; short confirmed orders may dispatch their reserved part."
         },
         {
           "route": "/customers",
