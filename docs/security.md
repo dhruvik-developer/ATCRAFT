@@ -7,6 +7,15 @@ implemented, where it lives, and what is deliberately still open.
 
 ## 1. Authentication
 
+**Administrator-managed recovery identity.** Changing an existing user's login
+email requires `user.update` and `user.reset_password`; changing a protected
+SUPER_ADMIN or superuser account additionally requires super-administrator
+authority. An unchanged normalized email remains a profile edit. Authorized
+changes preserve MFA enrollment, invalidate outstanding reset links and their
+queued delivery copies, revoke sessions in the same transaction, and update
+session-liveness/permission caches after commit. Recovery email is treated as a
+credential rather than an ordinary contact field.
+
 **Password storage — Argon2id.** `src/core/security.py`, parameters following
 OWASP guidance (19 MiB, t=2, p=1). A verify-only bcrypt path exists so an
 inherited user table can be migrated: on a successful login with a legacy hash,

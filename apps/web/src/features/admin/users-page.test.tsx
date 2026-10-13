@@ -321,6 +321,8 @@ describe('what the dialogs do when the record behind them cannot be loaded', () 
 
     // The fields are seeded from the detail before they are offered at all.
     await waitFor(() => expect(screen.getByLabelText(/full name/i)).toHaveValue('Priya Shah'))
+    expect(screen.getByLabelText(/^email/i)).toHaveAttribute('readonly')
+    expect(screen.getByText(/changing the login email requires/i)).toBeVisible()
     await user.click(screen.getByRole('button', { name: /save changes/i }))
 
     await waitFor(() => fetch.requestFor('PATCH', '/users/u-priya'))

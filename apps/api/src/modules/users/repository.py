@@ -51,7 +51,7 @@ from src.core.pagination import SortParams
 # either, it only refuses an id that does not belong to the tenant.
 from src.modules.organization.models import Branch, Department, Plant
 from src.modules.products.models import ItemCategory
-from src.modules.users.models import Role, User, UserSession, user_roles
+from src.modules.users.models import PasswordResetToken, Role, User, UserSession, user_roles
 from src.modules.users.schemas import RoleFilters, UserFilters
 from src.modules.vendors.models import Vendor, VendorCategory
 
@@ -91,6 +91,21 @@ class UserRepository(BaseRepository[User]):
     """Persistence for :class:`~src.modules.users.models.User`."""
 
     model = User
+
+    async def invalidate_password_reset_grants(self, user_id: uuid.UUID) -> int:
+        """Burn recovery links when the account's recovery identity changes."""
+        stmt = (
+            update(PasswordResetToken)
+            .where(
+                PasswordResetToken.company_id == self.tenant.company_id,
+                PasswordResetToken.user_id == user_id,
+                PasswordResetToken.used_at.is_(None),
+            )
+            .values(used_at=utcnow(), email_token_ciphertext=None)
+            .execution_options(synchronize_session=False)
+        )
+        return affected_rows(await self.session.execute(stmt))
+
     searchable_fields = ("email", "full_name", "employee_code", "phone")
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "email": User.email,
@@ -514,6 +529,10 @@ class UserSessionRepository(BaseRepository[UserSession]):
         One UPDATE, not a read-then-write loop: a session that is created
         between the read and the write would otherwise survive the revocation.
         """
+        return len(await self.revoke_all_for_user_with_ids(user_id, reason=reason))
+
+    async def revoke_all_for_user_with_ids(self, user_id: uuid.UUID, *, reason: str) -> list[str]:
+        """Revoke and return session claims in one write for cache invalidation."""
         stmt = (
             update(UserSession)
             .where(
@@ -522,9 +541,10 @@ class UserSessionRepository(BaseRepository[UserSession]):
                 UserSession.revoked_at.is_(None),
             )
             .values(revoked_at=utcnow(), revoked_reason=reason[:64])
+            .returning(UserSession.session_id)
             .execution_options(synchronize_session=False)
         )
-        return affected_rows(await self.session.execute(stmt))
+        return list((await self.session.execute(stmt)).scalars().all())
 
     async def count_live_for_user(self, user_id: uuid.UUID) -> int:
         stmt = (

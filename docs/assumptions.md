@@ -1392,6 +1392,23 @@ floor, `conversion_delivery_date` takes the vendor's lead time as a third input.
 
 ---
 
+## §ADDITIONAL11-1. Recovery email changes require credential authority
+
+**Assumed:** Administrator-managed login/recovery email changes require the same
+authority as setting the account's password, including protected-administrator
+checks. Administrators exercising that authority remain able to maintain accounts;
+ordinary profile editors can submit an unchanged email but cannot replace it.
+
+**Why:** The public reset flow uses that address as proof of account control.
+Allowing a profile editor to replace it bypasses the password-reset authority.
+
+**Where:** `users.service.UserService.update_user`, reset-grant/session repository
+operations and the administration email input.
+
+**Impact if wrong:** A self-service verified email-change flow can be added as a
+separate authenticated workflow. Generic profile PATCH must retain the credential
+authority boundary until that flow exists.
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant

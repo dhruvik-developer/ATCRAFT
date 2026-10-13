@@ -356,10 +356,16 @@ export function UserFormDialog({
                       type="email"
                       {...register('email')}
                       autoComplete="off"
+                      readOnly={isEdit && !can(P.USER_RESET_PASSWORD)}
                       aria-invalid={Boolean(errors.email)}
                       className="mt-1.5"
                     />
                     <FieldError message={errors.email?.message} />
+                    {isEdit && !can(P.USER_RESET_PASSWORD) && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Changing the login email requires password-reset permission.
+                      </p>
+                    )}
                   </div>
 
                   <div>

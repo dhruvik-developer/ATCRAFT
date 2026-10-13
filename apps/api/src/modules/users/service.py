@@ -35,6 +35,7 @@ What this module is responsible for, and why each rule exists:
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 import uuid
 from collections.abc import Iterable, Sequence
@@ -44,7 +45,7 @@ from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.cache import invalidate_user_permissions
+from src.core.cache import cache_set, invalidate_user_permissions, make_key
 from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.database import transaction
@@ -872,6 +873,8 @@ class UserService:
             raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
 
         grants_changed = False
+        email_changed = False
+        revoked_session_ids: list[str] = []
 
         async with transaction(self.session):
             user = await self._require_user(user_id)
@@ -885,6 +888,13 @@ class UserService:
                 self._assert_may_set_password_for(principal, user)
 
             new_email = changes.get("email")
+            email_changed = new_email is not None and new_email != user.email
+            if email_changed:
+                # ASSUMPTION: an administered recovery-address change exercises
+                # the same credential authority as a password reset. Existing
+                # SUPER_ADMIN target protections therefore apply to both.
+                principal.require(Permission.USER_RESET_PASSWORD)
+                self._assert_may_set_password_for(principal, user)
             if (
                 new_email
                 and new_email != user.email
@@ -960,6 +970,14 @@ class UserService:
                 user.denied_permissions = None
 
             revoked = 0
+            reset_grants_invalidated = 0
+            if email_changed:
+                user.password_changed_at = utcnow()
+                reset_grants_invalidated = await self.repo.invalidate_password_reset_grants(user.id)
+                revoked_session_ids = await self.sessions.revoke_all_for_user_with_ids(
+                    user.id, reason="recovery_email_changed_by_admin"
+                )
+                revoked = len(revoked_session_ids)
             if password is not None:
                 validate_password_policy(password, email=user.email, field="password")
                 user.password_hash = hash_password(password)
@@ -970,7 +988,7 @@ class UserService:
                     user.must_change_password = True
                 user.failed_login_attempts = 0
                 user.locked_until = None
-                revoked = await self.sessions.revoke_all_for_user(
+                revoked += await self.sessions.revoke_all_for_user(
                     user.id, reason="password_changed_by_admin"
                 )
 
@@ -988,6 +1006,11 @@ class UserService:
                 user_id=self.tenant.user_id,
                 old_values=before,
                 new_values=snapshot(user, _USER_AUDITED_FIELDS),
+                context={
+                    "recovery_email_changed": email_changed,
+                    "sessions_revoked": revoked,
+                    "reset_grants_invalidated": reset_grants_invalidated,
+                },
             )
 
             if grants_changed:
@@ -1023,8 +1046,16 @@ class UserService:
                     context={"sessions_revoked": revoked, "initiated_by": "administrator"},
                 )
 
-        if grants_changed or password is not None:
+        if grants_changed or password is not None or email_changed:
             await self._invalidate([user_id])
+        # After commit, replace cached liveness with the authoritative revoked
+        # state. MFA enrollment itself is preserved by this profile operation.
+        await asyncio.gather(
+            *(
+                cache_set(make_key("sessrevoke", self.tenant.company_id, session_id), False, ttl=30)
+                for session_id in revoked_session_ids
+            )
+        )
         return await self.get_user(user_id)
 
     async def assign_roles(

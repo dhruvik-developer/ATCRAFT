@@ -181,6 +181,10 @@ class UserCreate(_Base):
 class UserUpdate(BaseModel):
     """Partial update of a user.
 
+    Changing the login/recovery email additionally requires password-reset
+    authority and the protected-administrator target check. Unchanged email
+    submissions remain ordinary profile updates.
+
     Absent on purpose:
 
     * ``is_active`` - activation is a lifecycle change with a mandatory reason
