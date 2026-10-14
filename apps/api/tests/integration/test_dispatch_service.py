@@ -47,6 +47,7 @@ from src.modules.audit.models import AuditLog
 from src.modules.customers.models import Customer, CustomerType
 from src.modules.dispatch import service
 from src.modules.dispatch.models import Dispatch, DispatchLine, DispatchStatus, DispatchType
+from src.modules.dispatch.repository import CartonLookupRepository
 from src.modules.dispatch.schemas import (
     DeliveryConfirmation,
     DispatchCreate,
@@ -64,6 +65,18 @@ from src.modules.inventory.models import (
 )
 from src.modules.notifications.models import Notification, NotificationType
 from src.modules.organization.models import Company
+from src.modules.packing import service as packing
+from src.modules.packing.models import PackingOrder
+from src.modules.packing.schemas import (
+    CartonContentIn,
+    CartonCreate,
+    PackingOrderCreate,
+    PackingOrderLineIn,
+    SealCartonRequest,
+)
+from src.modules.packing.schemas import (
+    CompleteRequest as PackingCompleteRequest,
+)
 from src.modules.products.models import Item, ItemGroup, ProductionType, UnitOfMeasure, UomCategory
 from src.modules.sales.models import (
     SalesOrder,
@@ -645,6 +658,270 @@ async def test_legacy_duplicate_demand_links_cannot_ship_or_change_fulfilment(ct
     assert movements == 0
     refused = await service.get_dispatch_detail(ctx.session, ctx.tenant, detail.id)
     assert refused.status == DispatchStatus.READY_FOR_DISPATCH
+
+
+async def packed_carton(
+    ctx: Ctx, bench: Bench, rows: list[tuple[uuid.UUID, Decimal, uuid.UUID | None]]
+) -> tuple[uuid.UUID, uuid.UUID]:
+    """Seal real packed goods, including their packing-material stock movement."""
+    box = await seed_item(ctx, bench.uom)
+    box.item_group = ItemGroup.PACKING_MATERIAL
+    await ctx.session.flush()
+    await inv.post_movement(
+        ctx.session,
+        ctx.tenant,
+        item_id=box.id,
+        warehouse_id=bench.warehouse.id,
+        quantity=Decimal("10"),
+        transaction_type=TransactionType.OPENING_BALANCE,
+        reference_type="opening",
+        reference_id=None,
+        reason="Boxes for dispatch carton regressions",
+        reference_code=None,
+        unit_cost=Decimal("2"),
+    )
+    order, _ = await packing.create_order(
+        ctx.session,
+        ctx.tenant,
+        PackingOrderCreate(
+            customer_id=bench.customer.id,
+            warehouse_id=bench.warehouse.id,
+            sales_order_id=bench.order.id,
+            planned_date=TODAY,
+            lines=[
+                PackingOrderLineIn(
+                    item_id=item_id,
+                    quantity_to_pack=quantity,
+                    sales_order_line_id=demand_id,
+                    uom_id=bench.uom.id,
+                )
+                for item_id, quantity, demand_id in rows
+            ],
+        ),
+    )
+    order_id = order.id
+    await packing.start_packing(ctx.session, ctx.tenant, order_id, reason="Pack shipment")
+    carton = await packing.add_carton(
+        ctx.session,
+        ctx.tenant,
+        order_id,
+        CartonCreate(
+            packing_material_item_id=box.id,
+            contents=[
+                CartonContentIn(line_number=number, quantity=quantity, net_weight_kg=Decimal("1"))
+                for number, (_, quantity, _) in enumerate(rows, start=1)
+            ],
+        ),
+    )
+    carton_id = carton.id
+    await packing.seal_carton(
+        ctx.session, ctx.tenant, order_id, carton_id, SealCartonRequest(reason="Seal shipment")
+    )
+    await packing.complete_packing(
+        ctx.session, ctx.tenant, order_id, PackingCompleteRequest(reason="Contents complete")
+    )
+    return order_id, carton_id
+
+
+async def test_mixed_item_carton_can_ship_on_distinct_content_rows(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    second = await seed_item(ctx, bench.uom)
+    await inv.post_movement(
+        ctx.session,
+        ctx.tenant,
+        item_id=second.id,
+        warehouse_id=bench.warehouse.id,
+        quantity=Decimal("10"),
+        transaction_type=TransactionType.OPENING_BALANCE,
+        reference_type="opening",
+        reference_id=None,
+        reason="Mixed-carton extra goods",
+        reference_code=None,
+        unit_cost=Decimal("10"),
+    )
+    packing_id, carton_id = await packed_carton(
+        ctx, bench, [(bench.item.id, Decimal("40"), bench.line.id), (second.id, Decimal("5"), None)]
+    )
+    detail = await service.create_dispatch(
+        ctx.session,
+        ctx.tenant,
+        bench.payload(
+            "40",
+            packing_order_id=packing_id,
+            lines=[
+                DispatchLineIn(
+                    item_id=bench.item.id,
+                    quantity=Decimal("40"),
+                    sales_order_line_id=bench.line.id,
+                    carton_ids=[carton_id],
+                ),
+                DispatchLineIn(item_id=second.id, quantity=Decimal("5"), carton_ids=[carton_id]),
+            ],
+        ),
+    )
+    await service.mark_ready(ctx.session, ctx.tenant, detail.id, reason="Mixed carton loaded")
+    result = await service.dispatch_consignment(
+        ctx.session, ctx.tenant, detail.id, DispatchRequest(reason="Ship entire mixed carton")
+    )
+    assert result.dispatch.status == DispatchStatus.DISPATCHED
+    balance = await balance_of(ctx, bench)
+    assert balance.on_hand_quantity == balance.reserved_quantity == Decimal("60")
+    assert await inv.get_available(ctx.session, ctx.tenant, second.id, bench.warehouse.id) == 5
+    await ctx.session.refresh(bench.line)
+    assert bench.line.dispatched_quantity == 40
+    packed = await ctx.session.get(PackingOrder, packing_id)
+    assert packed is not None and packed.total_cartons == 1 and packed.dispatch_id == detail.id
+
+
+@pytest.mark.parametrize("mismatch", ["quantity", "missing_content"])
+async def test_incorrect_carton_plan_cannot_create_a_dispatch(ctx: Ctx, mismatch: str) -> None:
+    bench = await seed_bench(ctx)
+    rows = [(bench.item.id, Decimal("40"), bench.line.id)]
+    if mismatch == "missing_content":
+        other = await seed_item(ctx, bench.uom)
+        rows.append((other.id, Decimal("5"), None))
+    packing_id, carton_id = await packed_carton(ctx, bench, rows)
+    quantity = Decimal("39") if mismatch == "quantity" else Decimal("40")
+    with pytest.raises(BusinessRuleError, match=r"does not match|some contents are missing"):
+        await service.create_dispatch(
+            ctx.session,
+            ctx.tenant,
+            bench.payload(
+                "40",
+                packing_order_id=packing_id,
+                lines=[
+                    DispatchLineIn(
+                        item_id=bench.item.id,
+                        quantity=quantity,
+                        sales_order_line_id=bench.line.id,
+                        carton_ids=[carton_id],
+                    )
+                ],
+            ),
+        )
+    assert (
+        await ctx.session.scalar(
+            select(func.count()).select_from(Dispatch).where(Dispatch.company_id == ctx.company_id)
+        )
+        == 0
+    )
+    balance = await balance_of(ctx, bench)
+    assert balance.on_hand_quantity == balance.reserved_quantity == Decimal("100")
+    await ctx.session.refresh(bench.line)
+    assert bench.line.dispatched_quantity == 0
+    packed = await ctx.session.get(PackingOrder, packing_id)
+    assert packed is not None and packed.dispatch_id is None
+
+
+async def test_carton_mismatch_on_patch_keeps_original_lines(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    item_id, demand_id = bench.item.id, bench.line.id
+    packing_id, carton_id = await packed_carton(ctx, bench, [(item_id, Decimal("40"), demand_id)])
+    detail = await service.create_dispatch(
+        ctx.session,
+        ctx.tenant,
+        bench.payload(
+            "40",
+            packing_order_id=packing_id,
+            lines=[
+                DispatchLineIn(
+                    item_id=item_id,
+                    quantity=Decimal("40"),
+                    sales_order_line_id=demand_id,
+                    carton_ids=[carton_id],
+                )
+            ],
+        ),
+    )
+    dispatch_id = detail.id
+    with pytest.raises(BusinessRuleError, match="quantity does not match"):
+        await service.update_dispatch(
+            ctx.session,
+            ctx.tenant,
+            dispatch_id,
+            DispatchUpdate(
+                lines=[
+                    DispatchLineIn(
+                        item_id=item_id,
+                        quantity=Decimal("39"),
+                        sales_order_line_id=demand_id,
+                        carton_ids=[carton_id],
+                    )
+                ]
+            ),
+        )
+    unchanged = await service.get_dispatch_detail(ctx.session, ctx.tenant, dispatch_id)
+    assert len(unchanged.lines) == 1 and unchanged.lines[0].quantity == 40
+    balance = await balance_of(ctx, bench)
+    assert balance.on_hand_quantity == balance.reserved_quantity == Decimal("100")
+
+
+async def test_legacy_carton_mismatch_is_refused_before_stock_posting(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    item_id, demand_id = bench.item.id, bench.line.id
+    packing_id, carton_id = await packed_carton(ctx, bench, [(item_id, Decimal("40"), demand_id)])
+    detail = await service.create_dispatch(
+        ctx.session,
+        ctx.tenant,
+        bench.payload(
+            "40",
+            packing_order_id=packing_id,
+            lines=[
+                DispatchLineIn(
+                    item_id=item_id,
+                    quantity=Decimal("40"),
+                    sales_order_line_id=demand_id,
+                    carton_ids=[carton_id],
+                )
+            ],
+        ),
+    )
+    dispatch_id = detail.id
+    line = (
+        await ctx.session.execute(
+            select(DispatchLine).where(DispatchLine.dispatch_id == dispatch_id)
+        )
+    ).scalar_one()
+    line.quantity = Decimal("39")
+    await ctx.session.flush()
+    await service.mark_ready(ctx.session, ctx.tenant, dispatch_id, reason="Legacy shipment")
+    with pytest.raises(BusinessRuleError, match="quantity does not match"):
+        await service.dispatch_consignment(
+            ctx.session,
+            ctx.tenant,
+            dispatch_id,
+            DispatchRequest(reason="Must not ship an inconsistent carton"),
+        )
+    balance = await balance_of(ctx, bench)
+    assert balance.on_hand_quantity == balance.reserved_quantity == Decimal("100")
+    await ctx.session.refresh(bench.line)
+    assert bench.line.dispatched_quantity == 0
+    assert (
+        await ctx.session.scalar(
+            select(func.count())
+            .select_from(InventoryTransaction)
+            .where(
+                InventoryTransaction.reference_type == "dispatch",
+                InventoryTransaction.reference_id == dispatch_id,
+            )
+        )
+        == 0
+    )
+    unchanged = await service.get_dispatch_detail(ctx.session, ctx.tenant, dispatch_id)
+    assert unchanged.status == DispatchStatus.READY_FOR_DISPATCH
+
+
+async def test_carton_content_lookup_is_scoped_to_tenant_and_packing_order(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    packing_id, carton_id = await packed_carton(
+        ctx, bench, [(bench.item.id, Decimal("40"), bench.line.id)]
+    )
+    owned = CartonLookupRepository(ctx.session, ctx.tenant)
+    assert len(await owned.contents_of(packing_id, [carton_id])) == 1
+    assert await owned.contents_of(uuid.uuid4(), [carton_id]) == []
+    foreign = CartonLookupRepository(ctx.session, ctx.other_tenant)
+    assert await foreign.contents_of(packing_id, [carton_id]) == []
+    assert await foreign.sealed_cartons_of(packing_id, [carton_id]) == set()
 
 
 # -----------------------------------------------------------------------------
