@@ -44795,7 +44795,7 @@
       },
       "UserUpdate": {
         "additionalProperties": false,
-        "description": "Partial update of a user.\n\nAbsent on purpose:\n\n* ``is_active`` - activation is a lifecycle change with a mandatory reason\n  that also revokes sessions, so it goes through the activate/deactivate\n  endpoints rather than being flippable as a side effect of an edit.\n* ``role_ids`` - the role set is replaced wholesale through\n  ``POST /users/{id}/roles``, which is gated on ``permission.assign`` rather\n  than on the much more widely granted ``user.update``.\n* ``is_superuser`` - see the service.",
+        "description": "Partial update of a user.\n\nChanging the login/recovery email additionally requires password-reset\nauthority and the protected-administrator target check. Unchanged email\nsubmissions remain ordinary profile updates.\n\nAbsent on purpose:\n\n* ``is_active`` - activation is a lifecycle change with a mandatory reason\n  that also revokes sessions, so it goes through the activate/deactivate\n  endpoints rather than being flippable as a side effect of an edit.\n* ``role_ids`` - the role set is replaced wholesale through\n  ``POST /users/{id}/roles``, which is gated on ``permission.assign`` rather\n  than on the much more widely granted ``user.update``.\n* ``is_superuser`` - see the service.",
         "properties": {
           "allowed_category_ids": {
             "anyOf": [
@@ -112730,6 +112730,117 @@
           }
         ],
         "summary": "Background report status and download link",
+        "tags": [
+          "Reports"
+        ]
+      }
+    },
+    "/api/v1/reports/jobs/{job_id}/download": {
+      "get": {
+        "operationId": "download_job_api_v1_reports_jobs__job_id__download_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Download the generated file authorized by its originating job",
         "tags": [
           "Reports"
         ]

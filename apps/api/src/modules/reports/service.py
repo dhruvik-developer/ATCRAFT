@@ -45,13 +45,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.cache import CacheNamespace, cache_get, cache_set, make_key
 from src.core.clock import utcnow
 from src.core.database import transaction
-from src.core.deps import TenantContext
-from src.core.errors import AppError, BusinessRuleError, ErrorCode, NotFoundError, ValidationError
+from src.core.deps import Principal, TenantContext
+from src.core.errors import (
+    AppError,
+    BusinessRuleError,
+    ErrorCode,
+    NotFoundError,
+    PermissionDeniedError,
+    ValidationError,
+)
 from src.core.logging import get_logger
 from src.core.pagination import PageParams
+from src.core.permissions import Permission
 from src.core.responses import OffsetPagination, api_path
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change
+from src.modules.documents.service import DocumentDownload, DocumentService
 from src.modules.reports.models import (
     DOCUMENT_ONLY_REPORT_KEYS,
     REPORT_JOB_LIFECYCLE,
@@ -144,6 +153,7 @@ REPORT_QUEUE = "reports"
 #: URLs from drifting away from the routes that serve them.
 JOB_STATUS_URL_TEMPLATE = "/reports/jobs/{job_id}"
 DOCUMENT_DOWNLOAD_URL_TEMPLATE = "/documents/{document_id}/download"
+JOB_DOWNLOAD_URL_TEMPLATE = "/reports/jobs/{job_id}/download"
 
 AUDIT_ENTITY = "report_snapshot"
 SUMMARY_AUDIT_ENTITY = "inventory_summary"
@@ -170,6 +180,11 @@ def job_status_url(job_id: uuid.UUID | str) -> str:
 def document_download_url(document_id: uuid.UUID | str) -> str:
     """Where a client fetches a generated artefact from the document store."""
     return _api_path(DOCUMENT_DOWNLOAD_URL_TEMPLATE.format(document_id=document_id))
+
+
+def job_download_url(job_id: uuid.UUID | str) -> str:
+    """Download a generated file through its authorized originating job."""
+    return _api_path(JOB_DOWNLOAD_URL_TEMPLATE.format(job_id=job_id))
 
 
 # -----------------------------------------------------------------------------
@@ -1148,7 +1163,13 @@ def job_read(snapshot: ReportSnapshot) -> ReportJobRead:
         expires_at=snapshot.expires_at,
         document_id=snapshot.document_id,
         download_url=(
-            document_download_url(snapshot.document_id) if snapshot.document_id else None
+            (
+                job_download_url(snapshot.id)
+                if _is_valuation_export(snapshot)
+                else document_download_url(snapshot.document_id)
+            )
+            if snapshot.document_id
+            else None
         ),
         error_message=snapshot.error_message,
         created_at=snapshot.created_at,
@@ -1160,6 +1181,70 @@ async def get_job(session: AsyncSession, tenant: TenantContext, job_id: uuid.UUI
     if snapshot is None:
         raise NotFoundError("Report job", job_id, code=ErrorCode.JOB_NOT_FOUND)
     return job_read(snapshot)
+
+
+def _is_valuation_export(snapshot: ReportSnapshot) -> bool:
+    # The catalogue also has INVENTORY_VALUATION jobs. Only the server's finance
+    # export task has this provenance; the report key alone is not sufficient.
+    from src.modules.finance.service import VALUATION_TASK_NAME
+
+    return (
+        snapshot.report_key == ReportKey.INVENTORY_VALUATION
+        and (snapshot.parameters or {}).get("task") == VALUATION_TASK_NAME
+    )
+
+
+def _owns_valuation_export(snapshot: ReportSnapshot, principal: Principal) -> bool:
+    return (
+        not principal.is_vendor_user
+        and snapshot.company_id == principal.company_id
+        and snapshot.created_by_id == principal.user_id
+        and principal.has_all(Permission.INVENTORY_VALUATION_VIEW, Permission.REPORT_EXPORT)
+        and _is_valuation_export(snapshot)
+    )
+
+
+async def _accessible_job(
+    session: AsyncSession, tenant: TenantContext, principal: Principal, job_id: uuid.UUID
+) -> ReportSnapshot:
+    snapshot = await ReportSnapshotRepository(session, tenant).get(job_id)
+    if (
+        snapshot is None
+        or principal.is_vendor_user
+        or snapshot.company_id != principal.company_id
+        or not (
+            principal.has(Permission.REPORT_VIEW) or _owns_valuation_export(snapshot, principal)
+        )
+    ):
+        # A job outside this principal's scope must not reveal its parameters,
+        # error, document id or even whether another user's job exists.
+        raise NotFoundError("Report job", job_id, code=ErrorCode.JOB_NOT_FOUND)
+    return snapshot
+
+
+async def get_accessible_job(
+    session: AsyncSession, tenant: TenantContext, principal: Principal, job_id: uuid.UUID
+) -> ReportJobRead:
+    return job_read(await _accessible_job(session, tenant, principal, job_id))
+
+
+async def open_job_download(
+    session: AsyncSession, tenant: TenantContext, principal: Principal, job_id: uuid.UUID
+) -> DocumentDownload:
+    """Open only the file bound to a job the originating operation allows.
+
+    The finance exporter can read its own valuation without gaining general
+    report/document access. Existing report readers retain their document-view
+    requirement. No caller-provided document id is accepted on this path.
+    """
+    snapshot = await _accessible_job(session, tenant, principal, job_id)
+    if not _owns_valuation_export(snapshot, principal) and not principal.has(
+        Permission.DOCUMENT_VIEW
+    ):
+        raise PermissionDeniedError(str(Permission.DOCUMENT_VIEW))
+    if snapshot.status != ReportJobStatus.COMPLETED or snapshot.document_id is None:
+        raise NotFoundError("Report job file", job_id, code=ErrorCode.FILE_NOT_FOUND)
+    return await DocumentService(session, tenant).open_download(snapshot.document_id)
 
 
 async def _transition(
@@ -1456,6 +1541,7 @@ __all__ = [
     "CURRENT_BUCKET",
     "DEAD_STOCK_DAYS",
     "DOCUMENT_DOWNLOAD_URL_TEMPLATE",
+    "JOB_DOWNLOAD_URL_TEMPLATE",
     "JOB_STATUS_URL_TEMPLATE",
     "NEVER_MOVED_BUCKET",
     "OVER_AGE_BUCKET",
@@ -1490,10 +1576,13 @@ __all__ = [
     "dispatch_job",
     "document_download_url",
     "fail_snapshot",
+    "get_accessible_job",
     "get_job",
+    "job_download_url",
     "job_read",
     "job_status_url",
     "new_job_snapshot",
+    "open_job_download",
     "overdue_days",
     "parameters_hash",
     "parameters_of",

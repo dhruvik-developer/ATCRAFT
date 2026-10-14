@@ -37,8 +37,9 @@ from datetime import date
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi.responses import StreamingResponse
 
-from src.core.deps import CurrentUser, DbSession, Tenant, require_permission
+from src.core.deps import CurrentUser, DbSession, Tenant, forbid_vendor_users, require_permission
 from src.core.errors import ValidationError
 from src.core.pagination import PageParams, page_params
 from src.core.permissions import Permission
@@ -48,6 +49,7 @@ from src.core.responses import (
     ApiResponse,
     PaginatedResponse,
 )
+from src.modules.documents.service import DOWNLOAD_HEADERS, content_disposition, stream_file
 from src.modules.reports import service
 from src.modules.reports.models import ReportKey
 from src.modules.reports.schemas import (
@@ -238,12 +240,41 @@ async def dashboard(session: DbSession, tenant: Tenant) -> ApiResponse[Dashboard
         "Status of a report handed to Celery. Once it completes, `download_url` "
         "points at the generated file in the document store."
     ),
-    dependencies=[require_permission(Permission.REPORT_VIEW)],
+    dependencies=[
+        require_permission(Permission.REPORT_VIEW, Permission.INVENTORY_VALUATION_VIEW, mode="any"),
+        Depends(forbid_vendor_users),
+    ],
 )
 async def get_job(
-    job_id: uuid.UUID, session: DbSession, tenant: Tenant
+    job_id: uuid.UUID, session: DbSession, tenant: Tenant, principal: CurrentUser
 ) -> ApiResponse[ReportJobRead]:
-    return ApiResponse[ReportJobRead].ok(await service.get_job(session, tenant, job_id))
+    return ApiResponse[ReportJobRead].ok(
+        await service.get_accessible_job(session, tenant, principal, job_id)
+    )
+
+
+@router.get(
+    "/jobs/{job_id}/download",
+    summary="Download the generated file authorized by its originating job",
+    response_class=StreamingResponse,
+    dependencies=[
+        require_permission(Permission.REPORT_VIEW, Permission.INVENTORY_VALUATION_VIEW, mode="any"),
+        Depends(forbid_vendor_users),
+    ],
+)
+async def download_job(
+    job_id: uuid.UUID, session: DbSession, tenant: Tenant, principal: CurrentUser
+) -> StreamingResponse:
+    download = await service.open_job_download(session, tenant, principal, job_id)
+    return StreamingResponse(
+        stream_file(download.path),
+        media_type=download.document.mime_type,
+        headers={
+            **DOWNLOAD_HEADERS,
+            "Content-Disposition": content_disposition(download.document.file_name),
+            "Content-Length": str(download.document.size_bytes),
+        },
+    )
 
 
 # -----------------------------------------------------------------------------
