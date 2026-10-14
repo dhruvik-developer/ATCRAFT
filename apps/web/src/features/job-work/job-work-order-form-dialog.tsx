@@ -170,6 +170,14 @@ const schema = z.object({
   cost_centre_id: z.string(),
   rate_per_unit: z.string().trim().regex(RATE, 'Enter a rate with up to 6 decimal places'),
   rate_basis: z.enum(RATE_BASES),
+  /** Blank means the documented default GST rate - the client confirms it. */
+  tax_rate: z
+    .string()
+    .trim()
+    .regex(/^(\d{1,3}(\.\d{1,4})?)?$/, 'Enter a percentage with up to 4 decimal places')
+    .refine((value) => value === '' || toDecimal(value).lessThanOrEqualTo(100), 'At most 100%'),
+  /** Blank means the default SAC for manufacturing services on others' goods. */
+  sac_code: z.string().trim().max(16, 'At most 16 characters'),
   requires_qc: z.boolean(),
   notes: z.string().trim().max(2000, 'At most 2000 characters'),
   lines: z
@@ -210,6 +218,8 @@ function emptyValues(): JobWorkFormValues {
     cost_centre_id: '',
     rate_per_unit: '0',
     rate_basis: 'PER_PIECE',
+    tax_rate: '',
+    sac_code: '',
     requires_qc: false,
     notes: '',
     lines: [emptyLine()],
@@ -235,6 +245,8 @@ function valuesFrom(detail: JobWorkOrderDetail): JobWorkFormValues {
     cost_centre_id: detail.cost_centre_id ?? '',
     rate_per_unit: detail.rate_per_unit,
     rate_basis: detail.rate_basis,
+    tax_rate: detail.tax_rate ?? '',
+    sac_code: detail.sac_code ?? '',
     requires_qc: detail.requires_qc,
     notes: detail.notes ?? '',
     lines: linesOf(detail).map((line) => ({
@@ -296,6 +308,10 @@ function buildCreate(values: JobWorkFormValues): JobWorkOrderCreate {
     cost_centre_id: orNull(values.cost_centre_id),
     rate_per_unit: values.rate_per_unit.trim(),
     rate_basis: values.rate_basis,
+    // Blank means the documented defaults: the API fills the GST rate and the
+    // SAC in when the payload omits them.
+    tax_rate: values.tax_rate.trim() === '' ? null : values.tax_rate.trim(),
+    sac_code: values.sac_code.trim() === '' ? null : values.sac_code.trim(),
     requires_qc: values.requires_qc,
     // The API pairs these two: a MANUAL order must carry no source id, and any
     // other source type must carry one. An order raised by MRP, a production
@@ -320,6 +336,11 @@ function buildUpdate(values: JobWorkFormValues): JobWorkOrderUpdate {
     cost_centre_id: orNull(values.cost_centre_id),
     rate_per_unit: values.rate_per_unit.trim(),
     rate_basis: values.rate_basis,
+    // Always stated. Both fields are ones an explicit null clears, and the
+    // form holds the order's own values - so an account clearing neither sends
+    // back exactly what the order already carries.
+    tax_rate: values.tax_rate.trim() === '' ? null : values.tax_rate.trim(),
+    sac_code: values.sac_code.trim() === '' ? null : values.sac_code.trim(),
     requires_qc: values.requires_qc,
     notes: orNull(values.notes),
     lines: buildLines(values),
@@ -663,6 +684,41 @@ export function JobWorkOrderFormDialog({
                     <p className="mt-1 text-xs text-muted-foreground">
                       Frozen on the order, so a later rate-card change does not restate what was
                       approved.
+                    </p>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="job-work-tax-rate">GST rate %</Label>
+                    <Input
+                      id="job-work-tax-rate"
+                      {...register('tax_rate')}
+                      inputMode="decimal"
+                      autoComplete="off"
+                      placeholder="Default 18"
+                      className="mt-1.5 text-right tabular"
+                      aria-invalid={Boolean(errors.tax_rate)}
+                    />
+                    <FieldError message={errors.tax_rate?.message} />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      On the processing service. Blank takes the documented default - confirm it
+                      with the vendor.
+                    </p>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="job-work-sac">SAC</Label>
+                    <Input
+                      id="job-work-sac"
+                      {...register('sac_code')}
+                      autoComplete="off"
+                      placeholder="Default 9988"
+                      maxLength={16}
+                      className="mt-1.5 font-mono"
+                      aria-invalid={Boolean(errors.sac_code)}
+                    />
+                    <FieldError message={errors.sac_code?.message} />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Copied onto the vendor-invoice line.
                     </p>
                   </div>
 

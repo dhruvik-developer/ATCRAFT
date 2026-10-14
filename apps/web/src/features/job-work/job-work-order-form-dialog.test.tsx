@@ -63,6 +63,8 @@ const ROW: JobWorkOrderRow = {
   process_description: 'Mirror polish, 400 grit',
   rate_basis: 'PER_PIECE',
   rate_per_unit: '12.5000',
+  tax_rate: '18.0000',
+  sac_code: '9988',
   estimated_charges: '1250.0000',
   total_charges: '0.0000',
   vendor_debit_amount: '0.0000',

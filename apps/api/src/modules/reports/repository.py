@@ -84,13 +84,20 @@ from src.modules.products.models import Item
 from src.modules.quality.models import InspectionStatus, QcInspection
 from src.modules.reports.models import InventorySummary, ReportJobStatus, ReportKey, ReportSnapshot
 from src.modules.reports.schemas import ReportFilters, ReportPeriod
-from src.modules.routing.models import Machine, WorkCenter
+from src.modules.routing.models import (
+    Machine,
+    Shift,
+    ShiftAssignment,
+    ShiftAssignmentStatus,
+    WorkCenter,
+)
 from src.modules.sales.models import (
     OPEN_DEMAND_STATUSES,
     SalesOrder,
     SalesOrderLine,
     SalesOrderStatus,
 )
+from src.modules.users.models import User
 from src.modules.vendors.models import Transporter, Vendor
 from src.modules.warehouses.models import Warehouse
 
@@ -1065,9 +1072,40 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
             .subquery()
         )
 
+        # Net planned minutes per machine: each PLANNED window on it, less its
+        # shift's break, for roster dates in the period. Beside calendar capacity,
+        # never instead of it (docs/assumptions.md §B2-7).
+        rostered = (
+            select(
+                func.coalesce(
+                    func.sum(
+                        func.extract("epoch", ShiftAssignment.ends_at - ShiftAssignment.starts_at)
+                        / 60
+                        - Shift.break_minutes
+                    ),
+                    0,
+                )
+            )
+            # A select of aggregates alone names no table, so the join needs its
+            # left side stated - without it every utilisation request failed.
+            .select_from(ShiftAssignment)
+            .join(
+                Shift, (Shift.id == ShiftAssignment.shift_id) & (Shift.company_id == self._company)
+            )
+            .where(
+                ShiftAssignment.company_id == self._company,
+                ShiftAssignment.machine_id == Machine.id,
+                ShiftAssignment.status == ShiftAssignmentStatus.PLANNED,
+                ShiftAssignment.roster_date.between(period.date_from, period.date_to),
+            )
+            .correlate(Machine)
+            .scalar_subquery()
+        )
+
         stmt = (
             select(
                 Machine.id.label("machine_id"),
+                rostered.label("rostered_minutes"),
                 Machine.code.label("machine_code"),
                 Machine.name.label("machine_name"),
                 WorkCenter.code.label("work_center_code"),
@@ -1105,6 +1143,91 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
         if filters.search:
             pattern = f"%{filters.search.strip()}%"
             stmt = stmt.where(or_(Machine.code.ilike(pattern), Machine.name.ilike(pattern)))
+        return stmt
+
+    # --- 15a. daily production by shift ------------------------------------
+
+    def shift_production(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
+        """Bookings grouped by business date, shift, cell, machine and operator.
+
+        The shift is the code snapshot on the booking, so bookings typed before the
+        shift master existed group with governed ones under the same code. The
+        cell is the operation's when the booking names one, otherwise the named
+        machine's own centre; a whole-job booking naming neither has no cell.
+        """
+        work_center_id = func.coalesce(WorkOrder.work_center_id, Machine.work_center_id)
+        stmt = (
+            select(
+                ProductionEntry.entry_date.label("entry_date"),
+                ProductionEntry.shift.label("shift"),
+                WorkCenter.id.label("work_center_id"),
+                WorkCenter.code.label("work_center_code"),
+                Machine.id.label("machine_id"),
+                Machine.code.label("machine_code"),
+                User.id.label("operator_user_id"),
+                User.full_name.label("operator_name"),
+                User.employee_code.label("employee_code"),
+                func.sum(ProductionEntry.produced_quantity).label("produced_quantity"),
+                func.sum(ProductionEntry.rejected_quantity).label("rejected_quantity"),
+                func.sum(ProductionEntry.downtime_minutes).label("downtime_minutes"),
+                func.count(ProductionEntry.id).label("bookings"),
+            )
+            .select_from(ProductionEntry)
+            .outerjoin(
+                WorkOrder,
+                (WorkOrder.id == ProductionEntry.work_order_id)
+                & (WorkOrder.company_id == self._company),
+            )
+            .outerjoin(
+                Machine,
+                (Machine.id == ProductionEntry.machine_id) & (Machine.company_id == self._company),
+            )
+            .outerjoin(
+                WorkCenter,
+                (WorkCenter.id == work_center_id) & (WorkCenter.company_id == self._company),
+            )
+            .outerjoin(
+                User,
+                (User.id == ProductionEntry.operator_user_id) & (User.company_id == self._company),
+            )
+            .where(
+                ProductionEntry.company_id == self._company,
+                ProductionEntry.entry_date.between(period.date_from, period.date_to),
+            )
+            .group_by(
+                ProductionEntry.entry_date,
+                ProductionEntry.shift,
+                WorkCenter.id,
+                WorkCenter.code,
+                Machine.id,
+                Machine.code,
+                User.id,
+                User.full_name,
+                User.employee_code,
+            )
+            # Newest day first, then the readable keys; the ids last make the
+            # order total, which offset paging needs.
+            .order_by(
+                ProductionEntry.entry_date.desc(),
+                ProductionEntry.shift.asc(),
+                WorkCenter.code.asc(),
+                Machine.code.asc(),
+                User.full_name.asc(),
+                WorkCenter.id.asc(),
+                Machine.id.asc(),
+                User.id.asc(),
+            )
+        )
+        if filters.search:
+            pattern = f"%{filters.search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    ProductionEntry.shift.ilike(pattern),
+                    WorkCenter.code.ilike(pattern),
+                    Machine.code.ilike(pattern),
+                    User.full_name.ilike(pattern),
+                )
+            )
         return stmt
 
     # --- 16. inventory valuation -------------------------------------------

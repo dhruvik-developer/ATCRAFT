@@ -2,10 +2,10 @@
 
 Master rules section 25. Four decisions carry this module.
 
-**A report is a definition, not a handler.** Twenty reports sharing one runner
+**A report is a definition, not a handler.** Twenty-one reports sharing one runner
 means the rules that matter - the bounded period, the row ceiling, the cache
-policy, the audit entry - are applied twenty times by construction rather than
-twenty times by discipline. A new report is a :class:`ReportDefinition` and a
+policy, the audit entry - are applied consistently by construction. A new
+report is a :class:`ReportDefinition` and a
 route; it cannot forget to paginate, because it never gets the chance to.
 
 **Arithmetic lives in pure functions.** Every percentage, bucket and days-overdue
@@ -92,6 +92,7 @@ from src.modules.reports.schemas import (
     ReportRowBase,
     SalesOrderStatusRow,
     ScrapRegisterRow,
+    ShiftProductionRow,
     StockAvailabilityRow,
     VendorDispatchHistoryRow,
     VendorPerformanceRow,
@@ -293,9 +294,9 @@ def delivery_delay_days(expected: date | None, actual: date | None, as_of: date)
 def available_minutes(working_hours_per_day: Decimal, days: int) -> Decimal:
     """Capacity of one machine over a period, in minutes.
 
-    The denominator of utilisation. Calendar days, not working days: the master
-    rules define no shift calendar, and inventing one would silently inflate
-    every utilisation figure by whatever weekend assumption was chosen.
+    The historical denominator of utilisation uses calendar days. Rostered
+    minutes are a separate denominator, so adding staffing plans does not
+    silently redefine historical capacity or invent weekend assumptions.
     ASSUMPTION recorded in the module notes.
     """
     return (Decimal(working_hours_per_day) * 60 * days).quantize(
@@ -511,8 +512,18 @@ def _derive_production_efficiency(row: dict[str, Any], ctx: ReportContext) -> di
     return row
 
 
+def _derive_shift_production(row: dict[str, Any], ctx: ReportContext) -> dict[str, Any]:
+    produced = Decimal(row["produced_quantity"])
+    row["yield_percent"] = percent(produced, produced + Decimal(row["rejected_quantity"]))
+    return row
+
+
 def _derive_machine_utilisation(row: dict[str, Any], ctx: ReportContext) -> dict[str, Any]:
     capacity = available_minutes(row["working_hours_per_day"], ctx.period_days)
+    # ASSUMPTION: rostered capacity is reported beside calendar capacity, never
+    # instead of it - the calendar figure every existing reader knows does not
+    # move because a roster now exists. docs/assumptions.md §B2-7.
+    row["rostered_utilisation_percent"] = percent(row["busy_minutes"], row["rostered_minutes"])
     row["available_minutes"] = capacity
     row["utilisation_percent"] = percent(row["busy_minutes"], capacity)
     row["downtime_percent"] = percent(row["downtime_minutes"], capacity)
@@ -690,10 +701,28 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         cacheable=True,
         derive=_derive_production_efficiency,
     ),
+    ReportKey.SHIFT_PRODUCTION: ReportDefinition(
+        key=ReportKey.SHIFT_PRODUCTION,
+        title="Daily production by shift",
+        description=(
+            "Output, rejections, downtime and yield per day and shift, by work centre, "
+            "machine and operator."
+        ),
+        row_model=ShiftProductionRow,
+        build=lambda repo, ctx: repo.shift_production(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        # Read during the shift it describes, while bookings are still arriving;
+        # a cached copy would hide the last hour's output from the supervisor.
+        cacheable=False,
+        derive=_derive_shift_production,
+    ),
     ReportKey.MACHINE_UTILISATION: ReportDefinition(
         key=ReportKey.MACHINE_UTILISATION,
         title="Machine utilisation",
-        description="Busy minutes against available capacity per machine.",
+        description=(
+            "Busy minutes per machine against calendar capacity and against the minutes "
+            "the shift roster planned on it."
+        ),
         row_model=MachineUtilisationRow,
         build=lambda repo, ctx: repo.machine_utilisation(ctx.require_period(), ctx.filters),
         requires_period=True,

@@ -23,8 +23,9 @@ import asyncio
 import dataclasses
 import uuid
 from collections.abc import AsyncIterator, Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 import pytest_asyncio
@@ -42,6 +43,7 @@ from src.core.errors import (
     ErrorCode,
     InvalidStateTransitionError,
     NotFoundError,
+    ValidationError,
 )
 from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
@@ -78,12 +80,26 @@ from src.modules.production.schemas import (
     ReleaseRequest,
     StartRequest,
     WorkOrderTransitionRequest,
+    WorkOrderUpdate,
 )
 from src.modules.products.models import Item, ItemGroup, ProductionType, UnitOfMeasure, UomCategory
-from src.modules.routing.models import Routing, RoutingOperation, RoutingStatus, WorkCenter
+from src.modules.reports import service as reports_service
+from src.modules.reports.models import ReportKey
+from src.modules.reports.repository import ReportQueryRepository
+from src.modules.reports.schemas import ReportFilters, ReportPeriod
+from src.modules.routing.models import (
+    MachineStatus,
+    Routing,
+    RoutingOperation,
+    RoutingStatus,
+    WorkCenter,
+)
+from src.modules.routing.schemas import ShiftAssignmentCreate, ShiftUpdate
+from src.modules.routing.service import ShiftRosterService, ShiftService, local_date
 from src.modules.users.models import User
 from src.modules.warehouses.models import Warehouse, WarehouseType
 from tests.schema_support import prepare_metadata, report_database_setup_failure
+from tests.seed_support import seed_machine, seed_shift, seed_user, seed_vendor
 
 pytestmark = pytest.mark.integration
 
@@ -656,6 +672,312 @@ async def test_release_issues_one_work_order_per_routing_operation(db, tenant, s
     assert work_order.status is WorkOrderStatus.PENDING
 
 
+# -----------------------------------------------------------------------------
+# Shifts on operations and bookings (WP B2)
+# -----------------------------------------------------------------------------
+
+
+async def _released_operation(db, tenant, stocked, approver):
+    """A released job and the id of its one operation, held as a plain value."""
+    order = await make_order(db, tenant, stocked)
+    await approve(db, tenant, approver, order)
+    await release(db, tenant, order)
+    detail = await service.get_order_detail(db, tenant, order.id)
+    return order, detail.work_orders[0].id
+
+
+async def test_assigning_a_shift_snapshots_its_code_and_refuses_a_foreign_or_inactive_one(
+    db, tenant, other_tenant, stocked, approver
+):
+    _, work_order_id = await _released_operation(db, tenant, stocked, approver)
+    early = await seed_shift(db, company_id=tenant.company_id, code="A")
+    early_id = early.id
+
+    assigned = await service.update_work_order(
+        db, tenant, work_order_id, WorkOrderUpdate(shift_id=early_id)
+    )
+    assert (assigned.shift_id, assigned.shift) == (early_id, "A")
+    audit = (
+        (
+            await db.execute(
+                select(AuditLog)
+                .where(AuditLog.entity_id == work_order_id, AuditLog.action == AuditAction.UPDATE)
+                .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert audit is not None
+    assert audit.new_values == {"shift_id": str(early_id), "shift": "A"}
+
+    # Renaming the shift is free and does not rewrite the snapshot.
+    await ShiftService(db, tenant).update_shift(early_id, ShiftUpdate(name="Early"))
+    reread = await service.update_work_order(
+        db, tenant, work_order_id, WorkOrderUpdate(notes="Renamed shift")
+    )
+    assert reread.shift == "A"
+
+    foreign = await seed_shift(db, company_id=other_tenant.company_id, code="F")
+    with pytest.raises(NotFoundError):
+        await service.update_work_order(
+            db, tenant, work_order_id, WorkOrderUpdate(shift_id=foreign.id)
+        )
+    retired = await seed_shift(db, company_id=tenant.company_id, code="OLD", is_active=False)
+    with pytest.raises(ValidationError) as caught:
+        await service.update_work_order(
+            db, tenant, work_order_id, WorkOrderUpdate(shift_id=retired.id)
+        )
+    assert set(caught.value.details["fields"]) == {"shift_id"}
+
+    cleared = await service.update_work_order(
+        db, tenant, work_order_id, WorkOrderUpdate(shift_id=None)
+    )
+    assert (cleared.shift_id, cleared.shift) == (None, None)
+
+
+async def test_an_operation_refuses_inactive_or_vendor_operators_and_retired_machines(
+    db, tenant, stocked, approver
+):
+    _, work_order_id = await _released_operation(db, tenant, stocked, approver)
+    centre_id = stocked["work_centre"].id
+    gone = await seed_user(db, company_id=tenant.company_id, full_name="Left", is_active=False)
+    vendor = await seed_vendor(db, company_id=tenant.company_id)
+    portal = await seed_user(
+        db, company_id=tenant.company_id, full_name="Portal", vendor_id=vendor.id
+    )
+    retired = await seed_machine(
+        db,
+        company_id=tenant.company_id,
+        work_center_id=centre_id,
+        status=MachineStatus.RETIRED,
+        is_active=False,
+    )
+    serviced = await seed_machine(
+        db, company_id=tenant.company_id, work_center_id=centre_id, status=MachineStatus.MAINTENANCE
+    )
+    serviced_id = serviced.id
+
+    with pytest.raises(BusinessRuleError, match="inactive"):
+        await service.update_work_order(
+            db, tenant, work_order_id, WorkOrderUpdate(operator_user_id=gone.id)
+        )
+    with pytest.raises(BusinessRuleError, match="vendor-portal"):
+        await service.update_work_order(
+            db, tenant, work_order_id, WorkOrderUpdate(operator_user_id=portal.id)
+        )
+    with pytest.raises(BusinessRuleError, match="retired"):
+        await service.update_work_order(
+            db, tenant, work_order_id, WorkOrderUpdate(machine_id=retired.id)
+        )
+    # Maintenance is not retirement: a job may be lined up for after the repair.
+    lined_up = await service.update_work_order(
+        db, tenant, work_order_id, WorkOrderUpdate(machine_id=serviced_id)
+    )
+    assert lined_up.machine_id == serviced_id
+
+
+async def test_the_assignment_warns_when_the_roster_does_not_plan_the_operator(
+    db, tenant, stocked, approver
+):
+    _, work_order_id = await _released_operation(db, tenant, stocked, approver)
+    shift = await seed_shift(db, company_id=tenant.company_id, code="A")
+    shift_id = shift.id
+    operator = await seed_user(db, company_id=tenant.company_id, full_name="Amit Shah")
+    operator_id = operator.id
+
+    staffed, message = await service.assign_work_order(
+        db,
+        tenant,
+        work_order_id,
+        WorkOrderUpdate(operator_user_id=operator_id, shift_id=shift_id),
+    )
+    assert message.endswith(service.ROSTER_MISMATCH_WARNING)
+    assert staffed.operator_user_id == operator_id
+
+    # Plan him on that shift, at that cell, on the planned start's local date.
+    roster_date = local_date(staffed.planned_start_at, ZoneInfo("Asia/Kolkata"))
+    await ShiftRosterService(db, tenant).plan(
+        [
+            ShiftAssignmentCreate(
+                roster_date=roster_date,
+                shift_id=shift_id,
+                work_center_id=stocked["work_centre"].id,
+                operator_user_id=operator_id,
+            )
+        ]
+    )
+    code = staffed.code
+    _, message = await service.assign_work_order(
+        db, tenant, work_order_id, WorkOrderUpdate(shift_id=shift_id)
+    )
+    assert message == f"{code} updated."
+
+    # A notes-only edit is no staffing decision and asks the roster nothing.
+    _, message = await service.assign_work_order(
+        db, tenant, work_order_id, WorkOrderUpdate(notes="Bring the setter")
+    )
+    assert message == f"{code} updated."
+
+
+async def test_a_booking_snapshots_its_shift_and_downtime_alone_is_a_booking(
+    db, tenant, other_tenant, stocked, approver
+):
+    order = await make_order(db, tenant, stocked)
+    await approve(db, tenant, approver, order)
+    await release(db, tenant, order)
+    await issue_everything(db, tenant, approver, order)
+    await service.start_order(db, tenant, order.id, StartRequest())
+    order_id = order.id
+    shift = await seed_shift(
+        db, company_id=tenant.company_id, code="B", start_time=time(14), end_time=time(22)
+    )
+    shift_id = shift.id
+    operator = await seed_user(db, company_id=tenant.company_id, full_name="Neha Patel")
+
+    result = await service.create_production_entry(
+        db,
+        tenant,
+        order_id,
+        ProductionEntryCreate(
+            shift_id=shift_id,
+            operator_user_id=operator.id,
+            downtime_minutes=Decimal("25"),
+            notes="Waiting for the setter",
+        ),
+    )
+    assert (result.entry.shift_id, result.entry.shift) == (shift_id, "B")
+    assert result.output_movement is None
+    assert result.message.startswith("Booked 25")
+    assert "downtime" in result.message
+    assert result.message.endswith(service.ROSTER_MISMATCH_WARNING)
+
+    foreign = await seed_shift(db, company_id=other_tenant.company_id, code="F")
+    with pytest.raises(NotFoundError):
+        await service.create_production_entry(
+            db,
+            tenant,
+            order_id,
+            ProductionEntryCreate(shift_id=foreign.id, downtime_minutes=Decimal("5")),
+        )
+
+
+async def test_daily_production_by_shift_sums_each_shift_cell_and_operator(
+    db, tenant, stocked, approver
+):
+    order = await make_order(db, tenant, stocked)
+    await approve(db, tenant, approver, order)
+    await release(db, tenant, order)
+    await issue_everything(db, tenant, approver, order)
+    await service.start_order(db, tenant, order.id, StartRequest())
+    order_id = order.id
+    work_order_id = (await service.get_order_detail(db, tenant, order_id)).work_orders[0].id
+    shift_a = await seed_shift(db, company_id=tenant.company_id, code="A")
+    shift_b = await seed_shift(
+        db, company_id=tenant.company_id, code="B", start_time=time(14), end_time=time(22)
+    )
+    operator = await seed_user(db, company_id=tenant.company_id, full_name="Amit Shah")
+    shift_a_id, shift_b_id, operator_id = shift_a.id, shift_b.id, operator.id
+
+    for shift_id, produced, rejected, downtime in (
+        (shift_a_id, "30", "2", "0"),
+        (shift_a_id, "20", "0", "10"),
+        (shift_b_id, "10", "0", "15"),
+    ):
+        await service.create_production_entry(
+            db,
+            tenant,
+            order_id,
+            ProductionEntryCreate(
+                work_order_id=work_order_id,
+                shift_id=shift_id,
+                operator_user_id=operator_id,
+                produced_quantity=Decimal(produced),
+                rejected_quantity=Decimal(rejected),
+                rejection_reason="Scored face" if rejected != "0" else None,
+                downtime_minutes=Decimal(downtime),
+            ),
+        )
+
+    result = await reports_service.run_report(
+        db,
+        tenant,
+        key=ReportKey.SHIFT_PRODUCTION,
+        period=ReportPeriod(date_from=today(), date_to=today()),
+        filters=ReportFilters(),
+        params=PageParams(),
+        may_export=False,
+    )
+    assert isinstance(result, reports_service.InlineReport)
+    rows = {row.shift: row for row in result.rows}  # type: ignore[attr-defined]
+    assert set(rows) == {"A", "B"}
+    morning = rows["A"]
+    assert (morning.produced_quantity, morning.rejected_quantity) == (Decimal("50"), Decimal("2"))
+    assert (morning.downtime_minutes, morning.bookings) == (Decimal("10"), 2)
+    assert morning.work_center_code == stocked["work_centre"].code
+    assert morning.operator_name == "Amit Shah"
+    # 50 good of 52 attempted.
+    assert morning.yield_percent == Decimal("96.15")
+    assert (rows["B"].bookings, rows["B"].downtime_minutes) == (1, Decimal("15"))
+
+
+async def test_machine_utilisation_counts_rostered_minutes_beside_calendar_capacity(
+    db, tenant, stocked, approver
+):
+    _, work_order_id = await _released_operation(db, tenant, stocked, approver)
+    centre_id = stocked["work_centre"].id
+    machine = await seed_machine(db, company_id=tenant.company_id, work_center_id=centre_id)
+    machine_id = machine.id
+    general = await seed_shift(
+        db,
+        company_id=tenant.company_id,
+        code="GEN",
+        start_time=time(9),
+        end_time=time(17, 30),
+        break_minutes=30,
+    )
+    operator = await seed_user(db, company_id=tenant.company_id, full_name="Ravi Desai")
+
+    await service.update_work_order(
+        db, tenant, work_order_id, WorkOrderUpdate(machine_id=machine_id)
+    )
+    started = utcnow() - timedelta(hours=3)
+    for status, moment in (
+        (WorkOrderStatus.IN_PROGRESS, started),
+        (WorkOrderStatus.COMPLETED, started + timedelta(minutes=120)),
+    ):
+        await service.transition_work_order(
+            db,
+            tenant,
+            work_order_id,
+            WorkOrderTransitionRequest(status=status, occurred_at=moment),
+        )
+    await ShiftRosterService(db, tenant).plan(
+        [
+            ShiftAssignmentCreate(
+                roster_date=today(),
+                shift_id=general.id,
+                work_center_id=centre_id,
+                machine_id=machine_id,
+                operator_user_id=operator.id,
+            )
+        ]
+    )
+
+    period = ReportPeriod(date_from=today() - timedelta(days=1), date_to=today())
+    definition = reports_service.definition_for(ReportKey.MACHINE_UTILISATION)
+    context = reports_service.build_context(definition, period, ReportFilters())
+    stmt = definition.build(ReportQueryRepository(db, tenant), context)
+    (row,) = [dict(found) for found in (await db.execute(stmt)).mappings()]
+    assert definition.derive is not None
+    shaped = definition.derive(row, context)
+    # 09:00-17:30 less a 30-minute break: 480 rostered minutes; 120 busy.
+    assert Decimal(shaped["rostered_minutes"]) == Decimal("480")
+    assert shaped["rostered_utilisation_percent"] == Decimal("25.00")
+    # Calendar capacity is untouched: 8 hours a day over the two days.
+    assert shaped["available_minutes"] == Decimal("960.00")
+
+
 async def test_a_bom_revised_after_release_does_not_change_the_released_job(
     db, tenant, stocked, approver
 ):
@@ -746,6 +1068,7 @@ async def test_release_issue_complete_moves_stock_end_to_end(
         work_order_id,
         WorkOrderTransitionRequest(status=WorkOrderStatus.IN_PROGRESS, occurred_at=started),
     )
+    morning = await seed_shift(db, company_id=tenant.company_id, code="A")
     booking = await service.create_production_entry(
         db,
         tenant,
@@ -753,7 +1076,7 @@ async def test_release_issue_complete_moves_stock_end_to_end(
         ProductionEntryCreate(
             work_order_id=work_order_id,
             produced_quantity=Decimal("100"),
-            shift="A",
+            shift_id=morning.id,
             downtime_minutes=Decimal("15"),
         ),
     )

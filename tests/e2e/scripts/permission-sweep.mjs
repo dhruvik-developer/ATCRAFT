@@ -48,6 +48,7 @@ const GRANTED = new Set([
 
 /** route -> the permission its route guard declares (null = ungated by design). */
 const ROUTES = [
+  ['/production/shift-roster', 'shift_roster.view'],
   ['/', 'dashboard.view'],
   ['/items', 'item.view'],
   ['/warehouses', 'warehouse.view'],

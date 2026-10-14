@@ -22,21 +22,24 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, delete, exists, func, literal, or_, select
+from sqlalchemy import Select, and_, delete, exists, func, literal, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
 from src.core.database import affected_rows
-from src.core.pagination import SortParams
+from src.core.pagination import COUNT_CEILING, PageParams, SortParams, paginate
+from src.core.responses import OffsetPagination
 
 # Read-only references to other modules' master tables. Routing validates that a
 # plant, department or item belongs to the same tenant before pointing at it; it
-# never writes to those tables.
-from src.modules.organization.models import Department, Plant
+# never writes to those tables. The roster reads ``users`` the same way - an
+# operator is a user account, and only an eligibility projection is ever read.
+from src.modules.organization.models import Company, Department, Plant
 from src.modules.products.models import Item
 from src.modules.routing.models import (
     Machine,
@@ -44,9 +47,20 @@ from src.modules.routing.models import (
     Routing,
     RoutingOperation,
     RoutingStatus,
+    Shift,
+    ShiftAssignment,
+    ShiftAssignmentStatus,
     WorkCenter,
 )
-from src.modules.routing.schemas import MachineFilters, RoutingFilters, WorkCenterFilters
+from src.modules.routing.schemas import (
+    MachineFilters,
+    RoutingFilters,
+    ShiftAssignmentRead,
+    ShiftFilters,
+    ShiftRosterFilters,
+    WorkCenterFilters,
+)
+from src.modules.users.models import User
 
 #: Statuses that still describe how the plant is meant to work. ``OBSOLETE`` is
 #: excluded from "is this work centre still in use?" checks: a retired process
@@ -331,6 +345,12 @@ class WorkCenterRepository(BaseRepository[WorkCenter]):
         )
         return bool((await self.session.execute(select(exists(probe)))).scalar_one())
 
+    async def used_by_live_roster(self, work_center_id: uuid.UUID, *, from_date: date) -> bool:
+        """Is anyone still planned to work at this centre on or after ``from_date``?"""
+        return await _live_roster(
+            self, ShiftAssignment.work_center_id == work_center_id, from_date=from_date
+        )
+
 
 # -----------------------------------------------------------------------------
 # Machines
@@ -413,6 +433,34 @@ class MachineRepository(BaseRepository[Machine]):
                 RoutingOperation.company_id == self.tenant.company_id,
                 RoutingOperation.machine_id == machine_id,
                 Routing.status.in_(list(LIVE_ROUTING_STATUSES)),
+            )
+        )
+        return bool((await self.session.execute(select(exists(probe)))).scalar_one())
+
+    async def used_by_live_roster(self, machine_id: uuid.UUID, *, from_date: date) -> bool:
+        """Is an operator still planned on this machine on or after ``from_date``?
+
+        Asked before the machine is retired: a future plan would otherwise name a
+        machine that can no longer take work.
+        """
+        return await _live_roster(
+            self, ShiftAssignment.machine_id == machine_id, from_date=from_date
+        )
+
+    async def named_on_roster(self, machine_id: uuid.UUID) -> bool:
+        """Does any roster row name this machine - planned, cancelled or past?
+
+        Asked before a move to another centre. Every such row holds the machine's
+        *current* centre through the composite foreign key, so the database
+        refuses the move whatever the row's status or date; the history is what
+        pins it, not only the plan.
+        """
+        probe = (
+            select(literal(1))
+            .select_from(ShiftAssignment)
+            .where(
+                ShiftAssignment.company_id == self.tenant.company_id,
+                ShiftAssignment.machine_id == machine_id,
             )
         )
         return bool((await self.session.execute(select(exists(probe)))).scalar_one())
@@ -627,6 +675,373 @@ class RoutingOperationRepository(BaseRepository[RoutingOperation]):
         return affected_rows(await self.session.execute(stmt))
 
 
+# -----------------------------------------------------------------------------
+# Shifts and the roster
+# -----------------------------------------------------------------------------
+
+#: The records' user-facing names, shared with the service's own messages and
+#: its state machines so one missing row never answers with two spellings.
+SHIFT_ENTITY = "Shift"
+SHIFT_ASSIGNMENT_ENTITY = "Shift assignment"
+OPERATOR_ENTITY = "Operator"
+
+
+@dataclass(frozen=True, slots=True)
+class OperatorFacts:
+    """The user-account facts that decide whether a person can be planned or booked.
+
+    A projection of a very wide table: the roster needs five columns of a row that
+    also carries a password hash, MFA secrets and login history.
+    """
+
+    id: uuid.UUID
+    full_name: str
+    employee_code: str | None
+    is_active: bool
+    #: A vendor-portal login lives in ``users`` too; it is never a shop-floor operator.
+    is_vendor_user: bool
+
+
+async def _live_roster(repo: BaseRepository[Any], condition: Any, *, from_date: date) -> bool:
+    """EXISTS: a PLANNED roster row matching ``condition`` on or after a date.
+
+    "Live" is PLANNED and not yet in the past. A cancelled plan names nobody, and a
+    day already worked is history that retiring a shift or a machine does not
+    rewrite.
+    """
+    probe = (
+        select(literal(1))
+        .select_from(ShiftAssignment)
+        .where(
+            ShiftAssignment.company_id == repo.tenant.company_id,
+            ShiftAssignment.status == ShiftAssignmentStatus.PLANNED,
+            ShiftAssignment.roster_date >= from_date,
+            condition,
+        )
+    )
+    return bool((await repo.session.execute(select(exists(probe)))).scalar_one())
+
+
+async def _paginate_projection(
+    session: AsyncSession, stmt: Select[Any], params: PageParams
+) -> tuple[list[Any], OffsetPagination]:
+    """Offset-paginate a statement that selects columns rather than an entity.
+
+    ``core.pagination.paginate`` reads ``.scalars()``, which would keep only the
+    first column of a projected row, so its semantics are reproduced: one extra
+    row to decide ``has_next``, and a count bounded by ``COUNT_CEILING`` that is
+    reported as unknown past it rather than as the ceiling. The caller's ORDER BY
+    must already be total - the roster orders by its primary key last.
+    """
+    rows = (await session.execute(stmt.limit(params.limit + 1).offset(params.offset))).all()
+    has_next = len(rows) > params.limit
+    rows = rows[: params.limit]
+
+    total: int | None = None
+    total_pages: int | None = None
+    if params.with_total:
+        count_stmt = select(func.count()).select_from(
+            stmt.order_by(None).limit(COUNT_CEILING + 1).subquery()
+        )
+        counted = int((await session.execute(count_stmt)).scalar_one())
+        if counted <= COUNT_CEILING:
+            total = counted
+            total_pages = max(1, -(-total // params.limit))
+
+    return list(rows), OffsetPagination(
+        page=params.page,
+        limit=params.limit,
+        total=total,
+        total_pages=total_pages,
+        has_next=has_next,
+        has_previous=params.page > 1,
+    )
+
+
+class CompanyZoneRepository(BaseRepository[Company]):
+    """The tenant's own company row, read for the timezone its shifts run in."""
+
+    model = Company
+
+    async def timezone(self) -> str:
+        stmt = select(Company.timezone).where(Company.id == self.tenant.company_id)
+        return str((await self.session.execute(stmt)).scalar_one())
+
+
+class ShiftRepository(BaseRepository[Shift]):
+    model = Shift
+    entity_label = SHIFT_ENTITY
+    searchable_fields = ("code", "name")
+    sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
+        "sort_order": Shift.sort_order,
+        "code": Shift.code,
+        "name": Shift.name,
+        "start_time": Shift.start_time,
+        "created_at": Shift.created_at,
+    }
+
+    def build_list_stmt(self, filters: ShiftFilters, sort: SortParams) -> Select[Any]:
+        stmt = self._apply_search(self._scoped(), filters.search)
+        if filters.is_active is not None:
+            stmt = stmt.where(Shift.is_active.is_(filters.is_active))
+        # Board order by default; the code decides between shifts sharing a
+        # position, and the paginator appends the id after that.
+        order = sort.resolve(self.sortable_fields, Shift.sort_order.asc())
+        return stmt.order_by(order, Shift.code.asc())
+
+    async def code_taken(self, code: str) -> bool:
+        """Is this code used in the tenant, including by a retired shift?
+
+        Retired rows count: their code sits on historical bookings, and reusing it
+        for a different window would make two shifts read as one in the archive.
+        """
+        stmt = select(literal(1)).where(
+            Shift.company_id == self.tenant.company_id, Shift.code == code
+        )
+        return (await self.session.execute(stmt.limit(1))).first() is not None
+
+    async def load(self, shift_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, Shift]:
+        """Batched id -> live shift, for validating a whole roster request at once."""
+        return {shift.id: shift for shift in await self.get_many(list(dict.fromkeys(shift_ids)))}
+
+    async def used_by_live_roster(self, shift_id: uuid.UUID, *, from_date: date) -> bool:
+        return await _live_roster(self, ShiftAssignment.shift_id == shift_id, from_date=from_date)
+
+
+class ShiftAssignmentRepository(BaseRepository[ShiftAssignment]):
+    model = ShiftAssignment
+    entity_label = SHIFT_ASSIGNMENT_ENTITY
+
+    def _projection(self) -> Select[Any]:
+        """Roster rows with the codes and names a board prints, in tenant scope.
+
+        Every joined master is scoped to the tenant as well as matched on its id:
+        the foreign keys guarantee the row exists, not that it is this company's.
+        """
+        company = self.tenant.company_id
+        return (
+            select(
+                ShiftAssignment.id,
+                ShiftAssignment.roster_date,
+                ShiftAssignment.shift_id,
+                Shift.code.label("shift_code"),
+                Shift.name.label("shift_name"),
+                ShiftAssignment.work_center_id,
+                WorkCenter.code.label("work_center_code"),
+                WorkCenter.name.label("work_center_name"),
+                ShiftAssignment.machine_id,
+                Machine.code.label("machine_code"),
+                Machine.name.label("machine_name"),
+                ShiftAssignment.operator_user_id,
+                User.full_name.label("operator_name"),
+                User.employee_code.label("employee_code"),
+                ShiftAssignment.starts_at,
+                ShiftAssignment.ends_at,
+                ShiftAssignment.status,
+                ShiftAssignment.notes,
+                ShiftAssignment.created_at,
+                ShiftAssignment.updated_at,
+            )
+            .join(Shift, and_(Shift.id == ShiftAssignment.shift_id, Shift.company_id == company))
+            .join(
+                WorkCenter,
+                and_(
+                    WorkCenter.id == ShiftAssignment.work_center_id,
+                    WorkCenter.company_id == company,
+                ),
+            )
+            .outerjoin(
+                Machine,
+                and_(Machine.id == ShiftAssignment.machine_id, Machine.company_id == company),
+            )
+            .join(
+                User, and_(User.id == ShiftAssignment.operator_user_id, User.company_id == company)
+            )
+            .where(ShiftAssignment.company_id == company)
+        )
+
+    @staticmethod
+    def _ordered(stmt: Select[Any]) -> Select[Any]:
+        # ``created_at`` would tie inside one bulk write; the window start and the
+        # UUIDv7 id make the order total (CLAUDE.md, "traps").
+        return stmt.order_by(
+            ShiftAssignment.roster_date.asc(),
+            ShiftAssignment.starts_at.asc(),
+            ShiftAssignment.id.asc(),
+        )
+
+    async def page(
+        self, filters: ShiftRosterFilters, params: PageParams
+    ) -> tuple[list[ShiftAssignmentRead], OffsetPagination]:
+        stmt = self._projection().where(
+            ShiftAssignment.roster_date >= filters.date_from,
+            ShiftAssignment.roster_date <= filters.date_to,
+        )
+        if filters.shift_id is not None:
+            stmt = stmt.where(ShiftAssignment.shift_id == filters.shift_id)
+        if filters.work_center_id is not None:
+            stmt = stmt.where(ShiftAssignment.work_center_id == filters.work_center_id)
+        if filters.machine_id is not None:
+            stmt = stmt.where(ShiftAssignment.machine_id == filters.machine_id)
+        if filters.operator_user_id is not None:
+            stmt = stmt.where(ShiftAssignment.operator_user_id == filters.operator_user_id)
+        if filters.status is not None:
+            stmt = stmt.where(ShiftAssignment.status == filters.status)
+        rows, pagination = await _paginate_projection(self.session, self._ordered(stmt), params)
+        return [_assignment_read(row) for row in rows], pagination
+
+    async def reads(self, assignment_ids: Sequence[uuid.UUID]) -> list[ShiftAssignmentRead]:
+        """The projection of rows just written, in board order - one statement."""
+        if not assignment_ids:
+            return []
+        stmt = self._projection().where(ShiftAssignment.id.in_(list(assignment_ids)))
+        return [_assignment_read(row) for row in await self.session.execute(self._ordered(stmt))]
+
+    async def overlapping(
+        self,
+        *,
+        starts_at: datetime,
+        ends_at: datetime,
+        operator_ids: Sequence[uuid.UUID],
+        machine_ids: Sequence[uuid.UUID],
+        exclude_ids: Sequence[uuid.UUID] = (),
+    ) -> list[ShiftAssignmentRead]:
+        """PLANNED rows of these operators or machines touching ``[starts_at, ends_at)``.
+
+        One statement for a whole bulk request, spanning the earliest start to the
+        latest end; the service then pairs them up in memory. ``exclude_ids`` keeps
+        a row being re-staffed from conflicting with itself.
+        """
+        resources = []
+        if operator_ids:
+            resources.append(ShiftAssignment.operator_user_id.in_(list(operator_ids)))
+        if machine_ids:
+            resources.append(ShiftAssignment.machine_id.in_(list(machine_ids)))
+        if not resources:
+            return []
+        stmt = self._projection().where(
+            ShiftAssignment.status == ShiftAssignmentStatus.PLANNED,
+            ShiftAssignment.starts_at < ends_at,
+            ShiftAssignment.ends_at > starts_at,
+            or_(*resources),
+        )
+        if exclude_ids:
+            stmt = stmt.where(ShiftAssignment.id.not_in(list(exclude_ids)))
+        return [_assignment_read(row) for row in await self.session.execute(self._ordered(stmt))]
+
+    async def planned_on(
+        self, day: date, *, work_center_id: uuid.UUID | None, limit: int
+    ) -> list[ShiftAssignment]:
+        """One day's PLANNED rows - the source of a copy. Bounded by the caller."""
+        stmt = self._scoped().where(
+            ShiftAssignment.roster_date == day,
+            ShiftAssignment.status == ShiftAssignmentStatus.PLANNED,
+        )
+        if work_center_id is not None:
+            stmt = stmt.where(ShiftAssignment.work_center_id == work_center_id)
+        stmt = stmt.order_by(ShiftAssignment.starts_at.asc(), ShiftAssignment.id.asc()).limit(limit)
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def is_rostered(
+        self,
+        *,
+        operator_user_id: uuid.UUID,
+        shift_id: uuid.UUID,
+        roster_date: date,
+        work_center_id: uuid.UUID | None = None,
+        machine_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Does a PLANNED row put this person on this shift on this date, here?
+
+        "Here" narrows only as far as the caller knows: a work centre when one is
+        named, and a machine either exactly or through a cell-level row at that
+        machine's own centre - one operator tending several machines.
+        """
+        stmt = (
+            select(literal(1))
+            .select_from(ShiftAssignment)
+            .where(
+                ShiftAssignment.company_id == self.tenant.company_id,
+                ShiftAssignment.status == ShiftAssignmentStatus.PLANNED,
+                ShiftAssignment.operator_user_id == operator_user_id,
+                ShiftAssignment.shift_id == shift_id,
+                ShiftAssignment.roster_date == roster_date,
+            )
+        )
+        if work_center_id is not None:
+            stmt = stmt.where(ShiftAssignment.work_center_id == work_center_id)
+        if machine_id is not None:
+            centre_of_machine = (
+                select(Machine.work_center_id)
+                .where(Machine.id == machine_id, Machine.company_id == self.tenant.company_id)
+                .scalar_subquery()
+            )
+            stmt = stmt.where(
+                or_(
+                    ShiftAssignment.machine_id == machine_id,
+                    and_(
+                        ShiftAssignment.machine_id.is_(None),
+                        ShiftAssignment.work_center_id == centre_of_machine,
+                    ),
+                )
+            )
+        return bool((await self.session.execute(select(exists(stmt)))).scalar_one())
+
+
+def _assignment_read(row: Any) -> ShiftAssignmentRead:
+    return ShiftAssignmentRead.model_validate(dict(row._mapping))
+
+
+class RosterOperatorRepository(BaseRepository[User]):
+    """The people a roster or a booking may name: active internal accounts.
+
+    Read under the roster's and production's own rights rather than ``user.view``,
+    which no production role holds - the reason every operator picker used to be
+    empty for the supervisors who fill them in.
+    """
+
+    model = User
+    entity_label = OPERATOR_ENTITY
+    searchable_fields = ("full_name", "employee_code")
+
+    async def page(
+        self, search: str | None, params: PageParams
+    ) -> tuple[list[User], OffsetPagination]:
+        stmt = self._apply_search(
+            self._scoped().where(User.is_active.is_(True), User.vendor_id.is_(None)), search
+        )
+        return await paginate(
+            self.session, stmt.order_by(User.full_name.asc(), User.id.asc()), params
+        )
+
+    async def facts(self, user_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, OperatorFacts]:
+        """Batched id -> eligibility facts, inactive and vendor accounts included.
+
+        Included so the refusal can say *why*; an id that is simply absent is
+        another tenant's or a deleted account, and is reported as not found.
+        """
+        wanted = list(dict.fromkeys(user_ids))
+        if not wanted:
+            return {}
+        stmt = select(
+            User.id, User.full_name, User.employee_code, User.is_active, User.vendor_id
+        ).where(
+            User.company_id == self.tenant.company_id,
+            User.deleted_at.is_(None),
+            User.id.in_(wanted),
+        )
+        return {
+            row.id: OperatorFacts(
+                id=row.id,
+                full_name=row.full_name,
+                employee_code=row.employee_code,
+                is_active=row.is_active,
+                is_vendor_user=row.vendor_id is not None,
+            )
+            for row in await self.session.execute(stmt)
+        }
+
+
 def _costed(row: Any) -> CostedOperation:
     return CostedOperation(
         sequence=row.sequence,
@@ -647,15 +1062,23 @@ def _costed(row: Any) -> CostedOperation:
 
 __all__ = [
     "LIVE_ROUTING_STATUSES",
+    "OPERATOR_ENTITY",
+    "SHIFT_ASSIGNMENT_ENTITY",
+    "SHIFT_ENTITY",
     "WORKABLE_MACHINE_STATUSES",
+    "CompanyZoneRepository",
     "CostedOperation",
     "CostedRouting",
     "ItemLookupRepository",
     "MachineInfo",
     "MachineRepository",
+    "OperatorFacts",
+    "RosterOperatorRepository",
     "RoutingItemInfo",
     "RoutingOperationRepository",
     "RoutingRepository",
+    "ShiftAssignmentRepository",
+    "ShiftRepository",
     "WorkCenterRates",
     "WorkCenterRepository",
 ]

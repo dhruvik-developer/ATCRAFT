@@ -181,11 +181,35 @@ class SystemAccount(StrEnum):
     ACCOUNTS_RECEIVABLE = "ACCOUNTS_RECEIVABLE"
     ACCOUNTS_PAYABLE = "ACCOUNTS_PAYABLE"
     PURCHASE_EXPENSE = "PURCHASE_EXPENSE"
+    #: Processing bought on material the company issued. Preferred chart code
+    #: 5150; ``ensure_system_accounts`` walks upward if that code is taken.
+    JOB_WORK_EXPENSE = "JOB_WORK_EXPENSE"
     INPUT_TAX = "INPUT_TAX"
     OUTPUT_TAX = "OUTPUT_TAX"
     BANK = "BANK"
     CASH = "CASH"
     ROUND_OFF = "ROUND_OFF"
+
+
+class VendorInvoiceType(StrEnum):
+    """What a vendor invoice is billing.
+
+    A job-work bill is the same document as a purchase bill - payments,
+    approval, disputes and the payables ledger are shared - and the type says
+    which documents it is matched against. ``PURCHASE`` matches a purchase
+    order and a goods receipt. ``JOB_WORK`` matches a job-work order and its
+    receipt lines. docs/assumptions.md §B3-1.
+    """
+
+    PURCHASE = "PURCHASE"
+    JOB_WORK = "JOB_WORK"
+
+
+#: A job-work invoice line that names no receipt line is a free service or
+#: freight charge. Refused by default: every line of a job-work bill is a
+#: receipt line, so the same charges cannot be billed twice. docs/assumptions.md
+#: §B3-1.
+JOB_WORK_ALLOW_FREE_LINES = False
 
 
 class VendorInvoiceStatus(StrEnum):
@@ -547,6 +571,19 @@ class VendorInvoice(TenantEntity, OptimisticLockMixin):
     goods_receipt_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("goods_receipts.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    #: Purchase bills match a purchase order. Job-work bills match a job-work
+    #: order, and the CHECK below makes the link mandatory for that type and
+    #: forbidden for the other. RESTRICT: the order is the evidence the bill
+    #: was priced against.
+    invoice_type: Mapped[VendorInvoiceType] = mapped_column(
+        String(16),
+        nullable=False,
+        default=VendorInvoiceType.PURCHASE,
+        server_default=VendorInvoiceType.PURCHASE.value,
+    )
+    job_work_order_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("job_work_orders.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
 
     #: The cost centre the bill is charged to, and the default for every line
     #: that names none of its own. Resolved line by line at approval, when the
@@ -578,6 +615,13 @@ class VendorInvoice(TenantEntity, OptimisticLockMixin):
     )
     #: Advanced only by the allocation path, under a row lock on this header.
     paid_amount: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: Excess-loss recovery posted with this invoice (Dr AP / Cr job-work
+    #: expense). The vendor's net payable is ``total_amount - recovered_amount``;
+    #: the gross bill stays on the document so the vendor's invoice number still
+    #: reconciles. docs/assumptions.md §B3-2.
+    recovered_amount: Mapped[Decimal] = mapped_column(
         Money, nullable=False, default=Decimal("0"), server_default="0"
     )
 
@@ -631,6 +675,8 @@ class VendorInvoice(TenantEntity, OptimisticLockMixin):
         Index("ix_vendor_invoices_status_due", "company_id", "status", "due_date"),
         Index("ix_vendor_invoices_vendor_date", "company_id", "vendor_id", "invoice_date"),
         Index("ix_vendor_invoices_purchase_order", "company_id", "purchase_order_id"),
+        Index("ix_vendor_invoices_type", "company_id", "invoice_type", "invoice_date"),
+        Index("ix_vendor_invoices_job_work_order", "company_id", "job_work_order_id"),
         # THE index behind the outstanding and ageing reports. Partial, because a
         # mature company's table is mostly settled invoices and neither report
         # ever looks at them. Its predicate is OPEN_INVOICE_STATUSES - the two
@@ -642,6 +688,15 @@ class VendorInvoice(TenantEntity, OptimisticLockMixin):
             "due_date",
             postgresql_where=text(f"status IN ({sql_in_list(OPEN_INVOICE_STATUSES)})"),
         ),
+        CheckConstraint(
+            f"invoice_type IN ({sql_in_list(VendorInvoiceType)})", name="invoice_type_known"
+        ),
+        # A job-work bill is unmatchable without its order, and a purchase bill
+        # that names one would be priced against the wrong document.
+        CheckConstraint(
+            "(invoice_type = 'JOB_WORK') = (job_work_order_id IS NOT NULL)",
+            name="job_work_invoice_names_its_order",
+        ),
         CheckConstraint(f"status IN ({sql_in_list(VendorInvoiceStatus)})", name="status_known"),
         CheckConstraint(f"match_status IN ({sql_in_list(MatchStatus)})", name="match_status_known"),
         CheckConstraint("length(currency) = 3", name="currency_is_iso_code"),
@@ -649,6 +704,7 @@ class VendorInvoice(TenantEntity, OptimisticLockMixin):
         CheckConstraint("tax_amount >= 0", name="tax_non_negative"),
         CheckConstraint("total_amount >= 0", name="total_non_negative"),
         CheckConstraint("paid_amount >= 0", name="paid_non_negative"),
+        CheckConstraint("recovered_amount >= 0", name="recovered_non_negative"),
         # The header identity. A total that is not its own parts is an invoice
         # nobody can reconcile against the vendor's document.
         CheckConstraint(
@@ -706,6 +762,21 @@ class VendorInvoiceLine(TenantEntity):
     goods_receipt_line_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("goods_receipt_lines.id", ondelete="RESTRICT"), nullable=True, index=True
     )
+    #: The job-work receipt line this charge bills. Mutually exclusive with
+    #: ``purchase_order_line_id`` - a line is one supply or the other. The
+    #: constraint carries an explicit name: the generated one is 70 bytes and
+    #: PostgreSQL would truncate it (see
+    #: ``tests/unit/test_schema_identifier_length.py``).
+    job_work_receipt_line_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID,
+        ForeignKey(
+            "job_work_receipt_lines.id",
+            ondelete="RESTRICT",
+            name="fk_vendor_invoice_lines_jw_receipt",
+        ),
+        nullable=True,
+        index=True,
+    )
 
     item_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=True, index=True
@@ -757,6 +828,16 @@ class VendorInvoiceLine(TenantEntity):
     line_total: Mapped[Decimal] = mapped_column(
         Money, nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: This line's share of the excess-loss recovery posted with the invoice
+    #: (Dr AP / Cr job-work expense). The recovery is computed per receipt
+    #: line, and when several invoice lines bill one receipt line the whole
+    #: share sits on the first of them; the rest carry zero. Written at
+    #: approval, read back at cancellation so the rollback removes exactly
+    #: what this invoice added - no more, even when a later invoice posted a
+    #: further recovery on the same receipt line afterwards.
+    recovery_amount: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
 
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -766,6 +847,18 @@ class VendorInvoiceLine(TenantEntity):
         ),
         Index("ix_vendor_invoice_lines_invoice", "company_id", "vendor_invoice_id", "line_number"),
         Index("ix_vendor_invoice_lines_po_line", "company_id", "purchase_order_line_id"),
+        Index(
+            "ix_vendor_invoice_lines_job_work_receipt",
+            "company_id",
+            "job_work_receipt_line_id",
+        ),
+        # At most one source document. Both null is a freight or service line
+        # on a purchase bill; a job-work bill refuses that in the service
+        # unless JOB_WORK_ALLOW_FREE_LINES is on.
+        CheckConstraint(
+            "purchase_order_line_id IS NULL OR job_work_receipt_line_id IS NULL",
+            name="one_source_document",
+        ),
         # The GST return's HSN summary reads exactly this.
         Index("ix_vendor_invoice_lines_hsn", "company_id", "hsn_code", "tax_rate"),
         CheckConstraint("line_number > 0", name="line_number_positive"),
@@ -783,6 +876,7 @@ class VendorInvoiceLine(TenantEntity):
         CheckConstraint(
             "line_total = taxable_amount + tax_amount", name="line_total_is_taxable_plus_tax"
         ),
+        CheckConstraint("recovery_amount >= 0", name="recovery_non_negative"),
         # One supply is either intra-state or inter-state. A line carrying both
         # splits is a place-of-supply bug on its way into a statutory return.
         CheckConstraint(
@@ -933,6 +1027,7 @@ __all__ = [
     "DEFAULT_CURRENCY",
     "EDITABLE_INVOICE_STATUSES",
     "INPUT_TAX_STATUSES",
+    "JOB_WORK_ALLOW_FREE_LINES",
     "MAX_INVOICE_LINES",
     "MAX_JOURNAL_LINES",
     "MAX_PAYMENT_ALLOCATIONS",
@@ -956,4 +1051,5 @@ __all__ = [
     "VendorInvoice",
     "VendorInvoiceLine",
     "VendorInvoiceStatus",
+    "VendorInvoiceType",
 ]

@@ -66,6 +66,7 @@ function workOrder(overrides: Partial<WorkOrder> = {}): WorkOrder {
     planned_end_at: '2026-02-02T08:00:00Z',
     actual_start_at: null,
     actual_end_at: null,
+    shift_id: null,
     shift: null,
     notes: null,
     work_center_cost_per_hour: '250.0000',
@@ -84,7 +85,9 @@ function workOrder(overrides: Partial<WorkOrder> = {}): WorkOrder {
  */
 const LOOKUPS = {
   'GET /routing/work-centers': page([{ id: 'wc-1', code: 'MILL-01', name: 'CNC milling' }]),
-  'GET /users': page([{ id: 'user-7', full_name: 'Rakesh Patel', email: 'rakesh@example.com' }]),
+  'GET /routing/roster/operators': page([
+    { id: 'user-7', full_name: 'Rakesh Patel', email: 'rakesh@example.com' },
+  ]),
 }
 
 const queue = (rows: WorkOrder[]) => ({
@@ -330,21 +333,41 @@ describe('assigning an operation', () => {
     const { user, fetch } = renderScreen(<WorkOrdersPage />, {
       permissions: [P.WORK_ORDER_VIEW, P.WORK_ORDER_MANAGE],
       routes: {
-        ...queue([workOrder({ shift: 'A' })]),
+        ...queue([workOrder({ shift: 'A', shift_id: 'shift-a' })]),
+        'GET /routing/shifts': page([
+          {
+            id: 'shift-a',
+            code: 'A',
+            name: 'Morning',
+            start_time: '06:00:00',
+            end_time: '14:00:00',
+            crosses_midnight: false,
+          },
+          {
+            id: 'shift-b',
+            code: 'B',
+            name: 'Afternoon',
+            start_time: '14:00:00',
+            end_time: '22:00:00',
+            crosses_midnight: false,
+          },
+        ]),
         'PATCH /production/work-orders/wo-1': ok(workOrder({ shift: 'B' })),
       },
     })
     await queueSettled()
 
     await user.click(screen.getByRole('button', { name: 'Assign WO-0001' }))
-    await screen.findByLabelText('Shift')
-    await user.clear(screen.getByLabelText('Shift'))
-    await user.type(screen.getByLabelText('Shift'), 'B')
+    await within(screen.getByRole('dialog')).findByLabelText('Shift')
+    await user.click(within(screen.getByRole('dialog')).getByLabelText('Shift'))
+    await user.click(await screen.findByRole('option', { name: /B.*Afternoon/ }))
     await user.click(screen.getByRole('button', { name: 'Save assignment' }))
 
     await waitFor(() => fetch.requestFor('PATCH', '/production/work-orders/wo-1'))
     // Exactly one key. An `operator_user_id: null` in here is the defect.
-    expect(fetch.requestFor('PATCH', '/production/work-orders/wo-1')).toEqual({ shift: 'B' })
+    expect(fetch.requestFor('PATCH', '/production/work-orders/wo-1')).toEqual({
+      shift_id: 'shift-b',
+    })
   })
 
   it('does not send an empty PATCH when nothing was touched', async () => {
@@ -357,7 +380,7 @@ describe('assigning an operation', () => {
     await queueSettled()
 
     await user.click(screen.getByRole('button', { name: 'Assign WO-0001' }))
-    await screen.findByLabelText('Shift')
+    await within(screen.getByRole('dialog')).findByLabelText('Shift')
     await user.click(screen.getByRole('button', { name: 'Save assignment' }))
 
     expect(fetch.calls.filter((call) => call.method === 'PATCH')).toHaveLength(0)

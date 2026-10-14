@@ -163,6 +163,7 @@ from src.modules.quality.schemas import (
     MeasurementIn,
     RecordResultsRequest,
 )
+from src.modules.routing.models import Shift
 from src.modules.sales import service as sales_service
 from src.modules.sales.models import SalesOrder, SalesOrderLine, SalesOrderStatus
 from src.modules.sales.schemas import SalesOrderCreate, SalesOrderLineIn
@@ -332,6 +333,23 @@ class _Lookup:
 
     async def transporter(self, *parts: str) -> uuid.UUID | None:
         return await self._by_code("transporter", Transporter, self.ctx.code(*parts))
+
+
+async def _shift_id(ctx: DemoContext, code: str) -> uuid.UUID | None:
+    """The shift a demonstration booking names, by code.
+
+    Bookings take a shift from the master now, never typed text. The engineering
+    stage creates the master; if this stage runs on a database without it, the
+    booking is made without a shift rather than not at all.
+    """
+    known = ctx.maybe_id("shift", code)
+    if known is not None:
+        return known
+    found = await find_by_code(ctx.session, Shift, ctx.company_id, code)
+    if found is None:
+        ctx.skipped.append((STAGE, f"shift {code} not found; bookings were made without it"))
+        return None
+    return ctx.remember("shift", code, found.id)
 
 
 # -----------------------------------------------------------------------------
@@ -942,7 +960,7 @@ async def _run_the_floor(ctx: DemoContext, order: ProductionOrder, spec: _JobSpe
             ProductionEntryCreate(
                 work_order_id=work_order.id,
                 entry_date=_anchor() + timedelta(days=spec.start_offset + 1),
-                shift=booking.shift,
+                shift_id=await _shift_id(ctx, booking.shift),
                 produced_quantity=Decimal(booking.produced),
                 downtime_minutes=Decimal(booking.downtime_minutes),
                 notes=booking.note or None,
@@ -1086,7 +1104,7 @@ async def _advance_job(ctx: DemoContext, order: ProductionOrder, spec: _JobSpec)
                 rejection_reason=spec.rejection_reason,
                 entry_date=_anchor() + timedelta(days=spec.end_offset),
                 actual_end_date=_anchor() + timedelta(days=spec.end_offset),
-                shift="A",
+                shift_id=await _shift_id(ctx, "A"),
                 note="Job finished and output received",
             ),
         )

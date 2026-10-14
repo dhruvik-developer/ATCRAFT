@@ -593,7 +593,7 @@ function EntriesPanel({
       getRowId={(row) => row.id}
       toolbar={recordButton}
       emptyTitle="Nothing booked yet"
-      emptyDescription="Output is recorded shift by shift. The first booking moves the order into process."
+      emptyDescription="Output and downtime are booked against a chosen operation or the whole job. Start the job before booking."
       emptyAction={recordButton ?? undefined}
     />
   )

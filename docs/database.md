@@ -60,7 +60,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `inventory` | `inventory_transactions`, `inventory_balances`, `inventory_cost_layers`, `inventory_cost_consumptions`, `stock_batches`, `stock_serials`, `stock_transfers`, `stock_transfer_lines`, `stock_adjustments`, `stock_adjustment_lines`, `physical_counts`, `physical_count_lines`, `bin_moves`, `bin_move_lines`, `scrap_disposals`, `scrap_disposal_lines`, `internal_issues`, `internal_issue_lines` |
 | `allocation` | `stock_reservations`, `reallocation_requests` |
 | `bom` | `boms`, `bom_lines`, `bom_operations` |
-| `routing` | `work_centers`, `machines`, `routings`, `routing_operations` |
+| `routing` | `work_centers`, `machines`, `routings`, `routing_operations`, `shifts`, `shift_assignments` |
 | `sales` | `sales_orders`, `sales_order_lines` |
 | `mrp` | `mrp_runs`, `mrp_demands`, `mrp_requirements`, `mrp_suggestions` |
 | `procurement` | `purchase_requisitions`, `purchase_requisition_lines`, `rfqs`, `rfq_lines`, `vendor_quotations`, `vendor_quotation_lines`, `purchase_orders`, `purchase_order_lines`, `goods_receipts`, `goods_receipt_lines`, `purchase_returns`, `purchase_return_lines` |
@@ -106,7 +106,9 @@ Rules (`docs/assumptions.md` §41 to §46):
 
 * **NULL is "unallocated"**, never "the default centre". Nothing is backfilled.
 * **Precedence is explicit value -> source document -> NULL.** A vendor invoice
-  line resolves line -> header -> NULL at approval. Production and job-work
+  line resolves line -> header -> NULL at approval, except on a job-work bill,
+  where the job-work order's centre sits between the line and the header
+  (line -> order -> header -> NULL). Production and job-work
   orders take only an explicit value: their sources (MRP, a sales order, a
   production order behind a job-work order) carry none this release.
 * **Every write validates through the organisation seam** -
@@ -122,7 +124,8 @@ Rules (`docs/assumptions.md` §41 to §46):
 * **Approving a vendor invoice splits `PURCHASE_EXPENSE` per effective line
   centre** - one leg per centre, in line order, summing exactly to the subtotal
   (`split_by_cost_centre`). An invoice naming no centre posts the single
-  unallocated leg it always did.
+  unallocated leg it always did. A `JOB_WORK` invoice splits `JOB_WORK_EXPENSE`
+  instead, with the job-work order's centre between the line and the header.
 * **Two retirement levels.** Deactivating is refused while an active child, a
   department default or a work centre still hands the centre out. Archiving is
   refused while anything at all names it - a live child, a department, a work
@@ -136,6 +139,34 @@ The cost-centre statement (`/reports/cost-centre-expense`, report key
 `COST_CENTRE_EXPENSE`) sums posted legs per (centre, account) over a period from
 `ledger_entries`, through the partial index
 `(company_id, cost_centre_id, entry_date) WHERE cost_centre_id IS NOT NULL`.
+
+---
+
+### Shifts and the roster
+
+Routing owns the immutable-code `shifts` master (local start/end times,
+midnight flag, break minutes, ordering and active lifecycle). `shift_assignments`
+records a local start date, shift, cell, optional machine and internal operator.
+UTC `starts_at`/`ends_at` are plain snapshots computed in the company timezone;
+changing the timezone never moves a stored assignment. Two partial GiST
+exclusions prevent overlapping PLANNED operator or machine windows. A composite
+(machine, work centre) foreign key keeps machines in their cell. Writes hold a
+company roster advisory lock, batch references, and return every conflict.
+
+Roster lists require a date range of at most 31 inclusive days. Bulk writes and
+copy-day writes are atomic, capped at 200 assignments. Cancelling is irreversible
+and audited. Future PLANNED assignments block shift re-timing/deactivation/retirement
+and asset retirement or movement. Times include the whole window; breaks reduce
+reported rostered capacity. Maintenance and breakdown are warnings.
+
+`work_orders.shift_id` and `production_entries.shift_id` reference a shift; their
+existing `shift` text remains a read-only code snapshot. New inputs accept only
+shift ids. Existing text is retained without inventing times or backfilling ids.
+The roster is advisory: assignment/bookings outside the plan warn and remain
+valid facts. Active internal operators have a production-readable paginated
+directory, independent of `user.view`. `SHIFT_PRODUCTION` groups bookings by
+local entry date, code snapshot, cell, machine and operator. Machine utilisation
+retains calendar capacity and adds net PLANNED roster capacity beside it.
 
 ---
 
@@ -592,6 +623,11 @@ Purchase order    DRAFT -> PENDING_APPROVAL -> APPROVED -> SENT -> ACKNOWLEDGED
 Production order  DRAFT -> APPROVED -> RELEASED -> MATERIAL_ISSUED -> IN_PROCESS
                         -> COMPLETED -> CLOSED   (CANCELLED before IN_PROCESS)
 
+Vendor invoice    DRAFT -> PENDING_APPROVAL -> APPROVED <-> PARTIALLY_PAID <-> PAID
+                        (DISPUTED from PENDING_APPROVAL/APPROVED/PARTIALLY_PAID;
+                        CANCELLED from DRAFT, PENDING_APPROVAL, APPROVED, DISPUTED -
+                        cancelling a posted bill reverses its journals)
+
 QC inspection     PENDING -> IN_PROGRESS -> (ACCEPTED | REWORK | REJECTED | HOLD | SCRAP) -> CLOSED
 
 Job work order    DRAFT -> APPROVED -> ISSUED -> PARTIALLY_RECEIVED -> RECEIVED
@@ -628,6 +664,9 @@ Branch, plant, department, cost centre, financial year, brand, manufacturer
                   ACTIVE <-> INACTIVE;  ACTIVE | INACTIVE -> ARCHIVED (terminal; retire = soft delete)
 ```
 
+Shift             ACTIVE <-> INACTIVE; ACTIVE | INACTIVE -> ARCHIVED
+Shift assignment  PLANNED -> CANCELLED (terminal)
+
 Every transition writes an audit row via `record_status_change`.
 
 ---
@@ -645,7 +684,8 @@ Every transition writes an audit row via `record_status_change`.
 | Dispatch | `allocation.consume`, then `post_movements` (`DISPATCH`) |
 | Sales order confirmed | `allocation.reserve` per line against available stock |
 | Requisition converted | One DRAFT purchase order per (vendor, procurement category, warehouse) through `procurement.service._create_purchase_order` (duplicate check included); `_link_source_documents` adds to each line's `ordered_quantity` and moves the requisition APPROVED → CONVERTED; one CREATE audit row per order and one "Split into …" row per requisition - all in one transaction, or nothing |
-| Vendor invoice approved | `finance.post_journal`: one `PURCHASE_EXPENSE` debit per effective line cost centre (line -> header -> none), input tax, payable |
+| Vendor invoice approved | `finance.post_journal`: one `PURCHASE_EXPENSE` debit per effective line cost centre (line -> header -> none), input tax, payable. A `JOB_WORK` invoice debits `JOB_WORK_EXPENSE` instead (line -> job-work order -> header -> none), moves each receipt line's `invoiced_amount`, and posts the excess-loss recovery (`job_work_recovery`: Dr AP / Cr job-work expense) for the still-unposted vendor debit |
+| Vendor invoice cancelled | reverse every journal the invoice posted (the bill and, on a job-work invoice, the recovery beside it) and roll the job-work tracking back, in the same transaction |
 | Any write naming a cost centre | `organization.service.require_cost_centre` / `require_cost_centres` (tenant, live, active) before the row is written |
 | Any status change | `audit.record_status_change` in the same transaction |
 

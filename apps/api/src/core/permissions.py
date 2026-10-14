@@ -112,6 +112,10 @@ class Permission(StrEnum):
     BOM_APPROVE = "bom.approve"
     BOM_OBSOLETE = "bom.obsolete"
     BOM_COST_VIEW = "bom.cost_view"
+    SHIFT_VIEW = "shift.view"
+    SHIFT_MANAGE = "shift.manage"
+    SHIFT_ROSTER_VIEW = "shift_roster.view"
+    SHIFT_ROSTER_MANAGE = "shift_roster.manage"
     ROUTING_VIEW = "routing.view"
     ROUTING_MANAGE = "routing.manage"
     WORK_CENTER_VIEW = "work_center.view"
@@ -234,7 +238,7 @@ PERMISSION_GROUPS: dict[str, tuple[str, ...]] = {
     ),
     "Warehouses": ("warehouse", "location"),
     "Inventory": ("inventory", "reservation", "allocation", "internal_issue"),
-    "Engineering": ("bom", "routing", "work_center", "machine"),
+    "Engineering": ("bom", "routing", "work_center", "machine", "shift"),
     "Sales": ("sales_order", "sales_invoice"),
     "Planning": ("mrp",),
     "Procurement": (
@@ -246,6 +250,7 @@ PERMISSION_GROUPS: dict[str, tuple[str, ...]] = {
         "purchase_return",
     ),
     "Production": (
+        "shift_roster",
         "production_order",
         "work_order",
         "material_issue",
@@ -405,6 +410,12 @@ _PURCHASE = frozenset(
 
 _PRODUCTION = frozenset(
     {
+        # The shop floor plans its own people: the shift register to read, the
+        # roster to read and write. Changing a shift's times is the plant
+        # manager's (see PLANT_MANAGER).
+        Permission.SHIFT_VIEW,
+        Permission.SHIFT_ROSTER_VIEW,
+        Permission.SHIFT_ROSTER_MANAGE,
         Permission.PRODUCTION_ORDER_VIEW,
         Permission.PRODUCTION_ORDER_CREATE,
         Permission.PRODUCTION_ORDER_RELEASE,
@@ -574,6 +585,8 @@ ROLE_PRESETS: dict[str, dict[str, object]] = {
             Permission.ALLOCATION_REALLOCATE,
             Permission.JOB_WORK_CLOSE,
             Permission.BOM_APPROVE,
+            # The shift master itself - its times are the plant's working day.
+            Permission.SHIFT_MANAGE,
         },
     },
     "STORE_KEEPER": {
@@ -650,6 +663,8 @@ ROLE_PRESETS: dict[str, dict[str, object]] = {
                 Permission.ALLOCATION_CREATE,
                 Permission.ALLOCATION_REALLOCATE,
                 Permission.SALES_ORDER_VIEW,
+                Permission.SHIFT_VIEW,
+                Permission.SHIFT_ROSTER_VIEW,
                 Permission.PRODUCTION_ORDER_VIEW,
                 Permission.PRODUCTION_ORDER_CREATE,
                 Permission.PURCHASE_REQUISITION_VIEW,

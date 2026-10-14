@@ -1727,6 +1727,174 @@ leaves the late set while keeping its badge.
 
 ---
 
+## §B2-1. A shift in future use cannot be re-timed or retired
+
+**Assumed.** Future PLANNED assignments must be cancelled before changing times, breaks, deactivating or retiring a shift. Name and sort order changes do not change a window.
+
+**Why.** A plan must keep resolving to the window somebody assigned.
+
+**Where.** `routing.service.ShiftService._assert_off_the_roster`.
+
+**Impact if wrong.** Cancel the affected plan, then retire and replace the shift.
+
+---
+
+## §B2-2. One operator per machine and one window per operator
+
+**Assumed.** Overlapping PLANNED windows are refused for the same operator across all cells and for the same non-null machine. Cell-level assignments permit multi-machine tending.
+
+**Why.** Double-booking cannot be a usable staffing plan.
+
+**Where.** `routing.models.ShiftAssignment; routing.service.ShiftRosterService.plan`.
+
+**Impact if wrong.** Helpers need an explicit capacity or staffing model before the machine exclusion can change.
+
+---
+
+## §B2-3. Legacy shift text keeps its history
+
+**Assumed.** Existing shift text retains NULL shift_id. New inputs select a governed shift and snapshot its immutable code; clearing clears both.
+
+**Why.** Legacy codes carry no start or end times. Creating them would invent a rule.
+
+**Where.** `production.models; routing.service.require_shift`.
+
+**Impact if wrong.** An administrator-approved audited linking action can connect legacy codes to an established master later.
+
+---
+
+## §B2-4. The roster is advisory
+
+**Assumed.** Bookings and work-order assignments outside the selected operator/shift/cell/date roster warn and remain accepted.
+
+**Why.** A booking is an actual fact; refusal would hide production that happened.
+
+**Where.** `production.service.ROSTER_MISMATCH_WARNING; production dialogs`.
+
+**Impact if wrong.** Make enforcement a separately approved policy rather than altering historical bookings.
+
+---
+
+## §B2-5. The roster date is local and windows are snapshots
+
+**Assumed.** roster_date is the company-local date the shift starts. Times use companies.timezone; UTC start/end snapshots never move after a timezone change. Half-open windows admit back-to-back shifts.
+
+**Why.** A night shift belongs to its starting day and a changed timezone cannot rewrite the plan.
+
+**Where.** `routing.service.shift_window; routing.models.ShiftAssignment`.
+
+**Impact if wrong.** Timezone and daylight-saving policy changes need an explicit reviewed rescheduling operation.
+
+---
+
+## §B2-6. Shift codes are immutable
+
+**Assumed.** Codes are normalised, immutable and never reused after retirement.
+
+**Why.** Production rows preserve the code that identified their shift.
+
+**Where.** `routing.schemas.ShiftUpdate; uq_shifts_company_id_code`.
+
+**Impact if wrong.** Introduce separately audited aliases if the business needs code changes.
+
+---
+
+## §B2-7. Rostered capacity sits beside calendar capacity
+
+**Assumed.** Machine utilisation adds net PLANNED window minutes and busy/rostered percent. Existing calendar-days times working-hours capacity remains unchanged.
+
+**Why.** A new plan cannot silently restate existing capacity figures.
+
+**Where.** `reports.repository.machine_utilisation; reports.service._derive_machine_utilisation`.
+
+**Impact if wrong.** A holiday-aware calendar needs its own business policy and report denominator.
+
+---
+
+## §B2-8. Existing planning and costing keep their scheduling conventions
+
+**Assumed.** Routing run/setup minutes are chargeable; queue/move minutes are elapsed only. Work-centre working hours divide lead time, defaulting to eight. Work orders remain scheduled from the planned date in UTC, back-to-back, and calendar capacity includes every day.
+
+**Why.** This package adds staffing plans without rescheduling existing jobs or changing costing.
+
+**Where.** `routing.service.total_routing_minutes/resolve_working_hours_per_day; production.service.plan_work_orders; reports.service.available_minutes`.
+
+**Impact if wrong.** Holiday, minimum-rest and shift-aware job scheduling need a separately agreed calendar policy.
+
+---
+
+## §B3-1. A job-work invoice is a typed vendor invoice, billed line by line
+
+**Assumed.** A job-work bill shares payments, allocations, approval, disputes, the payables ledger and ageing with a purchase bill, and matches a job-work order and its receipt lines instead of a purchase order and a goods receipt. Every goods line names a receipt line; a free service or freight line is refused unless `JOB_WORK_ALLOW_FREE_LINES` is turned on, because an unbilled extra is how the same charges get billed twice.
+
+**Why.** A separate invoice table would reimplement approval, payment and ageing for a document that differs only in what it is matched against.
+
+**Where.** `finance.models.VendorInvoiceType`, `VendorInvoice.invoice_type/job_work_order_id`, `VendorInvoiceLine.job_work_receipt_line_id`, `finance.schemas` validators, `finance.service._match_job_work`.
+
+**Impact if wrong.** Freight or service extras on a job-work bill need their own matching rule before the constant is enabled.
+
+---
+
+## §B3-2. The excess-loss recovery posts beside the bill, and over-billing is a hard block
+
+**Assumed.** At approval, the still-unposted vendor debit on the invoiced receipt lines posts as Dr AP against the vendor / Cr job-work expense under `job_work_recovery`, in the same transaction as the bill. The vendor's net payable is the invoice minus the recoveries. Every what-is-owed read is net of them - the invoice summary's outstanding figure, the outstanding list, the payables ageing, the payment-allocation bound and the payment-driven status - because the recovery already reduced the payable in the ledger, and a gross figure would guide the next payment to overpay the vendor by exactly the recovery. Billing beyond a receipt line's unbilled charges is refused outright - no override reason can approve it - and is re-checked under a row lock at approval, when the money actually moves.
+
+**Why.** The debit is money the vendor owes back for company material lost beyond allowance; netting it at payment time without posting it would leave the payable overstated and the recovery untraceable. An overridable over-bill would bill the same charges twice with a sentence attached.
+
+**Where.** `finance.service._post_job_work_billing`, `evaluate_match` job-work branch, `approve_invoice` over-billing guard.
+
+**Impact if wrong.** If recoveries should settle through a separate debit-note document, the recovery journal becomes that document's posting; the tracking columns stay.
+
+---
+
+## §B3-3. The GST rate and SAC default, and the client confirms them
+
+**Assumed.** A new job-work order takes GST 18% and SAC 9988 (manufacturing services on others' goods) when the payload omits them. Rates vary by vendor and ruling; 18% is the ordinary rate for this SAC, not a determination.
+
+**Why.** An order with no rate cannot produce an invoice line with one, and refusing to raise the order until somebody looks the rate up blocks real despatch-morning work.
+
+**Where.** `job_work.models.JOB_WORK_DEFAULT_GST_RATE/JOB_WORK_DEFAULT_SAC`, `job_work.service.create_order`, `job_work.schemas` tax fields.
+
+**Impact if wrong.** Confirm the rate per vendor; orders already raised keep the rate they were raised with until amended.
+
+---
+
+## §B3-4. The job-work expense account takes the next free code above 5150
+
+**Assumed.** `JOB_WORK_EXPENSE` is provisioned at chart code 5150, inside the 5xxx expense range beside purchases; when that code belongs to a hand-built account the provisioning walks upward to the next free one. Postings resolve the system code, never the chart code, so the walk changes nothing they read.
+
+**Why.** Fixed-code provisioning fails on any chart that already holds the preferred code, and the failure arrives as a unique-constraint error at the first approval.
+
+**Where.** `finance.service.DEFAULT_CHART`, `pick_free_chart_code`, `ensure_system_accounts`.
+
+**Impact if wrong.** A chart numbering plan that reserves the 515x range needs its own preferred code per company.
+
+---
+
+## §B3-5. Cancelling a posted bill reverses its journals
+
+**Assumed.** Any cancel of an invoice with posted journals reverses each one - the bill and, on a job-work invoice, the recovery beside it - and rolls the job-work tracking back, in the same transaction. Cancelling before approval moves nothing and rolls nothing back.
+
+**Why.** Cancelling without reversing leaves the payable and the input GST on the ledger while the invoice vanishes from ageing and the GST summary, which is the defect this package fixes.
+
+**Where.** `finance.service.cancel_invoice`, `VENDOR_INVOICE_LIFECYCLE` APPROVED to CANCELLED edge.
+
+**Impact if wrong.** A bill cancelled in error needs re-raising; the reversed journals are the trail.
+
+---
+
+## §B3-6. Vendor-submitted job-work bills are a follow-up, not this package
+
+**Assumed.** Vendor-portal invoice submission stays purchase-order-only. A vendor-submitted job-work bill - matched to an order the vendor can see through the portal scope - is recorded here as a follow-up.
+
+**Why.** The portal scope and submission flow were built around purchase orders; extending them to job-work orders needs its own scoping review.
+
+**Where.** This section only; no code.
+
+**Impact if wrong.** Staff continue to key job-work bills from the job-work screen until the portal flow is extended.
+
+---
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant
@@ -1754,3 +1922,5 @@ module is used in production:
    or the customer?
 7. **Partial dispatch.** May a sales-order line be dispatched in more than two
    instalments, and is there a minimum dispatch quantity?
+
+8. **Staffing policy.** Do operators need employee records without logins? Are helpers on one machine allowed? What holidays, weekly offs and minimum rest apply? Is a weekly publish/lock step required?

@@ -39,6 +39,12 @@ PositiveQuantity = Annotated[Decimal, Field(gt=0, max_digits=18, decimal_places=
 NonNegativeQuantity = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
 NonNegativeRate = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=6)]
 LossPercentage = Annotated[Decimal, Field(ge=0, le=100, max_digits=9, decimal_places=4)]
+#: GST on the processing service, as filed. The default comes from
+#: ``JOB_WORK_DEFAULT_GST_RATE`` when the payload omits it - see the service.
+TaxRate = Annotated[Decimal, Field(ge=0, le=100, max_digits=9, decimal_places=4)]
+#: SAC for the processing service, e.g. 9988 for manufacturing services on
+#: others' goods. A blank string is not a code.
+SacCode = Annotated[str, Field(min_length=1, max_length=16)]
 Reason = Annotated[str, Field(min_length=3, max_length=255)]
 Notes = Annotated[str, Field(max_length=2000)]
 LineNumber = Annotated[int, Field(ge=1, le=100_000)]
@@ -101,6 +107,14 @@ class JobWorkOrderCreate(BaseModel):
     rate_per_unit: NonNegativeRate = Decimal("0")
     rate_basis: RateBasis = RateBasis.PER_PIECE
 
+    #: GST on the processing service. Omitted means the default
+    #: (``JOB_WORK_DEFAULT_GST_RATE``) - the client confirms the rate that
+    #: applies to their vendors. docs/assumptions.md §B3-3.
+    tax_rate: TaxRate | None = None
+    #: SAC copied onto the vendor-invoice line. Omitted means the default for
+    #: manufacturing services on others' goods (``JOB_WORK_DEFAULT_SAC``).
+    sac_code: SacCode | None = None
+
     #: Whether returned output must be inspected before it becomes usable.
     requires_qc: bool = False
 
@@ -143,6 +157,10 @@ class JobWorkOrderUpdate(BaseModel):
     cost_centre_id: uuid.UUID | None = None
     rate_per_unit: NonNegativeRate | None = None
     rate_basis: RateBasis | None = None
+    #: An explicit null clears it back to unset.
+    tax_rate: TaxRate | None = None
+    #: An explicit null clears it back to unset.
+    sac_code: SacCode | None = None
     requires_qc: bool | None = None
     notes: Notes | None = None
     #: Replaces the whole line set when present. A partial line patch would make
@@ -196,6 +214,10 @@ class JobWorkOrderSummary(BaseModel):
     estimated_charges: Decimal
     total_charges: Decimal
     vendor_debit_amount: Decimal
+    #: GST on the processing service. Unset until somebody names it.
+    tax_rate: Decimal | None
+    #: SAC copied onto the vendor-invoice line.
+    sac_code: str | None
     status: JobWorkOrderStatus
     approved_by_id: uuid.UUID | None
     approved_at: datetime | None
@@ -462,6 +484,10 @@ class ReceiptLineRead(BaseModel):
     #: The inspection holding this line's good output - one per output item of
     #: the lot - or ``None`` when nothing was held or quality raised none.
     qc_inspection_id: uuid.UUID | None
+    #: How much of ``charges`` approved job-work invoices have billed.
+    invoiced_amount: Decimal
+    #: How much of ``vendor_debit_amount`` approvals have posted as recovery.
+    debit_posted_amount: Decimal
     notes: str | None
 
 
@@ -622,8 +648,40 @@ class VendorChargeRow(BaseModel):
     output_quantity: Decimal
 
 
+class BillableLine(BaseModel):
+    """One receipt line a job-work invoice may bill.
+
+    Only lines with unbilled charges are listed: a line fully billed has
+    nothing left to charge, and offering it would invite an over-bill the
+    approval would then have to refuse. ``unbilled_amount`` is what the dialog
+    prefills, ``pending_vendor_debit`` is the recovery the approval will post
+    beside the bill, and ``rate``/``rate_basis`` are what the match compares
+    the billed price against.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    job_work_receipt_line_id: uuid.UUID
+    job_work_receipt_id: uuid.UUID
+    receipt_code: str
+    receipt_date: date
+    line_number: int
+    output_item_id: uuid.UUID
+    output_quantity: Decimal
+    charges: Decimal
+    invoiced_amount: Decimal
+    unbilled_amount: Decimal
+    vendor_debit_amount: Decimal
+    pending_vendor_debit: Decimal
+    rate_per_unit: Decimal
+    rate_basis: RateBasis
+    tax_rate: Decimal | None
+    sac_code: str | None
+
+
 __all__ = [
     "PENDING_AT_VENDOR_MAX",
+    "BillableLine",
     "ChallanLineRead",
     "ChallanRead",
     "IssueLineIn",

@@ -163,6 +163,9 @@ from src.modules.audit.service import record_audit, record_status_change, snapsh
 from src.modules.inventory.models import StockState, TransactionType
 from src.modules.inventory.service import MovementRequest, change_stock_state, post_movements
 from src.modules.job_work.models import (
+    ISSUED_OR_LATER_STATUSES,
+    JOB_WORK_DEFAULT_GST_RATE,
+    JOB_WORK_DEFAULT_SAC,
     MAX_LINES_PER_ORDER,
     JobWorkChallan,
     JobWorkChallanLine,
@@ -190,6 +193,7 @@ from src.modules.job_work.repository import (
 )
 from src.modules.job_work.schemas import (
     PENDING_AT_VENDOR_MAX,
+    BillableLine,
     ChallanLineRead,
     ChallanRead,
     IssueRequest,
@@ -264,6 +268,8 @@ ORDER_AUDITED_FIELDS = [
     "estimated_charges",
     "total_charges",
     "vendor_debit_amount",
+    "tax_rate",
+    "sac_code",
     "status",
     "approved_by_id",
     "approved_at",
@@ -278,7 +284,9 @@ ORDER_AUDITED_FIELDS = [
 #: Draft fields an explicit ``null`` in a PATCH body legitimately clears. Every
 #: other column on the update payload backs a NOT NULL column, where a null is a
 #: client mistake rather than an instruction - see :func:`update_order`.
-CLEARABLE_UPDATE_FIELDS = frozenset({"process_description", "notes", "cost_centre_id"})
+CLEARABLE_UPDATE_FIELDS = frozenset(
+    {"process_description", "notes", "cost_centre_id", "tax_rate", "sac_code"}
+)
 
 
 # -----------------------------------------------------------------------------
@@ -1083,6 +1091,60 @@ async def list_receipts(
     return [receipt_detail(receipt, grouped.get(receipt.id, [])) for receipt in receipts]
 
 
+async def billable_lines(
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
+) -> list[BillableLine]:
+    """The receipt lines of one order a job-work invoice may still bill.
+
+    Only lines with unbilled charges are listed, in receipt and line order. A
+    DRAFT order has no receipts and a CANCELLED one is dead, so neither has
+    anything billable. The order's rate, basis, tax rate and SAC ride along
+    because the dialog prefills from them and the match compares against them.
+    """
+    order = await JobWorkOrderRepository(session, tenant).get_or_404(order_id)
+    if JobWorkOrderStatus(order.status) not in ISSUED_OR_LATER_STATUSES:
+        raise BusinessRuleError(
+            f"{order.code} is {order.status}; only an issued order with receipts can be billed.",
+            details={"order_id": str(order.id), "status": str(order.status)},
+        )
+    receipts = await JobWorkReceiptRepository(session, tenant).list_for_order(order.id)
+    if not receipts:
+        return []
+    grouped = await JobWorkReceiptLineRepository(session, tenant).list_for_receipts(
+        [receipt.id for receipt in receipts]
+    )
+
+    rows: list[BillableLine] = []
+    for receipt in receipts:
+        for line in grouped.get(receipt.id, []):
+            unbilled = to_money(Decimal(line.charges) - Decimal(line.invoiced_amount))
+            if unbilled <= ZERO:
+                continue
+            rows.append(
+                BillableLine(
+                    job_work_receipt_line_id=line.id,
+                    job_work_receipt_id=receipt.id,
+                    receipt_code=receipt.code,
+                    receipt_date=receipt.receipt_date,
+                    line_number=line.line_number,
+                    output_item_id=line.output_item_id,
+                    output_quantity=line.output_quantity,
+                    charges=line.charges,
+                    invoiced_amount=line.invoiced_amount,
+                    unbilled_amount=unbilled,
+                    vendor_debit_amount=line.vendor_debit_amount,
+                    pending_vendor_debit=to_money(
+                        Decimal(line.vendor_debit_amount) - Decimal(line.debit_posted_amount)
+                    ),
+                    rate_per_unit=order.rate_per_unit,
+                    rate_basis=RateBasis(order.rate_basis),
+                    tax_rate=order.tax_rate,
+                    sac_code=order.sac_code,
+                )
+            )
+    return rows
+
+
 async def pending_at_vendor(
     session: AsyncSession,
     tenant: TenantContext,
@@ -1320,6 +1382,18 @@ async def create_order(
                     rate_per_unit=payload.rate_per_unit,
                     rate_basis=payload.rate_basis,
                     expected_output_quantity=_expected_output_total(resolved),
+                ),
+                # A payload that omits the rate or the SAC takes the documented
+                # defaults; an explicit value is the client's own. NULL stays
+                # NULL on an old row - it means "never named", not zero.
+                # docs/assumptions.md §B3-3.
+                tax_rate=(
+                    Decimal(payload.tax_rate)
+                    if payload.tax_rate is not None
+                    else JOB_WORK_DEFAULT_GST_RATE
+                ),
+                sac_code=(
+                    payload.sac_code if payload.sac_code is not None else JOB_WORK_DEFAULT_SAC
                 ),
                 status=JobWorkOrderStatus.DRAFT,
                 requires_qc=payload.requires_qc,
@@ -2941,6 +3015,7 @@ __all__ = [
     "QualityPort",
     "approve_order",
     "awaiting_quality_verdicts",
+    "billable_lines",
     "cancel_order",
     "challan_detail",
     "close_order",

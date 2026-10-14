@@ -42,9 +42,15 @@ import { CostCentreSelect } from '@/features/admin/cost-centre-select'
 import { useAuth } from '@/features/auth/auth-context'
 import { LocationPicker } from '@/features/inventory/location-picker'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
-import { useUserOptions } from '@/hooks/use-user-options'
+import { useOperatorOptions } from '@/hooks/use-operator-options'
+import { ShiftSelect } from '@/features/shifts/shift-select'
 import { api } from '@/lib/api-client'
-import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
+import {
+  REASON_MAX_LENGTH,
+  REASON_MIN_LENGTH,
+  SELECT_NONE,
+  LOOKUP_LIST_LIMIT,
+} from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatQuantity, humanise, toDateInput, toDecimal } from '@/lib/format'
 import { success } from '@/lib/messages'
@@ -63,7 +69,6 @@ import {
   type MaterialIssuePostResult,
   type ProductionComponent,
   type ProductionEntryResult,
-  type OperatorOption,
   type ProductionOrderRow,
 } from './production-model'
 
@@ -1141,7 +1146,8 @@ export function ReturnMaterialDialog({
 const entrySchema = z
   .object({
     entry_date: z.string().min(1, 'A booking needs a date'),
-    shift: z.string().trim().max(32, 'At most 32 characters'),
+    shift_id: z.string(),
+    work_order_id: z.string(),
     operator_user_id: z.string(),
     machine_id: z.string(),
     produced_quantity: z
@@ -1158,10 +1164,10 @@ const entrySchema = z
   .superRefine((values, ctx) => {
     const produced = toDecimal(values.produced_quantity)
     const rejected = toDecimal(values.rejected_quantity)
-    if (produced.isZero() && rejected.isZero()) {
+    if (produced.isZero() && rejected.isZero() && toDecimal(values.downtime_minutes).isZero()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Book either produced or rejected quantity',
+        message: 'Book produced quantity, rejected quantity or downtime',
         path: ['produced_quantity'],
       })
     }
@@ -1181,7 +1187,8 @@ type EntryFormValues = z.infer<typeof entrySchema>
 function emptyEntry(): EntryFormValues {
   return {
     entry_date: today(),
-    shift: '',
+    shift_id: '',
+    work_order_id: '',
     operator_user_id: '',
     machine_id: '',
     produced_quantity: '',
@@ -1206,7 +1213,15 @@ export function RecordProductionDialog({
   const queryClient = useQueryClient()
 
   const machines = useMachineOptions(open && can(P.MACHINE_VIEW))
-  const operators = useUserOptions<OperatorOption>({ enabled: open && can(P.USER_VIEW) })
+  const operators = useOperatorOptions({ enabled: open })
+  const workOrders = useQuery({
+    queryKey: [...queryKeys.production.all, 'work-orders', orderId, 'booking'],
+    queryFn: () =>
+      api.getPage<SchemaOf<'WorkOrderRead'>>(`/production/${orderId}/work-orders`, {
+        params: { limit: LOOKUP_LIST_LIMIT, open_only: true, with_total: false },
+      }),
+    enabled: open && can(P.WORK_ORDER_VIEW),
+  })
   const machineRows = machines.data ?? []
   const operatorRows = operators.data ?? []
 
@@ -1216,18 +1231,56 @@ export function RecordProductionDialog({
     handleSubmit,
     reset,
     setError,
-    formState: { errors },
+    watch,
+    setValue,
+    formState: { errors, dirtyFields },
   } = useForm<EntryFormValues>({ resolver: zodResolver(entrySchema), defaultValues: emptyEntry() })
 
   useEffect(() => {
     if (open) reset(emptyEntry())
   }, [open, reset])
 
+  const entryDate = watch('entry_date')
+  const operatorId = watch('operator_user_id')
+  const workOrderId = watch('work_order_id')
+  const selectedWorkOrder = workOrders.data?.data.find((row) => row.id === workOrderId)
+  const roster = useQuery({
+    queryKey: [
+      ...queryKeys.routing.all,
+      'roster',
+      'booking-prefill',
+      entryDate,
+      operatorId,
+      selectedWorkOrder?.work_center_id,
+    ],
+    queryFn: () =>
+      api.getPage<SchemaOf<'ShiftAssignmentRead'>>('/routing/roster/assignments', {
+        params: {
+          date_from: entryDate,
+          date_to: entryDate,
+          operator_user_id: operatorId,
+          ...(selectedWorkOrder ? { work_center_id: selectedWorkOrder.work_center_id } : {}),
+          status: 'PLANNED',
+          limit: LOOKUP_LIST_LIMIT,
+          with_total: false,
+        },
+      }),
+    enabled: open && can(P.SHIFT_ROSTER_VIEW) && Boolean(entryDate && operatorId),
+  })
+  useEffect(() => {
+    const assignment = roster.data?.data[0]
+    if (assignment && !dirtyFields.shift_id) {
+      setValue('shift_id', assignment.shift_id)
+      if (!dirtyFields.machine_id) setValue('machine_id', assignment.machine_id ?? '')
+    }
+  }, [roster.data, dirtyFields.shift_id, dirtyFields.machine_id, setValue])
+
   const record = useMutation({
     mutationFn: (values: EntryFormValues) =>
       api.post<ProductionEntryResult>(`/production/${orderId}/entries`, {
         entry_date: values.entry_date,
-        shift: orNull(values.shift),
+        shift_id: orNull(values.shift_id),
+        work_order_id: orNull(values.work_order_id),
         operator_user_id: orNull(values.operator_user_id),
         machine_id: orNull(values.machine_id),
         produced_quantity: asDecimal(values.produced_quantity),
@@ -1244,12 +1297,7 @@ export function RecordProductionDialog({
       // The API says whether the booking actually posted a receipt; a booking of
       // rejects alone does not, and claiming it did would be a lie a store
       // keeper reconciles against later.
-      toast.success(
-        'Production booked',
-        result.output_movement
-          ? `${formatQuantity(result.output_movement.quantity)} received into stock against ${orderCode}.`
-          : `The entry was recorded against ${orderCode}. Nothing was received into stock.`,
-      )
+      toast.success('Production booked', result.message)
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),
@@ -1261,8 +1309,8 @@ export function RecordProductionDialog({
         <DialogHeader>
           <DialogTitle>Record production on {orderCode}</DialogTitle>
           <DialogDescription>
-            One booking per shift. Good output is received into stock; rejected quantity is not, and
-            its reason is what the quality team reads later.
+            Record output, rejects or downtime against this job or a selected operation. The
+            rejection reason is what the quality team reads later.
           </DialogDescription>
         </DialogHeader>
 
@@ -1272,6 +1320,21 @@ export function RecordProductionDialog({
           noValidate
         >
           <DialogBody className="space-y-4">
+            <div>
+              <Label htmlFor="entry-work-order">Work order</Label>
+              <select
+                id="entry-work-order"
+                {...register('work_order_id')}
+                className="h-10 w-full rounded-md border bg-background px-3"
+              >
+                <option value="">Whole job / final output</option>
+                {(workOrders.data?.data ?? []).map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.code} - {row.operation_name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <Label htmlFor="entry-date" required>
@@ -1289,15 +1352,24 @@ export function RecordProductionDialog({
 
               <div>
                 <Label htmlFor="entry-shift">Shift</Label>
-                <Input
-                  id="entry-shift"
-                  {...register('shift')}
-                  autoComplete="off"
-                  placeholder="A, B, General..."
-                  className="mt-1.5"
-                  aria-invalid={Boolean(errors.shift)}
+                <Controller
+                  control={control}
+                  name="shift_id"
+                  render={({ field }) => (
+                    <ShiftSelect
+                      id="entry-shift"
+                      value={field.value || null}
+                      onChange={(value) => field.onChange(value ?? '')}
+                      enabled={open}
+                    />
+                  )}
                 />
-                <FieldError message={errors.shift?.message} />
+                <FieldError message={errors.shift_id?.message} />
+                {Boolean(roster.data?.data.length) && (
+                  <p className="text-xs text-muted-foreground">
+                    Prefilled from the roster for {entryDate}. The booking can differ from the plan.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -1421,8 +1493,9 @@ export function RecordProductionDialog({
 
             <Alert variant="info">
               <AlertDescription>
-                Booking output receives it into stock against this order. The first booking also
-                moves the order from material issued to in process.
+                Start the job before booking. Good output for the whole job or final operation is
+                received into stock. Intermediate output and downtime are recorded without receiving
+                stock.
               </AlertDescription>
             </Alert>
           </DialogBody>
