@@ -56,6 +56,7 @@ ReasonQuery = Annotated[
 def order_filters(
     search: Annotated[str | None, Query(max_length=120, description="Order or customer PO")] = None,
     customer_id: Annotated[uuid.UUID | None, Query()] = None,
+    source: Annotated[str | None, Query(description="ERP or DEALER_PORTAL")] = None,
     warehouse_id: Annotated[uuid.UUID | None, Query()] = None,
     branch_id: Annotated[uuid.UUID | None, Query()] = None,
     order_status: Annotated[SalesOrderStatus | None, Query(alias="status")] = None,
@@ -69,6 +70,7 @@ def order_filters(
     return SalesOrderFilters(
         search=search,
         customer_id=customer_id,
+        source=source,
         warehouse_id=warehouse_id,
         branch_id=branch_id,
         status=order_status,

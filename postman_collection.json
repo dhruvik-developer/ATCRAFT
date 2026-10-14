@@ -3750,6 +3750,782 @@
     {
       "item": [
         {
+          "name": "Active brands holding sellable items",
+          "request": {
+            "description": "Active brands holding sellable items",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "catalog",
+                "brands"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/catalog/brands"
+            }
+          }
+        },
+        {
+          "name": "Add a sellable item to the cart",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"quantity\": 0,\n  \"item_variant_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Add a sellable item to the cart",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "cart",
+                "lines"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/cart/lines"
+            }
+          }
+        },
+        {
+          "name": "Cancel the dealer's own DRAFT order, with a reason",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Cancel the dealer's own DRAFT order, with a reason",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "orders",
+                ":order_id",
+                "cancel"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/orders/{order_id}/cancel",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Categories holding sellable active items",
+          "request": {
+            "description": "Categories holding sellable active items",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "catalog",
+                "categories"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/catalog/categories"
+            }
+          }
+        },
+        {
+          "name": "Change a cart line's quantity",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"quantity\": 0\n}"
+            },
+            "description": "Change a cart line's quantity",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "cart",
+                "lines",
+                ":line_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/cart/lines/{line_id}",
+              "variable": [
+                {
+                  "description": "line_id of the record",
+                  "key": "line_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Channel price plus the best offer for a quantity",
+          "request": {
+            "description": "Channel price plus the best offer for a quantity",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "catalog",
+                "items",
+                ":item_id",
+                "price"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "quantity",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "variant_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/catalog/items/{item_id}/price?",
+              "variable": [
+                {
+                  "description": "item_id of the record",
+                  "key": "item_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Dealer-safe tracking: courier, tracking id, dates, events",
+          "request": {
+            "description": "The driver's mobile number and the freight cost are never included.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "dispatches",
+                ":dispatch_id",
+                "tracking"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/dispatches/{dispatch_id}/tracking",
+              "variable": [
+                {
+                  "description": "dispatch_id of the record",
+                  "key": "dispatch_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Empty the cart",
+          "request": {
+            "description": "Empty the cart",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "cart"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/cart"
+            }
+          }
+        },
+        {
+          "name": "Move a saved item into the cart",
+          "request": {
+            "description": "Move a saved item into the cart",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "wishlist",
+                ":entry_id",
+                "move-to-cart"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "quantity",
+                  "value": "0"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/wishlist/{entry_id}/move-to-cart?",
+              "variable": [
+                {
+                  "description": "entry_id of the record",
+                  "key": "entry_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One of the dealer's orders, with fulfilment progress",
+          "request": {
+            "description": "One of the dealer's orders, with fulfilment progress",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "orders",
+                ":order_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/orders/{order_id}",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One sellable item: variants, slabs, offers, images",
+          "request": {
+            "description": "One sellable item: variants, slabs, offers, images",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "catalog",
+                "items",
+                ":item_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/catalog/items/{item_id}",
+              "variable": [
+                {
+                  "description": "item_id of the record",
+                  "key": "item_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Remove a saved item",
+          "request": {
+            "description": "Remove a saved item",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "wishlist",
+                ":entry_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/wishlist/{entry_id}",
+              "variable": [
+                {
+                  "description": "entry_id of the record",
+                  "key": "entry_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Remove one cart line",
+          "request": {
+            "description": "Remove one cart line",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "cart",
+                "lines",
+                ":line_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/cart/lines/{line_id}",
+              "variable": [
+                {
+                  "description": "line_id of the record",
+                  "key": "line_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Save an item to the wishlist",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"item_variant_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Save an item to the wishlist",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "wishlist"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/wishlist"
+            }
+          }
+        },
+        {
+          "name": "Sellable items with the dealer channel price, offers and availability",
+          "request": {
+            "description": "category_id covers the whole subtree. Sorting by price is refused with 422: a channel price is a slab ranking plus a fallback and cannot be ordered in the database.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "catalog",
+                "items"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "brand_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_stock_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "on_offer_only",
+                  "value": "False"
+                },
+                {
+                  "description": "code or name",
+                  "disabled": true,
+                  "key": "sort_by",
+                  "value": "code"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/catalog/items?"
+            }
+          }
+        },
+        {
+          "name": "The consignments raised against one of the dealer's orders",
+          "request": {
+            "description": "The consignments raised against one of the dealer's orders",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "orders",
+                ":order_id",
+                "dispatches"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/orders/{order_id}/dispatches",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "The dealer's overdue position from the receivables ageing",
+          "request": {
+            "description": "The dealer's overdue position from the receivables ageing",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "outstanding"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/outstanding"
+            }
+          }
+        },
+        {
+          "name": "The dealer's own ledger statement",
+          "request": {
+            "description": "The dealer's own ledger statement",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "statement"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                },
+                {
+                  "description": "Statement period start",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Statement period end",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/statement?"
+            }
+          }
+        },
+        {
+          "name": "The dealer's own sales orders",
+          "request": {
+            "description": "The dealer's own sales orders",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "orders"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                },
+                {
+                  "description": "Order or customer PO",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": "DRAFT"
+                },
+                {
+                  "description": "Only orders that still represent unmet demand",
+                  "disabled": true,
+                  "key": "open_only",
+                  "value": "False"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/orders?"
+            }
+          }
+        },
+        {
+          "name": "The dealer's saved items",
+          "request": {
+            "description": "The dealer's saved items",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "wishlist"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/wishlist"
+            }
+          }
+        },
+        {
+          "name": "The priced cart preview: live prices, schemes, tax, credit, warnings",
+          "request": {
+            "description": "The priced cart preview: live prices, schemes, tax, credit, warnings",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "cart"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/cart"
+            }
+          }
+        },
+        {
+          "name": "The signed-in dealer: account, channel, credit, addresses, contacts",
+          "request": {
+            "description": "The signed-in dealer: account, channel, credit, addresses, contacts",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "me"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/me"
+            }
+          }
+        },
+        {
+          "name": "Turn the cart into a DRAFT sales order for sales review",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"cart_version\": 0,\n  \"required_date\": \"2026-01-01\",\n  \"billing_address_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"customer_po_number\": \"\",\n  \"notes\": \"\",\n  \"shipping_address_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Locks the cart and checks its version, re-validates every line, fulfils from the default warehouse, and prices every line on the server with the best scheme. The order stays DRAFT for sales review.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "checkout"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/checkout"
+            }
+          }
+        }
+      ],
+      "name": "Dealer Portal"
+    },
+    {
+      "item": [
+        {
           "name": "Amend a consignment that has not left",
           "request": {
             "body": {
@@ -9930,6 +10706,70 @@
     {
       "item": [
         {
+          "name": "Delete Subscription",
+          "request": {
+            "description": "Delete Subscription",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "subscriptions",
+                ":subscription_id"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/subscriptions/{subscription_id}",
+              "variable": [
+                {
+                  "description": "subscription_id of the record",
+                  "key": "subscription_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Subscriptions",
+          "request": {
+            "description": "List Subscriptions",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "subscriptions"
+              ],
+              "query": [
+                {
+                  "description": "Opaque cursor from the previous page",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/subscriptions?"
+            }
+          }
+        },
+        {
           "name": "List my notifications",
           "request": {
             "description": "Unread first, then newest first within each group. Keyset-paginated: pass the `next_cursor` from the previous page rather than a page number, so paging stays constant-cost however large the history grows.",
@@ -10049,6 +10889,83 @@
           }
         },
         {
+          "name": "Push Config",
+          "request": {
+            "description": "Push Config",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "config"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/config"
+            }
+          }
+        },
+        {
+          "name": "Subscribe",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"endpoint\": \"\",\n  \"keys\": {\n    \"auth\": \"\",\n    \"p256dh\": \"\"\n  },\n  \"device_label\": \"\",\n  \"expiration_time\": 0\n}"
+            },
+            "description": "Subscribe",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "subscriptions"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/subscriptions"
+            }
+          }
+        },
+        {
+          "name": "Test Push",
+          "request": {
+            "description": "Test Push",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "test"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/test"
+            }
+          }
+        },
+        {
           "name": "Unread badge count",
           "request": {
             "description": "Counts up to a ceiling and reports whether it was reached, so the badge can render `500+` without counting an unbounded backlog on every poll.",
@@ -10069,6 +10986,42 @@
           }
         },
         {
+          "name": "Unregister",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"endpoint\": \"\"\n}"
+            },
+            "description": "Unregister",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "subscriptions",
+                "unregister"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/subscriptions/unregister"
+            }
+          }
+        },
+        {
           "name": "Update my delivery preferences",
           "request": {
             "body": {
@@ -10078,7 +11031,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"preferences\": [\n    {\n      \"email_enabled\": {},\n      \"in_app_enabled\": {},\n      \"notification_type\": {}\n    }\n  ]\n}"
+              "raw": "{\n  \"preferences\": [\n    {\n      \"email_enabled\": {},\n      \"in_app_enabled\": {},\n      \"notification_type\": {},\n      \"push_enabled\": {}\n    }\n  ]\n}"
             },
             "description": "Submits the changed rows in one request. CRITICAL alerts are still delivered in-app regardless of the in-app setting.",
             "header": [
@@ -12319,6 +13272,35 @@
     {
       "item": [
         {
+          "name": "Adopt the vendor's committed date as the planning date",
+          "request": {
+            "description": "Copies vendor_committed_date into expected_delivery_date (which MRP nets on). The two are kept apart until a buyer does this; a no-op when they already agree.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "accept-vendor-date"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/accept-vendor-date",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Approve a purchase order",
           "request": {
             "body": {
@@ -12891,6 +13873,55 @@
           }
         },
         {
+          "name": "Correct a consignment",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"shipped_at\": \"2026-01-01T00:00:00Z\",\n  \"courier_name\": \"\",\n  \"driver_mobile\": \"\",\n  \"driver_name\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"freight_amount\": 0,\n  \"lr_number\": \"\",\n  \"notes\": \"\",\n  \"packages\": 0,\n  \"tracking_reference\": \"\",\n  \"transporter_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vehicle_number\": \"\",\n  \"weight_kg\": 0\n}"
+            },
+            "description": "Replaces the consignment's details; the same validation as recording it.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "shipments",
+                ":shipment_id"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/shipments/{shipment_id}",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                },
+                {
+                  "description": "shipment_id of the record",
+                  "key": "shipment_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Delete a draft requisition",
           "request": {
             "description": "Only a DRAFT may be deleted. Anything further along is cancelled instead.",
@@ -12920,6 +13951,55 @@
                 {
                   "description": "requisition_id of the record",
                   "key": "requisition_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Every file filed against the order, typed where it was uploaded with a kind",
+          "request": {
+            "description": "Download through GET /documents/{document_id}/download.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "documents"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/documents?",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
                   "value": ""
                 }
               ]
@@ -13095,6 +14175,64 @@
           }
         },
         {
+          "name": "File a typed document against the order or one of its consignments",
+          "request": {
+            "description": "Multipart: file, kind (INVOICE, DISPATCH_PHOTO, LR_COPY, DELIVERY_CHALLAN, OTHER) and an optional shipment_id. Files filed here are shared with the order's vendor.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "documents"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/documents",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Generate the purchase order PDF",
+          "request": {
+            "description": "Queued; poll the returned status URL, then download the document.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "pdf"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/pdf",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Inbound dispatch tracking for one order",
           "request": {
             "description": "Master rules section 23: courier and tracking reference, the promised date and whether the order is late, what is still to be received, and whether quantity is sitting on QC hold awaiting inspection.",
@@ -13120,6 +14258,94 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Inbound tracking board",
+          "request": {
+            "description": "Open purchase orders with their latest consignment and the derived tracking status (NOT_DISPATCHED to GRN_COMPLETED). Completed, closed and cancelled orders appear only with include_completed. overdue uses the shared PO-late rule: receivable, goods still due, planning date passed.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "inbound-tracking"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "overdue",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "not_acknowledged",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "include_completed",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/inbound-tracking?"
             }
           }
         },
@@ -13724,6 +14950,56 @@
           }
         },
         {
+          "name": "Mark a consignment delivered at the gate",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"delivered_at\": \"2026-01-01T00:00:00Z\"\n}"
+            },
+            "description": "Mark a consignment delivered at the gate",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "shipments",
+                ":shipment_id",
+                "delivered"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/shipments/{shipment_id}/delivered",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                },
+                {
+                  "description": "shipment_id of the record",
+                  "key": "shipment_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Post a goods receipt: move the stock and advance the order",
           "request": {
             "description": "One transaction: the tolerance is re-checked against locked quantities, accepted quantity is posted as PURCHASE_RECEIPT into AVAILABLE or QC_HOLD, incoming inspections are raised, the purchase order advances through its state machine, and every audit row is written. A short receipt leaves the order PARTIALLY_RECEIVED.",
@@ -13996,6 +15272,49 @@
           }
         },
         {
+          "name": "Record a consignment on the vendor's behalf",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"shipped_at\": \"2026-01-01T00:00:00Z\",\n  \"courier_name\": \"\",\n  \"driver_mobile\": \"\",\n  \"driver_name\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"freight_amount\": 0,\n  \"lr_number\": \"\",\n  \"notes\": \"\",\n  \"packages\": 0,\n  \"tracking_reference\": \"\",\n  \"transporter_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vehicle_number\": \"\",\n  \"weight_kg\": 0\n}"
+            },
+            "description": "Same body and rules as the vendor portal: only on an accepted order with goods still due. Notifies the order's creator, its approvers and administrators.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "shipments"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/shipments",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Record a delivery as a draft receipt",
           "request": {
             "body": {
@@ -14106,7 +15425,7 @@
           }
         },
         {
-          "name": "Record inbound courier and tracking details",
+          "name": "Record inbound courier and tracking details on the order header",
           "request": {
             "body": {
               "mode": "raw",
@@ -14117,7 +15436,7 @@
               },
               "raw": "{\n  \"courier_name\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"shipped_at\": \"2026-01-01T00:00:00Z\",\n  \"tracking_reference\": \"\"\n}"
             },
-            "description": "Written by the vendor's dispatch manager. Feeds the delay flag on the tracking view (master rules section 23).",
+            "description": "The single-shipment header fields (master rules section 23). Numbered consignments are recorded with POST /purchase-orders/{order_id}/shipments, which also keeps these fields in step with the latest consignment.",
             "header": [
               {
                 "key": "Content-Type",
@@ -14149,7 +15468,7 @@
           }
         },
         {
-          "name": "Record the vendor's acknowledgement",
+          "name": "Record the vendor's acknowledgement on its behalf",
           "request": {
             "body": {
               "mode": "raw",
@@ -14160,7 +15479,7 @@
               },
               "raw": "{\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"reason\": \"\",\n  \"vendor_reference\": \"\"\n}"
             },
-            "description": "The vendor may commit to a different delivery date than the one requested.",
+            "description": "A buyer recording an acceptance the vendor gave by phone or e-mail; the vendor itself accepts through /vendor-portal. Here the buyer may move the planning date.",
             "header": [
               {
                 "key": "Content-Type",
@@ -14587,6 +15906,55 @@
                 {
                   "description": "requisition_id of the record",
                   "key": "requisition_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "The order's numbered consignments, newest first",
+          "request": {
+            "description": "The order's numbered consignments, newest first",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "shipments"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/shipments?",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
                   "value": ""
                 }
               ]
@@ -21384,7 +22752,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"code\": \"\",\n  \"name\": \"\",\n  \"description\": \"\",\n  \"is_active\": true,\n  \"is_vendor_role\": false,\n  \"permissions\": [\n    \"\"\n  ]\n}"
+              "raw": "{\n  \"code\": \"\",\n  \"name\": \"\",\n  \"description\": \"\",\n  \"is_active\": true,\n  \"is_dealer_role\": false,\n  \"is_vendor_role\": false,\n  \"permissions\": [\n    \"\"\n  ]\n}"
             },
             "description": "Create a role.\n\nThe caller may only put permissions into it that they hold themselves;\notherwise ``role.manage`` alone would be equivalent to every permission in\nthe system.",
             "header": [
@@ -21466,6 +22834,12 @@
                   "description": "",
                   "disabled": true,
                   "key": "is_vendor_role",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "is_dealer_role",
                   "value": "False"
                 },
                 {
@@ -23660,6 +25034,12 @@
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
+                  "description": "ERP or DEALER_PORTAL",
+                  "disabled": true,
+                  "key": "source",
+                  "value": ""
+                },
+                {
                   "description": "",
                   "disabled": true,
                   "key": "warehouse_id",
@@ -24276,7 +25656,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"email\": \"user@example.com\",\n  \"full_name\": \"\",\n  \"password\": \"\",\n  \"allowed_category_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"allowed_warehouse_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"branch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"denied_permissions\": [\n    \"\"\n  ],\n  \"department_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"employee_code\": \"\",\n  \"extra_permissions\": [\n    \"\"\n  ],\n  \"is_active\": true,\n  \"must_change_password\": true,\n  \"phone\": \"\",\n  \"plant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"preferences\": {},\n  \"role_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"full_name\": \"\",\n  \"password\": \"\",\n  \"allowed_category_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"allowed_warehouse_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"branch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"customer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"denied_permissions\": [\n    \"\"\n  ],\n  \"department_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"employee_code\": \"\",\n  \"extra_permissions\": [\n    \"\"\n  ],\n  \"is_active\": true,\n  \"must_change_password\": true,\n  \"phone\": \"\",\n  \"plant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"preferences\": {},\n  \"role_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Create an internal or vendor-portal account.\n\nThe initial password is checked against the policy and hashed with Argon2id;\nit is never stored, logged or echoed back.",
             "header": [
@@ -24440,6 +25820,18 @@
                   "description": "",
                   "disabled": true,
                   "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "True: dealer-portal accounts only. False: everyone else",
+                  "disabled": true,
+                  "key": "is_dealer_user",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
@@ -24684,7 +26076,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"allowed_category_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"allowed_warehouse_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"branch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"clear_branch\": false,\n  \"clear_department\": false,\n  \"clear_plant\": false,\n  \"clear_vendor\": false,\n  \"denied_permissions\": [\n    \"\"\n  ],\n  \"department_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"email\": \"user@example.com\",\n  \"employee_code\": \"\",\n  \"extra_permissions\": [\n    \"\"\n  ],\n  \"full_name\": \"\",\n  \"must_change_password\": false,\n  \"password\": \"\",\n  \"phone\": \"\",\n  \"plant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"preferences\": {},\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"allowed_category_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"allowed_warehouse_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"branch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"clear_branch\": false,\n  \"clear_customer\": false,\n  \"clear_department\": false,\n  \"clear_plant\": false,\n  \"clear_vendor\": false,\n  \"customer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"denied_permissions\": [\n    \"\"\n  ],\n  \"department_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"email\": \"user@example.com\",\n  \"employee_code\": \"\",\n  \"extra_permissions\": [\n    \"\"\n  ],\n  \"full_name\": \"\",\n  \"must_change_password\": false,\n  \"password\": \"\",\n  \"phone\": \"\",\n  \"plant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"preferences\": {},\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Update a user's profile, placement or direct permission overrides.\n\nDirect grants additionally require ``permission.assign`` and pass the\nprivilege-escalation guard, both enforced by the service - the route cannot\nsee which fields the payload changed relative to the stored row.",
             "header": [
@@ -24717,6 +26109,928 @@
         }
       ],
       "name": "Users"
+    },
+    {
+      "item": [
+        {
+          "name": "Accept a sent order, optionally committing a delivery date",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"committed_delivery_date\": \"2026-01-01\",\n  \"note\": \"\",\n  \"vendor_reference\": \"\"\n}"
+            },
+            "description": "SENT to ACKNOWLEDGED. The committed date is stored as vendor_committed_date; the buyer's expected_delivery_date (the planning date) is not changed.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "accept"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/accept",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Active transporters, for the shipment form",
+          "request": {
+            "description": "Active transporters, for the shipment form",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "transporters",
+                "options"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/transporters/options?"
+            }
+          }
+        },
+        {
+          "name": "Approved payments to the vendor and the bills each settled",
+          "request": {
+            "description": "Approved payments to the vendor and the bills each settled",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "payments"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/payments?"
+            }
+          }
+        },
+        {
+          "name": "Change the vendor's committed delivery date",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"date\": \"2026-01-01\",\n  \"reason\": \"\"\n}"
+            },
+            "description": "Change the vendor's committed delivery date",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "delivery-date"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/delivery-date",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Decline a sent order, with the reason",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "SENT to VENDOR_DECLINED; the buyer then cancels the order or sends it again.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "decline"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/decline",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Download a file shared on one of the vendor's orders",
+          "request": {
+            "description": "Download a file shared on one of the vendor's orders",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "documents",
+                ":document_id",
+                "download"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/documents/{document_id}/download",
+              "variable": [
+                {
+                  "description": "document_id of the record",
+                  "key": "document_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Generate the purchase order PDF",
+          "request": {
+            "description": "Queued; poll the portal job route it returns, then follow its download_url.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "pdf"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/pdf",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mark a consignment delivered",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"delivered_at\": \"2026-01-01T00:00:00Z\"\n}"
+            },
+            "description": "Mark a consignment delivered",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "shipments",
+                ":shipment_id",
+                "delivered"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/shipments/{shipment_id}/delivered",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                },
+                {
+                  "description": "shipment_id of the record",
+                  "key": "shipment_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mark an accepted order ready for dispatch",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"note\": \"\",\n  \"packages\": 0,\n  \"ready_on\": \"2026-01-01T00:00:00Z\"\n}"
+            },
+            "description": "Mark an accepted order ready for dispatch",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "ready-for-dispatch"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/ready-for-dispatch",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One of the vendor's bills, with its lines",
+          "request": {
+            "description": "One of the vendor's bills, with its lines",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "invoices",
+                ":invoice_id"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/invoices/{invoice_id}",
+              "variable": [
+                {
+                  "description": "invoice_id of the record",
+                  "key": "invoice_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One purchase order: lines, dates, timeline, shipments, files, receipts, bills",
+          "request": {
+            "description": "One purchase order: lines, dates, timeline, shipments, files, receipts, bills",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Payment dashboard per currency: outstanding, overdue, due soon, paid, last paid",
+          "request": {
+            "description": "Payment dashboard per currency: outstanding, overdue, due soon, paid, last paid",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "payments",
+                "summary"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/payments/summary"
+            }
+          }
+        },
+        {
+          "name": "Posted goods receipts on one order, with QC results",
+          "request": {
+            "description": "Posted goods receipts on one order, with QC results",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "receipts"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/receipts?",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Posted goods receipts on the vendor's orders, with QC results",
+          "request": {
+            "description": "Posted goods receipts on the vendor's orders, with QC results",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "receipts"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/receipts?"
+            }
+          }
+        },
+        {
+          "name": "Record a consignment (transporter or courier, tracking, LR, vehicle, freight)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"shipped_at\": \"2026-01-01T00:00:00Z\",\n  \"courier_name\": \"\",\n  \"driver_mobile\": \"\",\n  \"driver_name\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"freight_amount\": 0,\n  \"lr_number\": \"\",\n  \"notes\": \"\",\n  \"packages\": 0,\n  \"tracking_reference\": \"\",\n  \"transporter_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vehicle_number\": \"\",\n  \"weight_kg\": 0\n}"
+            },
+            "description": "Only on an accepted order with goods still due. Numbered 1..n per order.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "shipments"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/shipments",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Status of one of the vendor's own PO PDF jobs",
+          "request": {
+            "description": "Status of one of the vendor's own PO PDF jobs",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "jobs",
+                ":job_id"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/jobs/{job_id}",
+              "variable": [
+                {
+                  "description": "job_id of the record",
+                  "key": "job_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Submit a bill against one of the vendor's own orders",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"invoice_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"quantity\": {},\n      \"unit_price\": {},\n      \"description\": {},\n      \"discount_amount\": {},\n      \"goods_receipt_line_id\": {},\n      \"hsn_code\": {},\n      \"is_interstate\": {},\n      \"item_id\": {},\n      \"notes\": {},\n      \"purchase_order_line_id\": {},\n      \"tax_rate\": {},\n      \"uom_id\": {}\n    }\n  ],\n  \"purchase_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vendor_invoice_number\": \"\",\n  \"currency\": \"\",\n  \"due_date\": \"2026-01-01\",\n  \"goods_receipt_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"invoice_document_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"round_off_amount\": 0\n}"
+            },
+            "description": "Raised for the signed-in vendor and submitted for review. purchase_order_id is required; no vendor or cost-centre field is accepted. A file goes up first as an INVOICE document on the same order and is named by invoice_document_id.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "invoices"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/invoices"
+            }
+          }
+        },
+        {
+          "name": "The files shared on one order (its typed uploads and the PO PDF)",
+          "request": {
+            "description": "The files shared on one order (its typed uploads and the PO PDF)",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "documents"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/documents?",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "The order's consignments, newest first",
+          "request": {
+            "description": "The order's consignments, newest first",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "shipments"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/shipments?",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "The signed-in vendor account: vendor, roles, categories",
+          "request": {
+            "description": "The signed-in vendor account: vendor, roles, categories",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "me"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/me"
+            }
+          }
+        },
+        {
+          "name": "The vendor's bills: status, paid, balance, due date",
+          "request": {
+            "description": "The vendor's bills: status, paid, balance, due date",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "invoices"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/invoices?"
+            }
+          }
+        },
+        {
+          "name": "The vendor's own rating: on-time and rejection percentages, score, sample",
+          "request": {
+            "description": "The vendor's own rating: on-time and rejection percentages, score, sample",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "rating"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/rating"
+            }
+          }
+        },
+        {
+          "name": "The vendor's purchase orders, with tracking status",
+          "request": {
+            "description": "tab narrows to one vendor-app tab: to_accept (SENT), accepted (ACKNOWLEDGED, nothing dispatched), ready, dispatched (dispatched or in transit), delivered (delivered, received, QC pending or GRN completed); all is every order the account can see.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "tab",
+                  "value": "all"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "assigned_to_me",
+                  "value": "False"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders?"
+            }
+          }
+        },
+        {
+          "name": "Tile counts: orders by tab, bills awaiting payment, recent QC rejections",
+          "request": {
+            "description": "Tile counts: orders by tab, bills awaiting payment, recent QC rejections",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "dashboard"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/dashboard"
+            }
+          }
+        },
+        {
+          "name": "Upload an invoice, dispatch photo, LR copy, delivery challan or other file",
+          "request": {
+            "description": "Multipart: file, kind and an optional shipment_id. kind INVOICE needs vendor_portal.invoice; every other kind needs vendor_portal.ship.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "documents"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/documents",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "name": "Vendor Portal"
     },
     {
       "item": [

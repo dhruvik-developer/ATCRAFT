@@ -31,8 +31,9 @@ exercised without standing up the whole reservation engine.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from dataclasses import field as dc_field
 from datetime import date
 from decimal import Decimal
 from typing import Any, Protocol
@@ -108,6 +109,7 @@ ORDER_AUDITED_FIELDS = [
     "code",
     "customer_id",
     "customer_po_number",
+    "source",
     "order_date",
     "required_date",
     "promised_date",
@@ -716,6 +718,14 @@ class PricingContext:
     items: dict[uuid.UUID, SellableItem]
     variants: dict[uuid.UUID, VariantInfo]
     price_rows: dict[uuid.UUID, list[ItemPrice]]
+    #: Dealer schemes that may discount a line. Empty for a caller that priced
+    #: without them - and with no offers configured nothing changes for
+    #: existing ERP orders (docs/assumptions.md §C3-3).
+    offers: tuple = ()
+    #: Category id to itself plus its ancestors, for CATEGORY-scoped offers.
+    offer_ancestors: dict[uuid.UUID, frozenset[uuid.UUID]] = dc_field(default_factory=dict)
+    #: The customer the offers are evaluated for (negotiated schemes).
+    offer_customer_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -732,6 +742,24 @@ class PricedLine:
     amounts: LineAmounts
     is_price_override: bool
     is_below_cost: bool
+    #: The effective discount percentage: the payload's own, or the best
+    #: dealer scheme when the caller gave none (docs/assumptions.md §C3-3).
+    discount_percentage: Decimal = Decimal("0")
+    #: The scheme the discount came from, if any - stored on the line for
+    #: traceability. Explicit discounts carry none.
+    offer_id: uuid.UUID | None = None
+
+
+def _dealer_offer_functions() -> tuple[Callable[..., Any], Callable[..., Any]]:
+    """The dealer scheme matcher, imported late.
+
+    ``dealer_portal`` sits downstream of sales and imports this module's
+    service for checkout, so a top-level import would cycle. The same deferred
+    seam ``AllocationService._module`` uses for the same reason.
+    """
+    from src.modules.dealer_portal.pricing import load_pricing_offers, select_best_offer
+
+    return load_pricing_offers, select_best_offer
 
 
 def resolve_unit_price(
@@ -789,6 +817,12 @@ def price_line(
     those prices were authorised when they were written. Re-demanding
     ``price.manage`` there would mean nobody could edit a delivery date on an
     order that once carried an approved discount.
+
+    When the payload carries no explicit discount - neither a percentage nor a
+    flat amount - the line takes the best active dealer scheme as its default
+    discount, and the scheme's id is stored on the line for traceability. An
+    explicit discount always wins and carries no scheme
+    (docs/assumptions.md §C3-3).
     """
     item = context.items.get(payload.item_id)
     if item is None:
@@ -823,12 +857,36 @@ def price_line(
             price_type=context.price_type,
         )
 
+    discount_percentage = payload.discount_percentage
+    offer_id: uuid.UUID | None = None
+    if discount_percentage is None and payload.discount_amount is None and context.offers:
+        _, select_best_offer = _dealer_offer_functions()
+        if item.category_id is not None:
+            category_ids = context.offer_ancestors.get(
+                item.category_id, frozenset({item.category_id})
+            )
+        else:
+            category_ids = frozenset()
+        best = select_best_offer(
+            context.offers,
+            item_id=item.id,
+            category_ids=category_ids,
+            brand_id=item.brand_id,
+            quantity=payload.quantity,
+            price_type=context.price_type,
+            customer_id=context.offer_customer_id,
+            on_date=context.on_date,
+        )
+        if best is not None:
+            discount_percentage = Decimal(best.discount_percentage)
+            offer_id = best.id
+
     amounts = compute_line_amounts(
         quantity=payload.quantity,
         unit_price=unit_price,
         tax_rate=item.gst_rate,
         is_interstate=context.is_interstate,
-        discount_percentage=payload.discount_percentage,
+        discount_percentage=discount_percentage,
         discount_amount=payload.discount_amount,
     )
 
@@ -843,6 +901,8 @@ def price_line(
         amounts=amounts,
         is_price_override=is_override,
         is_below_cost=below_cost,
+        discount_percentage=discount_percentage or ZERO,
+        offer_id=offer_id,
     )
 
 
@@ -860,7 +920,15 @@ async def _build_pricing_context(
     is_interstate: bool,
     on_date: date,
 ) -> PricingContext:
-    """Load every fact the whole line set needs, in four statements."""
+    """Load every fact the whole line set needs, in six statements.
+
+    The last two are the dealer schemes: the active offers for this customer's
+    channel plus the category tree they match against. Batched once per order,
+    never per line (docs/assumptions.md §C3-3).
+    """
+    items_repo = ItemLookupRepository(session, tenant)
+    item_ids = [line.item_id for line in lines]
+    variant_ids = [line.item_variant_id for line in lines if line.item_variant_id is not None]
     items_repo = ItemLookupRepository(session, tenant)
     item_ids = [line.item_id for line in lines]
     variant_ids = [line.item_variant_id for line in lines if line.item_variant_id is not None]
@@ -899,6 +967,15 @@ async def _build_pricing_context(
         on_date=on_date,
     )
 
+    load_pricing_offers, _ = _dealer_offer_functions()
+    offers, ancestors = await load_pricing_offers(
+        session,
+        tenant,
+        on_date=on_date,
+        price_type=PriceType(customer.price_list_type),
+        customer_id=customer.id,
+    )
+
     return PricingContext(
         price_type=PriceType(customer.price_list_type),
         on_date=on_date,
@@ -906,6 +983,9 @@ async def _build_pricing_context(
         items=items,
         variants=variants,
         price_rows=price_rows,
+        offers=offers,
+        offer_ancestors=ancestors,
+        offer_customer_id=customer.id,
     )
 
 
@@ -1148,7 +1228,8 @@ def _apply_priced_line(line: SalesOrderLine, priced: PricedLine) -> SalesOrderLi
     line.quantity = to_quantity(payload.quantity)
     line.uom_id = priced.uom_id
     line.unit_price = priced.unit_price
-    line.discount_percentage = payload.discount_percentage or ZERO
+    line.discount_percentage = priced.discount_percentage
+    line.offer_id = priced.offer_id
     line.discount_amount = priced.amounts.discount_amount
     line.tax_rate = priced.tax_rate
     line.cgst_amount = priced.amounts.cgst_amount
@@ -1201,13 +1282,24 @@ async def create_order(
     tenant: TenantContext,
     principal: Principal,
     payload: SalesOrderCreate,
+    *,
+    source: str = "ERP",
 ) -> tuple[SalesOrder, list[SalesOrderLine]]:
     """Create a DRAFT order, priced and taxed.
 
     No stock is reserved and no credit is consumed: a draft is a quotation the
     customer has not yet committed to, and holding stock against it would let an
     unconfirmed order starve a confirmed one.
+
+    ``source`` records who raised the order and is set by the server, never by
+    a payload: the dealer-portal checkout passes ``DEALER_PORTAL``
+    (docs/assumptions.md §C3-6).
     """
+    if source not in ("ERP", "DEALER_PORTAL"):
+        raise ValidationError(
+            f"Unknown sales order source: {source}.",
+            details={"source": source},
+        )
     repo = SalesOrderRepository(session, tenant)
     line_repo = SalesOrderLineRepository(session, tenant)
     parties = OrderPartyRepository(session, tenant)
@@ -1259,6 +1351,7 @@ async def create_order(
             code=code,
             customer_id=customer.id,
             customer_po_number=payload.customer_po_number,
+            source=source,
             order_date=order_date,
             required_date=payload.required_date,
             promised_date=payload.promised_date,
@@ -1427,6 +1520,13 @@ async def _update_draft(
     order.is_interstate = resolve_tax_treatment(seller_state, place_of_supply)
 
     existing = await line_repo.list_for_order(order.id)
+    # Snapshotted now, as plain values: the rows below are deleted and rebuilt,
+    # and reading attributes off a deleted ORM object afterwards is the expired
+    # identity-map trap. Used to keep a carried scheme citation across the
+    # rewrite when the discount is unchanged.
+    previous_offer = {
+        line.line_number: (Decimal(line.discount_percentage), line.offer_id) for line in existing
+    }
     # A header-only edit still has to re-price, because the tax treatment may
     # have moved with the shipping address - but the prices it re-prices are the
     # order's own, not the caller's, so the override authority check does not
@@ -1456,6 +1556,19 @@ async def _update_draft(
         _apply_priced_line(line_repo.add(SalesOrderLine(sales_order_id=order.id)), priced_line)
         for priced_line in priced
     ]
+    # A header-only edit re-prices the order's own stored lines, whose discount
+    # arrived as an explicit percentage - so the scheme lookup above does not
+    # run and a carried scheme reference would be dropped. When the discount is
+    # unchanged, the citation survives the rewrite.
+    for line in lines:
+        if line.offer_id is None:
+            previous = previous_offer.get(line.line_number)
+            if (
+                previous is not None
+                and previous[1] is not None
+                and Decimal(line.discount_percentage) == previous[0]
+            ):
+                line.offer_id = previous[1]
     _apply_totals(order, sum_order_totals([p.amounts for p in priced]))
     order.requires_approval = any(p.is_below_cost for p in priced)
     if not order.requires_approval:
@@ -1750,6 +1863,10 @@ async def delete_draft_order(
     A hard delete, and only from DRAFT: nothing references an unconfirmed order,
     no stock was reserved against it and no number was reported to the customer.
     Anything past DRAFT is cancelled instead, so the trail survives.
+
+    A portal-sourced draft is refused outright: the dealer's own cancel route
+    is the way back, because a delete would silently drop an order the sales
+    desk may already be reviewing (docs/assumptions.md §C3-6).
     """
     repo = SalesOrderRepository(session, tenant)
 
@@ -1760,6 +1877,13 @@ async def delete_draft_order(
                 f"{order.code} is {order.status} and must be cancelled rather than deleted, "
                 "so the record of it survives.",
                 details={"order_id": str(order.id), "status": str(order.status)},
+            )
+        if str(order.source) == "DEALER_PORTAL":
+            raise BusinessRuleError(
+                f"{order.code} was raised through the dealer portal and must be "
+                "cancelled rather than deleted, so the dealer sees what happened "
+                "to it.",
+                details={"order_id": str(order.id), "source": str(order.source)},
             )
 
         await record_audit(

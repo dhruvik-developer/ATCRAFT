@@ -88,6 +88,10 @@ def user_filters(
         bool | None, Query(description="True: vendor-portal accounts only. False: internal staff")
     ] = None,
     vendor_id: Annotated[uuid.UUID | None, Query()] = None,
+    is_dealer_user: Annotated[
+        bool | None, Query(description="True: dealer-portal accounts only. False: everyone else")
+    ] = None,
+    customer_id: Annotated[uuid.UUID | None, Query()] = None,
     branch_id: Annotated[uuid.UUID | None, Query()] = None,
     plant_id: Annotated[uuid.UUID | None, Query()] = None,
     department_id: Annotated[uuid.UUID | None, Query()] = None,
@@ -103,6 +107,8 @@ def user_filters(
         is_superuser=is_superuser,
         is_vendor_user=is_vendor_user,
         vendor_id=vendor_id,
+        is_dealer_user=is_dealer_user,
+        customer_id=customer_id,
         branch_id=branch_id,
         plant_id=plant_id,
         department_id=department_id,
@@ -116,6 +122,7 @@ def role_filters(
     search: Annotated[str | None, Query(max_length=120, description="Code, name or note")] = None,
     is_system: Annotated[bool | None, Query()] = None,
     is_vendor_role: Annotated[bool | None, Query()] = None,
+    is_dealer_role: Annotated[bool | None, Query()] = None,
     is_active: Annotated[bool | None, Query()] = None,
     grants_permission: Annotated[
         str | None, Query(max_length=64, description="Roles granting this permission")
@@ -126,6 +133,7 @@ def role_filters(
         search=search,
         is_system=is_system,
         is_vendor_role=is_vendor_role,
+        is_dealer_role=is_dealer_role,
         is_active=is_active,
         grants_permission=grants_permission,
         include_deleted=include_deleted,

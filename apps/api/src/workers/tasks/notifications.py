@@ -1,6 +1,6 @@
 """Scheduled alerting and notification delivery (master rules sections 23, 35).
 
-Two tasks live here.
+Delivery workers and scheduled recovery tasks live here.
 
 ``notifications.scan_dispatch_delays`` is the hourly beat job behind master rules
 section 23: a consignment past its promised delivery date is flagged and the
@@ -22,10 +22,11 @@ company with, say, no staffed dispatch role cannot silence every other tenant's
 alerts.
 
 ``notifications.send_email`` and ``notifications.send_password_reset_email``
-perform SMTP delivery. Both re-read their database row under a lock before
-sending, then stamp a channel-specific delivery timestamp. That makes ordinary
-late-acknowledgement re-delivery harmless while preserving at-least-once retry
-semantics for a worker crash during the SMTP conversation.
+perform SMTP delivery. Push uses the same claim-before-transport pattern. Each
+worker commits a channel-specific delivery marker before contacting the provider
+and releases it on a retryable failure. Ordinary late-acknowledgement re-delivery
+is harmless; a process killed after claiming retains the documented at-most-once
+crash window. Recovery re-queues eligible, unclaimed rows after a broker outage.
 """
 
 from __future__ import annotations
@@ -33,10 +34,11 @@ from __future__ import annotations
 import html
 import smtplib
 import uuid
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
-from sqlalchemy import and_, select, update
+from sqlalchemy import and_, any_, delete, func, literal, or_, select, update
 
 from src.core.clock import utcnow
 from src.core.config import EmailProvider, settings
@@ -49,12 +51,261 @@ from src.core.security import (
     decrypt_password_reset_delivery_token,
     hash_secret_token,
 )
+from src.core.webpush import PushOutcome, PushRetryableError, deliver_push, push_payload, push_topic
 from src.modules.dispatch import service as dispatch_service
-from src.modules.notifications.models import Notification, NotificationChannel
-from src.modules.users.models import PasswordResetToken, User
+from src.modules.notifications.models import Notification, NotificationChannel, PushSubscription
+from src.modules.users.models import PasswordResetToken, User, UserSession
 from src.workers.celery_app import async_task
 
 log = get_logger("worker.notifications")
+
+
+def recent_push_session(moment: datetime) -> Any:
+    """A recipient who has used a session within the configured refresh window."""
+    return (
+        select(UserSession.id)
+        .where(
+            UserSession.company_id == Notification.company_id,
+            UserSession.user_id == Notification.user_id,
+            func.coalesce(UserSession.last_used_at, UserSession.created_at)
+            >= moment - timedelta(days=settings.jwt_refresh_token_expire_days),
+        )
+        .correlate(Notification)
+        .exists()
+    )
+
+
+def push_claim_statement(
+    notification_id: uuid.UUID, company_id: uuid.UUID, user_id: uuid.UUID
+) -> Any:
+    return (
+        select(Notification)
+        .join(
+            User, and_(User.id == Notification.user_id, User.company_id == Notification.company_id)
+        )
+        .where(
+            Notification.id == notification_id,
+            Notification.company_id == company_id,
+            Notification.user_id == user_id,
+            User.is_active.is_(True),
+            User.deleted_at.is_(None),
+            recent_push_session(utcnow()),
+        )
+        .with_for_update(of=Notification)
+    )
+
+
+async def _deliver_notification_push(
+    notification_id: str, company_id: str, user_id: str
+) -> dict[str, Any]:
+    nid, cid, uid = uuid.UUID(notification_id), uuid.UUID(company_id), uuid.UUID(user_id)
+    if not settings.web_push_enabled:
+        return {"delivered": False, "detail": "disabled"}
+    async with session_scope() as session:
+        notification = (
+            await session.execute(push_claim_statement(nid, cid, uid))
+        ).scalar_one_or_none()
+        if notification is None:
+            return {"delivered": False, "detail": "ineligible"}
+        if NotificationChannel.PUSH.value not in notification.channels:
+            return {"delivered": False, "detail": "push_not_requested"}
+        if notification.push_delivered_at is not None:
+            return {"delivered": True, "already_delivered": True}
+        devices = list(
+            (
+                await session.execute(
+                    select(PushSubscription)
+                    .where(
+                        PushSubscription.company_id == cid,
+                        PushSubscription.user_id == uid,
+                        or_(
+                            PushSubscription.expires_at.is_(None),
+                            PushSubscription.expires_at > utcnow(),
+                        ),
+                    )
+                    .order_by(PushSubscription.last_seen_at.desc().nullslast(), PushSubscription.id)
+                    .limit(10)
+                )
+            ).scalars()
+        )
+        if not devices:
+            return {"delivered": False, "detail": "no_devices"}
+        payload, topic = push_payload(notification), push_topic(notification)
+        urgency = {"CRITICAL": "high", "WARNING": "normal"}.get(notification.severity, "low")
+        claimed_at = utcnow()
+        notification.push_delivered_at = claimed_at
+        first_delivery = notification.delivered_at is None
+        if first_delivery:
+            notification.delivered_at = claimed_at
+        # Detached snapshots retain keys without requiring a live transaction during transport.
+        for device in devices:
+            session.expunge(device)
+    outcomes = []
+    for device in devices:
+        try:
+            outcome = await deliver_push(
+                device, payload, ttl=settings.web_push_ttl_seconds, urgency=urgency, topic=topic
+            )
+        except OSError:
+            outcome = PushOutcome.RETRY
+        except (ValueError, CredentialDecryptionError):
+            outcome = PushOutcome.FAILED
+        outcomes.append((device, outcome))
+    all_retry = all(outcome is PushOutcome.RETRY for _, outcome in outcomes)
+    async with session_scope() as session:
+        for device, outcome in outcomes:
+            owned = (
+                PushSubscription.id == device.id,
+                PushSubscription.company_id == cid,
+                PushSubscription.user_id == uid,
+                PushSubscription.updated_at == device.updated_at,
+            )
+            if outcome is PushOutcome.GONE:
+                await session.execute(delete(PushSubscription).where(*owned))
+            else:
+                values = (
+                    {"last_success_at": utcnow(), "failure_count": 0}
+                    if outcome is PushOutcome.DELIVERED
+                    else {
+                        "last_failure_at": utcnow(),
+                        "failure_count": PushSubscription.failure_count + 1,
+                    }
+                )
+                await session.execute(update(PushSubscription).where(*owned).values(**values))
+        if all_retry:
+            values = {"push_delivered_at": None}
+            if first_delivery:
+                # Do not clear a concurrent e-mail delivery's stamp.
+                await session.execute(
+                    update(Notification)
+                    .where(
+                        Notification.id == nid,
+                        Notification.company_id == cid,
+                        Notification.push_delivered_at == claimed_at,
+                        Notification.delivered_at == claimed_at,
+                        Notification.email_delivered_at.is_(None),
+                    )
+                    .values(delivered_at=None)
+                )
+            await session.execute(
+                update(Notification)
+                .where(
+                    Notification.id == nid,
+                    Notification.company_id == cid,
+                    Notification.push_delivered_at == claimed_at,
+                )
+                .values(**values)
+            )
+    if all_retry:
+        raise PushRetryableError("Push delivery temporarily unavailable")
+    return {
+        "delivered": any(outcome is PushOutcome.DELIVERED for _, outcome in outcomes),
+        "devices": len(outcomes),
+    }
+
+
+@async_task(
+    name="notifications.send_push",
+    queue="notifications",
+    autoretry_for=(PushRetryableError,),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 5},
+)
+async def send_push(
+    notification_id: str, company_id: str, user_id: str, request_id: str | None = None, **_: Any
+) -> dict[str, Any]:
+    return await _deliver_notification_push(notification_id, company_id, user_id)
+
+
+def pending_deliveries_statement(moment: datetime) -> Any:
+    """Recover deliverable rows before limiting, so abandoned devices cannot starve the queue."""
+    has_device = (
+        select(PushSubscription.id)
+        .where(
+            PushSubscription.company_id == Notification.company_id,
+            PushSubscription.user_id == Notification.user_id,
+            or_(PushSubscription.expires_at.is_(None), PushSubscription.expires_at > moment),
+        )
+        .correlate(Notification)
+        .exists()
+    )
+    return (
+        select(
+            Notification.id,
+            Notification.company_id,
+            Notification.user_id,
+            Notification.channels,
+            Notification.email_delivered_at,
+            Notification.push_delivered_at,
+        )
+        .join(
+            User,
+            and_(
+                User.id == Notification.user_id,
+                User.company_id == Notification.company_id,
+            ),
+        )
+        .where(
+            User.is_active.is_(True),
+            User.deleted_at.is_(None),
+            Notification.created_at >= moment - timedelta(hours=24),
+            or_(
+                and_(
+                    Notification.email_delivered_at.is_(None),
+                    literal(NotificationChannel.EMAIL.value) == any_(Notification.channels),
+                    literal(settings.email_provider is not EmailProvider.disabled),
+                ),
+                and_(
+                    Notification.push_delivered_at.is_(None),
+                    literal(NotificationChannel.PUSH.value) == any_(Notification.channels),
+                    literal(settings.web_push_enabled),
+                    recent_push_session(moment),
+                    has_device,
+                ),
+            ),
+        )
+        .order_by(Notification.created_at, Notification.id)
+        .limit(100)
+    )
+
+
+@async_task(name="notifications.dispatch_pending_deliveries", queue="notifications")
+async def dispatch_pending_deliveries(request_id: str | None = None, **_: Any) -> dict[str, int]:
+    from src.workers.celery_app import celery_app
+
+    async with session_scope() as session:
+        pending = (await session.execute(pending_deliveries_statement(utcnow()))).all()
+    queued = 0
+    for row in pending:
+        for channel, marker, task in (
+            ("EMAIL", row.email_delivered_at, "notifications.send_email"),
+            ("PUSH", row.push_delivered_at, "notifications.send_push"),
+        ):
+            enabled = (
+                settings.web_push_enabled
+                if channel == "PUSH"
+                else settings.email_provider is not EmailProvider.disabled
+            )
+            if enabled and channel in row.channels and marker is None:
+                try:
+                    celery_app.send_task(
+                        task,
+                        kwargs={
+                            "notification_id": str(row.id),
+                            "company_id": str(row.company_id),
+                            "user_id": str(row.user_id),
+                            "request_id": request_id,
+                        },
+                    )
+                    queued += 1
+                except Exception as exc:
+                    log.error(
+                        "notifications.recovery_enqueue_failed",
+                        notification_id=str(row.id),
+                        error_type=type(exc).__name__,
+                    )
+    return {"scanned": len(pending), "queued": queued}
 
 
 @async_task(name="notifications.scan_dispatch_delays", queue="notifications")

@@ -78,6 +78,7 @@ function orderRow(overrides: Partial<SalesOrderRow> = {}): SalesOrderRow {
     tax_amount: '450.0000',
     total_amount: '2950.0000',
     customer_po_number: 'CPO-88',
+    source: 'ERP',
     place_of_supply_state_code: '27',
     is_interstate: false,
     requires_approval: false,

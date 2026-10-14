@@ -28,7 +28,7 @@ from collections.abc import Iterable, Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Select, and_, func, or_, select, text, tuple_, update
+from sqlalchemy import Boolean, Select, and_, case, cast, func, or_, select, text, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,6 +44,7 @@ from src.modules.notifications.models import (
     NotificationChannel,
     NotificationPreference,
     NotificationType,
+    PushSubscription,
 )
 from src.modules.notifications.schemas import NotificationFilters
 
@@ -311,7 +312,7 @@ class NotificationRepository(BaseRepository[Notification]):
 
     async def preferences_for_type(
         self, user_ids: Sequence[uuid.UUID], notification_type: NotificationType
-    ) -> dict[uuid.UUID, tuple[bool, bool]]:
+    ) -> dict[uuid.UUID, tuple[bool, bool, bool]]:
         """``{user_id: (in_app_enabled, email_enabled)}`` for one type.
 
         One query for the whole recipient list - the fan-out must not turn into a
@@ -324,13 +325,28 @@ class NotificationRepository(BaseRepository[Notification]):
             NotificationPreference.user_id,
             NotificationPreference.in_app_enabled,
             NotificationPreference.email_enabled,
+            NotificationPreference.push_enabled,
         ).where(
             NotificationPreference.company_id == self.tenant.company_id,
             NotificationPreference.notification_type == notification_type,
             NotificationPreference.user_id.in_(list(user_ids)),
         )
         rows = (await self.session.execute(stmt)).all()
-        return {row[0]: (row[1], row[2]) for row in rows}
+        return {row[0]: (row[1], row[2], row[3]) for row in rows}
+
+    async def users_with_push_devices(self, user_ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
+        from src.core.clock import utcnow
+
+        stmt = (
+            select(PushSubscription.user_id)
+            .where(
+                PushSubscription.company_id == self.tenant.company_id,
+                PushSubscription.user_id.in_(user_ids),
+                or_(PushSubscription.expires_at.is_(None), PushSubscription.expires_at > utcnow()),
+            )
+            .distinct()
+        )
+        return set((await self.session.execute(stmt)).scalars())
 
     async def preferences_for_user(self, user_id: uuid.UUID) -> list[NotificationPreference]:
         """Every stored preference row for one user - bounded by the enum size."""
@@ -350,13 +366,31 @@ class NotificationRepository(BaseRepository[Notification]):
         """Write the submitted preference rows in one statement."""
         if not rows:
             return []
-        insert_stmt = pg_insert(NotificationPreference).values(list(rows))
+        push_choices = {row["notification_type"]: row.get("push_enabled") for row in rows}
+        insert_stmt = pg_insert(NotificationPreference).values(
+            [
+                {
+                    **row,
+                    "push_enabled": row.get("push_enabled")
+                    if row.get("push_enabled") is not None
+                    else True,
+                }
+                for row in rows
+            ]
+        )
         stmt = (
             insert_stmt.on_conflict_do_update(
                 index_elements=["company_id", "user_id", "notification_type"],
                 set_={
                     "in_app_enabled": insert_stmt.excluded.in_app_enabled,
                     "email_enabled": insert_stmt.excluded.email_enabled,
+                    "push_enabled": func.coalesce(
+                        cast(
+                            case(push_choices, value=insert_stmt.excluded.notification_type),
+                            Boolean,
+                        ),
+                        NotificationPreference.push_enabled,
+                    ),
                     "updated_at": insert_stmt.excluded.updated_at,
                     "updated_by_id": insert_stmt.excluded.updated_by_id,
                 },
@@ -395,6 +429,7 @@ class NotificationRepository(BaseRepository[Notification]):
                 User.deleted_at.is_(None),
                 Role.company_id == self.tenant.company_id,
                 Role.code.in_(codes),
+                User.vendor_id.is_(None),
                 Role.is_active.is_(True),
                 Role.deleted_at.is_(None),
             )
@@ -417,6 +452,109 @@ class NotificationRepository(BaseRepository[Notification]):
             )
             found = found[:MAX_ROLE_RECIPIENTS]
         return found
+
+    @staticmethod
+    def _holds(permission: str) -> Any:
+        """SQL for "this user holds ``permission``" - the request path's fold.
+
+        The same rule ``core.permissions.resolve_role_grants`` applies on every
+        request: granted by an active, live role or by a direct grant, and not
+        directly denied (a denial wins over every role). Evaluated in the
+        database so a resolver filters before it limits; loading users and
+        filtering in Python would drop holders past the first page of users.
+        """
+        from sqlalchemy import any_, exists, false, literal, not_
+
+        from src.modules.users.models import Role, User, user_roles
+
+        wanted = literal(permission)
+        by_role = exists(
+            select(user_roles.c.role_id)
+            .join(Role, Role.id == user_roles.c.role_id)
+            .where(
+                user_roles.c.user_id == User.id,
+                Role.company_id == User.company_id,
+                Role.is_active.is_(True),
+                Role.deleted_at.is_(None),
+                wanted == any_(Role.permissions),
+            )
+        )
+        # A NULL array answers NULL, not false - hence the COALESCEs.
+        granted = or_(by_role, func.coalesce(wanted == any_(User.extra_permissions), false()))
+        denied = func.coalesce(wanted == any_(User.denied_permissions), false())
+        return and_(granted, not_(denied))
+
+    async def _bounded_user_ids(self, stmt: Select[Any], *, purpose: str) -> list[uuid.UUID]:
+        found = list(
+            (await self.session.execute(stmt.limit(MAX_ROLE_RECIPIENTS + 1))).scalars().all()
+        )
+        if len(found) > MAX_ROLE_RECIPIENTS:
+            log.warning(
+                "notifications.permission_fanout_truncated",
+                company_id=str(self.tenant.company_id),
+                purpose=purpose,
+                limit=MAX_ROLE_RECIPIENTS,
+            )
+            found = found[:MAX_ROLE_RECIPIENTS]
+        return found
+
+    async def user_ids_for_vendor(
+        self, vendor_id: uuid.UUID, *, permission: str | None = None
+    ) -> list[uuid.UUID]:
+        """Active users of one vendor, optionally only those holding ``permission``.
+
+        The vendor-scoped resolver: ``notify_role`` with a vendor role code
+        would reach every vendor of the company that holds the role.
+        """
+        from src.modules.users.models import User
+
+        stmt = select(User.id).where(
+            User.company_id == self.tenant.company_id,
+            User.vendor_id == vendor_id,
+            User.is_active.is_(True),
+            User.deleted_at.is_(None),
+        )
+        if permission is not None:
+            stmt = stmt.where(or_(User.is_superuser.is_(True), self._holds(permission)))
+        return await self._bounded_user_ids(stmt.order_by(User.id), purpose="vendor")
+
+    async def user_ids_with_permission(self, permission: str) -> list[uuid.UUID]:
+        """Active internal users holding ``permission`` (superusers hold everything).
+
+        Vendor accounts are never internal recipients, whatever they hold.
+        """
+        from src.modules.users.models import User
+
+        stmt = select(User.id).where(
+            User.company_id == self.tenant.company_id,
+            User.vendor_id.is_(None),
+            User.is_active.is_(True),
+            User.deleted_at.is_(None),
+            or_(User.is_superuser.is_(True), self._holds(permission)),
+        )
+        return await self._bounded_user_ids(stmt.order_by(User.id), purpose=permission)
+
+    async def internal_user_ids(self, user_ids: Sequence[uuid.UUID]) -> list[uuid.UUID]:
+        """Those of ``user_ids`` that are active internal (non-vendor) users."""
+        from src.modules.users.models import User
+
+        if not user_ids:
+            return []
+        return list(
+            (
+                await self.session.execute(
+                    select(User.id).where(
+                        User.company_id == self.tenant.company_id,
+                        User.id.in_(user_ids),
+                        User.vendor_id.is_(None),
+                        User.is_active.is_(True),
+                        User.deleted_at.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
 
 
 __all__ = [

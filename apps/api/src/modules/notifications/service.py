@@ -158,6 +158,8 @@ def resolve_channels(
     *,
     in_app_enabled: bool,
     email_enabled: bool,
+    push_enabled: bool = True,
+    has_push_device: bool = False,
 ) -> tuple[str, ...]:
     """Channels one recipient actually gets, after their preferences.
 
@@ -171,6 +173,8 @@ def resolve_channels(
         channels.append(NotificationChannel.IN_APP.value)
     if email_enabled:
         channels.append(NotificationChannel.EMAIL.value)
+    if push_enabled and has_push_device:
+        channels.append(NotificationChannel.PUSH.value)
     return tuple(channels)
 
 
@@ -305,6 +309,8 @@ def _flush_pending_emails(sync_session: SyncSession) -> None:
     ``send_task`` opens a socket to the broker, and doing that inline would block
     the loop that is serving every other request for the duration.
     """
+    if sync_session.in_nested_transaction():
+        return
     payloads = sync_session.info.pop(_PENDING_EMAIL_KEY, None)
     if not payloads:
         return
@@ -361,6 +367,69 @@ def queue_email_delivery(session: AsyncSession, notifications: Sequence[Notifica
 # -----------------------------------------------------------------------------
 
 
+NOTIFICATION_PUSH_TASK = "notifications.send_push"
+_PENDING_PUSH_KEY = "notifications.pending_push"
+_PUSH_HOOK_KEY = "notifications.push_hook_installed"
+
+
+def _send_push_tasks(payloads: Sequence[dict[str, Any]]) -> int:
+    from src.workers.celery_app import celery_app
+
+    sent = 0
+    for payload in payloads:
+        try:
+            celery_app.send_task(NOTIFICATION_PUSH_TASK, kwargs=payload)
+            sent += 1
+        except Exception as exc:
+            log.error(
+                "notifications.push_enqueue_failed",
+                notification_id=payload.get("notification_id"),
+                error_type=type(exc).__name__,
+            )
+    return sent
+
+
+def _flush_pending_push(sync_session: SyncSession) -> None:
+    if sync_session.in_nested_transaction():
+        return
+    payloads = sync_session.info.pop(_PENDING_PUSH_KEY, None)
+    if not payloads:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        _send_push_tasks(payloads)
+        return
+    loop.run_in_executor(None, _send_push_tasks, payloads)
+
+
+def _drop_pending_push(sync_session: SyncSession) -> None:
+    sync_session.info.pop(_PENDING_PUSH_KEY, None)
+
+
+def queue_push_delivery(session: AsyncSession, notifications: Sequence[Notification]) -> int:
+    payloads = [
+        {
+            "notification_id": str(item.id),
+            "company_id": str(item.company_id),
+            "user_id": str(item.user_id),
+            "request_id": get_request_id(),
+        }
+        for item in notifications
+        if NotificationChannel.PUSH.value in (item.channels or ())
+        and item.push_delivered_at is None
+    ]
+    if not payloads:
+        return 0
+    sync_session = session.sync_session
+    sync_session.info.setdefault(_PENDING_PUSH_KEY, []).extend(payloads)
+    if not sync_session.info.get(_PUSH_HOOK_KEY):
+        sync_session.info[_PUSH_HOOK_KEY] = True
+        event.listen(sync_session, "after_commit", _flush_pending_push)
+        event.listen(sync_session, "after_rollback", _drop_pending_push)
+    return len(payloads)
+
+
 async def notify(
     session: AsyncSession,
     *,
@@ -410,17 +479,22 @@ async def notify(
 
     repo = NotificationRepository.for_company(session, company_id, actor_id)
     preferences = await repo.preferences_for_type(recipients, notification_type)
+    push_devices = await repo.users_with_push_devices(recipients)
 
     moment = utcnow()
     rows: list[dict[str, Any]] = []
     muted: list[uuid.UUID] = []
 
     for user_id in recipients:
-        in_app_enabled, email_enabled = preferences.get(
-            user_id, (DEFAULT_IN_APP_ENABLED, DEFAULT_EMAIL_ENABLED)
+        in_app_enabled, email_enabled, push_enabled = preferences.get(
+            user_id, (DEFAULT_IN_APP_ENABLED, DEFAULT_EMAIL_ENABLED, True)
         )
         channels = resolve_channels(
-            severity, in_app_enabled=in_app_enabled, email_enabled=email_enabled
+            severity,
+            in_app_enabled=in_app_enabled,
+            email_enabled=email_enabled,
+            push_enabled=push_enabled,
+            has_push_device=user_id in push_devices,
         )
         if not channels:
             muted.append(user_id)
@@ -502,6 +576,7 @@ async def notify(
         # rollback clears the staged jobs instead. Registering this after the
         # context exited would miss the commit that should trigger delivery.
         queued = queue_email_delivery(session, written)
+        queue_push_delivery(session, written)
 
     log.info(
         "notifications.raised",
@@ -599,6 +674,12 @@ def effective_preferences(
                 by_type[notification_type].email_enabled
                 if notification_type in by_type
                 else DEFAULT_EMAIL_ENABLED
+            ),
+            push_enabled=(
+                by_type[notification_type].push_enabled
+                if notification_type in by_type
+                and by_type[notification_type].push_enabled is not None
+                else True
             ),
             is_customised=notification_type in by_type,
         )
@@ -718,6 +799,7 @@ class NotificationService:
                 "notification_type": preference.notification_type.value,
                 "in_app_enabled": preference.in_app_enabled,
                 "email_enabled": preference.email_enabled,
+                "push_enabled": preference.push_enabled,
                 "created_at": moment,
                 "updated_at": moment,
                 "created_by_id": self.tenant.user_id,
@@ -769,3 +851,37 @@ __all__ = [
     "read_state",
     "resolve_channels",
 ]
+
+
+async def notify_vendor(
+    session: AsyncSession,
+    vendor_id: uuid.UUID,
+    *,
+    company_id: uuid.UUID,
+    notification_type: NotificationType,
+    title: str,
+    body: str,
+    permission: str,
+    action_url: str,
+    entity_type: str,
+    entity_id: uuid.UUID,
+    actor_id: uuid.UUID | None = None,
+    severity: NotificationSeverity = NotificationSeverity.INFO,
+    group_key: str | None = None,
+) -> list[Notification]:
+    repo = NotificationRepository.for_company(session, company_id, actor_id)
+    recipients = await repo.user_ids_for_vendor(vendor_id, permission=permission)
+    return await notify(
+        session,
+        company_id=company_id,
+        user_ids=recipients,
+        notification_type=notification_type,
+        title=title,
+        body=body,
+        action_url=action_url,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        actor_id=actor_id,
+        severity=severity,
+        group_key=group_key,
+    )

@@ -755,23 +755,28 @@ additional explicit business rules; they must not be inferred from this series.
 
 ## 33. Vendor portal scope
 
-**Assumed.** A vendor principal's purchase-order reads and row locks are
-confined at `PurchaseOrderRepository._scoped` to that vendor's own orders -
-and, within those, to orders it has been sent and to its categories (§56).
-`PATCH /purchase-orders/{id}` and `POST /purchase-orders/{id}/submit` are
-buyer-only (`forbid_vendor_users`), even for the order's own vendor;
-acknowledge and shipment recording stay vendor-reachable.
+**Assumed.** A vendor account reaches the ERP only through `/vendor-portal/**`,
+its own `/notifications/**` and auth self-service: every other route answers 403
+`SCOPE_DENIED` whatever its roles carry (the route allow-list in
+`core.deps.get_current_principal`). Inside the portal, a vendor principal's
+purchase-order reads and row locks are confined at
+`PurchaseOrderRepository._scoped` to that vendor's own orders - and, within
+those, to orders it has been sent and to its categories (§56). The vendor
+accepts, declines, commits dates, marks ready, records consignments, files
+documents and submits bills there; it cannot edit or submit an order. The
+buyer-side acknowledge and shipment routes remain for a buyer recording what a
+vendor phoned in, and refuse vendor accounts (`forbid_vendor_users`).
 
 **Why.** Confining the query rather than the route means a vendor cannot reach
-another vendor's order by any path, including the locks a status change takes.
-Editing and submitting an order is the buyer's act: a vendor who could amend
-quantities or prices on an order addressed to them would be writing their own
-contract. Acknowledging it and recording the shipment are the two things the
-portal exists for.
+another vendor's order by any path, including the locks a status change takes;
+the allow-list means a module that never learnt about vendors (dispatch,
+finance, quality, documents, reports) cannot leak to one either. Editing and
+submitting an order is the buyer's act: a vendor who could amend quantities or
+prices on an order addressed to them would be writing their own contract.
 
-**Where.** `src/modules/procurement/repository.py` -
-`PurchaseOrderRepository._scoped`; `src/modules/procurement/router.py` - the
-`forbid_vendor_users` dependencies on the two routes.
+**Where.** `src/core/deps.py` - `vendor_route_allowed`, `require_vendor_user`;
+`src/modules/procurement/repository.py` - `PurchaseOrderRepository._scoped`;
+`src/modules/vendor_portal/router.py`.
 
 **Impact if wrong.** If a vendor is meant to propose changes to an order, that
 is a counter-proposal the buyer accepts - a new flow - not write access to the
@@ -1305,13 +1310,14 @@ threshold (open question 2).
 
 ---
 
-## 54. The right that makes a vendor user an order's assignee is `purchase_order.update`
+## 54. The right that makes a vendor user an order's assignee is `vendor_portal.respond`
 
 **Assumed.** A vendor user is eligible to be assigned a purchase order when they
 are active, live, bound to the order's vendor and - after their roles, direct
 grants and denials are folded exactly as the request path folds them - hold
-`purchase_order.update`, the right the portal's acknowledge and shipment actions
-use today. It is one named constant, `VENDOR_PO_RESPOND_PERMISSION`.
+`vendor_portal.respond`, the right the portal's accept, decline and date
+actions require (WP C1a; it was `purchase_order.update` until the portal had
+rights of its own). It is one named constant, `VENDOR_PO_RESPOND_PERMISSION`.
 
 **Why.** An order assigned to somebody who cannot act on it is an order nobody at
 the vendor answers. Folding the rights with the same function as
@@ -1321,8 +1327,7 @@ the vendor answers. Folding the rights with the same function as
 `VENDOR_PO_RESPOND_PERMISSION`, `is_eligible_assignee`;
 `src/core/permissions.py` - `resolve_role_grants`.
 
-**Impact if wrong.** A dedicated vendor-portal right replaces it by changing the
-constant (planned for the vendor portal work package).
+**Impact if wrong.** Another right replaces it by changing the constant.
 
 ---
 
@@ -2034,6 +2039,545 @@ leaves the late set while keeping its badge.
 **Where.** `preview_sales_invoice and dispatch._advance_sales_order.`
 
 **Impact if wrong.** If invoices must be post-departure only, remove READY eligibility and this staged cap.
+
+---
+
+## §C1-1. The vendor's committed delivery date is kept apart from the buyer's planning date
+
+**Assumed.** When a vendor accepts an order it may commit to a delivery date, and
+may later move it (`POST /vendor-portal/purchase-orders/{id}/delivery-date`).
+Both write `purchase_orders.vendor_committed_date`. Neither touches
+`expected_delivery_date`, the buyer's planning date. A buyer adopts the vendor's
+date explicitly with `POST /procurement/purchase-orders/{id}/accept-vendor-date`,
+which is audited and a no-op when the two already agree. The committed date may
+not precede the order date.
+
+**Why.** MRP nets supply on `expected_delivery_date` and the delay flag measures
+lateness against it. A vendor who could rewrite it could make its own late
+order look on time and move the company's plan without anyone deciding to
+(trap T8 in the procurement report).
+
+**Where.** `src/modules/vendor_portal/service.py` - `accept`, `change_date`;
+`src/modules/procurement/inbound_service.py` - `accept_vendor_date`.
+
+**Impact if wrong.** If the vendor's word should drive planning directly, `accept`
+and `change_date` also write `expected_delivery_date` and the adopt route goes.
+
+---
+
+## §C1-2. A consignment is recorded only on an accepted order with goods still due
+
+**Assumed.** A numbered consignment (`purchase_order_shipments`) can be recorded or
+corrected only while the order is ACKNOWLEDGED or PARTIALLY_RECEIVED - by the
+vendor through the portal or by a buyer on its behalf, with the same body and
+rules. Consignments are numbered 1..n per order under the order's row lock. A
+dispatch may not be dated before the order date or in the future, and a
+delivery may not precede its dispatch or lie in the future (five minutes of
+clock skew allowed). Once an order is CANCELLED or CLOSED its consignments can
+no longer change.
+
+**Why.** Goods dispatched against an order nobody has accepted arrive against a
+refusal-in-waiting. A dispatch or delivery dated tomorrow is not a fact, and the
+tracking status would report goods on the road that have not left.
+
+**Where.** `src/modules/procurement/inbound_service.py` - `SHIPPING_PO_STATUSES`,
+`SETTLED_PO_STATUSES`, `DELIVERY_CLOCK_SKEW`, `record_inbound_shipment`,
+`mark_delivered`.
+
+**Impact if wrong.** If dispatch may be recorded on a SENT order (the vendor
+ships without accepting), SENT joins `SHIPPING_PO_STATUSES`.
+
+---
+
+## §C1-3. The order's documents route is the channel shared with the vendor
+
+**Assumed.** A file carries a `kind` (INVOICE, DISPATCH_PHOTO, LR_COPY,
+DELIVERY_CHALLAN, OTHER) through a link table, `purchase_order_documents`; the
+generic `documents` table is unchanged. A vendor sees and downloads only the
+files filed through the order's documents route (by itself or by a buyer) and
+the generated PO PDF. A file a buyer filed against the order from the generic
+Documents screen stays internal. An INVOICE upload needs `vendor_portal.invoice`,
+every other kind `vendor_portal.ship`. A vendor's bill names one of its own
+orders, bills only items on that order, may name only its own receipts and
+receipt lines on that order, carries no cost centre (staff tag centres while
+reviewing) and is submitted for review at once. One uploaded invoice file
+attaches to one bill.
+
+The generated PDF is identified by its completed PURCHASE_ORDER job's document
+reference, rather than the generic REPORT category. Action responses also use an
+explicit vendor field list, so a requisition source link stays internal.
+
+**Why.** A link table is the least invasive way to type a file: nothing that
+reads `documents` changes. Internal attachments - a quote comparison, an
+approval memo - are not the supplier's to read. A vendor cannot list cost
+centres and must not name one.
+
+**Where.** `src/modules/procurement/inbound_repository.py` -
+`InboundDocumentRepository.visibility`; `src/modules/vendor_portal/service.py` -
+`create_invoice`, `_assert_bill_references`, `download`, `upload_vendor_document`.
+
+**Impact if wrong.** A file meant to stay internal but uploaded through the
+order's documents route is visible to the vendor; such a file belongs on the
+generic Documents screen. If a vendor may bill freight or charges against an
+item not on the order, `_assert_bill_references` relaxes its item check.
+
+---
+
+## §C1-4. The "QC rejected" tile looks back thirty days and counts receipt lines
+
+**Assumed.** The vendor dashboard's "QC rejected" counts the vendor's posted
+goods-receipt lines with a rejected quantity whose receipt is dated within the
+last `VENDOR_QC_LOOKBACK_DAYS` (30) days, on orders the account can see.
+"Payment pending" counts the vendor's bills in an open status with money still
+owed. Every tile is a count of documents or lines, not a sum of quantities.
+
+**Why.** Recent enough to be actionable, long enough to cover a monthly review.
+Purchase-order statuses past RECEIVED are never written by the application
+(trap T7), so the tiles are derived from receipts and bills instead.
+
+**Where.** `src/modules/vendor_portal/repository.py` - `VENDOR_QC_LOOKBACK_DAYS`,
+`VendorPortalRepository.dashboard`.
+
+**Impact if wrong.** A different window is the constant; a quantity-weighted
+tile is a different aggregate in the same statement.
+
+---
+
+## §C1-5. The tracking status describes the latest consignment
+
+**Assumed.** One ordered rule derives the proposal's tracking status. In order:
+QC_PENDING (a receipt with an open inspection, when the order is fully received
+or the receipt came after the latest dispatch); GRN_COMPLETED (fully received or
+short-closed, nothing open); RECEIVED (a receipt raised at or after the latest
+consignment's dispatch, or any receipt when nothing was dispatched); DELIVERED
+(the latest consignment is marked delivered); DISPATCHED (it left today, UTC);
+IN_TRANSIT (it left earlier); READY_FOR_DISPATCH (the vendor's ready flag);
+otherwise NOT_DISPATCHED. "Delivery expected date" is the latest consignment's
+own expectation, else the vendor's commitment, else the planning date. "Late"
+is one predicate: receivable status, goods still due, planning date passed.
+
+**Why.** The buyer's board, the vendor's order list and the vendor dashboard read
+the same rule and cannot disagree. A receipt for an earlier consignment must not
+hide the next one on the road.
+
+**Where.** `src/modules/procurement/inbound_repository.py` -
+`inbound_tracking_status`, `po_is_late`, `InboundRepository.projection`.
+
+**Impact if wrong.** A goods receipt does not name the consignment it received,
+so "after the latest dispatch" is decided by time; a receipt keyed in late for
+an earlier consignment counts for the later one. Linking receipts to
+consignments would make the rule exact.
+
+---
+
+## §C1-6. The buyer's inbound board shows open work by default
+
+**Assumed.** `GET /procurement/inbound-tracking` lists orders still in motion: SENT,
+VENDOR_DECLINED (the buyer has to decide), ACKNOWLEDGED, PARTIALLY_RECEIVED, and
+RECEIVED, QC_PENDING or QC_COMPLETED orders whose tracking status is not yet
+GRN_COMPLETED. Completed, closed and cancelled orders appear with
+`include_completed=true`. The vendor's list always shows its whole history; its
+tabs narrow it.
+
+**Why.** A work queue that fills with history stops being read.
+
+**Where.** `src/modules/procurement/inbound_repository.py` -
+`BOARD_OPEN_PO_STATUSES`, `InboundRepository.filtered_projection`.
+
+**Impact if wrong.** Change `BOARD_OPEN_PO_STATUSES`.
+
+---
+
+## §C1-7. Who hears about a vendor action or a consignment change
+
+**Assumed.** A vendor's accept, decline, date change and ready flag, and every
+consignment change - recorded, corrected, delivered, LR copy or dispatch photo
+uploaded, whoever did it - notify the order's creator, every internal user
+holding `purchase_order.approve` and the ADMIN and PURCHASE_MANAGER roles.
+Vendor accounts never receive these, and the person who made the change is not
+told about it. Everything about one consignment collapses onto one unread row
+per recipient (`po-shipment:{id}`), carrying carrier, tracking, dispatch and
+expected dates, boxes, weight and the latest event.
+
+**Why.** The proposal's "admin is notified immediately", without a row per edit;
+the creator and approvers own the order.
+
+**Where.** `src/modules/procurement/inbound_service.py` - `BUYER_ALERT_ROLE_CODES`,
+`buyer_recipients`, `notify_buyer`, `shipment_message`.
+
+**Impact if wrong.** The recipient list is `buyer_recipients`; a per-company
+setting would replace the role constant.
+
+---
+
+## §C1-8. The vendor's order detail embeds the first page of each list
+
+**Assumed.** `GET /vendor-portal/purchase-orders/{id}` embeds the first 50
+consignments, files and receipts, each with its paging metadata; the dedicated
+list routes page the rest. The timeline lists status changes from SENT onwards
+- drafting and internal approval are the buyer's process. Money totals are SQL
+aggregates.
+
+**Why.** One request paints a phone screen; nothing returned is unbounded.
+
+**Where.** `src/modules/vendor_portal/service.py` - `DETAIL_EMBED_LIMIT`;
+`src/modules/vendor_portal/repository.py` - `TIMELINE_STATUSES`.
+
+**Impact if wrong.** Change the constants.
+
+---
+
+## §C1-9. An order's header courier fields mirror its latest consignment
+
+**Assumed.** The single-shipment fields on the order header (`courier_name`,
+`tracking_reference`, `shipped_at`) stay readable and are kept equal to the
+latest numbered consignment. An order with no numbered consignment is tracked
+from the header fields alone; historical header data is not turned into
+consignment rows.
+
+**Why.** Screens and reports built on the header keep working, and no audited
+consignment record is invented after the fact.
+
+**Where.** `src/modules/procurement/inbound_service.py` - `record_inbound_shipment`;
+`src/modules/procurement/inbound_repository.py` - `InboundRepository.projection`.
+
+**Impact if wrong.** A backfill migration could create consignment 1 from each
+header that carries shipment details.
+
+---
+
+## §C1-10. A declined order stays open for the buyer's decision
+
+**Assumed.** SENT -> VENDOR_DECLINED records the vendor's reason. The buyer then
+cancels the order (VENDOR_DECLINED -> CANCELLED, which gives the quantity back to
+the requisition) or sends it again (VENDOR_DECLINED -> SENT, which re-checks that
+the vendor can still take orders and clears the old reason; the audit keeps it).
+Until then the requisition quantity stays committed, the order is not expected
+supply (it is outside `OPEN_PO_STATUSES`, so MRP and the duplicate check ignore
+it and no partial index changes), and it blocks retiring the vendor.
+
+**Why.** A decline is a question to the buyer, not an answer: re-sourcing,
+re-negotiating and cancelling are all reasonable, and none should happen behind
+the buyer's back. Counting a refused order as supply would leave the plan short.
+
+**Where.** `src/modules/procurement/service.py` - `transition_purchase_order`;
+`src/modules/procurement/service_rules.py` - `PURCHASE_ORDER_LIFECYCLE`;
+`src/modules/vendors/repository.py` - `OPEN_PURCHASE_ORDER_STATUSES`.
+
+**Impact if wrong.** If a decline should release the requisition at once, the
+VENDOR_DECLINED transition calls `_release_source_lines` and a re-send re-links.
+
+---
+
+## §C1-11. A vendor-facing notification reaches only users who could act on it
+
+**Assumed.** An order sent to a vendor notifies its assignee; when it is
+unassigned, every user of that vendor who holds `vendor_portal.respond` and can
+see the order - unrestricted, scoped to its category or an ancestor of it, or
+assigned to it. "Material received" (`vendor_portal.access`) and a rejection at
+incoming inspection (`vendor_portal.quality`) follow the same visibility rule. A
+bill approved or disputed and a payment approved or allocated notify the
+vendor's users holding `vendor_portal.invoice`; a dispute carries its reason, an
+approval does not carry the approver's note. Vendor-app links are `/vendor/...`
+routes (WP C2a).
+
+**Why.** A notification whose link the portal answers "not found" for is noise,
+and one that reaches a different vendor is a leak. The approver's note is the
+buyer's own record.
+
+**Where.** `src/modules/procurement/service.py` - `vendor_recipients_for_order`,
+`notify_vendor_about_order`, `notify_vendor_about_receipt`;
+`src/modules/finance/service.py` - `_tell_vendor_about_invoice`,
+`_tell_vendor_about_payment`; `src/modules/notifications/repository.py` -
+`user_ids_for_vendor`.
+
+**Impact if wrong.** The rights per event are named at each call.
+
+---
+
+## §C1-12. Registering a browser is the push opt-in
+
+**Assumed.** New per-type preferences default to push enabled; a user with no
+registered, unexpired device never gets the PUSH channel. An update that omits
+`push_enabled` preserves a stored opt-out.
+
+**Why.** The browser's own permission prompt is the consent; a second switch per
+type would be a setting nobody finds.
+
+**Where.** `src/modules/notifications/service.py` - `resolve_channels`, `notify`;
+`src/modules/notifications/repository.py` - `upsert_preferences`.
+
+**Impact if wrong.** Default `push_enabled` to false and the preferences screen
+becomes the opt-in.
+
+---
+
+## §C1-13. The VAPID key derives from the credential root unless one is supplied
+
+**Assumed.** Without `WEB_PUSH_VAPID_PRIVATE_KEY` the VAPID signing key is derived
+deterministically from `CREDENTIAL_ENCRYPTION_KEY` with the HMAC purpose
+`web-push-vapid`. Rotating the root key changes the VAPID key, and browsers
+re-subscribe.
+
+**Why.** No new deployment secret is needed to switch push on.
+
+**Where.** `src/core/webpush.py`; `src/core/config.py`.
+
+**Impact if wrong.** Supply an explicit key; it survives root rotation.
+
+---
+
+## §C1-14. A collapsed repeat never re-sends to a device
+
+**Assumed.** An unread grouped notification that repeats updates its wording and
+count but keeps its email and push delivery markers, so it is not sent to a
+device again. Once read, the next occurrence is a new row.
+
+**Why.** A consignment that is edited five times should buzz a phone once.
+
+**Where.** `src/modules/notifications/repository.py` - `upsert_many`.
+
+**Impact if wrong.** Clear the markers on collapse to re-send every update.
+
+---
+
+## §C3-1. A dealer account is bound to exactly one dealer-channel customer
+
+**Assumed.** `users.customer_id` (FK `customers`, CASCADE, indexed
+`ix_users_customer`) binds an account to the dealer portal; the CHECK
+`portal_binding_exclusive` refuses a vendor binding and a dealer binding on one
+account. Dealer roles (`roles.is_dealer_role`: DEALER_OWNER, DEALER_BUYER,
+DEALER_ACCOUNTS) may be held only by dealer-bound accounts, and dealer-bound
+accounts may hold only dealer roles - enforced in both directions by
+`assert_portal_role_consistency`, mirroring the vendor rule. A binding must
+name a live customer of type DEALER or DISTRIBUTOR. `dealer_route_allowed`
+keeps dealers on `/dealer-portal/**`, their own `/notifications/**` and auth
+self-service; every `/dealer-portal` route also demands a dealer principal
+(`require_dealer_user`), so staff get 403 `SCOPE_DENIED`. Repository scopes
+(`UserRepository`, `SalesOrderRepository`, `DispatchRepository`) filter dealer
+principals to their own customer as defence in depth, and a foreign order,
+consignment or statement answers 404, never 403.
+
+**Why.** One account must never see two principals' data, and a dealer user who
+also held an internal role would see the tenant's costing and every other
+dealer's book through the internal screens, which the dealer filter does not
+cover.
+
+**Where.** `src/modules/users/models.py` - `customer_id`, `is_dealer_role`;
+`src/modules/users/service.py` - `assert_portal_role_consistency`;
+`src/core/deps.py` - `dealer_route_allowed`, `require_dealer_user`;
+`src/modules/users/repository.py`, `src/modules/sales/repository.py`,
+`src/modules/dispatch/repository.py` - `_scoped`.
+
+**Impact if wrong.** If a dealer account must span several customers, the
+binding becomes a list and every scope, filter and checkout changes with it.
+
+---
+
+## §C3-2. Availability is a band from live free stock, never a quantity
+
+**Assumed.** `availability_band` folds live `available_quantity` summed across
+sellable warehouses (FINISHED_GOODS, PACKING) into IN_STOCK (>=
+`AVAILABILITY_IN_STOCK_AT` = 10), LIMITED (> 0) or MADE_TO_ORDER (0). It is
+read on every catalogue call and never cached; exact quantities are never
+returned. A DISTRIBUTOR channel with no price-list row has no item-master
+fallback column, so the item is `price: null`, `price_on_request: true` and not
+orderable - rather than quietly invoiced at the dealer rate.
+
+**Why.** Exact stock figures are commercially sensitive and go stale; a cached
+band would promise what a reservation has since taken. The distributor channel
+genuinely has no master price, and reusing the dealer one would invoice the
+wrong party at the wrong rate.
+
+**Where.** `src/modules/dealer_portal/models.py` - thresholds and warehouse
+types; `src/modules/dealer_portal/pricing.py` - `availability_band`;
+`src/modules/dealer_portal/service.py` - `_channel_price`.
+
+**Impact if wrong.** If the business wants exact figures for trusted dealers,
+the band becomes a permission-gated quantity; if more warehouse types become
+promisable, `SELLABLE_WAREHOUSE_TYPES` grows.
+
+---
+
+## §C3-3. Schemes are percentage-only, best single offer, explicit wins
+
+**Assumed.** `dealer_offers` carries one percentage rule (0 < x <= 100) with a
+scope (ALL, CATEGORY with subtree matching, BRAND, ITEM), an optional channel
+audience, an optional negotiated `customer_id`, a minimum quantity, a validity
+window and a sort order. The best single offer per line wins - highest
+percentage, then scope specificity, then `sort_order`, then id - and offers
+never stack. One pure function (`select_best_offer`) serves the catalogue, the
+cart, checkout and ERP sales pricing: a sales-order line with no explicit
+discount takes the best scheme as its default `discount_percentage` and stores
+`offer_id` (a bare UUID, no FK, so the sales table never depends on the portal
+schema); an explicit percentage or flat discount always wins and stores no
+scheme. With no offers configured, ERP pricing is byte-for-byte unchanged. A
+header-only re-price keeps a carried scheme citation when the discount is
+unchanged.
+
+**Why.** One matcher means the catalogue, the cart and the order can never
+disagree about what a dealer pays. An explicit discount is a commercial
+decision somebody signed; a scheme is a default. A foreign key from sales to
+the portal schema would make the order table uncreatable without it.
+
+**Where.** `src/modules/dealer_portal/pricing.py` - `select_best_offer`,
+`load_pricing_offers`; `src/modules/sales/service.py` - `price_line`,
+`_build_pricing_context`, `_apply_priced_line`; `src/modules/sales/models.py`
+- `offer_id`.
+
+**Impact if wrong.** Stacking, flat-amount schemes or tiered slabs change the
+matcher and the offer table together; the ERP default follows automatically.
+
+---
+
+## §C3-4. One cart per dealer user
+
+**Assumed.** `dealer_carts` has one row per dealer user (`uq` on company and
+user) carrying that user's dealer; lines carry item, variant and quantity only
+- no stored price. A duplicate grain is refused (change the quantity
+instead); a cart holds at most `MAX_CART_LINES` = 50 grains. The wishlist is
+one row per user, item and variant.
+
+**Why.** The cart is a working draft, not a bulk import: 50 lines always fit
+the checkout payload (sales allows 200), and a price stored on the line would
+go stale the moment the price list moved.
+
+**Where.** `src/modules/dealer_portal/models.py`; `src/modules/dealer_portal/service.py`
+- cart and wishlist methods.
+
+**Impact if wrong.** Raise `MAX_CART_LINES`, or key carts per dealer instead of
+per user - and decide what two users' conflicting drafts merge into.
+
+---
+
+## §C3-5. Dealer checkout fulfils from the default warehouse
+
+**Assumed.** The checkout names no warehouse: it resolves
+`warehouses.is_default` through a new `WarehouseRepository.default_warehouse`
+getter, and refuses when none is flagged. The order still reserves against
+that warehouse on confirmation like any other order.
+
+**Why.** A dealer cannot be asked to pick a warehouse, but a reservation has
+to name the position it is taken against - an order with no warehouse could be
+confirmed but never allocated.
+
+**Where.** `src/modules/warehouses/repository.py` - `default_warehouse`;
+`src/modules/dealer_portal/service.py` - `checkout`.
+
+**Impact if wrong.** If fulfilment must follow the shipping address or the
+item, the checkout resolves the warehouse per line instead.
+
+---
+
+## §C3-6. Portal orders stay DRAFT for sales review, and cancel rather than delete
+
+**Assumed.** Checkout builds `SalesOrderCreate` with no unit price and no
+discount; the server prices, discounts and taxes every line, stamps
+`source = DEALER_PORTAL` (server-only, CHECKed, default ERP, exposed in
+summary/detail and filterable), clears the cart, writes a `dealer_checkout`
+audit row and raises "New order request from \<dealer\>" (`APPROVAL_PENDING`,
+linking the SO page) for the assigned salesperson, else `sales_order.approve`
+holders - all in one outermost transaction. The order stays DRAFT: sales staff
+confirm it, which runs the credit check and reservation. The dealer cancels
+its own DRAFT with a reason; past DRAFT the portal refuses. `delete_draft_order`
+refuses portal-sourced drafts - a delete would silently drop an order the desk
+may already be reviewing.
+
+**Why.** A dealer order is a request, not a commitment: stock and credit move
+only when sales confirms. Cancelling keeps the trail the dealer and the desk
+both read; deleting would fork it.
+
+**Where.** `src/modules/sales/models.py` - `source`;
+`src/modules/sales/service.py` - `create_order(source=...)`,
+`delete_draft_order`; `src/modules/dealer_portal/service.py` - `checkout`,
+`cancel_order`.
+
+**Impact if wrong.** If trusted dealers may self-confirm, checkout confirms
+orders whose credit check passes - and the notification becomes informational.
+
+---
+
+## §C3-7. Dealer tracking drops the driver and the freight
+
+**Assumed.** The tracking projection carries courier or transporter name,
+tracking id, LR number, dispatched/expected/actual dates and the event history
+(status, time, location, remark) - but never `driver_mobile` and never freight
+fields. The feed is a bounded newest-first read (`TRACKING_EVENT_LIMIT` =
+200), not a cursor: a consignment's history is short and the dealer always
+sees the whole of it.
+
+**Why.** The driver's phone number is personal data and the freight cost is an
+internal commercial; neither is the dealer's to have. A cursor would page a
+feed nobody pages.
+
+**Where.** `src/modules/dealer_portal/service.py` - `dispatch_tracking`;
+`src/modules/dealer_portal/schemas.py` - `DealerTracking`.
+
+**Impact if wrong.** If dealers must call the driver, expose the number behind
+a separate right rather than widening this projection.
+
+---
+
+## §C3-8. Item detail carries the shape D5 will fill
+
+**Assumed.** The detail returns variants with their own channel price, the
+current channel slabs, the applicable schemes, HSN, GST rate, description,
+`can_return` and up to `CATALOGUE_MAX_IMAGES` = 8 image ids. Specifications
+and accessories return in their shapes but empty: their masters belong to WP
+D5, which does not exist yet, and this package invents no tables another
+package owns.
+
+**Why.** The screen contract is stable while the masters land; inventing
+specification tables here would collide with D5's the day it arrives
+(CLAUDE.md: never hand-write another module's table).
+
+**Where.** `src/modules/dealer_portal/service.py` - `catalog_item`.
+
+**Impact if wrong.** When D5 lands, the two empty lists are filled from its
+batch helper with no contract break.
+
+---
+
+## §C3-9. Catalogue paging limits: price sort refused, offer filter coarse
+
+**Assumed.** `GET /catalog/items` sorts by `code` or `name` in SQL; `sort_by =
+price` is refused with 422 naming the allowed fields, because a channel price
+is a slab ranking plus a fallback and cannot be ordered in the database.
+`on_offer_only` prefilters in SQL on schemes that *could* apply and matches
+exactly per row in Python (CATEGORY scopes need the subtree), so a page can
+come back short and the total is the coarse one. A cart holds at most 50 lines
+(§C3-4), well under the sales-order bound.
+
+**Why.** Refusing an unorderable sort beats returning a wrong order; resolving
+every CATEGORY scope in SQL would join the category tree into the page query
+for a filter most calls do not use.
+
+**Where.** `src/modules/dealer_portal/repository.py` - `page_items`;
+`src/modules/dealer_portal/service.py` - `catalog_items`.
+
+**Impact if wrong.** If price sorting becomes a requirement, it needs a
+materialised channel-price column with its own invalidation - which is a cache
+on inventory-adjacent data and needs a decision, not a query tweak.
+
+---
+
+## §C3-10. Overdue invoices wait for sales invoicing
+
+**Assumed.** `GET /outstanding` returns the receivables ageing for the dealer
+(overdue = total less not-due, oldest due date, open document count) with an
+empty `overdue_invoices` list: sales invoices are not in this release, so
+there is no invoice document to name, and the FIFO-netted ageing is the
+overdue position.
+
+**Why.** A placeholder row inventing invoice numbers would be mistaken for a
+receivable that exists; the ageing is the honest position until invoicing
+lands.
+
+**Where.** `src/modules/dealer_portal/service.py` - `outstanding`;
+`src/modules/dealer_portal/schemas.py` - `DealerOutstanding`.
+
+**Impact if wrong.** When sales invoices land, the list names them per the
+finance overdue shape.
 
 ---
 

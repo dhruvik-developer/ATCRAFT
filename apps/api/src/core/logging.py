@@ -95,6 +95,9 @@ SENSITIVE_KEYS = frozenset(
         "cvv",
         "bank_account",
         "ifsc",
+        "endpoint",
+        "p256dh",
+        "auth",
     }
 )
 REDACTED = "[REDACTED]"

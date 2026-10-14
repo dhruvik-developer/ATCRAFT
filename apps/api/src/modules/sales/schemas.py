@@ -122,6 +122,7 @@ class SalesOrderLineRead(BaseModel):
     invoiced_quantity: Decimal
     status: SalesOrderLineStatus
     reservation_id: uuid.UUID | None
+    offer_id: uuid.UUID | None
     notes: str | None
 
 
@@ -224,6 +225,7 @@ class SalesOrderSummary(BaseModel):
     code: str
     customer_id: uuid.UUID
     customer_po_number: str | None
+    source: str
     order_date: date
     required_date: date
     promised_date: date | None
@@ -261,6 +263,7 @@ class SalesOrderFilters(BaseModel):
 
     search: str | None = None
     customer_id: uuid.UUID | None = None
+    source: str | None = None
     warehouse_id: uuid.UUID | None = None
     branch_id: uuid.UUID | None = None
     status: SalesOrderStatus | None = None

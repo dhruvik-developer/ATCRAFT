@@ -52,6 +52,13 @@ x-postgres-env: &postgres-env
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
 
 x-api-env: &api-env
+  WEB_PUSH_ENABLED: ${WEB_PUSH_ENABLED:-false}
+  WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
+  WEB_PUSH_SUBJECT: ${WEB_PUSH_SUBJECT:-}
+  WEB_PUSH_TTL_SECONDS: ${WEB_PUSH_TTL_SECONDS:-86400}
+  WEB_PUSH_TIMEOUT_SECONDS: ${WEB_PUSH_TIMEOUT_SECONDS:-10}
+  WEB_PUSH_ALLOWED_HOSTS: ${WEB_PUSH_ALLOWED_HOSTS:-fcm.googleapis.com,updates.push.services.mozilla.com,push.services.mozilla.com,notify.windows.com,web.push.apple.com,push.apple.com}
+
   APP_ENV: ${APP_ENV:-development}
   # Hosts `postgres` and `redis` resolve on this project's network only.
   DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-atcraft}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-atcraft_erp}

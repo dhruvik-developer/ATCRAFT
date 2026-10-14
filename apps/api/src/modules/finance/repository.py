@@ -985,6 +985,13 @@ class VendorInvoiceRepository(BaseRepository[VendorInvoice]):
     """Purchase invoices, the payables list and the ageing report."""
 
     model = VendorInvoice
+
+    def _scoped(self, *, include_deleted: bool = False) -> Select[Any]:
+        stmt = super()._scoped(include_deleted=include_deleted)
+        if self.tenant.vendor_id is not None:
+            stmt = stmt.where(VendorInvoice.vendor_id == self.tenant.vendor_id)
+        return stmt
+
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "code": VendorInvoice.code,
         "invoice_date": VendorInvoice.invoice_date,
@@ -1254,6 +1261,15 @@ class VendorInvoiceLineRepository(BaseRepository[VendorInvoiceLine]):
 
 class PaymentRepository(BaseRepository[Payment]):
     model = Payment
+
+    def _scoped(self, *, include_deleted: bool = False) -> Select[Any]:
+        stmt = super()._scoped(include_deleted=include_deleted)
+        if self.tenant.vendor_id is not None:
+            stmt = stmt.where(
+                Payment.party_type == PartyType.VENDOR, Payment.party_id == self.tenant.vendor_id
+            )
+        return stmt
+
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "code": Payment.code,
         "payment_date": Payment.payment_date,

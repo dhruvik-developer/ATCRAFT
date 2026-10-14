@@ -17,13 +17,27 @@ import uuid
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 
 from src.core.deps import CurrentUser, DbSession, Tenant, forbid_vendor_users, require_permission
 from src.core.pagination import PageParams, SortParams, page_params, sort_params
 from src.core.permissions import Permission
-from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
-from src.modules.procurement import service
+from src.core.responses import (
+    COMMON_ERROR_RESPONSES,
+    AcceptedJobResponse,
+    ApiResponse,
+    PaginatedResponse,
+)
+from src.modules.procurement import inbound_service, service
+from src.modules.procurement.inbound_schemas import (
+    DocumentKind,
+    InboundDeliveredRequest,
+    InboundDocumentRead,
+    InboundShipmentCreate,
+    InboundShipmentRead,
+    InboundTrackingFilters,
+    InboundTrackingRead,
+)
 from src.modules.procurement.models import (
     GoodsReceiptStatus,
     PurchaseOrderStatus,
@@ -33,6 +47,7 @@ from src.modules.procurement.models import (
     RequisitionStatus,
     RfqStatus,
 )
+from src.modules.procurement.purchase_order_pdf import queue_purchase_order_pdf
 from src.modules.procurement.schemas import (
     AcknowledgeRequest,
     ApproveRequest,
@@ -1156,9 +1171,17 @@ async def send_purchase_order(
 @router.post(
     "/purchase-orders/{order_id}/acknowledge",
     response_model=ApiResponse[PurchaseOrderSummary],
-    summary="Record the vendor's acknowledgement",
-    description="The vendor may commit to a different delivery date than the one requested.",
-    dependencies=[require_permission(Permission.PURCHASE_ORDER_UPDATE)],
+    summary="Record the vendor's acknowledgement on its behalf",
+    description=(
+        "A buyer recording an acceptance the vendor gave by phone or e-mail; the vendor itself "
+        "accepts through /vendor-portal. Here the buyer may move the planning date."
+    ),
+    # Vendor accounts reach orders only through /vendor-portal (the route
+    # allow-list refuses this path first); kept as a second line of defence.
+    dependencies=[
+        require_permission(Permission.PURCHASE_ORDER_UPDATE),
+        Depends(forbid_vendor_users),
+    ],
 )
 async def acknowledge_purchase_order(
     order_id: uuid.UUID,
@@ -1186,12 +1209,16 @@ async def acknowledge_purchase_order(
 @router.post(
     "/purchase-orders/{order_id}/shipment",
     response_model=ApiResponse[PurchaseOrderSummary],
-    summary="Record inbound courier and tracking details",
+    summary="Record inbound courier and tracking details on the order header",
     description=(
-        "Written by the vendor's dispatch manager. Feeds the delay flag on the tracking view "
-        "(master rules section 23)."
+        "The single-shipment header fields (master rules section 23). Numbered consignments "
+        "are recorded with POST /purchase-orders/{order_id}/shipments, which also keeps these "
+        "fields in step with the latest consignment."
     ),
-    dependencies=[require_permission(Permission.PURCHASE_ORDER_UPDATE)],
+    dependencies=[
+        require_permission(Permission.PURCHASE_ORDER_UPDATE),
+        Depends(forbid_vendor_users),
+    ],
 )
 async def record_shipment(
     order_id: uuid.UUID, payload: ShipmentUpdate, session: DbSession, tenant: Tenant
@@ -1254,6 +1281,235 @@ async def close_purchase_order(
     return ApiResponse[PurchaseOrderSummary].ok(
         PurchaseOrderSummary.model_validate(order), f"Purchase order {order.code} closed"
     )
+
+
+# =============================================================================
+# Inbound consignments and tracking (WP C1a) - the buyer's side
+# =============================================================================
+#
+# The vendor records the same consignments through /vendor-portal; these routes
+# let a buyer do it on the vendor's behalf (a vendor that phones the details in)
+# and give the buying office its inbound board. Vendor accounts are refused by
+# the route allow-list before they get here; ``forbid_vendor_users`` is the
+# second line, as on every buyer-only route.
+
+
+@router.get(
+    "/inbound-tracking",
+    response_model=PaginatedResponse[InboundTrackingRead],
+    summary="Inbound tracking board",
+    description=(
+        "Open purchase orders with their latest consignment and the derived tracking status "
+        "(NOT_DISPATCHED to GRN_COMPLETED). Completed, closed and cancelled orders appear only "
+        "with include_completed. overdue uses the shared PO-late rule: receivable, goods still "
+        "due, planning date passed."
+    ),
+    dependencies=[
+        require_permission(Permission.PURCHASE_ORDER_VIEW),
+        Depends(forbid_vendor_users),
+    ],
+)
+async def inbound_tracking(
+    session: DbSession,
+    tenant: Tenant,
+    params: PageDep,
+    overdue: bool = False,
+    expected_today: bool = False,
+    in_transit: bool = False,
+    not_acknowledged: bool = False,
+    include_completed: bool = False,
+    vendor_id: uuid.UUID | None = None,
+    category_id: uuid.UUID | None = None,
+    search: Annotated[str | None, Query(max_length=120)] = None,
+) -> PaginatedResponse[InboundTrackingRead]:
+    rows, page = await inbound_service.tracking_board(
+        session,
+        tenant,
+        InboundTrackingFilters(
+            overdue=overdue,
+            expected_today=expected_today,
+            in_transit=in_transit,
+            not_acknowledged=not_acknowledged,
+            include_completed=include_completed,
+            vendor_id=vendor_id,
+            category_id=category_id,
+            search=search,
+        ),
+        params,
+    )
+    return PaginatedResponse(data=rows, pagination=page)
+
+
+@router.get(
+    "/purchase-orders/{order_id}/shipments",
+    response_model=PaginatedResponse[InboundShipmentRead],
+    summary="The order's numbered consignments, newest first",
+    dependencies=[
+        require_permission(Permission.PURCHASE_ORDER_VIEW),
+        Depends(forbid_vendor_users),
+    ],
+)
+async def list_purchase_order_shipments(
+    order_id: uuid.UUID, session: DbSession, tenant: Tenant, params: PageDep
+) -> PaginatedResponse[InboundShipmentRead]:
+    rows, page = await inbound_service.list_shipments(session, tenant, order_id, params)
+    return PaginatedResponse(data=rows, pagination=page)
+
+
+@router.post(
+    "/purchase-orders/{order_id}/shipments",
+    response_model=ApiResponse[InboundShipmentRead],
+    status_code=status.HTTP_201_CREATED,
+    summary="Record a consignment on the vendor's behalf",
+    description=(
+        "Same body and rules as the vendor portal: only on an accepted order with goods still "
+        "due. Notifies the order's creator, its approvers and administrators."
+    ),
+    dependencies=[
+        require_permission(Permission.PURCHASE_ORDER_UPDATE),
+        Depends(forbid_vendor_users),
+    ],
+)
+async def create_purchase_order_shipment(
+    order_id: uuid.UUID, payload: InboundShipmentCreate, session: DbSession, tenant: Tenant
+) -> ApiResponse[InboundShipmentRead]:
+    shipment = await inbound_service.record_inbound_shipment(session, tenant, order_id, payload)
+    return ApiResponse[InboundShipmentRead].ok(
+        shipment, f"Shipment {shipment.shipment_number} recorded"
+    )
+
+
+@router.patch(
+    "/purchase-orders/{order_id}/shipments/{shipment_id}",
+    response_model=ApiResponse[InboundShipmentRead],
+    summary="Correct a consignment",
+    description="Replaces the consignment's details; the same validation as recording it.",
+    dependencies=[
+        require_permission(Permission.PURCHASE_ORDER_UPDATE),
+        Depends(forbid_vendor_users),
+    ],
+)
+async def update_purchase_order_shipment(
+    order_id: uuid.UUID,
+    shipment_id: uuid.UUID,
+    payload: InboundShipmentCreate,
+    session: DbSession,
+    tenant: Tenant,
+) -> ApiResponse[InboundShipmentRead]:
+    shipment = await inbound_service.record_inbound_shipment(
+        session, tenant, order_id, payload, shipment_id=shipment_id
+    )
+    return ApiResponse[InboundShipmentRead].ok(
+        shipment, f"Shipment {shipment.shipment_number} updated"
+    )
+
+
+@router.post(
+    "/purchase-orders/{order_id}/shipments/{shipment_id}/delivered",
+    response_model=ApiResponse[InboundShipmentRead],
+    summary="Mark a consignment delivered at the gate",
+    dependencies=[
+        require_permission(Permission.GRN_CREATE),
+        Depends(forbid_vendor_users),
+    ],
+)
+async def mark_purchase_order_shipment_delivered(
+    order_id: uuid.UUID,
+    shipment_id: uuid.UUID,
+    payload: InboundDeliveredRequest,
+    session: DbSession,
+    tenant: Tenant,
+) -> ApiResponse[InboundShipmentRead]:
+    shipment = await inbound_service.mark_delivered(
+        session, tenant, order_id, shipment_id, payload.delivered_at
+    )
+    return ApiResponse[InboundShipmentRead].ok(
+        shipment, f"Shipment {shipment.shipment_number} marked delivered"
+    )
+
+
+@router.post(
+    "/purchase-orders/{order_id}/documents",
+    response_model=ApiResponse[InboundDocumentRead],
+    status_code=status.HTTP_201_CREATED,
+    summary="File a typed document against the order or one of its consignments",
+    description=(
+        "Multipart: file, kind (INVOICE, DISPATCH_PHOTO, LR_COPY, DELIVERY_CHALLAN, OTHER) and "
+        "an optional shipment_id. Files filed here are shared with the order's vendor."
+    ),
+    dependencies=[
+        require_permission(Permission.DOCUMENT_UPLOAD),
+        Depends(forbid_vendor_users),
+    ],
+)
+async def upload_purchase_order_document(
+    order_id: uuid.UUID,
+    session: DbSession,
+    tenant: Tenant,
+    file: Annotated[UploadFile, File()],
+    kind: Annotated[DocumentKind, Form()],
+    shipment_id: Annotated[uuid.UUID | None, Form()] = None,
+) -> ApiResponse[InboundDocumentRead]:
+    document = await inbound_service.upload_document(
+        session, tenant, order_id, file, kind, shipment_id
+    )
+    return ApiResponse[InboundDocumentRead].ok(document, f"{document.file_name} attached")
+
+
+@router.get(
+    "/purchase-orders/{order_id}/documents",
+    response_model=PaginatedResponse[InboundDocumentRead],
+    summary="Every file filed against the order, typed where it was uploaded with a kind",
+    description="Download through GET /documents/{document_id}/download.",
+    dependencies=[
+        require_permission(Permission.PURCHASE_ORDER_VIEW),
+        Depends(forbid_vendor_users),
+    ],
+)
+async def list_purchase_order_documents(
+    order_id: uuid.UUID, session: DbSession, tenant: Tenant, params: PageDep
+) -> PaginatedResponse[InboundDocumentRead]:
+    rows, page = await inbound_service.list_documents(session, tenant, order_id, params)
+    return PaginatedResponse(data=rows, pagination=page)
+
+
+@router.post(
+    "/purchase-orders/{order_id}/accept-vendor-date",
+    response_model=ApiResponse[PurchaseOrderSummary],
+    summary="Adopt the vendor's committed date as the planning date",
+    description=(
+        "Copies vendor_committed_date into expected_delivery_date (which MRP nets on). The two "
+        "are kept apart until a buyer does this; a no-op when they already agree."
+    ),
+    dependencies=[
+        require_permission(Permission.PURCHASE_ORDER_UPDATE),
+        Depends(forbid_vendor_users),
+    ],
+)
+async def accept_vendor_date(
+    order_id: uuid.UUID, session: DbSession, tenant: Tenant
+) -> ApiResponse[PurchaseOrderSummary]:
+    order = await inbound_service.accept_vendor_date(session, tenant, order_id)
+    return ApiResponse[PurchaseOrderSummary].ok(
+        order, f"Planning date of {order.code} set to the vendor's commitment"
+    )
+
+
+@router.post(
+    "/purchase-orders/{order_id}/pdf",
+    response_model=AcceptedJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Generate the purchase order PDF",
+    description="Queued; poll the returned status URL, then download the document.",
+    dependencies=[
+        require_permission(Permission.PURCHASE_ORDER_VIEW),
+        Depends(forbid_vendor_users),
+    ],
+)
+async def purchase_order_pdf(
+    order_id: uuid.UUID, session: DbSession, tenant: Tenant
+) -> AcceptedJobResponse:
+    return await queue_purchase_order_pdf(session, tenant, order_id)
 
 
 # =============================================================================

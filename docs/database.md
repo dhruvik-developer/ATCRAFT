@@ -63,7 +63,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `routing` | `work_centers`, `machines`, `routings`, `routing_operations`, `shifts`, `shift_assignments` |
 | `sales` | `sales_orders`, `sales_order_lines` |
 | `mrp` | `mrp_runs`, `mrp_demands`, `mrp_requirements`, `mrp_suggestions` |
-| `procurement` | `purchase_requisitions`, `purchase_requisition_lines`, `rfqs`, `rfq_lines`, `vendor_quotations`, `vendor_quotation_lines`, `purchase_orders`, `purchase_order_lines`, `goods_receipts`, `goods_receipt_lines`, `purchase_returns`, `purchase_return_lines` |
+| `procurement` | `purchase_requisitions`, `purchase_requisition_lines`, `rfqs`, `rfq_lines`, `vendor_quotations`, `vendor_quotation_lines`, `purchase_orders`, `purchase_order_lines`, `goods_receipts`, `goods_receipt_lines`, `purchase_returns`, `purchase_return_lines`, `purchase_order_shipments`, `purchase_order_documents` |
 | `production` | `production_orders`, `production_order_components`, `work_orders`, `material_issues`, `material_issue_lines`, `production_entries` |
 | `assembly` | `assembly_orders`, `assembly_order_components` |
 | `job_work` | `job_work_orders`, `job_work_order_lines`, `job_work_challans`, `job_work_challan_lines`, `job_work_receipts`, `job_work_receipt_lines` |
@@ -73,7 +73,9 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `finance` | `ledger_accounts`, `ledger_entries`, `vendor_invoices`, `vendor_invoice_lines`, `sales_invoices`, `sales_invoice_lines`, `payments`, `payment_allocations` |
 | `reports` | `report_snapshots`, `inventory_summary` |
 | `documents` | `documents` |
-| `notifications` | `notifications`, `notification_preferences` |
+| `notifications` | `notifications`, `notification_preferences`, `push_subscriptions` |
+| `vendor_portal` | none - a facade over procurement, finance, quality and documents, scoped by the token's vendor |
+| `dealer_portal` | `dealer_offers`, `dealer_carts`, `dealer_cart_lines`, `dealer_wishlist_items` - a facade over sales, dispatch and finance, scoped by the token's customer, plus its own schemes, carts and wishlists |
 | `common` | `document_sequences` |
 
 ### Cost centres
@@ -624,7 +626,8 @@ requisition       (REJECTED from PENDING_APPROVAL; CANCELLED from DRAFT, PENDING
 Purchase order    DRAFT -> PENDING_APPROVAL -> APPROVED -> SENT -> ACKNOWLEDGED
                         -> PARTIALLY_RECEIVED -> RECEIVED -> QC_PENDING -> QC_COMPLETED
                         -> GRN_COMPLETED -> INVOICED -> PAID -> CLOSED
-                  (REJECTED from PENDING_APPROVAL; CANCELLED before receipt)
+                  (SENT -> VENDOR_DECLINED -> SENT or CANCELLED;
+                   REJECTED from PENDING_APPROVAL; CANCELLED before receipt)
 
 Production order  DRAFT -> APPROVED -> RELEASED -> MATERIAL_ISSUED -> IN_PROCESS
                         -> COMPLETED -> CLOSED   (CANCELLED before IN_PROCESS)
@@ -696,6 +699,12 @@ Every transition writes an audit row via `record_status_change`.
 | Requisition converted | One DRAFT purchase order per (vendor, procurement category, warehouse) through `procurement.service._create_purchase_order` (duplicate check included); `_link_source_documents` adds to each line's `ordered_quantity` and moves the requisition APPROVED → CONVERTED; one CREATE audit row per order and one "Split into …" row per requisition - all in one transaction, or nothing |
 | Vendor invoice approved | `finance.post_journal`: one `PURCHASE_EXPENSE` debit per effective line cost centre (line -> header -> none), input tax, payable. A `JOB_WORK` invoice debits `JOB_WORK_EXPENSE` instead (line -> job-work order -> header -> none), moves each receipt line's `invoiced_amount`, and posts the excess-loss recovery (`job_work_recovery`: Dr AP / Cr job-work expense) for the still-unposted vendor debit |
 | Vendor invoice cancelled | reverse every journal the invoice posted (the bill and, on a job-work invoice, the recovery beside it) and roll the job-work tracking back, in the same transaction |
+| PO sent (also re-sent after a decline) | `notify` the assignee, else every user of that vendor holding `vendor_portal.respond` who can see the order (§C1-11) |
+| Vendor accepts, declines, moves its committed date, marks ready | `notify` the order's creator, `purchase_order.approve` holders and the ADMIN and PURCHASE_MANAGER roles (§C1-7); the committed date never moves `expected_delivery_date` |
+| Consignment recorded, corrected or delivered; LR copy or dispatch photo filed | The same buyer recipients, one collapsing row per consignment (`po-shipment:{id}`); the order header mirrors the latest consignment |
+| Goods receipt posted / incoming inspection rejects goods | Also `notify` the vendor's users holding `vendor_portal.access` / `vendor_portal.quality` who can see the order |
+| Vendor bill approved or disputed; payment to a vendor approved or allocated | Also `notify` the vendor's users holding `vendor_portal.invoice` |
+| Dealer checkout | One DRAFT `sales_orders` row with `source = DEALER_PORTAL`, server prices and scheme `offer_id`s per line, cart cleared, one `dealer_checkout` audit row, and `notify` the assigned salesperson else `sales_order.approve` holders - all in one transaction, or nothing (§C3-6) |
 | Any write naming a cost centre | `organization.service.require_cost_centre` / `require_cost_centres` (tenant, live, active) before the row is written |
 | Any status change | `audit.record_status_change` in the same transaction |
 
@@ -750,6 +759,96 @@ requisition lines by id, then the `po-duplicate` advisory locks sorted by
 (vendor, warehouse). A conversion takes all of its advisory keys before raising
 its first order. Giving quantity back on cancel or reject locks only the lines,
 never a header, so it cannot close a cycle with that order.
+
+### Vendor portal and inbound consignments (C1a)
+
+**Purchase-order columns.** Nullable `vendor_committed_date` (the vendor's
+promise, apart from the buyer's `expected_delivery_date` that MRP nets on - a
+buyer adopts it explicitly, §C1-1), `vendor_decline_reason`,
+`ready_for_dispatch_at`, `ready_packages` and `ready_note` (the ready flag is a
+flag, not a status).
+
+**VENDOR_DECLINED.** SENT -> VENDOR_DECLINED records the vendor's reason; the
+buyer then cancels (the existing release path gives the quantity back to the
+requisition) or re-sends (the vendor is re-checked and the old reason cleared).
+A declined order still holds its requisition quantity and blocks retiring the
+vendor, but it is not expected supply: it is outside `OPEN_PO_STATUSES`, so MRP
+netting and the duplicate check ignore it and no partial-index predicate
+changes. It stays vendor-visible (§C1-10).
+
+**`purchase_order_shipments`** (TenantEntity) - one consignment, numbered 1..n
+per order (`uq_po_shipments_number`; the order's row lock serialises
+numbering): transporter (FK, tenant- and active-checked in the service) or
+courier name (a CHECK requires one), tracking and LR numbers, vehicle, driver,
+`shipped_at`, `delivered_at` (CHECK: not before dispatch), expected date,
+packages, `weight_kg` (Quantity), `freight_amount` (Money, CHECK >= 0), notes.
+Recorded and corrected only on ACKNOWLEDGED/PARTIALLY_RECEIVED orders, by the
+vendor or a buyer through one service function (§C1-2). The order header's
+`courier_name`/`tracking_reference`/`shipped_at` mirror the latest consignment
+(§C1-9).
+
+**`purchase_order_documents`** (TenantEntity) - links a `documents` row (unique)
+to an order, optionally a consignment and, for an INVOICE file, the vendor bill
+it was attached to; `kind` is one of INVOICE, DISPATCH_PHOTO, LR_COPY,
+DELIVERY_CHALLAN, OTHER (literal CHECK). The generic `documents` columns are
+unchanged. Files linked here are shared with the order's vendor; a file filed
+against the order from the generic Documents screen is not (§C1-3).
+
+**Tracking.** The derived `InboundTrackingStatus` (NOT_DISPATCHED,
+READY_FOR_DISPATCH, DISPATCHED, IN_TRANSIT, DELIVERED, RECEIVED, QC_PENDING,
+GRN_COMPLETED) is never stored. One ordered rule in
+`procurement.inbound_repository.inbound_tracking_status` is rendered as a SQL
+CASE over one projection row per order; the buyer's board, the vendor's tabs
+and the vendor dashboard all filter and count by that CASE (§C1-5). Every
+per-order figure in the projection (lines, receipts, open inspections, files,
+consignments) is a subquery correlated to the order, so a page costs what the
+caller can see, not the company's purchasing history. Open inspections are
+counted by quality's `open_inspection_count`, reached through a guarded import.
+
+**PO PDF.** `ReportKey.PURCHASE_ORDER` is document-only; the job row lives in
+`report_snapshots` and the PDF is a REPORT document filed against the order
+(`entity_type = purchase_order`) that never expires.
+A vendor's shared-file query verifies the completed PURCHASE_ORDER job's
+`document_id`; labelling an internal upload REPORT does not share it.
+
+### Dealer portal core (C3a)
+
+**Portal binding.** `users.customer_id` (nullable FK `customers` CASCADE,
+`ix_users_customer`) binds an account to the dealer portal; the CHECK
+`portal_binding_exclusive` refuses a vendor and a dealer binding together.
+`roles.is_dealer_role` marks the three system dealer roles. A binding must
+name a live DEALER/DISTRIBUTOR customer (§C3-1).
+
+**`dealer_offers`** (TenantMasterEntity) - one percentage scheme: `code`
+(unique per company), `scope_kind` (ALL, CATEGORY, BRAND, ITEM, with the
+matching id column required and the others NULL - CHECKed),
+`audience_price_type` (NULL means every channel), `customer_id` (NULL means
+the audience; set means that dealer's negotiated scheme),
+`min_quantity`, `discount_percentage` (0 < x <= 100), validity window,
+`is_active`, `sort_order`. Best single offer wins; no stacking (§C3-3).
+
+**Cart and wishlist.** `dealer_carts` (TenantEntity + optimistic locking) - one
+per dealer user (`uq` on company and user) carrying that user's dealer.
+`dealer_cart_lines` - item, variant, quantity > 0, unique per cart grain (NULL
+variant folded to the nil-UUID sentinel), no stored price. Same grain for
+`dealer_wishlist_items` per user (§C3-4).
+
+**Sales-order columns.** `sales_orders.source` (`ERP | DEALER_PORTAL`, literal
+CHECK, server default ERP, set by the server only) and
+`sales_order_lines.offer_id` (bare UUID, no FK - the sales table does not
+depend on the portal schema, §C3-3). A line with no explicit discount takes
+the best scheme as its default discount in `price_line`, on ERP orders as well
+as portal ones.
+
+### Notification devices and recovery (C1b)
+PUSH is a channel, after IN_APP and EMAIL. Preferences have constant true
+`push_enabled`; registering a device provides opt-in. Null/omitted updates preserve
+an existing push preference using COALESCE. CRITICAL only overrides an in-app mute.
+`notifications.push_delivered_at` is nullable. Both email and push have created_at
+partial recovery indexes for the channel with its delivery marker NULL.
+`push_subscriptions` is a hard-deleted TenantEntity with user CASCADE FK, globally
+unique endpoint hash, encrypted URL, P-256 public/auth keys, user agent/label,
+expiry/seen/success/failure timestamps and nonnegative failure count.
 
 ---
 

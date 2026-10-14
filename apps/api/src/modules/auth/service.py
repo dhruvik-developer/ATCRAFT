@@ -773,6 +773,7 @@ class AuthService:
             roles=list(principal.role_codes),
             permissions=sorted(principal.permissions),
             vendor_id=principal.vendor_id,
+            customer_id=principal.customer_id,
             branch_id=principal.branch_id,
             plant_id=principal.plant_id,
             department_id=principal.department_id,

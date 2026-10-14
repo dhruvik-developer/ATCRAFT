@@ -413,7 +413,7 @@ class QcInspectionRepository(BaseRepository[QcInspection]):
         return int((await self.session.execute(stmt)).scalar_one())
 
     async def list_for_reference(
-        self, reference_type: str, reference_id: uuid.UUID
+        self, reference_type: str, reference_id: uuid.UUID | Sequence[uuid.UUID]
     ) -> list[QcInspection]:
         """Every inspection one document raised - the receipt's own QC panel.
 
@@ -424,7 +424,9 @@ class QcInspectionRepository(BaseRepository[QcInspection]):
             self._scoped()
             .where(
                 QcInspection.reference_type == reference_type,
-                QcInspection.reference_id == reference_id,
+                QcInspection.reference_id.in_(
+                    [reference_id] if isinstance(reference_id, uuid.UUID) else reference_id
+                ),
             )
             # created_at is PostgreSQL now() - transaction START time - so every row
             # written in one transaction shares it. The UUIDv7 id is the
@@ -660,6 +662,31 @@ async def decided_inspection_companies(session: AsyncSession) -> list[uuid.UUID]
     return list((await session.execute(stmt)).scalars().all())
 
 
+def open_inspection_count(
+    company_id: uuid.UUID, reference_type: str, reference_ids: Any
+) -> ColumnElement[int]:
+    """Undecided inspections raised by the documents ``reference_ids`` selects.
+
+    A correlatable scalar subquery rather than a count fetched per document:
+    procurement's inbound board asks it once per purchase order inside one
+    statement, passing a correlated select of that order's posted receipts.
+    Reached through a guarded import (``inbound_repository``), the same seam
+    procurement uses for every other quality call, so the planning layer never
+    imports this module's types.
+    """
+    return (
+        select(func.count())
+        .select_from(QcInspection)
+        .where(
+            QcInspection.company_id == company_id,
+            QcInspection.reference_type == reference_type,
+            QcInspection.reference_id.in_(reference_ids),
+            QcInspection.status.in_(OPEN_STATUSES),
+        )
+        .scalar_subquery()
+    )
+
+
 __all__ = [
     "InspectableItem",
     "ItemLookupRepository",
@@ -672,4 +699,5 @@ __all__ = [
     "VendorItemTotals",
     "WarehouseLookupRepository",
     "decided_inspection_companies",
+    "open_inspection_count",
 ]

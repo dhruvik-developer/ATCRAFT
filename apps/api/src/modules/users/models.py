@@ -22,6 +22,7 @@ from datetime import datetime
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -77,6 +78,9 @@ class Role(TenantMasterEntity):
     is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Vendor roles are only assignable to a user bound to a vendor (section 16).
     is_vendor_role: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Dealer roles are only assignable to a user bound to a dealer customer
+    # (docs/assumptions.md §C3-1). Mirrors ``is_vendor_role``.
+    is_dealer_role: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # user_roles carries TWO foreign keys to users (the member and whoever
@@ -99,10 +103,11 @@ class Role(TenantMasterEntity):
 class User(TenantMasterEntity):
     """An account that can authenticate.
 
-    Internal staff and vendor-portal users share this table. A vendor user is
-    one with ``vendor_id`` set; every query that serves such a principal is
-    additionally filtered by that vendor and by
-    :attr:`allowed_category_ids` (section 16).
+    Internal staff, vendor-portal users and dealer-portal users share this
+    table. A vendor user is one with ``vendor_id`` set; a dealer user is one
+    with ``customer_id`` set - never both. Every query that serves such a
+    principal is additionally filtered by that binding (section 16,
+    docs/assumptions.md §C3-1).
     """
 
     __tablename__ = "users"
@@ -150,6 +155,12 @@ class User(TenantMasterEntity):
     vendor_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("vendors.id", ondelete="CASCADE"), nullable=True, index=True
     )
+    # Dealer-portal binding (docs/assumptions.md §C3-1). NULL for internal staff
+    # and for vendor-portal accounts; the CHECK below keeps the two bindings
+    # exclusive, because one account must never see two principals' data.
+    customer_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("customers.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     #: Item categories this vendor user may see. Empty means "all of this
     #: vendor's categories"; enforced in the repository layer, never trusted
     #: from the client.
@@ -181,12 +192,21 @@ class User(TenantMasterEntity):
         UniqueConstraint("company_id", "email", name="uq_users_company_id_email"),
         Index("ix_users_company_active", "company_id", "is_active"),
         Index("ix_users_vendor", "company_id", "vendor_id"),
+        Index("ix_users_customer", "company_id", "customer_id"),
         Index("ix_users_email_lookup", "email"),
+        CheckConstraint(
+            "vendor_id IS NULL OR customer_id IS NULL",
+            name="portal_binding_exclusive",
+        ),
     )
 
     @property
     def is_vendor_user(self) -> bool:
         return self.vendor_id is not None
+
+    @property
+    def is_dealer_user(self) -> bool:
+        return self.customer_id is not None
 
     @property
     def is_locked(self) -> bool:

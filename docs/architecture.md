@@ -163,11 +163,41 @@ planning     mrp · procurement
 execution    production · assembly · job_work
    ↓
 downstream   quality · packing · dispatch · finance · reports
+   ↓
+portals      vendor_portal · dealer_portal
 ```
 
 Dependencies point downward only. A master-data module must never import from an
 execution module; where it needs a fact from one (vendor rating needs QC
-results), it takes it as an input rather than reaching upward.
+results), it takes it as an input rather than reaching upward. Where an upper
+module needs a lower one's answer at run time - procurement raising or counting
+an incoming inspection - it resolves it through a guarded import
+(`resolve_quality_port`, `resolve_open_inspection_counter`) rather than importing
+the module's types. `audit`, `notifications` and `documents` are services every
+layer may call.
+
+`vendor_portal` (WP C1a) owns no tables. It is the vendor's whole surface: a
+facade that calls procurement's state machine and consignment rules, finance's
+bill and payment rules, quality's inspection reads and the documents store, with
+the vendor taken from the verified token, and returns allow-listed read models.
+A vendor account cannot reach any other module: `core.deps` refuses every route
+outside `/vendor-portal/**`, `/notifications/**` and auth self-service for a
+principal with a `vendor_id` (docs/security.md section 4).
+
+`dealer_portal` (WP C3a) sits downstream of sales and owns four tables:
+`dealer_offers` (percentage schemes, also used as ERP sales-order defaults),
+`dealer_carts` and `dealer_cart_lines` (quantities only - prices are read
+live), and `dealer_wishlist_items`. It is the dealer's whole surface:
+catalogue with channel pricing and availability bands, cart, wishlist,
+checkout to a DRAFT sales order, orders, dealer-safe tracking, statement and
+outstanding - a facade over sales, dispatch and finance with the customer
+taken from the verified token, returning allow-listed read models. Sales
+reaches the scheme matcher through a deferred import (the allocation seam
+pattern), because the portal imports sales for checkout and a top-level import
+would cycle. A dealer account cannot reach any other module: `core.deps`
+refuses every route outside `/dealer-portal/**`, `/notifications/**` and auth
+self-service for a principal with a `customer_id` (docs/security.md, Dealer
+portal isolation).
 
 ## The two data patterns that matter
 
@@ -233,6 +263,24 @@ POST /mrp/runs
 
 Queues are separated by shape — `mrp`, `reports`, `notifications`, `default` —
 so a four-minute planning run never sits in front of a 200 ms notification.
+
+Web Push shares the notifications queue. Business transactions stage email and
+push tasks until the outer commit; nested SAVEPOINT commits do not publish.
+Workers claim under a notification lock, close the transaction before transport,
+then update devices in a second transaction. If every device needs retry, a
+compare-and-release UPDATE makes the notification available again. Permanent
+failures keep the claim; GONE removes a device. Collapse preserves delivery
+markers and never re-sends an already-delivered unread notification. A 120-second
+sweep requeues up to 100 eligible unclaimed email/push rows less than 24 hours old,
+recovering broker outages. It filters inactive users, disabled channels, and push
+recipients without a recent session or an unexpired device before limiting the
+batch, so abandoned devices cannot block later deliveries. Claimed rows intentionally
+retain the existing at-most-once crash
+window: a process killed after claiming may require operator replay.
+
+Auth and user-admin repositories call the notification device cleanup helper in
+their revocation transaction. Quality's inspection pull facade accepts a batch
+of receipt references so portal receipt pages avoid N+1 reads.
 
 ## Request lifecycle
 

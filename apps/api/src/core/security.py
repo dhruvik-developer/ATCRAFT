@@ -501,3 +501,11 @@ __all__ = [
     "verify_password",
     "verify_password_async",
 ]
+
+
+def encrypt_push_subscription(endpoint: str) -> str:
+    return _encrypt_credential(endpoint, purpose="push-subscription")
+
+
+def decrypt_push_subscription(ciphertext: str) -> str:
+    return _decrypt_credential(ciphertext, purpose="push-subscription")

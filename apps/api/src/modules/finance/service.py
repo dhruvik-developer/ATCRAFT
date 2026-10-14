@@ -2196,6 +2196,8 @@ async def create_invoice(
     """Record a bill in DRAFT. Nothing posts to the ledger until approval."""
     repo = VendorInvoiceRepository(session, tenant)
     line_repo = VendorInvoiceLineRepository(session, tenant)
+    if tenant.vendor_id is not None and payload.vendor_id != tenant.vendor_id:
+        raise NotFoundError("Vendor", payload.vendor_id)
 
     async with transaction(session):
         vendor = await VendorLookupRepository(session, tenant).get_facts(payload.vendor_id)
@@ -2531,6 +2533,89 @@ async def delete_draft_invoice(
         await repo.hard_delete(invoice)
 
 
+#: The bill outcomes a vendor's portal users are told about (WP C1a).
+VENDOR_TOLD_INVOICE_STATUSES: frozenset[VendorInvoiceStatus] = frozenset(
+    {VendorInvoiceStatus.APPROVED, VendorInvoiceStatus.DISPUTED}
+)
+
+#: The vendor app's bills page (WP C2a) - it has no per-bill route.
+VENDOR_INVOICES_URL = "/vendor/invoices"
+VENDOR_PAYMENTS_URL = "/vendor/payments"
+
+
+async def _tell_vendor_about_invoice(
+    session: AsyncSession,
+    tenant: TenantContext,
+    invoice: VendorInvoice,
+    target: VendorInvoiceStatus,
+    reason: str | None,
+) -> None:
+    """Tell the vendor's invoice contacts their bill was approved or disputed.
+
+    A dispute carries its reason - the vendor has to act on it. An approval does
+    not: whatever the approver noted (an override of a price variance, say) is
+    the buyer's own record, not a message to the supplier.
+    """
+    from src.core.permissions import Permission
+    from src.modules.notifications.models import NotificationSeverity, NotificationType
+    from src.modules.notifications.service import notify_vendor
+
+    disputed = target is VendorInvoiceStatus.DISPUTED
+    await notify_vendor(
+        session,
+        company_id=tenant.company_id,
+        vendor_id=invoice.vendor_id,
+        permission=Permission.VENDOR_PORTAL_INVOICE,
+        notification_type=NotificationType.VENDOR_INVOICE_STATUS,
+        severity=NotificationSeverity.WARNING if disputed else NotificationSeverity.INFO,
+        title=(
+            f"Invoice {invoice.vendor_invoice_number} "
+            f"{'is disputed' if disputed else 'was approved'}"
+        ),
+        body=(
+            f"Reason: {reason or 'not stated'}."
+            if disputed
+            else f"Recorded as {invoice.code}, due {invoice.due_date.isoformat()}."
+        ),
+        entity_type=AUDIT_VENDOR_INVOICE,
+        entity_id=invoice.id,
+        action_url=VENDOR_INVOICES_URL,
+        group_key=f"vendor-invoice:{invoice.id}",
+        actor_id=tenant.user_id,
+    )
+
+
+async def _tell_vendor_about_payment(
+    session: AsyncSession, tenant: TenantContext, payment: Payment, *, title: str, body: str
+) -> None:
+    """Tell the paid vendor's invoice contacts, when the money is a payment *to* a vendor.
+
+    A customer receipt shares this code path and its ``party_id`` is a customer
+    id - which no vendor user is bound to, but which must not be looked up as a
+    vendor either. One collapsing row per payment: approval, then allocation.
+    """
+    if payment.party_type != PartyType.VENDOR or payment.payment_type != PaymentType.PAYMENT:
+        return
+    from src.core.permissions import Permission
+    from src.modules.notifications.models import NotificationType
+    from src.modules.notifications.service import notify_vendor
+
+    await notify_vendor(
+        session,
+        company_id=tenant.company_id,
+        vendor_id=payment.party_id,
+        permission=Permission.VENDOR_PORTAL_INVOICE,
+        notification_type=NotificationType.VENDOR_PAYMENT_RECORDED,
+        title=title,
+        body=body,
+        entity_type=AUDIT_PAYMENT,
+        entity_id=payment.id,
+        action_url=VENDOR_PAYMENTS_URL,
+        group_key=f"vendor-payment:{payment.id}",
+        actor_id=tenant.user_id,
+    )
+
+
 async def _transition_invoice(
     session: AsyncSession,
     tenant: TenantContext,
@@ -2552,6 +2637,8 @@ async def _transition_invoice(
     VENDOR_INVOICE_LIFECYCLE.assert_transition(current, target)
     invoice.status = target
     await session.flush()
+    if target in VENDOR_TOLD_INVOICE_STATUSES:
+        await _tell_vendor_about_invoice(session, tenant, invoice, target, reason)
     await record_status_change(
         session,
         company_id=tenant.company_id,
@@ -3572,6 +3659,16 @@ async def approve_payment(
         )
 
         await _post_payment_journal(session, tenant, payment)
+        await _tell_vendor_about_payment(
+            session,
+            tenant,
+            payment,
+            title=f"Payment {payment.code} approved",
+            body=(
+                f"{payment.currency} {to_money(payment.amount)} approved for payment"
+                + (f" (ref {payment.reference_number})." if payment.reference_number else ".")
+            ),
+        )
 
         if PaymentType(payment.payment_type) is PaymentType.RECEIPT:
             await apply_outstanding_delta(
@@ -3969,6 +4066,16 @@ async def allocate_payment(
                 },
             },
             context={"replace": payload.replace},
+        )
+        await _tell_vendor_about_payment(
+            session,
+            tenant,
+            payment,
+            title=f"Payment {payment.code} allocated to your invoices",
+            body=(
+                f"{payment.currency} {to_money(new_allocated)} allocated across "
+                f"{len(plan.final)} invoice(s)."
+            ),
         )
 
     return await _payment_detail(session, tenant, payment)

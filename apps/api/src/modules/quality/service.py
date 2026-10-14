@@ -197,6 +197,17 @@ STAGE_BY_REFERENCE_TYPE: dict[str, QcStage] = {
 }
 DEFAULT_AUTO_STAGE = QcStage.IN_PROCESS
 
+#: The reference type procurement files incoming inspections under. A rejection
+#: on one of these is also reported to the supplying vendor's portal users.
+GOODS_RECEIPT_REFERENCE = "goods_receipt"
+
+
+def _plain_quantity(value: Decimal) -> str:
+    """A quantity as a sentence states it: ``5``, not ``5.0000``."""
+    text = format(Decimal(value).normalize(), "f")
+    return "0" if text == "-0" else text
+
+
 #: Who is told when a lot fails, and who is told a vendor return is owed. Role
 #: codes rather than user ids so the recipient list is derived from the role
 #: assignment at the moment it happens and stays correct when somebody joins,
@@ -1959,6 +1970,34 @@ async def _announce_failure(
         return
 
     refused = to_quantity(disposition.rejected + disposition.scrap)
+    if (
+        inspection.vendor_id is not None
+        and inspection.reference_type == GOODS_RECEIPT_REFERENCE
+        and inspection.reference_id is not None
+    ):
+        # The supplier of an incoming lot is told too (WP C1a), through
+        # procurement - which owns which vendor users may see the receipt's
+        # order. Only goods receipts: the vendor portal shows receipts and their
+        # QC, and a job-work lot's verdict would link to nothing the vendor has.
+        from src.core.permissions import Permission
+        from src.modules.procurement.service import notify_vendor_about_receipt
+
+        await notify_vendor_about_receipt(
+            session,
+            tenant,
+            inspection.reference_id,
+            permission=Permission.VENDOR_PORTAL_QUALITY,
+            notification_type=NotificationType.QC_FAILED,
+            severity=NotificationSeverity.WARNING,
+            title=f"Quality rejection on {inspection.reference_code or inspection.code}",
+            body=(
+                f"{_plain_quantity(refused)} refused at inspection {inspection.code}. "
+                f"Reason: {inspection.rejection_reason or 'not stated'}."
+            ),
+            entity_type=AUDIT_QC_INSPECTION,
+            entity_id=inspection.id,
+            group_key=f"vendor-qc:{inspection.id}",
+        )
     await notify_role(
         session,
         company_id=tenant.company_id,
@@ -2090,7 +2129,10 @@ async def get_inspection_detail(
 
 
 async def inspections_for_reference(
-    session: AsyncSession, tenant: TenantContext, reference_type: str, reference_id: uuid.UUID
+    session: AsyncSession,
+    tenant: TenantContext,
+    reference_type: str,
+    reference_id: uuid.UUID | Sequence[uuid.UUID],
 ) -> list[QcInspection]:
     """Every inspection one document raised.
 
