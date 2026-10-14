@@ -49,6 +49,7 @@ from sqlalchemy import Select, case, func, select, tuple_
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
+from src.common.warehouse_scope import warehouse_scope
 from src.core.pagination import COUNT_CEILING, PageParams, SortParams
 from src.core.responses import OffsetPagination
 from src.core.types import ZERO, to_quantity
@@ -239,6 +240,7 @@ class WarehouseLookupRepository(BaseRepository[Warehouse]):
         stmt = select(Warehouse.id, Warehouse.code).where(
             Warehouse.company_id == self.tenant.company_id,
             Warehouse.deleted_at.is_(None),
+            *warehouse_scope(self.tenant, Warehouse.id),
             Warehouse.id.in_(list(dict.fromkeys(warehouse_ids))),
         )
         return {row.id: row.code for row in (await self.session.execute(stmt)).all()}
@@ -248,6 +250,7 @@ class WarehouseLookupRepository(BaseRepository[Warehouse]):
             Warehouse.company_id == self.tenant.company_id,
             Warehouse.id == warehouse_id,
             Warehouse.deleted_at.is_(None),
+            *warehouse_scope(self.tenant, Warehouse.id),
         )
         return (await self.session.execute(stmt.limit(1))).first() is not None
 
@@ -260,6 +263,7 @@ class WarehouseLookupRepository(BaseRepository[Warehouse]):
             Warehouse.company_id == self.tenant.company_id,
             Warehouse.id.in_(wanted),
             Warehouse.deleted_at.is_(None),
+            *warehouse_scope(self.tenant, Warehouse.id),
         )
         return {row.id for row in (await self.session.execute(stmt)).all()}
 

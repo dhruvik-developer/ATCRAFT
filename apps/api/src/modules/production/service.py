@@ -46,6 +46,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
+from src.common.warehouse_scope import assert_warehouse_scope
 from src.core.clock import today, utcnow
 from src.core.database import transaction
 from src.core.deps import Principal, TenantContext
@@ -1032,6 +1033,7 @@ async def _lock_order(
     order = await ProductionOrderRepository(session, tenant).lock_for_update(order_id)
     if order is None:
         raise NotFoundError("Production order", order_id)
+    assert_warehouse_scope(tenant, order.warehouse_id)
     return order
 
 
@@ -2365,6 +2367,7 @@ async def post_material_issue(
         issue = await issue_repo.lock_for_update(issue_id)
         if issue is None:
             raise NotFoundError("Material issue", issue_id)
+        assert_warehouse_scope(tenant, issue.warehouse_id)
 
         is_issue = MaterialIssueType(issue.issue_type) is MaterialIssueType.ISSUE
         required_permission = (
@@ -2745,6 +2748,7 @@ async def cancel_material_issue(
         issue = await MaterialIssueRepository(session, tenant).lock_for_update(issue_id)
         if issue is None:
             raise NotFoundError("Material issue", issue_id)
+        assert_warehouse_scope(tenant, issue.warehouse_id)
         await _transition(
             session,
             tenant,

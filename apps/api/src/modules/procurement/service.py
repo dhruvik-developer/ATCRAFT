@@ -45,6 +45,7 @@ from typing import Any, Protocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
+from src.common.warehouse_scope import assert_warehouse_scope
 from src.core.clock import today, utcnow
 from src.core.constants import DEFAULT_CURRENCY
 from src.core.database import advisory_xact_lock, transaction
@@ -4155,6 +4156,7 @@ async def create_goods_receipt(
         order = await order_repo.get(payload.purchase_order_id)
         if order is None:
             raise NotFoundError("Purchase order", payload.purchase_order_id)
+        assert_warehouse_scope(tenant, order.warehouse_id)
         if PurchaseOrderStatus(order.status) not in RECEIVABLE_PO_STATUSES:
             raise BusinessRuleError(
                 f"Purchase order {order.code} is {order.status}; goods can only be received "
@@ -4386,6 +4388,7 @@ async def post_goods_receipt(
         receipt = await receipt_repo.lock_for_update(receipt_id)
         if receipt is None:
             raise NotFoundError("Goods receipt", receipt_id)
+        assert_warehouse_scope(tenant, receipt.warehouse_id)
         # Fail before any work: the state machine is the authority on whether
         # this document can be posted at all.
         GOODS_RECEIPT_LIFECYCLE.assert_transition(
@@ -4716,6 +4719,7 @@ async def cancel_goods_receipt(
         receipt = await repo.lock_for_update(receipt_id)
         if receipt is None:
             raise NotFoundError("Goods receipt", receipt_id)
+        assert_warehouse_scope(tenant, receipt.warehouse_id)
         if GoodsReceiptStatus(receipt.status) is GoodsReceiptStatus.POSTED:
             raise BusinessRuleError(
                 f"Goods receipt {receipt.code} has been posted and moved stock; raise a purchase "
@@ -4793,6 +4797,7 @@ async def create_purchase_return(
         receipt = await receipt_repo.get(payload.goods_receipt_id)
         if receipt is None:
             raise NotFoundError("Goods receipt", payload.goods_receipt_id)
+        assert_warehouse_scope(tenant, receipt.warehouse_id)
         if GoodsReceiptStatus(receipt.status) is not GoodsReceiptStatus.POSTED:
             raise BusinessRuleError(
                 f"Goods receipt {receipt.code} is {receipt.status}; only material that was "
@@ -4946,6 +4951,7 @@ async def post_purchase_return(
         purchase_return = await repo.lock_for_update(return_id)
         if purchase_return is None:
             raise NotFoundError("Purchase return", return_id)
+        assert_warehouse_scope(tenant, purchase_return.warehouse_id)
         PURCHASE_RETURN_LIFECYCLE.assert_transition(
             PurchaseReturnStatus(purchase_return.status), PurchaseReturnStatus.POSTED
         )
@@ -5107,6 +5113,7 @@ async def cancel_purchase_return(
         purchase_return = await repo.lock_for_update(return_id)
         if purchase_return is None:
             raise NotFoundError("Purchase return", return_id)
+        assert_warehouse_scope(tenant, purchase_return.warehouse_id)
         purchase_return.cancellation_reason = reason
         await _transition(
             session,
