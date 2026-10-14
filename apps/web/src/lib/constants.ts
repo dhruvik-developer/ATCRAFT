@@ -70,6 +70,18 @@ export const SELECT_NONE = '__none'
 export const REASON_MIN_LENGTH = 3
 export const REASON_MAX_LENGTH = 255
 
+// ------------------------------------------------------------ assembly -----
+
+/**
+ * Bounds mirroring the assembly schemas. A priority of 100 is what a new order
+ * is stored with, and what its component reservations inherit, when the
+ * planner does not choose one.
+ */
+export const DEFAULT_ASSEMBLY_PRIORITY = 100
+export const ASSEMBLY_PRIORITY_MAX = 9999
+export const ASSEMBLY_LINE_MAX_LENGTH = 64
+export const ASSEMBLY_NOTES_MAX_LENGTH = 2000
+
 // ------------------------------------------------------------ polling ------
 
 /** How often the unread-notifications badge is refreshed. */

@@ -98,6 +98,7 @@ async function openOrder(
     permissions,
     routes: {
       'GET /packing': page([order({ status })]),
+      'GET /assembly/ready-for-packing': page([]),
       'GET /packing/packing-materials': page([]),
       [`GET /packing/${ORDER_ID}`]: ok(orderDetail(status)),
       [`GET /packing/${ORDER_ID}/cartons`]: page([]),
@@ -117,13 +118,19 @@ describe('the packing list', () => {
     // will pack for somebody whose account can only read the order.
     renderScreen(<PackingPage />, {
       permissions: [P.PACKING_VIEW, P.PACKING_MANAGE],
-      routes: { 'GET /packing': page([order()]) },
+      routes: {
+        'GET /packing': page([order()]),
+        'GET /assembly/ready-for-packing': page([]),
+      },
     })
     expect(await screen.findByRole('button', { name: 'Pack' })).toBeVisible()
 
     renderScreen(<PackingPage />, {
       permissions: [P.PACKING_VIEW],
-      routes: { 'GET /packing': page([order()]) },
+      routes: {
+        'GET /packing': page([order()]),
+        'GET /assembly/ready-for-packing': page([]),
+      },
     })
     expect(await screen.findByRole('button', { name: 'View' })).toBeVisible()
   })
@@ -135,6 +142,7 @@ describe('the packing list', () => {
       permissions: [P.PACKING_VIEW],
       routes: {
         'GET /packing': page([order({ status: 'PACKED', packed_date: '2026-09-04T10:00:00Z' })]),
+        'GET /assembly/ready-for-packing': page([]),
       },
     })
 
@@ -154,6 +162,7 @@ describe('the packing list', () => {
           recorder.urls.push(url)
           return page([order({ status: 'PACKED' })])
         },
+        'GET /assembly/ready-for-packing': page([]),
       },
     })
 
@@ -174,7 +183,10 @@ describe('the packing list', () => {
   it('explains an empty list rather than showing a bare table', async () => {
     renderScreen(<PackingPage />, {
       permissions: [P.PACKING_VIEW],
-      routes: { 'GET /packing': page([]) },
+      routes: {
+        'GET /packing': page([]),
+        'GET /assembly/ready-for-packing': page([]),
+      },
     })
 
     expect(await screen.findByText('No packing orders')).toBeVisible()
