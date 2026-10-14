@@ -31,7 +31,7 @@ exercised without standing up the whole reservation engine.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 from datetime import date
@@ -605,7 +605,7 @@ class PricedLine:
     offer_id: uuid.UUID | None = None
 
 
-def _dealer_offer_functions():
+def _dealer_offer_functions() -> tuple[Callable[..., Any], Callable[..., Any]]:
     """The dealer scheme matcher, imported late.
 
     ``dealer_portal`` sits downstream of sales and imports this module's

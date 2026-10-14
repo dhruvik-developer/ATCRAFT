@@ -220,6 +220,13 @@ class DealerPortalService:
             return frozenset()
         return context.ancestors.get(category_id, frozenset({category_id}))
 
+    @staticmethod
+    def _primary_image(image_ids: list[uuid.UUID] | None) -> uuid.UUID | None:
+        """The first image id, if the item has any images at all."""
+        if not image_ids:
+            return None
+        return image_ids[0]
+
     # --- price helpers ----------------------------------------------------
 
     @staticmethod
@@ -418,7 +425,7 @@ class DealerPortalService:
                     best_offer=offer_snippet(best) if best is not None else None,
                     in_wishlist=row.id in wishlist_items,
                     in_cart_quantity=cart.get((row.id, None), Decimal("0")),
-                    primary_image_id=(images.get(row.id) or [None])[0],
+                    primary_image_id=self._primary_image(images.get(row.id)),
                 )
             )
         return items, pagination
@@ -459,7 +466,7 @@ class DealerPortalService:
             best_offer=offer_snippet(best) if best is not None else None,
             in_wishlist=item.id in {item_id for item_id, _ in wishlist},
             in_cart_quantity=cart.get((item.id, None), Decimal("0")),
-            primary_image_id=(images.get(item.id) or [None])[0],
+            primary_image_id=self._primary_image(images.get(item.id)),
             description=item.description,
             hsn_code=item.hsn_code,
             gst_rate=Decimal(item.gst_rate),
@@ -748,7 +755,9 @@ class DealerPortalService:
                     discount_amount=None,
                 )
                 amounts.append(computed)
-                net, tax, total = computed.taxable_amount, computed.tax_amount, computed.line_total
+                net: Decimal | None = computed.taxable_amount
+                tax: Decimal | None = computed.tax_amount
+                total: Decimal | None = computed.line_total
             else:
                 net = tax = total = None
             warnings.extend(line_warnings)

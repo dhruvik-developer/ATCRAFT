@@ -15,7 +15,7 @@ from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
-from src.core.pagination import OffsetPagination, PageParams
+from src.core.pagination import OffsetPagination, PageParams, paginate
 from src.modules.customers.models import Customer, CustomerAddress, CustomerContact
 from src.modules.dealer_portal.models import (
     SELLABLE_WAREHOUSE_TYPES,
@@ -264,7 +264,11 @@ class CatalogueRepository(BaseRepository[Item]):
         if on_offer_only:
             stmt = stmt.where(self._offer_may_apply(price_type, customer_id, on_date).exists())
         order_column = Item.name if sort_by == "name" else Item.code
-        return await self.list_page(params, stmt=stmt, order_by=(order_column.asc(), Item.id.asc()))
+        # Ordered here, not through list_page: the catalogue sorts on two keys
+        # (the field plus the id tiebreaker) and the base helper takes one.
+        return await paginate(
+            self.session, stmt.order_by(order_column.asc(), Item.id.asc()), params
+        )
 
     def _offer_may_apply(
         self, price_type: str, customer_id: uuid.UUID, on_date: date
