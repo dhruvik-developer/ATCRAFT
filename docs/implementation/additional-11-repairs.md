@@ -16,7 +16,7 @@ Repairs are applied and verified in audit order. No production deployment or bus
 | A07 | Export job/file access consistent with originating authorization | Pending |
 | A08 | Recoverable packing PDF polling errors | Pending |
 | A09 | Server search/pagination for batch selection | Pending |
-| A10 | Reject unsupported noncash ADJUSTMENT before posting | Pending |
+| A10 | Reject unsupported noncash ADJUSTMENT before posting | Fixed in preparation branch; 70 backend checks, 10 focused checks including historical reversal, and 31 frontend checks passed; combined verification pending |
 | A11 | Explicit-null validation returns normal validation errors | Pending |
 
 No schema migration or dependency addition is planned. API contracts are regenerated after request/response changes. Financial restrictions preserve foreign-currency vendor payments and currency-separated reports.

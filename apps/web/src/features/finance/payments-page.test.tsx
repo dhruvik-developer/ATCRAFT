@@ -389,6 +389,19 @@ describe('money on the register', () => {
 // -------------------------------------------------------- what it sends ------
 
 describe('recording a payment', () => {
+  it('offers actual money methods and withholds unsupported noncash adjustments', async () => {
+    const { user } = renderScreen(<PaymentsPage />, {
+      permissions: [P.PAYMENT_VIEW, P.PAYMENT_RECORD],
+      routes: { 'GET /finance/payments': page([payment()]) },
+    })
+    await screen.findByText(CODE)
+    await user.click(screen.getByRole('button', { name: 'Record payment' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('combobox', { name: 'Method' }))
+    expect(await screen.findByRole('option', { name: 'Bank transfer' })).toBeVisible()
+    expect(screen.queryByRole('option', { name: 'Adjustment' })).toBeNull()
+  })
+
   it('sends the amount as a decimal string and omitted fields as null', async () => {
     // The whole point of the register. `amount` reaching the API as the JSON
     // number 125000.5 would be a double the moment it was parsed, and every

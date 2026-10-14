@@ -147,6 +147,9 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
 
 export const PAYMENT_METHODS = Object.keys(PAYMENT_METHOD_LABELS) as PaymentMethod[]
 
+/** Historical adjustments remain readable/filterable, but cannot move money. */
+export const MONEY_MOVEMENT_METHODS = PAYMENT_METHODS.filter((method) => method !== 'ADJUSTMENT')
+
 export const PAYMENT_PARTY_LABELS: Record<PaymentPartySide, string> = {
   VENDOR: 'Vendor',
   CUSTOMER: 'Customer',

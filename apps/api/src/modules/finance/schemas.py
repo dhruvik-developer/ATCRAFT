@@ -65,6 +65,17 @@ MAX_STATEMENT_ROWS = 200
 #: company run goes to Celery instead - see ``reports.inventory_valuation``.
 MAX_VALUATION_ROWS = 200
 
+NONCASH_ADJUSTMENT_UNSUPPORTED = (
+    "Noncash adjustments cannot be recorded as cash or bank payments. "
+    "Choose an actual payment method or record an appropriate journal adjustment."
+)
+
+
+def _money_movement_method(value: PaymentMethod | None) -> PaymentMethod | None:
+    if value is PaymentMethod.ADJUSTMENT:
+        raise ValueError(NONCASH_ADJUSTMENT_UNSUPPORTED)
+    return value
+
 
 # -----------------------------------------------------------------------------
 # Chart of accounts
@@ -534,6 +545,8 @@ class PaymentCreate(BaseModel):
     instrument_date: date | None = None
     notes: Notes | None = None
 
+    _method = field_validator("payment_method")(_money_movement_method)
+
     @model_validator(mode="after")
     def _party_matches_direction(self) -> PaymentCreate:
         """A payment goes to a vendor; a receipt comes from a customer.
@@ -568,6 +581,8 @@ class PaymentUpdate(BaseModel):
     bank_name: Annotated[str, Field(max_length=120)] | None = None
     instrument_date: date | None = None
     notes: Notes | None = None
+
+    _method = field_validator("payment_method")(_money_movement_method)
 
 
 class AllocationRequest(BaseModel):

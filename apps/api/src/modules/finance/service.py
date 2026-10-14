@@ -159,6 +159,7 @@ from src.modules.finance.repository import (
     ranked_ageing_rows_stmt,
 )
 from src.modules.finance.schemas import (
+    NONCASH_ADJUSTMENT_UNSUPPORTED,
     AgeingCurrencyBlock,
     AgeingReport,
     AgeingRow,
@@ -2684,6 +2685,7 @@ async def create_payment(
     repo = PaymentRepository(session, tenant)
 
     async with transaction(session):
+        assert_money_movement_method(payload.payment_method)
         await _party_facts(session, tenant, payload.party_type, payload.party_id)
 
         # ASSUMPTION: as for an invoice, money that does not name a currency is
@@ -2752,6 +2754,7 @@ async def update_payment(
             )
 
         before = snapshot(payment, PAYMENT_AUDITED_FIELDS)
+        assert_money_movement_method(payload.payment_method or payment.payment_method)
         if PaymentType(payment.payment_type) is PaymentType.RECEIPT:
             assert_customer_currency(payment.currency, await company_currency(session, tenant))
         for attribute, value in payload.model_dump(exclude_unset=True).items():
@@ -2846,6 +2849,7 @@ async def approve_payment(
         if PaymentType(payment.payment_type) is PaymentType.RECEIPT:
             assert_customer_currency(payment.currency, await company_currency(session, tenant))
 
+        assert_money_movement_method(payment.payment_method)
         payment.approved_by_id = principal.user_id
         payment.approved_at = utcnow()
         repo.touch(payment)
@@ -2877,15 +2881,20 @@ async def approve_payment(
     return await _payment_detail(session, tenant, payment)
 
 
+def assert_money_movement_method(method: PaymentMethod | str) -> None:
+    """A noncash set-off must never fabricate a movement in the bank account."""
+    if PaymentMethod(method) is PaymentMethod.ADJUSTMENT:
+        raise BusinessRuleError(NONCASH_ADJUSTMENT_UNSUPPORTED)
+
+
 async def _post_payment_journal(
     session: AsyncSession, tenant: TenantContext, payment: Payment
 ) -> list[LedgerEntry]:
+    assert_money_movement_method(payment.payment_method)
     accounts = await ensure_system_accounts(session, tenant)
     method = PaymentMethod(payment.payment_method)
-    # ASSUMPTION: a cash payment moves the cash account, everything else moves
-    # the bank account, and an ADJUSTMENT - a set-off or write-off with no cash
-    # movement - is also posted through the bank account because the schema
-    # models no suspense account. Recorded in the returned notes.
+    # Cash uses the cash account; supported noncash instrument methods use the
+    # bank. ADJUSTMENT is refused before either account can be posted.
     money_account = (
         accounts[str(SystemAccount.CASH)]
         if method is PaymentMethod.CASH

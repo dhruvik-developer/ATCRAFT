@@ -1427,6 +1427,23 @@ receipts is refused before any journal/cache mutation pending reconciliation.
 **Impact if wrong:** Implement audited conversion or per-currency customer credit
 before lifting the restriction. Do not change existing financial data silently.
 
+## §ADDITIONAL11-3. Payment methods represent actual money movements
+
+**Assumed:** Cash, bank, cheque and UPI record money received or paid. The legacy
+`ADJUSTMENT` label does not identify a supported noncash journal operation and
+cannot create, update or approve a new money movement. Existing drafts may be
+cancelled or corrected to an actual payment method; historical bank postings can
+still be reversed through cancellation.
+
+**Why:** Treating a noncash adjustment as a bank transfer invents cash movement.
+An explicit journal adjustment workflow must identify its proper counterpart.
+
+**Where:** Payment request validation, service posting boundaries and the payment
+form's method options. Historical display and method filters retain the label.
+
+**Impact if wrong:** Add a defined journal adjustment workflow before enabling
+noncash adjustments. Never reinterpret existing postings silently.
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant

@@ -75,10 +75,10 @@ import {
   MAX_ALLOCATIONS,
   MAX_REASON_LENGTH,
   MIN_REASON_LENGTH,
+  MONEY_MOVEMENT_METHODS,
   paymentKeys,
   PAYMENT_COMMANDS,
   PAYMENT_METHOD_LABELS,
-  PAYMENT_METHODS,
   PAYMENT_PARTY_LABELS,
   PAYMENT_PARTY_SIDES,
   PAYMENT_TYPE_LABELS,
@@ -185,7 +185,7 @@ const paymentFormSchema = z
       .string()
       .trim()
       .regex(/^([A-Za-z]{3})?$/, 'A three-letter code, or blank for the company currency'),
-    payment_method: enumOf(PAYMENT_METHODS),
+    payment_method: enumOf(MONEY_MOVEMENT_METHODS),
     reference_number: z.string().trim().max(64, 'At most 64 characters'),
     bank_name: z.string().trim().max(120, 'At most 120 characters'),
     instrument_date: z.string(),
@@ -580,7 +580,7 @@ export function PaymentFormDialog({
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {PAYMENT_METHODS.map((entry) => (
+                            {MONEY_MOVEMENT_METHODS.map((entry) => (
                               <SelectItem key={entry} value={entry}>
                                 {PAYMENT_METHOD_LABELS[entry]}
                               </SelectItem>
