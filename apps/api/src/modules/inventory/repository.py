@@ -32,8 +32,8 @@ from sqlalchemy import Select, func, or_, select, text
 from sqlalchemy.orm import InstrumentedAttribute, selectinload
 
 from src.common.repository import BaseRepository
+from src.common.warehouse_scope import warehouse_scope
 from src.core.clock import utcnow
-from src.core.deps import TenantContext
 from src.core.ids import new_id
 from src.core.pagination import PageParams, SortParams
 from src.core.responses import OffsetPagination
@@ -96,24 +96,6 @@ class BalanceGrain:
             self.location_id or nil,
             self.batch_id or nil,
         )
-
-
-def warehouse_scope(tenant: TenantContext, column: InstrumentedAttribute[Any]) -> tuple[Any, ...]:
-    """Restrict a query to the warehouses this principal may see (section 39).
-
-    A storekeeper assigned to specific warehouses must not be able to read - or
-    plan against - stock held anywhere else, and the finance module already
-    applies exactly this restriction to ``inventory_balances`` when it values
-    stock. Leaving it off here made the inventory module's own endpoints a way
-    around the same control over the same rows.
-
-    Returned as an argument tuple for ``Select.where(*...)`` so an unrestricted
-    principal - the empty tuple, which is the common case - adds no clause at
-    all.
-    """
-    if not tenant.allowed_warehouse_ids:
-        return ()
-    return (column.in_(list(tenant.allowed_warehouse_ids)),)
 
 
 @dataclass(frozen=True, slots=True)
@@ -945,6 +927,18 @@ class CostConsumptionRepository(BaseRepository[InventoryCostLayerConsumption]):
 
 class StockTransferRepository(BaseRepository[StockTransfer]):
     model = StockTransfer
+
+    def _scoped(self, *, include_deleted: bool = False) -> Select[tuple[StockTransfer]]:
+        return (
+            super()
+            ._scoped(include_deleted=include_deleted)
+            .where(
+                *warehouse_scope(
+                    self.tenant, StockTransfer.from_warehouse_id, StockTransfer.to_warehouse_id
+                )
+            )
+        )
+
     searchable_fields = ("code", "reason")
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "code": StockTransfer.code,
@@ -1009,6 +1003,14 @@ class StockTransferRepository(BaseRepository[StockTransfer]):
 
 class StockAdjustmentRepository(BaseRepository[StockAdjustment]):
     model = StockAdjustment
+
+    def _scoped(self, *, include_deleted: bool = False) -> Select[tuple[StockAdjustment]]:
+        return (
+            super()
+            ._scoped(include_deleted=include_deleted)
+            .where(*warehouse_scope(self.tenant, StockAdjustment.warehouse_id))
+        )
+
     searchable_fields = ("code", "reason")
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "code": StockAdjustment.code,
@@ -1065,6 +1067,14 @@ class StockAdjustmentRepository(BaseRepository[StockAdjustment]):
 
 class PhysicalCountRepository(BaseRepository[PhysicalCount]):
     model = PhysicalCount
+
+    def _scoped(self, *, include_deleted: bool = False) -> Select[tuple[PhysicalCount]]:
+        return (
+            super()
+            ._scoped(include_deleted=include_deleted)
+            .where(*warehouse_scope(self.tenant, PhysicalCount.warehouse_id))
+        )
+
     searchable_fields = ("code", "reason")
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "code": PhysicalCount.code,

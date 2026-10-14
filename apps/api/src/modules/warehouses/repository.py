@@ -26,6 +26,7 @@ from sqlalchemy import Select, func, literal, select, text, update
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
+from src.common.warehouse_scope import warehouse_scope
 from src.core.clock import utcnow
 from src.core.database import affected_rows
 from src.core.pagination import SortParams
@@ -108,9 +109,7 @@ class WarehouseRepository(BaseRepository[Warehouse]):
         so the common case adds no predicate.
         """
         stmt = super()._scoped(include_deleted=include_deleted)
-        if self.tenant.allowed_warehouse_ids and not self.tenant.is_superuser:
-            stmt = stmt.where(Warehouse.id.in_(list(self.tenant.allowed_warehouse_ids)))
-        return stmt
+        return stmt.where(*warehouse_scope(self.tenant, Warehouse.id))
 
     # --- reads --------------------------------------------------------------
 
@@ -325,11 +324,7 @@ class StorageLocationRepository(BaseRepository[StorageLocation]):
     def _scoped(self, *, include_deleted: bool = False) -> Select[tuple[StorageLocation]]:
         """Tenant filter plus the principal's warehouse restriction."""
         stmt = super()._scoped(include_deleted=include_deleted)
-        if self.tenant.allowed_warehouse_ids and not self.tenant.is_superuser:
-            stmt = stmt.where(
-                StorageLocation.warehouse_id.in_(list(self.tenant.allowed_warehouse_ids))
-            )
-        return stmt
+        return stmt.where(*warehouse_scope(self.tenant, StorageLocation.warehouse_id))
 
     def build_list_stmt(self, filters: StorageLocationFilters, sort: SortParams) -> Select[Any]:
         stmt = self._scoped(include_deleted=filters.include_deleted)
