@@ -42,9 +42,16 @@ export function ReportJobPanel({
               'The job stopped before it produced a file. Nothing was saved.'}
           </AlertDescription>
         </div>
-        <Button variant="ghost" size="icon-sm" onClick={controller.reset} aria-label="Dismiss">
-          <X />
-        </Button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {error && (
+            <Button size="sm" onClick={controller.retry} loading={controller.isRetrying}>
+              Retry status
+            </Button>
+          )}
+          <Button variant="ghost" size="icon-sm" onClick={controller.reset} aria-label="Dismiss">
+            <X />
+          </Button>
+        </div>
       </Alert>
     )
   }

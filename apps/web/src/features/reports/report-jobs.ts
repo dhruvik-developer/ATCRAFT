@@ -100,6 +100,9 @@ export interface ReportJobController {
   /** Begin watching the job an endpoint just handed back with its 202. */
   start: (accepted: AcceptedJobData) => void
   reset: () => void
+  /** Retry reading the existing job; never queues another artifact. */
+  retry: () => void
+  isRetrying: boolean
   download: () => void
   isDownloading: boolean
 }
@@ -167,6 +170,9 @@ export function useReportJob(): ReportJobController {
   }, [])
 
   const reset = useCallback(() => setStatusPath(null), [])
+  const retry = () => {
+    if (statusPath !== null && error) void job.refetch()
+  }
 
   let phase: ReportJobPhase = 'idle'
   if (statusPath !== null) {
@@ -184,6 +190,8 @@ export function useReportJob(): ReportJobController {
     error,
     start,
     reset,
+    retry,
+    isRetrying: Boolean(error) && job.isFetching,
     download: () => download.mutate(),
     isDownloading: download.isPending,
   }
