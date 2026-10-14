@@ -12,6 +12,7 @@ const order: SalesOrderDetail = {
   warehouse_id: 'warehouse',
   branch_id: null,
   status: 'CONFIRMED',
+  source: 'ERP',
   order_date: '2026-10-12',
   required_date: '2026-11-01',
   promised_date: null,
