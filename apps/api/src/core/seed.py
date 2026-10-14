@@ -238,6 +238,7 @@ async def _seed_roles(session: AsyncSession, company: Company) -> dict[str, Role
             permissions=wanted,
             is_system=bool(spec.get("is_system")),
             is_vendor_role=bool(spec.get("is_vendor_role")),
+            is_dealer_role=bool(spec.get("is_dealer_role")),
             is_active=True,
         )
         session.add(role)

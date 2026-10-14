@@ -83,6 +83,12 @@ MAX_COMPONENTS_PER_ORDER = 200
 #: Free-text length for the physical line or bench the order is scheduled on.
 ASSEMBLY_LINE_LENGTH = 64
 
+#: Default scheduling and reservation priority. Lower is more urgent, matching
+#: ``allocation.models.DEFAULT_RESERVATION_PRIORITY`` and the production order's
+#: default, so a reallocation can weigh an assembly against a sales order or a
+#: production order on one scale.
+DEFAULT_ASSEMBLY_PRIORITY = 100
+
 
 class AssemblyOrderStatus(StrEnum):
     """Lifecycle of an assembly order (master rules section 19).
@@ -149,6 +155,15 @@ CANCELLABLE_STATUSES: tuple[AssemblyOrderStatus, ...] = (
     AssemblyOrderStatus.RELEASED,
 )
 
+#: Open statuses in which work on the bench has not begun. The assembly board
+#: counts these as "not started", and one of them past its planned start is a
+#: late start.
+NOT_STARTED_STATUSES: tuple[AssemblyOrderStatus, ...] = (
+    AssemblyOrderStatus.APPROVED,
+    AssemblyOrderStatus.RELEASED,
+    AssemblyOrderStatus.COMPONENTS_ISSUED,
+)
+
 
 class AssemblyOrder(TenantEntity, OptimisticLockMixin):
     """One instruction to assemble a quantity of one item from its components."""
@@ -164,9 +179,10 @@ class AssemblyOrder(TenantEntity, OptimisticLockMixin):
     item_id: Mapped[uuid.UUID] = mapped_column(
         GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=False, index=True
     )
-    #: The ``ASSEMBLY`` structure this order is built from. Mandatory - see the
-    #: module docstring. RESTRICT rather than CASCADE: the recipe a consumed
-    #: quantity was drawn against must survive as long as the order does.
+    #: The approved ``ASSEMBLY`` or ``PRODUCTION`` structure this order is built
+    #: from. Mandatory - see the module docstring. RESTRICT rather than CASCADE:
+    #: the recipe a consumed quantity was drawn against must survive as long as
+    #: the order does.
     bom_id: Mapped[uuid.UUID] = mapped_column(
         GUID, ForeignKey("boms.id", ondelete="RESTRICT"), nullable=False, index=True
     )
@@ -206,6 +222,15 @@ class AssemblyOrder(TenantEntity, OptimisticLockMixin):
     #: against reality rather than against the plan.
     actual_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     actual_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Lower is more urgent. Every component reservation taken at release carries
+    #: it, together with the planned start as its required date, so allocation
+    #: ranks this order's claim on a part the way the planner ranked the order.
+    priority: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=DEFAULT_ASSEMBLY_PRIORITY,
+        server_default=str(DEFAULT_ASSEMBLY_PRIORITY),
+    )
 
     # --- lifecycle -----------------------------------------------------------
     status: Mapped[AssemblyOrderStatus] = mapped_column(
@@ -301,6 +326,7 @@ class AssemblyOrder(TenantEntity, OptimisticLockMixin):
             f"source_type IN ({sql_in_list(AssemblySourceType)})", name="source_type_known"
         ),
         CheckConstraint("planned_quantity > 0", name="planned_quantity_positive"),
+        CheckConstraint("priority >= 0", name="priority_non_negative"),
         CheckConstraint("assembled_quantity >= 0", name="assembled_non_negative"),
         CheckConstraint("rejected_quantity >= 0", name="rejected_non_negative"),
         # The correctness floor on yield. Components are drawn for the planned
@@ -447,7 +473,9 @@ __all__ = [
     "ASSEMBLY_LINE_LENGTH",
     "CANCELLABLE_STATUSES",
     "COMPONENTS_HELD_STATUSES",
+    "DEFAULT_ASSEMBLY_PRIORITY",
     "MAX_COMPONENTS_PER_ORDER",
+    "NOT_STARTED_STATUSES",
     "OPEN_SUPPLY_STATUSES",
     "AssemblyOrder",
     "AssemblyOrderComponent",

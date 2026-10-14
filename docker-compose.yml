@@ -52,6 +52,13 @@ x-postgres-env: &postgres-env
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
 
 x-api-env: &api-env
+  WEB_PUSH_ENABLED: ${WEB_PUSH_ENABLED:-false}
+  WEB_PUSH_VAPID_PRIVATE_KEY: ${WEB_PUSH_VAPID_PRIVATE_KEY:-}
+  WEB_PUSH_SUBJECT: ${WEB_PUSH_SUBJECT:-}
+  WEB_PUSH_TTL_SECONDS: ${WEB_PUSH_TTL_SECONDS:-86400}
+  WEB_PUSH_TIMEOUT_SECONDS: ${WEB_PUSH_TIMEOUT_SECONDS:-10}
+  WEB_PUSH_ALLOWED_HOSTS: ${WEB_PUSH_ALLOWED_HOSTS:-fcm.googleapis.com,updates.push.services.mozilla.com,push.services.mozilla.com,notify.windows.com,web.push.apple.com,push.apple.com}
+
   APP_ENV: ${APP_ENV:-development}
   # Hosts `postgres` and `redis` resolve on this project's network only.
   DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-atcraft}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-atcraft_erp}
@@ -73,6 +80,9 @@ x-api-env: &api-env
   DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
   CELERY_BROKER_URL: redis://redis:6379/1
   CELERY_RESULT_BACKEND: redis://redis:6379/2
+  # How often the allocation top-up reserves newly arrived stock for short
+  # sales orders (docs/assumptions.md section E1-2).
+  SO_TOPUP_INTERVAL_SECONDS: ${SO_TOPUP_INTERVAL_SECONDS:-900}
   # Per deployment, and never shared: a token minted by one deployment must not
   # authenticate against the other. The issuer and audience make that a
   # deliberate rejection rather than an accident of key rotation.
@@ -247,7 +257,7 @@ services:
       labels:
         org.opencontainers.image.revision: ${SOURCE_REVISION:-unknown}
     image: ${IMAGE_PREFIX:-atcraft}/api:${IMAGE_TAG:-local}
-    command: ["celery", "-A", "src.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=${CELERY_CONCURRENCY:-4}"]
+    command: ["celery", "-A", "src.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=${CELERY_CONCURRENCY:-4}", "-Q", "default,mrp,reports"]
     environment: *api-env
     volumes:
       - storage-data:/storage

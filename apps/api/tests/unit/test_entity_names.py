@@ -63,3 +63,12 @@ def test_the_human_names_are_not_class_names() -> None:
 def test_the_work_centre_state_machine_uses_the_same_name() -> None:
     """The transition message and the not-found message agree on the record."""
     assert WORK_CENTER_LIFECYCLE.entity == WORK_CENTER_ENTITY
+
+
+def test_sales_invoice_repository_and_machine_share_the_same_entity_name():
+    from src.modules.finance.sales_invoice_repository import SalesInvoiceRepository
+    from src.modules.finance.sales_invoice_service import SALES_INVOICE_LIFECYCLE
+
+    assert (
+        SalesInvoiceRepository._entity_label() == SALES_INVOICE_LIFECYCLE.entity == "Sales invoice"
+    )

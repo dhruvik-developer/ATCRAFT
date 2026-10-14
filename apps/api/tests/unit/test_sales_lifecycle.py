@@ -25,8 +25,12 @@ from src.modules.sales.models import (
 )
 from src.modules.sales.service import (
     SALES_ORDER_LIFECYCLE,
+    TOP_UP_STATUSES,
     can_approve,
+    dispatchable_quantity,
+    line_shortfall,
     line_status_for,
+    live_reserved,
     reservable_quantity,
 )
 
@@ -106,9 +110,41 @@ def test_irreversible_edges_are_marked_so_the_ui_can_confirm_them():
         (SalesOrderStatus.DRAFT, SalesOrderStatus.CONFIRMED),
         (SalesOrderStatus.CONFIRMED, SalesOrderStatus.CANCELLED),
         (SalesOrderStatus.ALLOCATED, SalesOrderStatus.PARTIALLY_DISPATCHED),
+        (SalesOrderStatus.CONFIRMED, SalesOrderStatus.PARTIALLY_DISPATCHED),
     ):
         transition = SALES_ORDER_LIFECYCLE.find(source, target)
         assert transition is not None and transition.is_irreversible
+
+
+def test_a_partly_reserved_order_may_ship_what_it_has_reserved():
+    """K08: CONFIRMED -> PARTIALLY_DISPATCHED is the dispatch module's edge."""
+    edge = SALES_ORDER_LIFECYCLE.find(
+        SalesOrderStatus.CONFIRMED, SalesOrderStatus.PARTIALLY_DISPATCHED
+    )
+    assert edge is not None
+    assert edge.permission is Permission.DISPATCH_CREATE
+    assert edge.label == "Dispatch"
+
+
+def test_an_allocated_order_short_again_returns_to_confirmed():
+    """E1-3: ALLOCATED must mean fully reserved; losing cover undoes the label."""
+    edge = SALES_ORDER_LIFECYCLE.find(SalesOrderStatus.ALLOCATED, SalesOrderStatus.CONFIRMED)
+    assert edge is not None
+    assert edge.permission is Permission.SALES_ORDER_UPDATE
+    assert not edge.is_irreversible
+    # And the round trip is legal, which is what the top-up relies on.
+    assert SALES_ORDER_LIFECYCLE.can_transition(
+        SalesOrderStatus.CONFIRMED, SalesOrderStatus.ALLOCATED
+    )
+
+
+def test_the_top_up_works_on_every_status_that_still_holds_reservations():
+    assert TOP_UP_STATUSES == (
+        SalesOrderStatus.CONFIRMED,
+        SalesOrderStatus.ALLOCATED,
+        SalesOrderStatus.PARTIALLY_DISPATCHED,
+    )
+    assert set(TOP_UP_STATUSES) <= set(OPEN_DEMAND_STATUSES)
 
 
 def test_open_demand_statuses_are_exactly_the_ones_holding_unmet_demand():
@@ -144,6 +180,76 @@ def test_no_stock_reserves_nothing_rather_than_a_negative_quantity():
 def test_reservation_is_rounded_to_the_stored_quantity_scale():
     taken = reservable_quantity(Decimal("10"), Decimal("3.123456789"))
     assert taken == Decimal("3.1235")
+
+
+# -----------------------------------------------------------------------------
+# What may ship (docs/assumptions.md section E1-1)
+# -----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("ordered", "dispatched", "reserved", "planned", "expected"),
+    [
+        # The proposal's own K08 case: 500 ordered, 200 reserved -> 200 may ship.
+        ("500", "0", "200", "0", "200.0000"),
+        # The reservation is the cap even when far more is outstanding.
+        ("500", "200", "300", "0", "300.0000"),
+        # Open consignments count: 400 already planned leaves 100 of 500.
+        ("500", "0", "500", "400", "100.0000"),
+        # Nothing reserved (none made, or released/expired/consumed) ships nothing.
+        ("500", "0", "0", "0", "0.0000"),
+        # A reservation larger than what is left is capped by what is left.
+        ("100", "40", "80", "0", "60.0000"),
+        # Never negative, however far the plan overshoots.
+        ("100", "40", "80", "90", "0.0000"),
+    ],
+)
+def test_a_line_may_ship_its_live_reservation_less_what_is_already_planned(
+    ordered, dispatched, reserved, planned, expected
+):
+    assert dispatchable_quantity(
+        ordered=Decimal(ordered),
+        dispatched=Decimal(dispatched),
+        reserved=Decimal(reserved),
+        planned=Decimal(planned),
+    ) == Decimal(expected)
+
+
+def test_dispatchable_quantity_is_at_the_stored_quantity_scale():
+    assert dispatchable_quantity(
+        ordered=Decimal("10"), dispatched=Decimal("0"), reserved=Decimal("3.123456789")
+    ) == Decimal("3.1235")
+
+
+def _line(quantity: str, dispatched: str, status=SalesOrderLineStatus.PARTIALLY_ALLOCATED):
+    from src.modules.sales.models import SalesOrderLine
+
+    return SalesOrderLine(
+        quantity=Decimal(quantity), dispatched_quantity=Decimal(dispatched), status=status
+    )
+
+
+def test_a_line_is_short_by_open_demand_less_its_live_reservation():
+    assert line_shortfall(_line("500", "200"), Decimal("100")) == Decimal("200.0000")
+    assert line_shortfall(_line("500", "200"), Decimal("300")) == Decimal("0.0000")
+    # Over-reserved is not "negative short".
+    assert line_shortfall(_line("500", "200"), Decimal("400")) == Decimal("0.0000")
+
+
+def test_a_cancelled_line_is_never_short():
+    cancelled = _line("500", "0", SalesOrderLineStatus.CANCELLED)
+    assert line_shortfall(cancelled, Decimal("0")) == Decimal("0.0000")
+
+
+def test_a_line_without_a_reservation_or_with_a_closed_one_holds_nothing():
+    holder = _line("10", "0")
+    holder.reservation_id = None
+    assert live_reserved(holder, {}) == Decimal("0")
+
+    holder.reservation_id = uuid.uuid4()
+    # Closed reservations are absent from the live map - read as zero.
+    assert live_reserved(holder, {}) == Decimal("0")
+    assert live_reserved(holder, {holder.reservation_id: Decimal("7")}) == Decimal("7")
 
 
 # -----------------------------------------------------------------------------

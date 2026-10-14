@@ -41,7 +41,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import ColumnElement, Select, and_, case, delete, func, or_, select
+from sqlalchemy import ColumnElement, Select, and_, case, delete, func, or_, select, tuple_
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
@@ -51,6 +52,7 @@ from src.core.responses import OffsetPagination
 from src.modules.products.models import Item
 from src.modules.quality.models import (
     OPEN_STATUSES,
+    InspectionResult,
     InspectionStatus,
     QcInspection,
     QcInspectionResult,
@@ -411,7 +413,7 @@ class QcInspectionRepository(BaseRepository[QcInspection]):
         return int((await self.session.execute(stmt)).scalar_one())
 
     async def list_for_reference(
-        self, reference_type: str, reference_id: uuid.UUID
+        self, reference_type: str, reference_id: uuid.UUID | Sequence[uuid.UUID]
     ) -> list[QcInspection]:
         """Every inspection one document raised - the receipt's own QC panel.
 
@@ -422,11 +424,64 @@ class QcInspectionRepository(BaseRepository[QcInspection]):
             self._scoped()
             .where(
                 QcInspection.reference_type == reference_type,
-                QcInspection.reference_id == reference_id,
+                QcInspection.reference_id.in_(
+                    [reference_id] if isinstance(reference_id, uuid.UUID) else reference_id
+                ),
             )
             # created_at is PostgreSQL now() - transaction START time - so every row
             # written in one transaction shares it. The UUIDv7 id is the
             # tiebreaker that recovers true insertion order.
+            .order_by(QcInspection.created_at, QcInspection.id)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def list_for_references(
+        self, references: Sequence[tuple[str, uuid.UUID]]
+    ) -> list[QcInspection]:
+        """Every inspection a set of documents raised, in one statement.
+
+        The batched form of :meth:`list_for_reference`, for an owner reading the
+        inspections over several of its documents at once. An empty set is an
+        empty answer, never "every inspection".
+        """
+        if not references:
+            return []
+        stmt = (
+            self._scoped()
+            .where(
+                tuple_(QcInspection.reference_type, QcInspection.reference_id).in_(
+                    list(dict.fromkeys(references))
+                )
+            )
+            .order_by(QcInspection.created_at, QcInspection.id)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def settled_ids_for_references(
+        self, references: Sequence[tuple[str, uuid.UUID]]
+    ) -> list[uuid.UUID]:
+        """Ids of the decided inspections, with nothing left on hold, that the
+        given documents raised - the owner reconciliation sweep's work list.
+
+        One statement for a whole batch of documents, through the
+        ``(company_id, reference_type, reference_id)`` index. "Settled" is the
+        same test the owners apply: a verdict exists and no quantity is still in
+        rework or hold. Ids only, because the sweep repairs each in its own
+        transaction and must not hold ORM rows across a rolled-back one.
+        An empty batch is an empty answer, never "every inspection".
+        """
+        if not references:
+            return []
+        stmt = (
+            select(QcInspection.id)
+            .where(
+                QcInspection.company_id == self.tenant.company_id,
+                tuple_(QcInspection.reference_type, QcInspection.reference_id).in_(
+                    list(dict.fromkeys(references))
+                ),
+                QcInspection.result != InspectionResult.PENDING,
+                QcInspection.rework_quantity + QcInspection.hold_quantity == 0,
+            )
             .order_by(QcInspection.created_at, QcInspection.id)
         )
         return list((await self.session.execute(stmt)).scalars().all())
@@ -592,6 +647,46 @@ class QcInspectionResultRepository(BaseRepository[QcInspectionResult]):
         return {row.parameter_id: row for row in await self.list_for_inspection(inspection_id)}
 
 
+async def decided_inspection_companies(session: AsyncSession) -> list[uuid.UUID]:
+    """Companies holding at least one decided inspection.
+
+    Cross-tenant on purpose and therefore not a ``BaseRepository`` method: it is
+    the discovery step of a beat sweep that has no tenant yet (see
+    ``service.companies_with_decided_inspections``). It reads one column.
+    """
+    stmt = (
+        select(QcInspection.company_id)
+        .where(QcInspection.result != InspectionResult.PENDING)
+        .distinct()
+    )
+    return list((await session.execute(stmt)).scalars().all())
+
+
+def open_inspection_count(
+    company_id: uuid.UUID, reference_type: str, reference_ids: Any
+) -> ColumnElement[int]:
+    """Undecided inspections raised by the documents ``reference_ids`` selects.
+
+    A correlatable scalar subquery rather than a count fetched per document:
+    procurement's inbound board asks it once per purchase order inside one
+    statement, passing a correlated select of that order's posted receipts.
+    Reached through a guarded import (``inbound_repository``), the same seam
+    procurement uses for every other quality call, so the planning layer never
+    imports this module's types.
+    """
+    return (
+        select(func.count())
+        .select_from(QcInspection)
+        .where(
+            QcInspection.company_id == company_id,
+            QcInspection.reference_type == reference_type,
+            QcInspection.reference_id.in_(reference_ids),
+            QcInspection.status.in_(OPEN_STATUSES),
+        )
+        .scalar_subquery()
+    )
+
+
 __all__ = [
     "InspectableItem",
     "ItemLookupRepository",
@@ -603,4 +698,6 @@ __all__ = [
     "QualityTotals",
     "VendorItemTotals",
     "WarehouseLookupRepository",
+    "decided_inspection_companies",
+    "open_inspection_count",
 ]

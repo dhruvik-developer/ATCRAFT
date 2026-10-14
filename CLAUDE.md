@@ -467,6 +467,19 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
   rendered the same grey as `DRAFT`. The fallback is what hides it: nothing
   errors, the badge just says the wrong thing on every row of two daily screens.
   Add the key when a status reaches the UI.
+- **Two release paths for one hold strands the document or moves the stock twice.**
+  A goods receipt, an assembly completion and a job-work receipt each put
+  their output on QC hold and raise an inspection, and each also offered its
+  own verdict endpoint that released the same hold. Deciding the inspection
+  moved the stock but left the receipt line PENDING, the PO in QC_PENDING for
+  ever and the assembly and job-work orders unable to leave QC_PENDING; the
+  owner-side verdict moved it again, so whichever ran second either failed for
+  want of held stock or released another lot held at the same grain. The rule
+  now: quality owns the hold and the one movement (`quality.owners`
+  registry), the owner learns the verdict through a callback in the same
+  transaction and never moves stock, and the owner-side endpoints serve only
+  holds no inspection covers - refusing with a message that names the open
+  inspection, or completing from a decided inspection's own figures.
 - **A dev-server proxy default that is right on the host is wrong in the
   container.** `vite.config.ts` sends `/api` to `http://localhost:8000`, which is
   correct for `make dev` - Vite and the API both run on the host there. The

@@ -64,10 +64,11 @@ MAX_TRACKING_EVENTS_PAGE = 200
 class DispatchLineIn(BaseModel):
     """One item to load onto the consignment.
 
-    ``sales_order_line_id`` is optional even on a dispatch raised against a sales
-    order: a shipment often carries something the customer did not order on that
-    line - a replacement part, a sample - and forcing a link would either block
-    it or invent a demand row for it.
+    ``sales_order_line_id`` is optional on a free-stock dispatch. On a dispatch
+    raised against a sales order (``sales_order_id`` set) every line must name
+    its order line: the service refuses unlinked and foreign lines, because an
+    unlinked line would consume free stock while the order's reservation stays
+    standing (docs/assumptions.md §E1-1).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -303,6 +304,7 @@ class DispatchSummary(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    sales_invoice_id: uuid.UUID | None = None
     id: uuid.UUID
     code: str
     dispatch_type: DispatchType

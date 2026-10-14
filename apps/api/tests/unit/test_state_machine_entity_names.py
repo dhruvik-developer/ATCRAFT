@@ -28,7 +28,11 @@ pytestmark = pytest.mark.unit
 _HUMAN_NAME = re.compile(r"^(?:[A-Z]+|[A-Z][a-z]+)( [a-z0-9]+)*$")
 
 #: Service modules that do not follow the ``<package>.service`` convention.
-_EXTRA_MODULES = ("src.modules.audit.query_service", "src.modules.procurement.service_rules")
+_EXTRA_MODULES = (
+    "src.modules.audit.query_service",
+    "src.modules.procurement.service_rules",
+    "src.modules.finance.sales_invoice_service",
+)
 
 
 def _machines() -> dict[str, StateMachine[object]]:

@@ -26,21 +26,28 @@ sequence and every step goes through the sales module's own
 ``SALES_ORDER_LIFECYCLE``, so this module never writes a status the sales module
 would reject.
 
+**An order-linked consignment ships only what the order has reserved.** When a
+SALES consignment names a sales order, every line must name the order line it
+ships, for the same item, and carry no more than
+``sales.service.dispatchable_quantity`` allows: the line's *live* reservation,
+less what other unsent consignments already carry. It is checked when the plan is
+saved and again under the row locks when the consignment leaves, so a
+reservation released in between stops the lorry rather than letting free stock
+stand in for it (docs/assumptions.md section E1-1). A partly reserved CONFIRMED
+order may therefore ship its reserved part. A SALES consignment that names no
+order is a direct sale from free stock and keeps that path.
+
 **Delay is derived on read.** A consignment is late when it is on the road past
 its promised date. Nothing stores that as a flag - see the models docstring -
 and :func:`scan_delays` is the scheduled sweep that turns the derived answer into
 an alert somebody actually sees.
 
-**Serial-tracked goods cannot be dispatched against a reservation.**
-``allocation.consume`` posts one movement per call and has nowhere to name a
-serial, while the inventory engine requires a serial on every movement of a
-serial-tracked item and a quantity of exactly one. The two contracts cannot both
-be honoured, so the combination is refused with an explicit message rather than
-posted in a way that would leave either ``reserved_quantity`` or the serial
-register wrong. This is the same refusal, for the same reason, as
-docs/assumptions.md section 20 makes for serial-tracked goods receipts. A
-serial-tracked line with no reservation dispatches normally, one movement per
-unit.
+**Serial-tracked goods consume their reservation unit by unit.** The inventory
+engine requires a serial, and a quantity of one, on every movement of a
+serial-tracked item that changes whose hands hold it (docs/assumptions.md
+section 23). A reservation never pins a unit, so the line names its serials and
+``allocation.consume`` draws the reservation down by posting one movement per
+named unit, keeping ``reserved_quantity`` and the serial register in step.
 
 **Tracking events are the only way into the delivered half of the lifecycle.**
 ``DELIVERED`` onwards describes what the *receiver* did, which we learn by being
@@ -64,7 +71,7 @@ from src.common.codes import DocTypes, next_document_number
 from src.core.clock import today, utcnow
 from src.core.database import transaction
 from src.core.deps import TenantContext
-from src.core.errors import BusinessRuleError, ErrorCode, NotFoundError
+from src.core.errors import BusinessRuleError, ErrorCode, NotFoundError, ValidationError
 from src.core.logging import get_logger
 from src.core.pagination import CursorParams, PageParams, SortParams
 from src.core.permissions import Permission
@@ -134,7 +141,13 @@ from src.modules.notifications.service import notify_role
 from src.modules.packing import service as packing
 from src.modules.packing.models import PackingOrderStatus
 from src.modules.sales.models import SalesOrderLine, SalesOrderStatus
-from src.modules.sales.service import SALES_ORDER_LIFECYCLE, line_status_for
+from src.modules.sales.service import (
+    SALES_ORDER_LIFECYCLE,
+    dispatchable_quantity,
+    line_status_for,
+    live_reservations,
+    live_reserved,
+)
 
 log = get_logger(__name__)
 
@@ -147,15 +160,6 @@ AUDIT_SALES_ORDER = "sales_order"
 #: The index on ``(company_id, reference_type, reference_id)`` is what makes
 #: "what did this consignment post?" one lookup.
 MOVEMENT_REFERENCE_DISPATCH = "dispatch"
-
-#: Refusal text for the one combination the two upstream contracts cannot both
-#: satisfy - see the module docstring.
-SERIAL_RESERVATION_MESSAGE = (
-    "{item_code} is serial tracked and this line is covered by a stock reservation. "
-    "A reservation is consumed as one movement, but a serial-tracked movement must name "
-    "exactly one unit, so the two cannot be reconciled. Release the reservation and "
-    "dispatch the line against free stock, or register the units through inventory first."
-)
 
 #: Roles told when a consignment misses its promised delivery date. Resolved from
 #: the role assignment at the moment of the sweep, so the list stays correct as
@@ -409,13 +413,21 @@ def sales_order_status_path(
     An empty tuple means the order is already where it should be: a second
     partial consignment against an order that is already ``PARTIALLY_DISPATCHED``
     changes the quantities, not the status.
+
+    A CONFIRMED order walks the same way as an ALLOCATED one: a partly reserved
+    order may ship its reserved part (``CONFIRMED -> PARTIALLY_DISPATCHED``), and
+    one whose every line became covered without being re-labelled can even ship
+    complete - which still passes through ``PARTIALLY_DISPATCHED``.
     """
     target = (
         SalesOrderStatus.DISPATCHED if fully_dispatched else (SalesOrderStatus.PARTIALLY_DISPATCHED)
     )
     if current is target:
         return ()
-    if current is SalesOrderStatus.ALLOCATED and target is SalesOrderStatus.DISPATCHED:
+    if (
+        current in (SalesOrderStatus.CONFIRMED, SalesOrderStatus.ALLOCATED)
+        and target is SalesOrderStatus.DISPATCHED
+    ):
         return (SalesOrderStatus.PARTIALLY_DISPATCHED, SalesOrderStatus.DISPATCHED)
     return (target,)
 
@@ -436,8 +448,16 @@ def _dispatchable_order_statuses() -> frozenset[SalesOrderStatus]:
     )
 
 
-#: ``ALLOCATED`` and ``PARTIALLY_DISPATCHED`` under database.md section 7.
+#: ``CONFIRMED``, ``ALLOCATED`` and ``PARTIALLY_DISPATCHED`` under database.md
+#: section 7. A CONFIRMED order is short somewhere, but what it has reserved may
+#: leave; each line is capped at its live reservation.
 DISPATCHABLE_ORDER_STATUSES: frozenset[SalesOrderStatus] = _dispatchable_order_statuses()
+
+#: Why an order in each non-dispatchable status cannot ship, phrased as the remedy.
+_NOT_DISPATCHABLE_REASONS: dict[SalesOrderStatus, str] = {
+    SalesOrderStatus.DRAFT: "confirm it first, so stock is reserved for it",
+    SalesOrderStatus.CANCELLED: "it was cancelled and its reservations released",
+}
 
 
 def assert_order_dispatchable(order_code: str, order_status: SalesOrderStatus) -> None:
@@ -446,15 +466,18 @@ def assert_order_dispatchable(order_code: str, order_status: SalesOrderStatus) -
     Without this the refusal came from :func:`_advance_sales_order`, after the
     reservations had been consumed and the movements posted - all rolled back
     by the transaction, so nothing was harmed, but the operator was told
-    "Sales order cannot move from 'CONFIRMED' to 'PARTIALLY_DISPATCHED'"
-    after filling in the whole consignment, with no hint that allocation was
-    the missing step. The message names the actual remedy.
+    "Sales order cannot move from 'DRAFT' to 'PARTIALLY_DISPATCHED'" after
+    filling in the whole consignment, with no hint of the missing step. The
+    message names the actual remedy.
     """
     if order_status in DISPATCHABLE_ORDER_STATUSES:
         return
+    remedy = _NOT_DISPATCHABLE_REASONS.get(
+        order_status, "everything on it has already been dispatched"
+    )
     raise BusinessRuleError(
         f"Sales order {order_code} is {str(order_status).replace('_', ' ').lower()} and cannot "
-        "be dispatched yet: it must be fully allocated before a consignment can leave.",
+        f"be dispatched: {remedy}.",
         code=ErrorCode.INVALID_STATE_TRANSITION,
         details={
             "sales_order_code": order_code,
@@ -701,13 +724,23 @@ async def _validate_lines(
     warehouse_id: uuid.UUID,
     sales_order_id: uuid.UUID | None,
     packing_order_id: uuid.UUID | None,
+    exclude_dispatch_id: uuid.UUID | None = None,
 ) -> dict[uuid.UUID, DispatchItem]:
-    """Check a whole line set in five batched statements, not five per line.
+    """Check a whole line set in a fixed number of batched statements, not per line.
 
     Everything that could be asked line by line - items, batches, serials,
-    cartons, order lines - is asked for the whole set at once, because a
+    cartons, order lines, their live reservations and what other unsent
+    consignments already carry - is asked for the whole set at once, because a
     twenty-line consignment validated with a lookup per line would be a hundred
     round trips on the write path (section 32).
+
+    A consignment naming a sales order ships that order's lines and nothing
+    else: every line must name its order line, once, for the same item, and fit
+    :func:`~src.modules.sales.service.dispatchable_quantity`. The caller holds
+    the order header's row lock, so two plans against one order are checked one
+    after the other rather than both against the same balance.
+    ``exclude_dispatch_id`` is the consignment being amended, which must not
+    count against itself.
     """
     if len(lines) > MAX_LINES_PER_DISPATCH:
         raise BusinessRuleError(
@@ -730,6 +763,20 @@ async def _validate_lines(
 
     order_lines: dict[uuid.UUID, SalesOrderLine] = {}
     referenced = [line.sales_order_line_id for line in lines if line.sales_order_line_id]
+    if sales_order_id is not None:
+        for position, line in enumerate(lines, start=1):
+            if line.sales_order_line_id is None:
+                raise ValidationError(
+                    f"Line {position}: a consignment against a sales order ships that order's "
+                    "lines - name the order line this one ships.",
+                    details={"line": position},
+                )
+        if len(set(referenced)) != len(referenced):
+            raise ValidationError(
+                "The same sales-order line appears on two lines of this consignment; "
+                "ship it as one line.",
+                details={"sales_order_line_ids": sorted({str(r) for r in referenced})},
+            )
     if referenced:
         if sales_order_id is None:
             raise BusinessRuleError(
@@ -738,6 +785,14 @@ async def _validate_lines(
             )
         found = await SalesOrderLineRepository(session, tenant).get_many(referenced)
         order_lines = {row.id: row for row in found}
+    live = await live_reservations(session, tenant, list(order_lines.values()))
+    planned = (
+        await DispatchLineRepository(session, tenant).open_quantities_by_order_line(
+            sales_order_id, exclude_dispatch_id=exclude_dispatch_id
+        )
+        if sales_order_id is not None
+        else {}
+    )
 
     carton_ids = [carton for line in lines for carton in line.carton_ids]
     sealed_cartons: set[uuid.UUID] = set()
@@ -825,13 +880,14 @@ async def _validate_lines(
             if order_line is None:
                 raise NotFoundError("Sales order line", line.sales_order_line_id)
             if order_line.sales_order_id != sales_order_id:
-                raise BusinessRuleError(
+                raise ValidationError(
                     f"{label}: that order line belongs to a different sales order.",
                     details={"sales_order_line_id": str(line.sales_order_line_id)},
                 )
             if order_line.item_id != line.item_id:
-                raise BusinessRuleError(
-                    f"{label}: order line {order_line.line_number} is for a different item.",
+                raise ValidationError(
+                    f"{label}: order line {order_line.line_number} is for a different item - "
+                    "a consignment against an order carries only that order's items.",
                     details={"sales_order_line_id": str(line.sales_order_line_id)},
                 )
             # Checked here so a plan that cannot possibly ship is refused while
@@ -844,8 +900,67 @@ async def _validate_lines(
                 dispatching_now=line.quantity,
                 line_label=f"{label} ({item.code})",
             )
+            _assert_within_reservation(
+                label=f"{label} ({item.code})",
+                order_line=order_line,
+                quantity=Decimal(line.quantity),
+                reserved=live_reserved(order_line, live),
+                planned=planned.get(order_line.id, ZERO),
+            )
 
     return items
+
+
+def _assert_within_reservation(
+    *,
+    label: str,
+    order_line: SalesOrderLine,
+    quantity: Decimal,
+    reserved: Decimal,
+    planned: Decimal,
+) -> None:
+    """Refuse an order-linked line that carries more than its live reservation allows.
+
+    The cap is :func:`~src.modules.sales.service.dispatchable_quantity`. A line
+    whose reservation was released, expired or consumed elsewhere has nothing
+    to ship from (E1a section 4), and is told so - shipping free stock in its
+    place would take stock that may be another order's promise.
+    """
+    cap = dispatchable_quantity(
+        ordered=Decimal(order_line.quantity),
+        dispatched=Decimal(order_line.dispatched_quantity),
+        reserved=reserved,
+        planned=planned,
+    )
+    if quantity <= cap:
+        return
+    if reserved <= ZERO:
+        reason = (
+            f"order line {order_line.line_number} holds no live stock reservation (none was "
+            "made, or it was released, expired or already consumed), so nothing on it can "
+            "leave yet. Allocate available stock to the order first."
+        )
+    else:
+        reason = (
+            f"only {cap} of order line {order_line.line_number} can leave now - its live "
+            f"reservation holds {to_quantity(reserved)}"
+            + (
+                f" and other open consignments already carry {to_quantity(planned)}"
+                if planned
+                else ""
+            )
+            + ". Lower the quantity, or allocate more stock to the order first."
+        )
+    raise ValidationError(
+        f"{label}: {reason}",
+        details={
+            "sales_order_line_id": str(order_line.id),
+            "requested": str(to_quantity(quantity)),
+            "dispatchable": str(cap),
+            "reserved": str(to_quantity(reserved)),
+            "on_open_dispatches": str(to_quantity(planned)),
+        },
+    )
 
 
 async def _persist_lines(
@@ -945,20 +1060,35 @@ async def _validate_header(
         raise NotFoundError("Document", invoice_document_id)
 
     if sales_order_id is not None:
-        header = await SalesOrderRepository(session, tenant).get_code(sales_order_id)
+        # Locked, not merely read: the lines are then checked against what
+        # other unsent consignments already carry for this order, and two plans
+        # saved at once must not both be measured against the same balance.
+        header = await SalesOrderRepository(session, tenant).lock_header(sales_order_id)
         if header is None:
             raise NotFoundError("Sales order", sales_order_id)
-        if customer_id is not None and header[1] != customer_id:
+        if customer_id is not None and header.customer_id != customer_id:
             # Loading one customer's order onto another's lorry is how goods
             # reach the wrong address, and no later check catches it.
             raise BusinessRuleError(
-                f"Sales order {header[0]} belongs to a different customer.",
+                f"Sales order {header.code} belongs to a different customer.",
                 details={"sales_order_id": str(sales_order_id)},
             )
         if dispatch_type is not DispatchType.SALES:
             raise BusinessRuleError(
                 "A sales order can only be dispatched by a SALES consignment.",
                 details={"dispatch_type": str(dispatch_type)},
+            )
+        if header.warehouse_id != warehouse_id:
+            # The order's reservations are held at its own warehouse, and
+            # consuming one posts the movement there. A consignment naming
+            # another store would record goods leaving a place they never left.
+            raise ValidationError(
+                f"Sales order {header.code} is reserved at its own warehouse; a consignment "
+                "against it must leave from that warehouse.",
+                details={
+                    "warehouse_id": str(warehouse_id),
+                    "sales_order_warehouse_id": str(header.warehouse_id),
+                },
             )
 
 
@@ -1030,7 +1160,32 @@ async def list_dispatches(
 ) -> tuple[list[DispatchSummary], OffsetPagination]:
     repo = DispatchRepository(session, tenant)
     rows, pagination = await repo.list_page_filtered(filters, params, sort, as_of=today())
-    return [DispatchSummary.model_validate(row) for row in rows], pagination
+    invoice_ids = await repo.live_invoice_ids([row.id for row in rows])
+    return [
+        DispatchSummary.model_validate(row).model_copy(
+            update={"sales_invoice_id": invoice_ids.get(row.id)}
+        )
+        for row in rows
+    ], pagination
+
+
+async def open_dispatch_quantities(
+    session: AsyncSession,
+    tenant: TenantContext,
+    sales_order_id: uuid.UUID,
+    *,
+    exclude_dispatch_id: uuid.UUID | None = None,
+) -> dict[uuid.UUID, Decimal]:
+    """What consignments raised but not yet sent carry, per line of one order.
+
+    The read ``sales.service`` reaches through its dispatch seam
+    (``resolve_dispatch_plan_port``) so the order's allocation view can say how
+    much a *new* consignment may still carry for each line. One grouped
+    statement; tenant-scoped like every read here.
+    """
+    return await DispatchLineRepository(session, tenant).open_quantities_by_order_line(
+        sales_order_id, exclude_dispatch_id=exclude_dispatch_id
+    )
 
 
 async def get_dispatch_detail(
@@ -1194,6 +1349,10 @@ async def update_dispatch(
     async with transaction(session):
         dispatch = await _lock_dispatch(repo, dispatch_id)
         _assert_editable(dispatch)
+        if await repo.has_live_invoice(dispatch.id):
+            raise BusinessRuleError(
+                "This dispatch has a live sales invoice. Cancel the invoice first."
+            )
         before = snapshot(dispatch, DISPATCH_AUDITED_FIELDS)
 
         sent = payload.model_dump(exclude_unset=True)
@@ -1243,6 +1402,9 @@ async def update_dispatch(
                 warehouse_id=dispatch.warehouse_id,
                 sales_order_id=dispatch.sales_order_id,
                 packing_order_id=dispatch.packing_order_id,
+                # The lines being replaced must not count against their own
+                # replacement.
+                exclude_dispatch_id=dispatch.id,
             )
             # Safe only because nothing has been posted: past DISPATCHED a line
             # carries the ledger row it wrote, and deleting one would orphan a
@@ -1363,6 +1525,10 @@ async def cancel_dispatch(
 
     async with transaction(session):
         dispatch = await _lock_dispatch(repo, dispatch_id)
+        if await repo.has_live_invoice(dispatch.id):
+            raise BusinessRuleError(
+                "This dispatch has a live sales invoice. Cancel the invoice first."
+            )
         await _transition(
             session,
             tenant,
@@ -1421,28 +1587,51 @@ async def dispatch_consignment(
                 details={"dispatch_id": str(dispatch.id)},
             )
 
+        if dispatch.sales_order_id is not None:
+            unlinked = [line.line_number for line in lines if line.sales_order_line_id is None]
+            if unlinked:
+                # A plan saved before order lines were required. Shipping it would
+                # take free stock while the order's own reservation stood, and
+                # leave the order line's dispatched quantity unmoved.
+                raise ValidationError(
+                    f"Line {unlinked[0]} of {dispatch.code} names no sales-order line, so it "
+                    "cannot leave against the order. Amend the consignment to name the order "
+                    "line each line ships, or cancel it.",
+                    details={"line_numbers": unlinked},
+                )
+
         items = await ItemLookupRepository(session, tenant).load([line.item_id for line in lines])
 
-        # Lock the order lines this consignment draws on. Ordered by primary key
-        # inside the repository so two consignments over an overlapping set queue
-        # instead of deadlocking (database.md section 4.4).
-        order_line_ids = [
-            line.sales_order_line_id for line in lines if line.sales_order_line_id is not None
-        ]
-        order_lines = {row.id: row for row in await order_line_repo.lock_lines(order_line_ids)}
+        # Lock the order header, then the order lines this consignment draws on -
+        # the order every writer of an order takes them in. Lines are ordered by
+        # primary key inside the repository so two consignments over an
+        # overlapping set queue instead of deadlocking (database.md section 4.4).
         sales_order = None
         if dispatch.sales_order_id is not None:
             sales_order = await order_repo.lock_header(dispatch.sales_order_id)
             if sales_order is None:
                 raise NotFoundError("Sales order", dispatch.sales_order_id)
             # Checked here, under the lock and before any reservation is consumed
-            # or movement posted, so an unallocated order is refused with the
+            # or movement posted, so an order that cannot ship is refused with the
             # remedy named rather than by the status walk at the very end.
             assert_order_dispatchable(sales_order.code, SalesOrderStatus(sales_order.status))
+        order_line_ids = [
+            line.sales_order_line_id for line in lines if line.sales_order_line_id is not None
+        ]
+        order_lines = {row.id: row for row in await order_line_repo.lock_lines(order_line_ids)}
+        live = await live_reservations(session, tenant, list(order_lines.values()))
+        planned = (
+            await line_repo.open_quantities_by_order_line(
+                dispatch.sales_order_id, exclude_dispatch_id=dispatch.id
+            )
+            if dispatch.sales_order_id is not None
+            else {}
+        )
 
         # Re-check the arithmetic against what the lock just revealed. The value
         # read at planning time is worthless: another consignment may have taken
-        # the balance in between (database.md section 4.4, step 3).
+        # the balance in between, or the reservation may have been released since
+        # (database.md section 4.4, step 3).
         balances: dict[uuid.UUID, LineBalance] = {}
         for line in lines:
             if line.sales_order_line_id is None:
@@ -1451,11 +1640,19 @@ async def dispatch_consignment(
             if order_line is None:
                 raise NotFoundError("Sales order line", line.sales_order_line_id)
             item = items.get(line.item_id)
+            label = f"Line {line.line_number} ({item.code if item else line.item_id})"
             balances[line.id] = dispatch_balance(
                 ordered=Decimal(order_line.quantity),
                 dispatched_before=Decimal(order_line.dispatched_quantity),
                 dispatching_now=Decimal(line.quantity),
-                line_label=f"Line {line.line_number} ({item.code if item else line.item_id})",
+                line_label=label,
+            )
+            _assert_within_reservation(
+                label=label,
+                order_line=order_line,
+                quantity=Decimal(line.quantity),
+                reserved=live_reserved(order_line, live),
+                planned=planned.get(order_line.id, ZERO),
             )
 
         occurred_at = utcnow()
@@ -1495,22 +1692,14 @@ async def dispatch_consignment(
             )
             reservation_id = order_line.reservation_id if order_line is not None else None
 
-            if reservation_id is not None:
-                if item.is_serial_tracked:
-                    raise BusinessRuleError(
-                        SERIAL_RESERVATION_MESSAGE.format(item_code=item.code),
-                        code=ErrorCode.SERIAL_REQUIRED,
-                        details={
-                            "item_code": item.code,
-                            "dispatch_line_id": str(line.id),
-                            "reservation_id": str(reservation_id),
-                        },
-                    )
+            if order_line is not None and reservation_id is not None:
                 # Consumes the promise and posts the DISPATCH movement in one
                 # step, in the right order - see allocation.consume's docstring.
-                # A call per reservation is unavoidable: each is a separate row
-                # that has to be locked and drawn down individually, and the set
-                # is bounded by MAX_LINES_PER_DISPATCH.
+                # A serial-tracked line names its units, and the drawdown posts
+                # one movement per unit (module docstring). A call per
+                # reservation is unavoidable: each is a separate row that has to
+                # be locked and drawn down individually, and the set is bounded
+                # by MAX_LINES_PER_DISPATCH.
                 reservation = await allocation.consume(
                     session,
                     tenant,
@@ -1521,9 +1710,15 @@ async def dispatch_consignment(
                     reference_code=dispatch.code,
                     transaction_type=TransactionType.DISPATCH,
                     occurred_at=occurred_at,
+                    serial_ids=list(line.serial_ids) if item.is_serial_tracked else (),
                 )
                 line.reservation_id = reservation.id
                 consumed.append(reservation.id)
+                # What the reservation still holds after this drawdown - the
+                # order line's allocated figure follows the live promise.
+                order_line.allocated_quantity = to_quantity(
+                    max(live_reserved(order_line, live) - Decimal(line.quantity), ZERO)
+                )
                 continue
 
             movements = build_line_movements(
@@ -1664,6 +1859,29 @@ async def _advance_sales_order(
             reason=f"Dispatch {dispatch_code}",
         )
         current = target
+    if (
+        fully_dispatched
+        and current == SalesOrderStatus.DISPATCHED
+        and await SalesOrderLineRepository(session, tenant).uninvoiced_line_count(sales_order.id)
+        == 0
+    ):
+        SALES_ORDER_LIFECYCLE.assert_transition(current, SalesOrderStatus.INVOICED)
+        sales_order.status = SalesOrderStatus.INVOICED
+        sales_order.updated_by_id = tenant.user_id
+        await record_status_change(
+            session,
+            company_id=tenant.company_id,
+            entity_type=AUDIT_SALES_ORDER,
+            entity_id=sales_order.id,
+            entity_code=sales_order.code,
+            from_status=str(current),
+            to_status=str(SalesOrderStatus.INVOICED),
+            user_id=tenant.user_id,
+            action=AuditAction.DISPATCH_CHANGE,
+            reason=f"Dispatch {dispatch_code} completed already-invoiced goods",
+        )
+        await session.flush()
+        current = SalesOrderStatus.INVOICED
     return str(current)
 
 
@@ -1976,7 +2194,6 @@ __all__ = [
     "DISPATCHABLE_ORDER_STATUSES",
     "DISPATCH_LIFECYCLE",
     "MOVEMENT_REFERENCE_DISPATCH",
-    "SERIAL_RESERVATION_MESSAGE",
     "LineBalance",
     "add_tracking_event",
     "arrived_late",
@@ -1999,6 +2216,7 @@ __all__ = [
     "list_tracking_events",
     "mark_in_transit",
     "mark_ready",
+    "open_dispatch_quantities",
     "qc_is_pending",
     "sales_order_status_path",
     "scan_delays",

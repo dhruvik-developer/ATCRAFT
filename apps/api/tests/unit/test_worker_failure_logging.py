@@ -94,6 +94,8 @@ def test_the_mail_task_set_names_every_registered_mail_task() -> None:
             notifications.send_email,
             notifications.send_password_reset_email,
             notifications.dispatch_pending_password_resets,
+            notifications.send_push,
+            notifications.dispatch_pending_deliveries,
         )
     }
     assert registered == worker.MAIL_TASKS

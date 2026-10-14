@@ -32,7 +32,7 @@ import hashlib
 import io
 import uuid
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
 
@@ -70,7 +70,13 @@ from src.modules.documents.service import (
     default_expiry,
     resolve_storage_path,
 )
+from src.modules.finance import sales_invoice_service
 from src.modules.finance.repository import InventoryValuationRepository
+from src.modules.finance.sales_invoice_pdf import render_sales_invoice_pdf
+from src.modules.finance.sales_invoice_repository import (
+    SalesInvoiceRepository,
+    SalesInvoiceSourceRepository,
+)
 from src.modules.finance.schemas import ValuationFilters
 from src.modules.finance.service import valuation_row
 from src.modules.notifications.models import NotificationSeverity, NotificationType
@@ -87,6 +93,7 @@ XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sh
 #: What the generated document is filed against, so "every artefact for this
 #: packing order" is one indexed lookup on ``documents``.
 PACKING_LIST_ENTITY = "packing_order"
+SALES_INVOICE_ENTITY = "sales_invoice"
 
 #: Page geometry. 15 mm margins keep the table inside the printable area of every
 #: office printer we have met, without wasting a column of width.
@@ -290,6 +297,147 @@ def render_packing_list_pdf(data: dict[str, Any]) -> bytes:
     return buffer.getvalue()
 
 
+#: The ``documents.entity_type`` a PO PDF is filed under - the purchase order
+#: itself, so the vendor portal and the PO's file list both find it.
+PURCHASE_ORDER_ENTITY = "purchase_order"
+
+#: Two decimals, rounded half-up the way a printed rupee amount is.
+_PAISE = Decimal("0.01")
+
+
+def indian_money(value: Any) -> str:
+    """An amount with Indian digit grouping: ``1,23,45,678.90``.
+
+    Local to this module for now; WP A2 adds money helpers in the commercial
+    lane, and the integrator consolidates the two.
+    """
+    amount = Decimal(str(value or 0)).quantize(_PAISE, rounding=ROUND_HALF_UP)
+    integer, fraction = f"{amount:.2f}".split(".")
+    sign = "-" if integer.startswith("-") else ""
+    digits = integer.lstrip("-")
+    tail = digits[-3:]
+    head = digits[:-3]
+    groups: list[str] = []
+    while head:
+        groups.insert(0, head[-2:])
+        head = head[:-2]
+    return sign + ",".join([*groups, tail]) + "." + fraction
+
+
+def plain_quantity(value: Any) -> str:
+    """A quantity as a document prints it: ``20``, ``12.5`` - not ``20.0000``."""
+    text = format(Decimal(str(value or 0)).normalize(), "f")
+    return "0" if text == "-0" else text
+
+
+#: The address lines of a party block, in reading order.
+_ADDRESS_KEYS: tuple[str, ...] = ("address_line1", "address_line2", "city", "state", "postal_code")
+
+#: The order totals as the PDF labels them.
+_PO_TOTALS: tuple[tuple[str, str], ...] = (
+    ("subtotal", "Subtotal"),
+    ("discount", "Discount"),
+    ("tax_amount", "Tax"),
+    ("freight_amount", "Freight"),
+    ("total_amount", "Total"),
+)
+
+
+def render_purchase_order_pdf(data: dict[str, Any]) -> bytes:
+    """Render a purchase order to PDF bytes. Pure: no database, no clock, no I/O.
+
+    Every stored value is escaped before it becomes a reportlab ``Paragraph``,
+    whose mini-markup would otherwise interpret a ``<`` in an item name.
+    """
+    from xml.sax.saxutils import escape
+
+    styles = _styles()
+    buffer = io.BytesIO()
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=PAGE_MARGIN,
+        rightMargin=PAGE_MARGIN,
+        topMargin=PAGE_MARGIN,
+        bottomMargin=PAGE_MARGIN,
+        title=f"Purchase order {data.get('code', '')}",
+    )
+
+    def paragraph(value: Any, style: str = "body") -> Paragraph:
+        return Paragraph(escape(str(value or "")), styles[style])
+
+    def party(label: str, block: dict[str, Any]) -> list[Any]:
+        address = ", ".join(str(block[key]) for key in _ADDRESS_KEYS if block.get(key))
+        return [
+            paragraph(f"{label}: {block.get('name') or ''}", "meta"),
+            *([paragraph(address)] if address else []),
+            *([paragraph(f"GSTIN: {block['gstin']}")] if block.get("gstin") else []),
+        ]
+
+    currency = data.get("currency") or "INR"
+    story: list[Any] = [
+        Paragraph("PURCHASE ORDER", styles["title"]),
+        *party("Buyer", data.get("company") or {}),
+        Spacer(1, 4),
+        *party("Vendor", data.get("vendor") or {}),
+        Spacer(1, 8),
+        paragraph(f"PO number: {data.get('code') or ''}", "meta"),
+        paragraph(f"PO date: {data.get('po_date') or ''}    Status: {data.get('status') or ''}"),
+        paragraph(f"Expected delivery: {data.get('expected_delivery_date') or 'not set'}"),
+        *(
+            [paragraph(f"Vendor committed delivery: {data['vendor_committed_date']}")]
+            if data.get("vendor_committed_date")
+            else []
+        ),
+        paragraph(f"Delivery address: {data.get('delivery_address') or ''}"),
+        Spacer(1, 8),
+    ]
+    rows: list[list[Any]] = [
+        [
+            paragraph(header)
+            for header in (
+                "Item / vendor code",
+                "Description / HSN",
+                "Qty / UoM",
+                "Rate",
+                "Discount",
+                "Tax",
+                "Total",
+            )
+        ]
+    ]
+    for line in data.get("lines", []):
+        rows.append(
+            [
+                paragraph(
+                    " / ".join(
+                        str(v) for v in (line.get("code"), line.get("vendor_item_code")) if v
+                    )
+                ),
+                paragraph(
+                    str(line.get("description") or "")
+                    + (f" (HSN {line['hsn']})" if line.get("hsn") else "")
+                ),
+                paragraph(f"{plain_quantity(line.get('quantity'))} {line.get('uom') or ''}"),
+                *[
+                    paragraph(indian_money(line.get(key)), "right")
+                    for key in ("unit_price", "discount", "tax", "total")
+                ],
+            ]
+        )
+    table = Table(rows, colWidths=[70, 125, 50, 60, 50, 50, 65], repeatRows=1)
+    table.setStyle(_TABLE_STYLE)
+    story.append(table)
+    story.append(Spacer(1, 6))
+    for key, label in _PO_TOTALS:
+        story.append(paragraph(f"{label}: {currency} {indian_money(data.get(key))}", "right"))
+    if data.get("terms"):
+        story.extend([Spacer(1, 10), paragraph("Terms", "meta"), paragraph(data.get("terms"))])
+    story.extend([Spacer(1, 28), paragraph("Authorised signatory", "meta")])
+    document.build(story)
+    return buffer.getvalue()
+
+
 # -----------------------------------------------------------------------------
 # Filesystem primitives - blocking, handed to a worker thread
 # -----------------------------------------------------------------------------
@@ -461,6 +609,154 @@ async def generate_packing_list(
         "size_bytes": size_bytes,
         "checksum_sha256": checksum,
         "carton_count": len(data.get("cartons", [])),
+    }
+
+
+@async_task(name="reports.generate_sales_invoice", queue="reports")
+async def generate_sales_invoice(
+    sales_invoice_id: str,
+    snapshot_id: str,
+    company_id: str,
+    user_id: str,
+    request_id: str | None = None,
+    **_: Any,
+) -> dict[str, Any]:
+    """Render one issued sales invoice and file it in the document store.
+
+    The job row (``snapshot_id``) is driven through the same lifecycle as every
+    other background report: claimed on entry, completed with the document id
+    once the row is written, and failed on a fresh session if anything raises -
+    see :func:`generate_report` for why each of those matters. Without it the
+    client polls a job that stays QUEUED for ever.
+
+    Arguments are plain strings because Celery serialises task payloads as JSON;
+    ``request_id`` is not used here but is read by the ``task_prerun`` signal so
+    the API's correlation id follows the work into the worker's logs (section 55).
+    """
+    tenant = TenantContext(company_id=uuid.UUID(company_id), user_id=uuid.UUID(user_id))
+    order_id = uuid.UUID(sales_invoice_id)
+    identifier = uuid.UUID(snapshot_id)
+    moment = utcnow()
+
+    try:
+        async with session_scope() as session:
+            try:
+                snapshot = await reports_service.start_snapshot(session, tenant, identifier)
+            except InvalidStateTransitionError:
+                log.warning("reports.sales_invoice_not_queued", snapshot_id=snapshot_id)
+                return {
+                    "snapshot_id": snapshot_id,
+                    "status": "SKIPPED",
+                    "reason": "the job is no longer queued",
+                }
+
+            data = await sales_invoice_service.sales_invoice_print_data(session, tenant, order_id)
+
+            payload = await anyio.to_thread.run_sync(render_sales_invoice_pdf, data)
+            checksum = hashlib.sha256(payload).hexdigest()
+
+            rule = KNOWN_TYPES[PDF_MIME_TYPE]
+            storage_key = build_storage_key(
+                category=DocumentCategory.REPORT,
+                company_id=tenant.company_id,
+                rule=rule,
+                moment=moment,
+                file_id=new_id(),
+            )
+            destination = resolve_storage_path(storage_key)
+            await anyio.to_thread.run_sync(_write_bytes, destination, payload)
+
+            try:
+                document = Document(
+                    file_name=_safe_file_name(str(data.get("code", ""))).replace(
+                        "packing-list-", "sales-invoice-", 1
+                    ),
+                    storage_key=storage_key,
+                    mime_type=PDF_MIME_TYPE,
+                    size_bytes=len(payload),
+                    checksum_sha256=checksum,
+                    category=DocumentCategory.REPORT,
+                    entity_type=SALES_INVOICE_ENTITY,
+                    entity_id=order_id,
+                    uploaded_by_id=tenant.user_id,
+                    is_public=False,
+                    expires_at=default_expiry(DocumentCategory.REPORT, moment),
+                )
+                DocumentRepository(session, tenant).add(document)
+                await session.flush()
+                dispatch = await SalesInvoiceSourceRepository(session, tenant).dispatch(
+                    uuid.UUID(str(data["dispatch_id"])), lock=True
+                )
+                invoice = await SalesInvoiceRepository(session, tenant).lock_header(order_id)
+                invoice.pdf_document_id = document.id
+                dispatch.invoice_document_id = document.id
+                await session.flush()
+
+                await record_audit(
+                    session,
+                    company_id=tenant.company_id,
+                    action=AuditAction.DATA_EXPORT,
+                    entity_type=SALES_INVOICE_ENTITY,
+                    entity_id=order_id,
+                    entity_code=str(data.get("code", "")),
+                    summary=(
+                        f"Generated the sales invoice for {data.get('code', '')} "
+                        f"({len(payload)} bytes)"
+                    ),
+                    user_id=tenant.user_id,
+                    new_values={
+                        "document_id": document.id,
+                        "file_name": document.file_name,
+                        "size_bytes": document.size_bytes,
+                        "checksum_sha256": checksum,
+                        "line_count": len(data.get("lines", [])),
+                    },
+                )
+
+                await reports_service.complete_snapshot(
+                    session,
+                    tenant,
+                    snapshot_id=snapshot.id,
+                    row_count=len(data.get("lines", [])),
+                    document_id=document.id,
+                )
+            except Exception:
+                # The row never committed, so nothing will ever reference these
+                # bytes. Removing them here is the only cheap chance to do so.
+                await anyio.to_thread.run_sync(_unlink, destination)
+                raise
+
+            document_id = str(document.id)
+            size_bytes = document.size_bytes
+
+    except Exception as exc:
+        # A separate session: the one the failure happened on cannot be used to
+        # write anything, so the job would otherwise stay RUNNING for ever.
+        async with session_scope() as session:
+            await reports_service.fail_snapshot(
+                session, tenant, snapshot_id=identifier, error=_failure_message(exc)
+            )
+        log.error(
+            "reports.sales_invoice_failed", snapshot_id=snapshot_id, error=str(exc), exc_info=exc
+        )
+        raise
+
+    log.info(
+        "reports.sales_invoice_generated",
+        snapshot_id=snapshot_id,
+        sales_invoice_id=sales_invoice_id,
+        document_id=document_id,
+        size_bytes=size_bytes,
+    )
+    return {
+        "snapshot_id": snapshot_id,
+        "status": "COMPLETED",
+        "sales_invoice_id": sales_invoice_id,
+        "sales_invoice_code": str(data.get("code", "")),
+        "document_id": document_id,
+        "size_bytes": size_bytes,
+        "checksum_sha256": checksum,
+        "line_count": len(data.get("lines", [])),
     }
 
 
@@ -1049,18 +1345,164 @@ async def generate_report(
     }
 
 
+@async_task(name="reports.generate_purchase_order", queue="reports")
+async def generate_purchase_order(
+    purchase_order_id: str,
+    snapshot_id: str,
+    company_id: str,
+    user_id: str,
+    request_id: str | None = None,
+    **_: Any,
+) -> dict[str, Any]:
+    """Render one purchase order's PDF and file it in the document store.
+
+    The job row (``snapshot_id``) is driven through the same lifecycle as every
+    other background report: claimed on entry, completed with the document id
+    once the row is written, and failed on a fresh session if anything raises -
+    see :func:`generate_report` for why each of those matters. Without it the
+    client polls a job that stays QUEUED for ever.
+
+    Arguments are plain strings because Celery serialises task payloads as JSON;
+    ``request_id`` is not used here but is read by the ``task_prerun`` signal so
+    the API's correlation id follows the work into the worker's logs (section 55).
+    """
+    from src.modules.procurement.purchase_order_pdf_repository import purchase_order_pdf_data
+
+    tenant = TenantContext(company_id=uuid.UUID(company_id), user_id=uuid.UUID(user_id))
+    order_id = uuid.UUID(purchase_order_id)
+    identifier = uuid.UUID(snapshot_id)
+    moment = utcnow()
+
+    try:
+        async with session_scope() as session:
+            try:
+                snapshot = await reports_service.start_snapshot(session, tenant, identifier)
+            except InvalidStateTransitionError:
+                log.warning("reports.purchase_order_not_queued", snapshot_id=snapshot_id)
+                return {
+                    "snapshot_id": snapshot_id,
+                    "status": "SKIPPED",
+                    "reason": "the job is no longer queued",
+                }
+
+            data = await purchase_order_pdf_data(session, tenant, order_id)
+
+            payload = await anyio.to_thread.run_sync(render_purchase_order_pdf, data)
+            checksum = hashlib.sha256(payload).hexdigest()
+
+            rule = KNOWN_TYPES[PDF_MIME_TYPE]
+            storage_key = build_storage_key(
+                category=DocumentCategory.REPORT,
+                company_id=tenant.company_id,
+                rule=rule,
+                moment=moment,
+                file_id=new_id(),
+            )
+            destination = resolve_storage_path(storage_key)
+            await anyio.to_thread.run_sync(_write_bytes, destination, payload)
+
+            try:
+                document = Document(
+                    file_name=f"purchase-order-{str(data.get('code', '')).replace('/', '-')}.pdf",
+                    storage_key=storage_key,
+                    mime_type=PDF_MIME_TYPE,
+                    size_bytes=len(payload),
+                    checksum_sha256=checksum,
+                    category=DocumentCategory.REPORT,
+                    entity_type=PURCHASE_ORDER_ENTITY,
+                    entity_id=order_id,
+                    uploaded_by_id=tenant.user_id,
+                    is_public=False,
+                    expires_at=None,
+                )
+                DocumentRepository(session, tenant).add(document)
+                await session.flush()
+
+                await record_audit(
+                    session,
+                    company_id=tenant.company_id,
+                    action=AuditAction.DATA_EXPORT,
+                    entity_type="purchase_order",
+                    entity_id=order_id,
+                    entity_code=str(data.get("code", "")),
+                    summary=(
+                        f"Generated the purchase order PDF for {data.get('code', '')} "
+                        f"({len(payload)} bytes)"
+                    ),
+                    user_id=tenant.user_id,
+                    new_values={
+                        "document_id": document.id,
+                        "file_name": document.file_name,
+                        "size_bytes": document.size_bytes,
+                        "checksum_sha256": checksum,
+                        "line_count": len(data.get("lines", [])),
+                    },
+                )
+
+                await reports_service.complete_snapshot(
+                    session,
+                    tenant,
+                    snapshot_id=snapshot.id,
+                    row_count=len(data.get("lines", [])),
+                    document_id=document.id,
+                )
+            except Exception:
+                # The row never committed, so nothing will ever reference these
+                # bytes. Removing them here is the only cheap chance to do so.
+                await anyio.to_thread.run_sync(_unlink, destination)
+                raise
+
+            document_id = str(document.id)
+            size_bytes = document.size_bytes
+
+    except Exception as exc:
+        # A separate session: the one the failure happened on cannot be used to
+        # write anything, so the job would otherwise stay RUNNING for ever.
+        async with session_scope() as session:
+            await reports_service.fail_snapshot(
+                session, tenant, snapshot_id=identifier, error=_failure_message(exc)
+            )
+        log.error(
+            "reports.purchase_order_failed", snapshot_id=snapshot_id, error=str(exc), exc_info=exc
+        )
+        raise
+
+    log.info(
+        "reports.purchase_order_generated",
+        snapshot_id=snapshot_id,
+        purchase_order_id=purchase_order_id,
+        document_id=document_id,
+        size_bytes=size_bytes,
+    )
+    return {
+        "snapshot_id": snapshot_id,
+        "status": "COMPLETED",
+        "purchase_order_id": purchase_order_id,
+        "purchase_order_code": str(data.get("code", "")),
+        "document_id": document_id,
+        "size_bytes": size_bytes,
+        "checksum_sha256": checksum,
+        "line_count": len(data.get("lines", [])),
+    }
+
+
 __all__ = [
     "CARTONS_PER_PAGE",
     "GENERATED_REPORT_ENTITY",
     "MAX_VALUATION_EXPORT_ROWS",
     "PACKING_LIST_ENTITY",
+    "PURCHASE_ORDER_ENTITY",
     "REPORT_COLUMN_WIDTH_LIMIT",
     "VALUATION_CHUNK_ROWS",
     "VALUATION_ENTITY",
     "generate_packing_list",
+    "generate_purchase_order",
     "generate_report",
+    "indian_money",
     "inventory_valuation",
+    "plain_quantity",
     "render_inventory_valuation_xlsx",
     "render_packing_list_pdf",
+    "render_purchase_order_pdf",
     "render_report_xlsx",
 ]

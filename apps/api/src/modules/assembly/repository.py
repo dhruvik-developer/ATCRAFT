@@ -35,15 +35,22 @@ from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
 from src.core.database import affected_rows
-from src.core.pagination import COUNT_CEILING, PageParams, SortParams
+from src.core.pagination import COUNT_CEILING, PageParams, SortParams, paginate
 from src.core.responses import OffsetPagination
 from src.modules.assembly.models import (
+    NOT_STARTED_STATUSES,
     OPEN_SUPPLY_STATUSES,
     AssemblyOrder,
     AssemblyOrderComponent,
     AssemblyOrderStatus,
+    AssemblySourceType,
 )
-from src.modules.assembly.schemas import AssemblyOrderFilters, ReadyForPackingRow
+from src.modules.assembly.schemas import (
+    AssemblyBoardFilters,
+    AssemblyLineLoad,
+    AssemblyOrderFilters,
+    ReadyForPackingRow,
+)
 from src.modules.inventory.models import InventoryBalance, SerialStatus, StockSerial
 from src.modules.products.models import Item
 from src.modules.warehouses.models import Warehouse
@@ -341,6 +348,8 @@ class AssemblyOrderRepository(BaseRepository[AssemblyOrder]):
                 AssemblyOrder.assembled_quantity.label("assembled_quantity"),
                 AssemblyOrder.actual_end.label("completed_at"),
                 AssemblyOrder.requires_qc.label("requires_qc"),
+                AssemblyOrder.source_type.label("source_type"),
+                AssemblyOrder.source_id.label("source_id"),
                 available.label("available_quantity"),
             )
             .select_from(AssemblyOrder)
@@ -379,17 +388,25 @@ class AssemblyOrderRepository(BaseRepository[AssemblyOrder]):
     async def ready_for_packing_page(
         self, *, warehouse_id: uuid.UUID | None, params: PageParams
     ) -> tuple[list[ReadyForPackingRow], OffsetPagination]:
-        """Paginate the aggregate.
+        """Paginate the aggregate - see :meth:`_aggregate_page`."""
+        rows, pagination = await self._aggregate_page(
+            self.ready_for_packing_stmt(warehouse_id), params
+        )
+        return [_packing_row(row) for row in rows], pagination
+
+    async def _aggregate_page(
+        self, stmt: Select[Any], params: PageParams
+    ) -> tuple[list[Any], OffsetPagination]:
+        """Offset-page a grouped statement.
 
         ``core.pagination.paginate`` cannot be used: it reads ``.scalars()``,
         which would keep only the first column of an aggregate row. The
         semantics are reproduced here - one extra row to decide ``has_next``,
         and a bounded count only when the caller asked for a total.
         """
-        stmt = self.ready_for_packing_stmt(warehouse_id)
-        rows = (
-            await self.session.execute(stmt.limit(params.limit + 1).offset(params.offset))
-        ).all()
+        rows = list(
+            (await self.session.execute(stmt.limit(params.limit + 1).offset(params.offset))).all()
+        )
 
         has_next = len(rows) > params.limit
         rows = rows[: params.limit]
@@ -403,7 +420,7 @@ class AssemblyOrderRepository(BaseRepository[AssemblyOrder]):
             total = int((await self.session.execute(count_stmt)).scalar_one())
             total_pages = max(1, -(-total // params.limit))
 
-        return [_packing_row(row) for row in rows], OffsetPagination(
+        return rows, OffsetPagination(
             page=params.page,
             limit=params.limit,
             total=total,
@@ -411,6 +428,157 @@ class AssemblyOrderRepository(BaseRepository[AssemblyOrder]):
             has_next=has_next,
             has_previous=params.page > 1,
         )
+
+    # --- the assembly board -------------------------------------------------
+
+    def _open_orders(self, *, warehouse_id: uuid.UUID | None) -> Select[Any]:
+        stmt = self._scoped().where(AssemblyOrder.status.in_(OPEN_SUPPLY_STATUSES))
+        if warehouse_id is not None:
+            stmt = stmt.where(AssemblyOrder.warehouse_id == warehouse_id)
+        return stmt
+
+    async def board_page(
+        self, filters: AssemblyBoardFilters, params: PageParams, *, now: datetime
+    ) -> tuple[list[AssemblyOrder], OffsetPagination]:
+        """Open orders, line by line and in schedule order within each line.
+
+        Ordered by line (orders on no line last), then planned start (unplanned
+        last); the pagination helper appends the primary key, so the order is
+        total and a page boundary cannot repeat or drop a row.
+        """
+        stmt = self._open_orders(warehouse_id=filters.warehouse_id)
+        if filters.assembly_line is not None:
+            stmt = stmt.where(AssemblyOrder.assembly_line == filters.assembly_line)
+        if filters.unassigned_line:
+            stmt = stmt.where(AssemblyOrder.assembly_line.is_(None))
+        if filters.late_only:
+            stmt = stmt.where(AssemblyOrder.planned_end < now)
+        stmt = stmt.order_by(
+            AssemblyOrder.assembly_line.asc().nullslast(),
+            AssemblyOrder.planned_start.asc().nullslast(),
+        )
+        return await paginate(self.session, stmt, params)
+
+    async def line_load_page(
+        self, *, warehouse_id: uuid.UUID | None, params: PageParams, now: datetime
+    ) -> tuple[list[AssemblyLineLoad], OffsetPagination]:
+        """Open work per assembly line, aggregated in one grouped statement.
+
+        Grouping the open set in the database rather than in the browser is the
+        point: a board drawn from one page of orders would undercount a busy
+        line the moment its orders spilled onto page two.
+        """
+        late = and_(AssemblyOrder.planned_end.is_not(None), AssemblyOrder.planned_end < now)
+        stmt = (
+            select(
+                AssemblyOrder.assembly_line.label("assembly_line"),
+                func.count(AssemblyOrder.id).label("open_orders"),
+                func.count(AssemblyOrder.id)
+                .filter(AssemblyOrder.status.in_(NOT_STARTED_STATUSES))
+                .label("not_started_orders"),
+                func.count(AssemblyOrder.id)
+                .filter(AssemblyOrder.status == AssemblyOrderStatus.IN_PROGRESS)
+                .label("in_progress_orders"),
+                func.count(AssemblyOrder.id)
+                .filter(AssemblyOrder.status == AssemblyOrderStatus.QC_PENDING)
+                .label("qc_pending_orders"),
+                func.count(AssemblyOrder.id).filter(late).label("late_orders"),
+                func.coalesce(func.sum(AssemblyOrder.planned_quantity), 0).label(
+                    "planned_quantity"
+                ),
+                func.min(AssemblyOrder.planned_start).label("earliest_planned_start"),
+                func.max(AssemblyOrder.planned_end).label("latest_planned_end"),
+            )
+            .where(
+                AssemblyOrder.company_id == self.tenant.company_id,
+                AssemblyOrder.status.in_(OPEN_SUPPLY_STATUSES),
+            )
+            .group_by(AssemblyOrder.assembly_line)
+            # The line name is the group key, so it is unique per row and the
+            # order is total without a primary-key tiebreaker.
+            .order_by(AssemblyOrder.assembly_line.asc().nullslast())
+        )
+        if warehouse_id is not None:
+            stmt = stmt.where(AssemblyOrder.warehouse_id == warehouse_id)
+
+        rows, pagination = await self._aggregate_page(stmt, params)
+        return [
+            AssemblyLineLoad(
+                assembly_line=row.assembly_line,
+                open_orders=int(row.open_orders),
+                not_started_orders=int(row.not_started_orders),
+                in_progress_orders=int(row.in_progress_orders),
+                qc_pending_orders=int(row.qc_pending_orders),
+                late_orders=int(row.late_orders),
+                planned_quantity=Decimal(str(row.planned_quantity)),
+                earliest_planned_start=row.earliest_planned_start,
+                latest_planned_end=row.latest_planned_end,
+            )
+            for row in rows
+        ], pagination
+
+    # --- the quality owner sweep -------------------------------------------
+
+    async def awaiting_quality_verdict(
+        self, *, after: uuid.UUID | None, limit: int
+    ) -> list[uuid.UUID]:
+        """Orders on QC hold whose output an inspection was raised for.
+
+        One keyset page in id order for ``quality.owners.reconcile_owners``. An
+        order held with no inspection behind it is not listed: no decision can
+        settle it, and its owner-side verdict endpoint still serves it.
+        """
+        stmt = (
+            select(AssemblyOrder.id)
+            .where(
+                AssemblyOrder.company_id == self.tenant.company_id,
+                AssemblyOrder.status == AssemblyOrderStatus.QC_PENDING,
+                AssemblyOrder.qc_inspection_id.is_not(None),
+            )
+            .order_by(AssemblyOrder.id)
+            .limit(limit)
+        )
+        if after is not None:
+            stmt = stmt.where(AssemblyOrder.id > after)
+        return list((await self.session.execute(stmt)).scalars().all())
+
+
+class ComponentAvailabilityRepository(BaseRepository[InventoryBalance]):
+    """Promisable stock where a component reservation would hold it."""
+
+    model = InventoryBalance
+
+    async def reservable_by_item(
+        self, item_ids: Sequence[uuid.UUID], warehouse_id: uuid.UUID
+    ) -> dict[uuid.UUID, Decimal]:
+        """``available_quantity`` per item at the warehouse's bin-less, batch-less
+        position, in one statement. Never cached (section 34).
+
+        That position, and no other, is what release reserves against:
+        ``allocation.reserve`` called with no bin and no batch holds the position
+        that has neither. Stock in a bin is real but a release cannot claim it,
+        so counting it here would promise a release that is then refused.
+        """
+        if not item_ids:
+            return {}
+        stmt = (
+            select(
+                InventoryBalance.item_id,
+                func.coalesce(func.sum(InventoryBalance.available_quantity), 0).label("available"),
+            )
+            .where(
+                InventoryBalance.company_id == self.tenant.company_id,
+                InventoryBalance.warehouse_id == warehouse_id,
+                InventoryBalance.item_id.in_(list(dict.fromkeys(item_ids))),
+                InventoryBalance.location_id.is_(None),
+                InventoryBalance.batch_id.is_(None),
+            )
+            .group_by(InventoryBalance.item_id)
+        )
+        return {
+            row.item_id: Decimal(str(row.available))
+            for row in (await self.session.execute(stmt)).all()
+        }
 
 
 def _packing_row(row: Any) -> ReadyForPackingRow:
@@ -425,6 +593,8 @@ def _packing_row(row: Any) -> ReadyForPackingRow:
         available_quantity=Decimal(str(row.available_quantity)),
         completed_at=completed_at,
         requires_qc=bool(row.requires_qc),
+        source_type=AssemblySourceType(row.source_type),
+        source_id=row.source_id,
     )
 
 
@@ -432,6 +602,7 @@ __all__ = [
     "AssemblyComponentRepository",
     "AssemblyItem",
     "AssemblyOrderRepository",
+    "ComponentAvailabilityRepository",
     "ItemLookupRepository",
     "SerialFacts",
     "SerialLookupRepository",

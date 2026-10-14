@@ -23,6 +23,7 @@ from sqlalchemy import Select, delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
+from src.core.actors import actor_id
 from src.core.clock import utcnow
 from src.core.database import affected_rows
 from src.core.deps import TenantContext
@@ -164,16 +165,19 @@ class BaseRepository(Generic[ModelT]):
 
     def add(self, instance: ModelT) -> ModelT:
         """Stage an insert. Tenant and actor are stamped from the context, not
-        from the payload - a client cannot write into another company."""
+        from the payload - a client cannot write into another company.
+
+        The system actor a scheduled sweep carries is stamped as NULL, never as
+        the nil placeholder: no user row has that id (``src.core.actors``)."""
         instance.company_id = self.tenant.company_id  # type: ignore[attr-defined]
         if hasattr(instance, "created_by_id") and getattr(instance, "created_by_id", None) is None:
-            instance.created_by_id = self.tenant.user_id
+            instance.created_by_id = actor_id(self.tenant.user_id)
         self.session.add(instance)
         return instance
 
     def touch(self, instance: ModelT) -> ModelT:
         if hasattr(instance, "updated_by_id"):
-            instance.updated_by_id = self.tenant.user_id
+            instance.updated_by_id = actor_id(self.tenant.user_id)
         return instance
 
     async def soft_delete(self, instance: ModelT) -> ModelT:

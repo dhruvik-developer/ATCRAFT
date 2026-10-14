@@ -34,7 +34,7 @@ from sqlalchemy.orm import InstrumentedAttribute, selectinload
 from src.common.repository import BaseRepository
 from src.core.clock import utcnow
 from src.core.deps import TenantContext
-from src.core.ids import new_id
+from src.core.ids import new_id, persisted_actor
 from src.core.pagination import PageParams, SortParams
 from src.core.responses import OffsetPagination
 from src.modules.inventory.models import (
@@ -248,7 +248,9 @@ class InventoryRepository(BaseRepository[InventoryBalance]):
         """
         params: dict[str, Any] = {
             "company_id": self.tenant.company_id,
-            "user_id": self.tenant.user_id,
+            # A scheduled job's placeholder actor is stored as NULL, never as a
+            # foreign key to a user that does not exist.
+            "user_id": persisted_actor(self.tenant.user_id),
             "now": utcnow(),
         }
         rows_sql: list[str] = []

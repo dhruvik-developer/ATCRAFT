@@ -53,6 +53,10 @@ import {
 import { Badge, Checkbox, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { CustomerPicker } from '@/features/customers/customer-picker'
+import {
+  RaiseSalesInvoiceDialog,
+  SalesInvoiceDetailDialog,
+} from '@/features/finance/sales-invoice-dialogs'
 import { useListQuery } from '@/hooks/use-list-query'
 import { ApiError, api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_ALL } from '@/lib/constants'
@@ -79,11 +83,16 @@ import {
   type DispatchTrackingRow,
 } from './dispatch-types'
 
-/** The URL keys the dispatch list filters on. */
+/**
+ * The URL keys the dispatch list filters on. `sales_order_id` has no control of
+ * its own: it arrives on the link from a sales order's page, shows as a chip,
+ * and is cleared with the rest.
+ */
 const DISPATCH_FILTER_KEYS = [
   'status',
   'dispatch_type',
   'customer_id',
+  'sales_order_id',
   'delayed_only',
   'in_flight_only',
 ] as const
@@ -290,9 +299,13 @@ function LeadingCell({ delayed, children }: { delayed: boolean; children: ReactN
 function DispatchesTab({
   onTrack,
   onAction,
+  onRaiseInvoice,
+  onViewInvoice,
 }: {
   onTrack: (dispatch: DispatchRow) => void
   onAction: (action: PendingAction) => void
+  onRaiseInvoice: (dispatch: DispatchRow) => void
+  onViewInvoice: (id: string) => void
 }) {
   const { can } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -307,6 +320,7 @@ function DispatchesTab({
   const status = searchParams.get('status') ?? ''
   const type = searchParams.get('dispatch_type') ?? ''
   const customerId = searchParams.get('customer_id') ?? ''
+  const salesOrderId = searchParams.get('sales_order_id') ?? ''
   const delayedOnly = searchParams.get('delayed_only') === 'true'
   const inFlightOnly = searchParams.get('in_flight_only') === 'true'
 
@@ -320,6 +334,7 @@ function DispatchesTab({
       ...(status ? { status } : {}),
       ...(type ? { dispatch_type: type } : {}),
       ...(customerId ? { customer_id: customerId } : {}),
+      ...(salesOrderId ? { sales_order_id: salesOrderId } : {}),
       ...(delayedOnly ? { delayed_only: true } : {}),
       ...(inFlightOnly ? { in_flight_only: true } : {}),
     },
@@ -330,6 +345,7 @@ function DispatchesTab({
     (status ? 1 : 0) +
     (type ? 1 : 0) +
     (customerId ? 1 : 0) +
+    (salesOrderId ? 1 : 0) +
     (delayedOnly ? 1 : 0) +
     (inFlightOnly ? 1 : 0)
 
@@ -471,6 +487,23 @@ function DispatchesTab({
                 Tracking timeline
               </DropdownMenuItem>
 
+              {can(P.SALES_INVOICE_CREATE) &&
+                dispatch.dispatch_type === 'SALES' &&
+                dispatch.sales_order_id &&
+                !dispatch.sales_invoice_id &&
+                ['READY_FOR_DISPATCH', 'DISPATCHED', 'IN_TRANSIT', 'DELIVERED'].includes(
+                  dispatch.status,
+                ) && (
+                  <DropdownMenuItem onSelect={() => onRaiseInvoice(dispatch)}>
+                    Raise invoice
+                  </DropdownMenuItem>
+                )}
+              {can(P.SALES_INVOICE_VIEW) && dispatch.sales_invoice_id && (
+                <DropdownMenuItem onSelect={() => onViewInvoice(dispatch.sales_invoice_id!)}>
+                  View invoice
+                </DropdownMenuItem>
+              )}
+
               {canReady && (
                 <DropdownMenuItem
                   onSelect={() =>
@@ -607,7 +640,16 @@ function DispatchesTab({
     })
 
     return defs
-  }, [canUpdate, canCreate, canConfirmDelivery, onTrack, onAction])
+  }, [
+    can,
+    canUpdate,
+    canCreate,
+    canConfirmDelivery,
+    onTrack,
+    onAction,
+    onRaiseInvoice,
+    onViewInvoice,
+  ])
 
   return (
     <DataTable
@@ -699,6 +741,20 @@ function DispatchesTab({
               Still moving
             </Label>
           </div>
+
+          {salesOrderId && (
+            <Badge variant="muted" className="gap-1">
+              One sales order's consignments
+              <button
+                type="button"
+                className="rounded-sm hover:text-foreground"
+                aria-label="Show every sales order"
+                onClick={() => setParam('sales_order_id', undefined)}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          )}
 
           {filterCount > 0 && (
             <Button
@@ -972,6 +1028,8 @@ export default function DispatchPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [tracking, setTracking] = useState<DispatchRow | null>(null)
   const [pending, setPending] = useState<PendingAction | null>(null)
+  const [invoiceDispatch, setInvoiceDispatch] = useState<DispatchRow | null>(null)
+  const [invoiceId, setInvoiceId] = useState<string | null>(null)
 
   const canCreate = can(P.DISPATCH_CREATE)
   const tab = searchParams.get('tab') ?? 'dispatches'
@@ -1028,7 +1086,12 @@ export default function DispatchPage() {
         </TabsList>
 
         <TabsContent value="dispatches">
-          <DispatchesTab onTrack={setTracking} onAction={setPending} />
+          <DispatchesTab
+            onTrack={setTracking}
+            onAction={setPending}
+            onRaiseInvoice={setInvoiceDispatch}
+            onViewInvoice={setInvoiceId}
+          />
         </TabsContent>
         <TabsContent value="tracking">
           <TrackingTab />
@@ -1046,6 +1109,15 @@ export default function DispatchPage() {
       />
 
       <ActionConfirm pending={pending} onDone={() => setPending(null)} />
+      {can(P.SALES_INVOICE_CREATE) && (
+        <RaiseSalesInvoiceDialog
+          dispatchId={invoiceDispatch?.id ?? null}
+          onClose={() => setInvoiceDispatch(null)}
+        />
+      )}
+      {can(P.SALES_INVOICE_VIEW) && (
+        <SalesInvoiceDetailDialog invoiceId={invoiceId} onClose={() => setInvoiceId(null)} />
+      )}
     </div>
   )
 }

@@ -340,6 +340,9 @@ async def world(db: AsyncSession, tenant: TenantContext) -> dict[str, Any]:
         permissions=[
             str(Permission.PURCHASE_ORDER_VIEW),
             str(Permission.PURCHASE_ORDER_UPDATE),
+            # Vendor assignees act through the portal: lane C moved the
+            # assignee right from PURCHASE_ORDER_UPDATE to VENDOR_PORTAL_RESPOND.
+            str(Permission.VENDOR_PORTAL_RESPOND),
         ],
         is_system=False,
         is_vendor_role=True,

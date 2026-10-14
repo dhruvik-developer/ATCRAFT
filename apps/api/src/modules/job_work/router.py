@@ -36,6 +36,7 @@ from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedRes
 from src.modules.job_work import service
 from src.modules.job_work.models import JobWorkOrderStatus, JobWorkProcess
 from src.modules.job_work.schemas import (
+    BillableLine,
     ChallanRead,
     IssueRequest,
     IssueResult,
@@ -277,6 +278,29 @@ async def delete_order(
 # -----------------------------------------------------------------------------
 # Documents and reports for one order
 # -----------------------------------------------------------------------------
+
+
+@router.get(
+    "/{order_id}/billable-lines",
+    response_model=ApiResponse[list[BillableLine]],
+    summary="Receipt lines of one order a job-work invoice may still bill",
+    description=(
+        "Only lines with unbilled charges are listed, in receipt and line order, "
+        "with the order's rate, basis, tax rate and SAC alongside - the dialog "
+        "prefills from them and the match compares against them. Returned whole "
+        "rather than paginated: an order carries a handful of receipts and a "
+        "billable line is only meaningful with its siblings."
+    ),
+    dependencies=[
+        require_any_permission(Permission.VENDOR_INVOICE_CREATE, Permission.JOB_WORK_VIEW)
+    ],
+)
+async def billable_lines(
+    order_id: uuid.UUID, session: DbSession, tenant: Tenant
+) -> ApiResponse[list[BillableLine]]:
+    return ApiResponse[list[BillableLine]].ok(
+        await service.billable_lines(session, tenant, order_id)
+    )
 
 
 @router.get(

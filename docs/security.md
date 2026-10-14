@@ -183,39 +183,92 @@ another.
 
 ## 4. Vendor portal isolation
 
-Vendor users share the `users` table but carry `vendor_id`, and:
+Vendor users share `users` and carry `vendor_id` (and, optionally,
+`allowed_category_ids`). Their isolation is structural - nothing depends on a
+module remembering to filter by vendor:
 
-- may hold only vendor roles, and vendor roles may only be assigned to them —
-  enforced in both directions;
-- are scoped to their own vendor's records;
-- may be restricted further to specific item categories
-  (`allowed_category_ids`), which is how "Manager 1 → Lock Body, Manager 2 →
-  Handles" is expressed. The list must name live categories of the tenant that
-  the vendor is qualified for (`vendor_categories`); the users service refuses
-  anything else;
-- can be blocked wholesale from internal endpoints with `forbid_vendor_users`,
-  a second line of defence behind the permission check.
+1. **Route allow-list.** `core.deps.get_current_principal` lets a vendor
+   principal reach only `/vendor-portal/**`, its own `/notifications/**` and auth
+   self-service (`/auth/me`, logout, logout-all, change-password, sessions, MFA).
+   Every other authenticated route answers 403 `SCOPE_DENIED` before a handler
+   runs, whatever permissions the account's roles carry - a vendor role granted
+   `dispatch.view` by mistake still reaches no dispatch. The predicate
+   (`vendor_route_allowed`) matches whole path segments, so
+   `/vendor-portal-x` is not `/vendor-portal`. The temporary-password gate is
+   applied first.
+2. **Portal rights.** The five system vendor roles hold only
+   `vendor_portal.access`, `.respond`, `.ship`, `.invoice`, `.quality` and
+   `notification.view` (none ends in `.view`, so the AUDITOR bundle does not
+   absorb them). Each portal route names its right literally.
+3. **Vendor principals only.** Every portal route also requires a vendor
+   principal (`require_vendor_user`): an internal administrator holds every
+   permission string and still gets 403 - nobody acts "as" a vendor by naming
+   an order.
+4. **Ownership is "not found".** The vendor comes from the verified token; no
+   portal request carries a vendor id. Purchase-order reads and row locks are
+   confined in `PurchaseOrderRepository._scoped` to the vendor's own orders that
+   have been sent (a cancelled one only if it had been sent), and, for a
+   category-scoped account, to its categories and their subtrees plus orders
+   assigned to it by name (docs/assumptions.md §56). Receipts, consignments,
+   files and PDF jobs are reached through those orders; bills and payments carry
+   the vendor's id, and the finance repositories add the vendor filter for a
+   vendor principal. Another vendor's order, file, receipt, job or bill answers
+   404.
+5. **Allow-listed responses.** Portal read models name their fields. The buyer's
+   notes, duplicate-override reasons, approval comments, source links, cost
+   centres and invoice-approval notes are not in them.
+6. **Shared files only.** A vendor lists and downloads only the files filed
+   through the order's documents route and the generated PO PDF; anything a
+   buyer filed against the order from the Documents screen stays internal
+   (§C1-3).
+7. **Bills.** A portal bill rejects unknown fields (no `vendor_id`, no
+   `cost_centre_id`), must name one of the vendor's own orders, and may name
+   only that order's lines and items and the vendor's own receipts against it -
+   anything else is "not found", so finance's messages never name another
+   vendor's receipt.
+8. **Notifications** reach a vendor user only when the user holds the event's
+   right and could open the order it links to (§C1-11); `notify_role` is never
+   used with vendor role codes, which would reach every vendor of the company.
 
-**Purchase orders.** `PurchaseOrderRepository._scoped` applies the vendor scope
-to every read and lock, so a vendor cannot reach an order by any path the rule
-does not allow, and an order outside it is "not found", never "forbidden":
+A PO's assignee must be active, in the tenant and the order's vendor, cover the
+order's category (or be unrestricted) and hold `vendor_portal.respond`. The
+buyer-side routes that act on orders - including acknowledge and shipment kept
+for a buyer recording what a vendor phoned in, and the inbound board and
+consignment companions - also carry `forbid_vendor_users` as a second line.
 
-- only its own vendor's orders;
-- only orders it has been sent - SENT and every later status, and a CANCELLED
-  order only if it had been sent. A DRAFT, PENDING_APPROVAL, APPROVED or
-  REJECTED order is the buyer's working document, with unapproved prices;
-- when `allowed_category_ids` is not empty, only orders whose
-  `item_category_id` is one of those categories or beneath one, plus any order
-  assigned to that user by name. An empty list is unrestricted.
+---
 
-The buyer-side routes that would otherwise reveal other vendors' orders or the
-requisition book are closed to vendor accounts with `forbid_vendor_users`:
-`POST /procurement/purchase-orders/check-duplicates` (it answers with open
-orders for whichever vendor the payload names), the requisition conversion
-preview and convert routes, and `GET /purchase-orders/{id}/vendor-assignees`.
-An order's `assigned_vendor_user_id` is validated wherever it is set - tenant,
-active, the order's vendor, the vendor-side order right, and the order's
-category or unrestricted - because a UUID foreign key checks none of that.
+## Dealer portal isolation
+
+Dealer users share `users` and carry `customer_id` pointing at a DEALER or
+DISTRIBUTOR customer - never a vendor id alongside it. Their isolation mirrors
+the vendor portal's, decision for decision:
+
+1. **Route allow-list.** `core.deps.get_current_principal` lets a dealer
+   principal reach only `/dealer-portal/**`, its own `/notifications/**` and
+   auth self-service. Every other authenticated route answers 403
+   `SCOPE_DENIED` before a handler runs, whatever permissions the account's
+   roles carry. The predicate (`dealer_route_allowed`, docs/assumptions.md
+   §C3-1) matches whole path segments.
+2. **Portal rights.** The three system dealer roles hold only
+   `dealer_portal.browse`, `.order`, `.account`, `.return` and
+   `notification.view` (none ends in `.view`, so the AUDITOR bundle does not
+   absorb them). Each portal route names its right literally.
+3. **Dealer principals only.** Every portal route also requires a dealer
+   principal (`require_dealer_user`): an internal administrator holds every
+   permission string and still gets 403.
+4. **Ownership is "not found".** The dealer comes from the verified token; no
+   portal request carries a customer id. `SalesOrderRepository._scoped` and
+   `DispatchRepository._scoped` confine a dealer principal to its own
+   customer's rows, and the portal checks ownership before reading an order,
+   its consignments, its tracking or its statement. Another dealer's order,
+   consignment, tracking or statement answers 404.
+5. **Allow-listed responses.** Portal read models name their fields. Standard
+   cost, exact stock quantities, approval evidence, driver mobile numbers and
+   freight costs are not in them (docs/assumptions.md §C3-2, §C3-7).
+6. **Notifications** about a dealer order go to the assigned salesperson, else
+   `sales_order.approve` holders - internal users only, never the dealer
+   (§C3-6).
 
 ---
 
@@ -425,3 +478,38 @@ production — Postgres and Redis are reachable only on the internal network.
 - [ ] Rate limits reviewed against expected legitimate traffic
 - [ ] `/docs`, `/redoc` and `/openapi.json` confirmed disabled in production
 - [ ] Audit-log immutability trigger verified present in the deployed schema
+
+Sales invoices are tenant scoped in every source lookup, list, detail, issue,
+cancellation and PDF operation. Viewing/preview/PDF require sales_invoice.view;
+issue requires sales_invoice.create; cancellation requires sales_invoice.cancel.
+System ADMIN/SUPER_ADMIN roles receive cancellation through a grant migration;
+new Accounts presets include it, while client-managed roles remain client owned.
+Receipt allocation uses payment.record and verifies customer and currency under
+payment/invoice locks. Customer receipt cancellation releases allocations and
+reverses its journal atomically. Permanent PDF downloads use the existing
+report-job/document authorisation and tenant checks. No public surface is added.
+
+## Web Push
+
+Push endpoints are bearer capabilities. Store their SHA-256 digest for unique
+registration and their URL encrypted with purpose-separated Fernet
+(`push-subscription`); never return or log the endpoint, keys or payload. Browser
+registration is opt-in. An endpoint can transfer to the new signed-in owner on a
+shared plant PC; later device updates are guarded by owner and registration stamp.
+Logout-all, password changes/resets and user deactivation remove registrations.
+Delivery requires an active account with a session within the refresh-token window.
+Recovery applies the same account and device eligibility before its batch limit;
+inactive users and abandoned devices cannot occupy the first 100 rows indefinitely.
+
+The server accepts HTTPS on port 443 only, without userinfo, fragments or IP
+literals. Hosts must match a configured suffix on a dot boundary. Delivery
+revalidates the decrypted endpoint, verifies TLS through HTTPSConnection and
+never follows redirects. No CSP change is needed: provider calls originate from
+the worker, and browser registration uses the browser's Push API. The future
+service worker must have **no fetch handler**; it must not cache authenticated
+API responses or act as an offline ERP proxy.
+
+Encryption and VAPID follow [RFC 8291](https://www.rfc-editor.org/rfc/rfc8291.html)
+and [RFC 8292](https://www.rfc-editor.org/rfc/rfc8292.html). The deterministic VAPID
+key uses a separate HMAC purpose from the root credential key; rotating that root
+requires browsers to re-subscribe unless an explicit VAPID key is configured.

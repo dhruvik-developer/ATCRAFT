@@ -44,3 +44,17 @@ re-run `build-handbook.mjs`; no screenshots need retaking.
 Three screens have no picture, each for a stated reason printed in the PDF: the
 forced password-change screen only exists when a change is actually required, and
 the demonstration data holds no request for quotation to open.
+
+## Inbound delivery tracking
+
+The buyer's inbound workflow records each consignment after vendor acceptance:
+carrier, tracking/LR reference, dispatch date, expected delivery, boxes and weight.
+Buyers can enter details phoned in by a vendor, correct tracking, mark delivery,
+and file LR copies, photographs, challans and invoices against the PO/consignment.
+All are visible to the vendor of that PO; creator, approvers and administrators
+receive a grouped shipment update. Vendor commitment is shown separately from
+the buyer planning date until a buyer accepts it. Tracking distinguishes ready,
+dispatched, in transit, delivered, warehouse receipt, QC pending and GRN completed.
+The staff board and vendor app screens arrive in C2; these operations are available
+through the procurement API in the C1 backend package. Regenerate screenshots/PDF
+when those screens land, rather than depicting screens that do not yet exist.

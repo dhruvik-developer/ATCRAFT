@@ -19,6 +19,7 @@
  * omitted them would silently wipe what somebody wrote against a settlement.
  */
 
+import { SalesReceiptAllocationDialog } from './sales-receipt-allocation-dialog'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
@@ -761,7 +762,7 @@ export function PaymentDetailDialog({
                     // whole amount stays "unallocated" for ever.
                     value:
                       payment.payment_type === 'RECEIPT'
-                        ? 'Not applicable to a receipt'
+                        ? formatMoney(payment.unallocated_amount, { currency })
                         : formatMoney(payment.unallocated_amount, { currency }),
                   },
                   {
@@ -790,7 +791,7 @@ export function PaymentDetailDialog({
                 {allocations.length === 0 ? (
                   <p className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
                     {payment.payment_type === 'RECEIPT'
-                      ? 'A receipt is never allocated. It reduced the customer balance when it was approved.'
+                      ? 'Allocate this receipt to customer invoices to show which balances it settled.'
                       : 'Nothing is settled from this payment yet. Approve it, then settle it against the vendor invoices it pays.'}
                   </p>
                 ) : (
@@ -828,7 +829,11 @@ export function PaymentDetailDialog({
                               </span>
                               <span className="block font-mono text-2xs text-muted-foreground">
                                 {allocation.invoice_code ??
-                                  allocation.vendor_invoice_id.slice(0, 8)}
+                                  (
+                                    allocation.vendor_invoice_id ??
+                                    allocation.sales_invoice_id ??
+                                    '-'
+                                  ).slice(0, 8)}
                               </span>
                             </td>
                             <td className="py-1.5 text-xs text-muted-foreground">
@@ -893,6 +898,7 @@ const INVOICE_PICK_PAGE_SIZE = 25
 function seedDraft(payment: PaymentDetail): Draft {
   const seeded: Draft = {}
   for (const allocation of payment.allocations ?? []) {
+    if (!allocation.vendor_invoice_id) continue
     seeded[allocation.vendor_invoice_id] = {
       amount: allocation.amount,
       // Carried back on save: an amended row's notes are rewritten from the
@@ -995,7 +1001,8 @@ export function PaymentAllocationDialog({
     queryKey: paymentKeys.settleable(paymentId ?? '', invoiceParams),
     queryFn: () =>
       api.getPage<VendorInvoiceSummary>('/finance/vendor-invoices', { params: invoiceParams }),
-    enabled: Boolean(payment) && settles && canBrowseInvoices,
+    enabled:
+      Boolean(payment) && payment?.payment_type === 'PAYMENT' && settles && canBrowseInvoices,
     staleTime: staleTimes.transactional,
     // Hold the current page on screen while the next one loads. Without it
     // the table collapses to a skeleton on every page click - `useListQuery`
@@ -1063,11 +1070,6 @@ export function PaymentAllocationDialog({
   const problems: string[] = []
   if (draftEntries.some(([, line]) => !MONEY.test(line.amount.trim()))) {
     problems.push('Every amount takes up to two decimal places.')
-  }
-  if (payableEntries.length === 0) {
-    problems.push(
-      'Name at least one invoice. This endpoint cannot release a settlement entirely - a request carries one or more allocations - so an unwanted line has to be corrected rather than emptied out.',
-    )
   }
   if (payableEntries.length > MAX_ALLOCATIONS) {
     problems.push(`A payment may settle at most ${MAX_ALLOCATIONS} invoices.`)
@@ -1190,6 +1192,10 @@ export function PaymentAllocationDialog({
     [addInvoice, currency, draftIds],
   )
 
+  if (payment?.payment_type === 'RECEIPT' && settles) {
+    return <SalesReceiptAllocationDialog key={payment.id} payment={payment} onClose={onClose} />
+  }
+
   return (
     <Dialog
       open={Boolean(paymentId)}
@@ -1224,7 +1230,7 @@ export function PaymentAllocationDialog({
               <AlertTitle>This payment cannot settle invoices</AlertTitle>
               <AlertDescription>
                 {payment.payment_type === 'RECEIPT'
-                  ? 'A customer receipt has no invoice to allocate against - it reduced the customer balance when it was approved.'
+                  ? 'Approve the receipt before allocating it to sales invoices.'
                   : 'Only an approved payment settles invoices. Money that has not moved cannot pay a bill.'}
               </AlertDescription>
             </Alert>

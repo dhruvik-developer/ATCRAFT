@@ -193,6 +193,10 @@ extended if Atcraft exports.
 
 ---
 
+
+Issued sales invoice lines reuse `sales.compute_line_amounts`, preserving the
+same independently rounded CGST/SGST halves as the sales order.
+
 ## 10. Reservation release policy
 
 **Assumed.** Reservations are released automatically when their demand document
@@ -249,7 +253,7 @@ item nobody stocks or buys.
 ## 13. Financial year and document numbering
 
 **Assumed.** The financial year runs April to March. Statutory document series
-(`SO`, `INV`, `PO`, `GRN`, …) reset each financial year and are formatted
+(`SO`, `SI`, `PO`, `GRN`, …) reset each financial year and are formatted
 `PREFIX/2026-27/00042`. Internal documents (stock transfer, adjustment,
 physical count) do not reset.
 
@@ -263,6 +267,11 @@ baked in.
 disruptive once documents exist. Confirm before go-live.
 
 ---
+
+
+The sales invoice prefix is SI with five digits (`SI/2026-27/00042`), meeting
+the 16-character GST limit. Rollout refuses an existing sales_invoice sequence
+until its previous numbering has been reviewed.
 
 ## 14. Refresh-token storage in the browser
 
@@ -629,6 +638,11 @@ revaluation — and none of it should be improvised here.
 
 ---
 
+
+Receivable FIFO debits sourced by a sales invoice age from its due date;
+legacy charges still age from their entry date. The not-due bucket therefore
+includes issued invoices within their agreed customer credit period.
+
 ## 28. A company with no receivable control account has no receivables
 
 **Assumed.** A company with no `ACCOUNTS_RECEIVABLE` control account gets an
@@ -646,6 +660,10 @@ empty result: the safe reading of "nothing matches" is nothing, never everything
 expect a warning. Raising instead would be defensible; returning everything is not.
 
 ---
+
+
+Issuing a sales invoice provisions the AR account before posting. The empty
+account set still returns an empty ageing result rather than all ledger entries.
 
 ## 29. MRP runs are rate limited per company
 
@@ -717,51 +735,48 @@ dispatch that reads it - never the column alone.
 
 ---
 
-## 32. Customer charges are receivable journals, not invoices
+## 32. Customer charges are issued invoices; adjustments remain separate
 
-**Assumed.** No customer-invoice document exists. Customer charges are posted as
-receivable journals through finance (`post_customer_adjustment`,
-`POST /finance/customer-adjustments`, gated on `payment.approve`), and the
-cached `customers.outstanding_amount` is only ever moved alongside such a
-journal - `OutstandingAdjustment.reference_type` / `reference_code` are
-required for that reason. The former `POST /customers/{id}/outstanding` route,
-which moved the cache with no ledger document, was removed.
+**Assumed.** A priced SALES dispatch is billed through an issued GST sales
+invoice with its own SI series and receivable journal. Manual customer
+adjustments remain the non-GST correction path for interest, write-offs and
+legacy balances. Historical customer_charge journals are retained.
 
-**Why.** A cached balance that can change without a ledger row is a figure
-nobody can reconcile: the ageing report reads the ledger, the credit check reads
-the cache, and the two drift apart on the first hand edit. Requiring the
-reference makes every movement of the cache traceable to the document that
-caused it.
+**Why.** Customers need a statutory document and due date, while both invoice
+and adjustment postings must reconcile to the cached outstanding balance.
 
-**Where.** `src/modules/finance/service.py` - `post_customer_adjustment`;
-`src/modules/customers/schemas.py` - `OutstandingAdjustment`.
+**Where.** `finance/sales_invoice_service.py`, `finance/service.py` and the
+customer outstanding-delta service.
 
-**Impact if wrong.** If Atcraft needs a real customer invoice - a statutory GST
-series, e-invoicing - that is a new document with its own numbering and posting
-path, and the adjustment route becomes the correction path beside it, not the
-charge path.
+**Impact if wrong.** E-invoicing, exports, SEZ and reverse-charge treatment need
+additional explicit business rules; they must not be inferred from this series.
 
 ---
 
 ## 33. Vendor portal scope
 
-**Assumed.** A vendor principal's purchase-order reads and row locks are
-confined at `PurchaseOrderRepository._scoped` to that vendor's own orders -
-and, within those, to orders it has been sent and to its categories (§56).
-`PATCH /purchase-orders/{id}` and `POST /purchase-orders/{id}/submit` are
-buyer-only (`forbid_vendor_users`), even for the order's own vendor;
-acknowledge and shipment recording stay vendor-reachable.
+**Assumed.** A vendor account reaches the ERP only through `/vendor-portal/**`,
+its own `/notifications/**` and auth self-service: every other route answers 403
+`SCOPE_DENIED` whatever its roles carry (the route allow-list in
+`core.deps.get_current_principal`). Inside the portal, a vendor principal's
+purchase-order reads and row locks are confined at
+`PurchaseOrderRepository._scoped` to that vendor's own orders - and, within
+those, to orders it has been sent and to its categories (§56). The vendor
+accepts, declines, commits dates, marks ready, records consignments, files
+documents and submits bills there; it cannot edit or submit an order. The
+buyer-side acknowledge and shipment routes remain for a buyer recording what a
+vendor phoned in, and refuse vendor accounts (`forbid_vendor_users`).
 
 **Why.** Confining the query rather than the route means a vendor cannot reach
-another vendor's order by any path, including the locks a status change takes.
-Editing and submitting an order is the buyer's act: a vendor who could amend
-quantities or prices on an order addressed to them would be writing their own
-contract. Acknowledging it and recording the shipment are the two things the
-portal exists for.
+another vendor's order by any path, including the locks a status change takes;
+the allow-list means a module that never learnt about vendors (dispatch,
+finance, quality, documents, reports) cannot leak to one either. Editing and
+submitting an order is the buyer's act: a vendor who could amend quantities or
+prices on an order addressed to them would be writing their own contract.
 
-**Where.** `src/modules/procurement/repository.py` -
-`PurchaseOrderRepository._scoped`; `src/modules/procurement/router.py` - the
-`forbid_vendor_users` dependencies on the two routes.
+**Where.** `src/core/deps.py` - `vendor_route_allowed`, `require_vendor_user`;
+`src/modules/procurement/repository.py` - `PurchaseOrderRepository._scoped`;
+`src/modules/vendor_portal/router.py`.
 
 **Impact if wrong.** If a vendor is meant to propose changes to an order, that
 is a counter-proposal the buyer accepts - a new flow - not write access to the
@@ -1295,13 +1310,14 @@ threshold (open question 2).
 
 ---
 
-## 54. The right that makes a vendor user an order's assignee is `purchase_order.update`
+## 54. The right that makes a vendor user an order's assignee is `vendor_portal.respond`
 
 **Assumed.** A vendor user is eligible to be assigned a purchase order when they
 are active, live, bound to the order's vendor and - after their roles, direct
 grants and denials are folded exactly as the request path folds them - hold
-`purchase_order.update`, the right the portal's acknowledge and shipment actions
-use today. It is one named constant, `VENDOR_PO_RESPOND_PERMISSION`.
+`vendor_portal.respond`, the right the portal's accept, decline and date
+actions require (WP C1a; it was `purchase_order.update` until the portal had
+rights of its own). It is one named constant, `VENDOR_PO_RESPOND_PERMISSION`.
 
 **Why.** An order assigned to somebody who cannot act on it is an order nobody at
 the vendor answers. Folding the rights with the same function as
@@ -1311,8 +1327,7 @@ the vendor answers. Folding the rights with the same function as
 `VENDOR_PO_RESPOND_PERMISSION`, `is_eligible_assignee`;
 `src/core/permissions.py` - `resolve_role_grants`.
 
-**Impact if wrong.** A dedicated vendor-portal right replaces it by changing the
-constant (planned for the vendor portal work package).
+**Impact if wrong.** Another right replaces it by changing the constant.
 
 ---
 
@@ -1518,6 +1533,1054 @@ receipt posting when `requires_qc` is set.
 **Impact if wrong.** If inspection records gain locations later, the receipt and
 the decision must carry the same position together.
 
+---
+
+## §E4-1. Stranded QC owners are repaired by a sweep, not by a migration
+
+**Assumed.** Purchase orders, receipt lines, assembly orders and job-work lots
+that a quality decision stranded before the owner callback existed are brought
+up to date by the idempotent maintenance sweep
+`maintenance.reconcile_quality_owners` - run once when beat starts and then
+daily - acting as the system actor with full audit rows, rather than by a data
+migration.
+
+**Why.** Pure SQL in a migration cannot write the audit rows and status-change
+history a repair owes; the sweep replays each decided inspection through the
+same owner handlers a live decision calls, in its own transaction per
+inspection, so one refusal is logged and retried next sweep instead of undoing
+every other repair.
+
+**Where.** `src/modules/quality/owners.py` - `reconcile_owners`;
+`src/modules/quality/service.py` - `reconcile_quality_owners`;
+`src/workers/tasks/maintenance.py` - `reconcile_quality_owners`;
+`src/workers/celery_app.py` - beat schedule and the start-up hook.
+
+**Impact if wrong.** If repairs must be one-shot rather than eventual, the
+sweep still converges on the first beat start after deploy; removing it needs a
+migration that writes audit rows by hand.
+
+---
+
+## §E4-2. A receipt line passes only when all of it was accepted
+
+**Assumed.** A goods receipt line goes PASSED only when everything the
+inspection covered was accepted, and FAILED when any of it was refused
+(rejected or scrapped) - however small the refused share. While anything is
+still held for rework or a further decision the line stays PENDING, and so does
+the purchase order.
+
+**Why.** A line that owes the vendor a return must not read as a clean pass on
+the receipt; the refused share is what the return and the debit are worked
+from.
+
+**Where.** `src/modules/procurement/service_rules.py` -
+`receipt_line_qc_status`; `src/modules/procurement/service.py` -
+`record_incoming_inspection_outcome`.
+
+**Impact if wrong.** If a tolerance applies (a 2% fallout still passes), the
+rule takes a threshold per item group instead of zero.
+
+---
+
+## §E4-3. The owner-side verdict never moves stock, and never contradicts the inspection
+
+**Assumed.** `POST /assembly/{id}/qc-result` and `POST /job-work/{id}/qc-result`
+serve only holds no quality inspection covers. When the hold names an
+inspection, that inspection is the one release path: while it is open the call
+is refused and pointed at it, and once it is decided the order completes from
+the inspection's own figures - which the request must repeat - with no second
+movement. Quality already moved the stock when it decided.
+
+**Why.** Two release paths for one hold was the defect: whichever ran second
+either failed for want of held stock or released another lot held at the same
+grain, and the document stayed stranded either way.
+
+**Where.** `src/modules/assembly/service.py` - `record_qc_result`,
+`_settle_from_inspection`; `src/modules/job_work/service.py` -
+`record_qc_result`, `_settle_from_inspections`.
+
+**Impact if wrong.** If an owner must be able to overrule a decided inspection,
+that is a new inspection decision (rework/hold), not a second verdict on the
+old one.
+
+---
+
+## §E4-4. An assembly order is built from an ASSEMBLY or a PRODUCTION structure
+
+**Assumed.** The order's recipe is an approved ASSEMBLY or PRODUCTION bill of
+materials - a lock set whose recipe engineering filed as a production BOM is
+still put together on the assembly bench. A PHANTOM is never built, and an
+ALTERNATE is reached only by naming it as a production structure's
+alternative, so neither is offered; omitting the BOM builds from the item's
+default approved structure of those two types.
+
+**Why.** Refusing a production-typed recipe would push the planner into a
+production order for what is assembly work, while building a phantom would
+explode stock that was never meant to be stocked.
+
+**Where.** `src/modules/assembly/service.py` - `ASSEMBLABLE_BOM_TYPES`,
+`_resolve_bom`.
+
+**Impact if wrong.** If alternates must be choosable directly, the select takes
+them with the default-resolution falling back to the assembly/production
+default.
+
+---
+
+## §E4-5. A component top-up states new totals and may only raise them
+
+**Assumed.** `issue_components` from RELEASED is the first issue; while the
+order is COMPONENTS_ISSUED or IN_PROGRESS it is a top-up that states each
+line's new running total - like the first issue does, never a delta - bounded
+by the reserved requirement. Totals may only go up, and a top-up that would
+change nothing is refused rather than recorded as an empty hand-over.
+
+**Why.** Parts already on the bench are not handed back through this path, and
+an empty hand-over would write audit history for nothing moved; assigning (not
+adding) keeps a retry that repeats the bench state idempotent.
+
+**Where.** `src/modules/assembly/service.py` - `plan_issue`, `issue_components`.
+
+**Impact if wrong.** If the bench must return parts to the store, that is a
+separate return movement, not a negative issue.
+
+---
+
+## §E4-6. A sub-assembly starts as semi-finished, an assembly as a finished good
+
+**Assumed.** The SUB_ASSEMBLY item group seeds the semi-finished capability
+defaults (built in-house, consumed by a higher assembly or a production
+order) and ASSEMBLY seeds the finished-good defaults (made on the bench and
+sold). Like every group they only seed defaults at creation; no rule branches
+on the value.
+
+**Why.** A sub-assembly is exactly what a semi-finished item is, and an
+assembly (a lock set) is exactly a finished good that happens to be built on
+the bench rather than on the production floor.
+
+**Where.** `src/modules/products/service.py` - `default_capabilities`;
+`src/modules/products/models.py` - `ItemGroup`.
+
+**Impact if wrong.** If either group needs different flags, the mapping is one
+branch; existing items keep the flags they were created with.
+
+---
+
+## §E4-7. A component reservation is wanted by the planned start, as a UTC date
+
+**Assumed.** Every component reservation taken at release carries the order's
+priority and its planned start as the required date, read as a UTC business
+date; an order with no planned start reserves with no date, as it always did.
+
+**Why.** Reallocation weighs an assembly's claim on a part against sales and
+production demand, and without the order's urgency and date on the reservation
+an urgent lock-set build is indistinguishable from a speculative one.
+
+**Where.** `src/modules/assembly/service.py` - `reservation_required_date`,
+`release_order`.
+
+**Impact if wrong.** If dates must follow the planner's timezone rather than
+UTC, the conversion moves to the site timezone with the same fallback.
+
+---
+
+## §E4-8. A packing order from an assembly packs its output, for its customer
+
+**Assumed.** `POST /packing/from-assembly` packs the assembled item from the
+warehouse the output was received into, for the assembled quantity unless a
+smaller one is named (never more). Customer and sales order come from the
+assembly's source when it was raised for a sales order - a named customer must
+then be that customer, and a named sales order that order - otherwise the
+customer must be named. The sales-order *line* is not guessed.
+
+**Why.** Guessing the line would attach the packing to the wrong promise when
+an order has several; the packer names it on the packing order itself, where
+the choice is visible.
+
+**Where.** `src/modules/packing/service.py` - `create_order_from_assembly`.
+
+**Impact if wrong.** If one assembly always covers exactly one sales-order
+line, the handover can carry it once the source records the line.
+
+---
+
+## §E4-9. A job-work order waits on inspection only while a lot is held
+
+**Assumed.** A fully received order moves to QC_PENDING only when at least one
+returned lot is still on QC hold; lots inspected and released while the order
+was still partly at the vendor need nothing more. An order sent nowhere held -
+or held with nothing left to decide - stays RECEIVED and is closed like one
+that never needed inspecting, because no decision would ever release a hold
+that does not exist.
+
+**Why.** QC_PENDING has exactly one way out - the inspection verdict - so
+entering it with nothing held strands the order with real stock no verdict can
+release.
+
+**Where.** `src/modules/job_work/service.py` - `receive`.
+
+**Impact if wrong.** If every QC order must show a verdict even when nothing
+was held, the direct verdict endpoint records a zero hold instead of refusing.
+
+---
+
+## §E4-10. The board calls an order late once its plan has slipped
+
+**Assumed.** An open order is late once its planned end has passed while it
+still owes finished stock - QC_PENDING included, because held output is not
+yet usable - and its start is overdue once the planned start has passed with
+the bench not begun. An order with no plan is never late. Days late are whole
+days past the planned end.
+
+**Why.** The board is read at a glance on the floor; a held order shown as on
+plan would hide the exact backlog quality is sitting on.
+
+**Where.** `src/modules/assembly/service.py` - `lateness`; `src/modules/assembly/models.py` - `NOT_STARTED_STATUSES`.
+
+**Impact if wrong.** If held output counts as delivered for lateness, QC_PENDING
+leaves the late set while keeping its badge.
+
+---
+
+## §B2-1. A shift in future use cannot be re-timed or retired
+
+**Assumed.** Future PLANNED assignments must be cancelled before changing times, breaks, deactivating or retiring a shift. Name and sort order changes do not change a window.
+
+**Why.** A plan must keep resolving to the window somebody assigned.
+
+**Where.** `routing.service.ShiftService._assert_off_the_roster`.
+
+**Impact if wrong.** Cancel the affected plan, then retire and replace the shift.
+
+---
+
+## §B2-2. One operator per machine and one window per operator
+
+**Assumed.** Overlapping PLANNED windows are refused for the same operator across all cells and for the same non-null machine. Cell-level assignments permit multi-machine tending.
+
+**Why.** Double-booking cannot be a usable staffing plan.
+
+**Where.** `routing.models.ShiftAssignment; routing.service.ShiftRosterService.plan`.
+
+**Impact if wrong.** Helpers need an explicit capacity or staffing model before the machine exclusion can change.
+
+---
+
+## §B2-3. Legacy shift text keeps its history
+
+**Assumed.** Existing shift text retains NULL shift_id. New inputs select a governed shift and snapshot its immutable code; clearing clears both.
+
+**Why.** Legacy codes carry no start or end times. Creating them would invent a rule.
+
+**Where.** `production.models; routing.service.require_shift`.
+
+**Impact if wrong.** An administrator-approved audited linking action can connect legacy codes to an established master later.
+
+---
+
+## §B2-4. The roster is advisory
+
+**Assumed.** Bookings and work-order assignments outside the selected operator/shift/cell/date roster warn and remain accepted.
+
+**Why.** A booking is an actual fact; refusal would hide production that happened.
+
+**Where.** `production.service.ROSTER_MISMATCH_WARNING; production dialogs`.
+
+**Impact if wrong.** Make enforcement a separately approved policy rather than altering historical bookings.
+
+---
+
+## §B2-5. The roster date is local and windows are snapshots
+
+**Assumed.** roster_date is the company-local date the shift starts. Times use companies.timezone; UTC start/end snapshots never move after a timezone change. Half-open windows admit back-to-back shifts.
+
+**Why.** A night shift belongs to its starting day and a changed timezone cannot rewrite the plan.
+
+**Where.** `routing.service.shift_window; routing.models.ShiftAssignment`.
+
+**Impact if wrong.** Timezone and daylight-saving policy changes need an explicit reviewed rescheduling operation.
+
+---
+
+## §B2-6. Shift codes are immutable
+
+**Assumed.** Codes are normalised, immutable and never reused after retirement.
+
+**Why.** Production rows preserve the code that identified their shift.
+
+**Where.** `routing.schemas.ShiftUpdate; uq_shifts_company_id_code`.
+
+**Impact if wrong.** Introduce separately audited aliases if the business needs code changes.
+
+---
+
+## §B2-7. Rostered capacity sits beside calendar capacity
+
+**Assumed.** Machine utilisation adds net PLANNED window minutes and busy/rostered percent. Existing calendar-days times working-hours capacity remains unchanged.
+
+**Why.** A new plan cannot silently restate existing capacity figures.
+
+**Where.** `reports.repository.machine_utilisation; reports.service._derive_machine_utilisation`.
+
+**Impact if wrong.** A holiday-aware calendar needs its own business policy and report denominator.
+
+---
+
+## §B2-8. Existing planning and costing keep their scheduling conventions
+
+**Assumed.** Routing run/setup minutes are chargeable; queue/move minutes are elapsed only. Work-centre working hours divide lead time, defaulting to eight. Work orders remain scheduled from the planned date in UTC, back-to-back, and calendar capacity includes every day.
+
+**Why.** This package adds staffing plans without rescheduling existing jobs or changing costing.
+
+**Where.** `routing.service.total_routing_minutes/resolve_working_hours_per_day; production.service.plan_work_orders; reports.service.available_minutes`.
+
+**Impact if wrong.** Holiday, minimum-rest and shift-aware job scheduling need a separately agreed calendar policy.
+
+---
+
+## §B3-1. A job-work invoice is a typed vendor invoice, billed line by line
+
+**Assumed.** A job-work bill shares payments, allocations, approval, disputes, the payables ledger and ageing with a purchase bill, and matches a job-work order and its receipt lines instead of a purchase order and a goods receipt. Every goods line names a receipt line; a free service or freight line is refused unless `JOB_WORK_ALLOW_FREE_LINES` is turned on, because an unbilled extra is how the same charges get billed twice.
+
+**Why.** A separate invoice table would reimplement approval, payment and ageing for a document that differs only in what it is matched against.
+
+**Where.** `finance.models.VendorInvoiceType`, `VendorInvoice.invoice_type/job_work_order_id`, `VendorInvoiceLine.job_work_receipt_line_id`, `finance.schemas` validators, `finance.service._match_job_work`.
+
+**Impact if wrong.** Freight or service extras on a job-work bill need their own matching rule before the constant is enabled.
+
+---
+
+## §B3-2. The excess-loss recovery posts beside the bill, and over-billing is a hard block
+
+**Assumed.** At approval, the still-unposted vendor debit on the invoiced receipt lines posts as Dr AP against the vendor / Cr job-work expense under `job_work_recovery`, in the same transaction as the bill. The vendor's net payable is the invoice minus the recoveries. Every what-is-owed read is net of them - the invoice summary's outstanding figure, the outstanding list, the payables ageing, the payment-allocation bound and the payment-driven status - because the recovery already reduced the payable in the ledger, and a gross figure would guide the next payment to overpay the vendor by exactly the recovery. Billing beyond a receipt line's unbilled charges is refused outright - no override reason can approve it - and is re-checked under a row lock at approval, when the money actually moves.
+
+**Why.** The debit is money the vendor owes back for company material lost beyond allowance; netting it at payment time without posting it would leave the payable overstated and the recovery untraceable. An overridable over-bill would bill the same charges twice with a sentence attached.
+
+**Where.** `finance.service._post_job_work_billing`, `evaluate_match` job-work branch, `approve_invoice` over-billing guard.
+
+**Impact if wrong.** If recoveries should settle through a separate debit-note document, the recovery journal becomes that document's posting; the tracking columns stay.
+
+---
+
+## §B3-3. The GST rate and SAC default, and the client confirms them
+
+**Assumed.** A new job-work order takes GST 18% and SAC 9988 (manufacturing services on others' goods) when the payload omits them. Rates vary by vendor and ruling; 18% is the ordinary rate for this SAC, not a determination.
+
+**Why.** An order with no rate cannot produce an invoice line with one, and refusing to raise the order until somebody looks the rate up blocks real despatch-morning work.
+
+**Where.** `job_work.models.JOB_WORK_DEFAULT_GST_RATE/JOB_WORK_DEFAULT_SAC`, `job_work.service.create_order`, `job_work.schemas` tax fields.
+
+**Impact if wrong.** Confirm the rate per vendor; orders already raised keep the rate they were raised with until amended.
+
+---
+
+## §B3-4. The job-work expense account takes the next free code above 5150
+
+**Assumed.** `JOB_WORK_EXPENSE` is provisioned at chart code 5150, inside the 5xxx expense range beside purchases; when that code belongs to a hand-built account the provisioning walks upward to the next free one. Postings resolve the system code, never the chart code, so the walk changes nothing they read.
+
+**Why.** Fixed-code provisioning fails on any chart that already holds the preferred code, and the failure arrives as a unique-constraint error at the first approval.
+
+**Where.** `finance.service.DEFAULT_CHART`, `pick_free_chart_code`, `ensure_system_accounts`.
+
+**Impact if wrong.** A chart numbering plan that reserves the 515x range needs its own preferred code per company.
+
+---
+
+## §B3-5. Cancelling a posted bill reverses its journals
+
+**Assumed.** Any cancel of an invoice with posted journals reverses each one - the bill and, on a job-work invoice, the recovery beside it - and rolls the job-work tracking back, in the same transaction. Cancelling before approval moves nothing and rolls nothing back.
+
+**Why.** Cancelling without reversing leaves the payable and the input GST on the ledger while the invoice vanishes from ageing and the GST summary, which is the defect this package fixes.
+
+**Where.** `finance.service.cancel_invoice`, `VENDOR_INVOICE_LIFECYCLE` APPROVED to CANCELLED edge.
+
+**Impact if wrong.** A bill cancelled in error needs re-raising; the reversed journals are the trail.
+
+---
+
+## §B3-6. Vendor-submitted job-work bills are a follow-up, not this package
+
+**Assumed.** Vendor-portal invoice submission stays purchase-order-only. A vendor-submitted job-work bill - matched to an order the vendor can see through the portal scope - is recorded here as a follow-up.
+
+**Why.** The portal scope and submission flow were built around purchase orders; extending them to job-work orders needs its own scoping review.
+
+**Where.** This section only; no code.
+
+**Impact if wrong.** Staff continue to key job-work bills from the job-work screen until the portal flow is extended.
+
+---
+
+## §E1-1. A reservation caps order-linked dispatch
+
+**Assumed.** Only a live reservation can back an order-linked dispatch. Other open consignments reduce the order-line balance before a new plan is accepted.
+
+**Why.** The reservation is the stock promise; free stock must not bypass it.
+
+**Where.** `sales.dispatchable_quantity; dispatch validation and departure.`
+
+**Impact if wrong.** Allowing unreserved shipment would need a different allocation contract.
+
+---
+
+## §E1-2. Stock arrivals top up short orders on a bounded schedule
+
+**Assumed.** The default top-up cadence is 900 seconds, at most 200 short orders per company, ranked by priority, required date, order date and id. Each order commits separately.
+
+**Why.** Arrivals flow to waiting demand without coupling GRN, production or transfers to sales.
+
+**Where.** `SO_TOPUP_INTERVAL_SECONDS; maintenance.allocate_short_orders.`
+
+**Impact if wrong.** A shorter cadence or explicit event-driven wake-up can be added without changing reservations.
+
+---
+
+## §E1-3. Quantity growth restores the shortage state
+
+**Assumed.** An ALLOCATED order returns to CONFIRMED when quantity changes leave any live shortfall.
+
+**Why.** Allocated must mean fully covered; closed reservations count as zero.
+
+**Where.** `sales._update_confirmed and SALES_ORDER_LIFECYCLE.`
+
+**Impact if wrong.** Any different meaning for ALLOCATED would require retuning dispatch and planning gates.
+
+---
+
+## §A2-1. An invoice may precede removal
+
+**Assumed.** A SALES dispatch may issue a tax invoice once ready, or afterwards. Invoice date defaults to dispatch date and cannot precede the SO date or enter a closed year.
+
+**Why.** CGST Act section 31 places the tax invoice at or before removal.
+
+**Where.** `sales_invoice_service.preview_sales_invoice.`
+
+**Impact if wrong.** Different statutory timing requires explicit workflow changes.
+
+---
+
+## §A2-2. Issue and number allocation are atomic
+
+**Assumed.** There is no draft invoice; preview persists nothing, and the number is allocated inside the issuing transaction. Cancelled numbers remain on cancelled invoices.
+
+**Why.** Failed issues must not consume numbers and issued history must not be renumbered.
+
+**Where.** `issue_sales_invoice and next_document_number.`
+
+**Impact if wrong.** A separate approval stage would need a reserved-number policy.
+
+---
+
+## §A2-3. Sales numbering fits the GST limit
+
+**Assumed.** The SI prefix and five-digit pad produce a 16-character financial-year number. Existing sales_invoice sequences stop migration for review.
+
+**Why.** GST Rule 46 constrains the serial number length.
+
+**Where.** `DocTypes.SALES_INVOICE and invoice schema migration.`
+
+**Impact if wrong.** Any previous series needs a deliberate migration instead of silently changing its prefix.
+
+---
+
+## §A2-4. Unpaid cancellation is time bounded
+
+**Assumed.** Only ISSUED invoices with no allocations or credit notes can cancel within 24 hours of issued_at. Closed sales orders require a credit note.
+
+**Why.** The window mirrors e-invoice cancellation and prevents reversing settled or closed business.
+
+**Where.** `INVOICE_CANCEL_WINDOW_HOURS and cancel_sales_invoice.`
+
+**Impact if wrong.** Different filing rules require a configuration or credit-note workflow.
+
+---
+
+## §A2-5. Invoice totals round to rupees
+
+**Assumed.** The total rounds HALF_UP to Decimal(1), with an explicit ledger round-off leg. A rounded total must be positive; zero-value supplies need a separate free-of-charge document. Flat discounts share pro rata, and the final invoice takes the remainder.
+
+**Why.** Printed totals, journals and partial invoices must reconcile exactly.
+
+**Where.** `ROUND_INVOICE_TOTAL_TO, apportion_discount and sales_invoice_journal_lines.`
+
+**Impact if wrong.** Different rounding precision needs coordinated statutory and ledger changes.
+
+---
+
+## §A2-6. Statutory invoice records never expire
+
+**Assumed.** Invoice job snapshots and REPORT documents have no expiry; the header retains immutable bank and terms snapshots too.
+
+**Why.** An issued statutory document must remain reproducible after masters change.
+
+**Where.** `queue_sales_invoice_pdf, sales_invoice_print_data and reports.generate_sales_invoice.`
+
+**Impact if wrong.** Any archive policy must preserve document retrieval and evidence.
+
+---
+
+## §A2-7. An invoice requires agreed source pricing
+
+**Assumed.** An unlinked free-stock SALES dispatch cannot issue this invoice until linked to a priced sales order. Its existing stock movement behavior remains available.
+
+**Why.** The issue payload has no pricing inputs, so current item prices cannot safely replace an agreed order price.
+
+**Where.** `preview_sales_invoice source linkage guard.`
+
+**Impact if wrong.** A true cash/direct-sale invoice needs an explicit agreed-price entry flow.
+
+---
+
+## §A2-8. A pre-removal invoice temporarily counts staged goods
+
+**Assumed.** For READY_FOR_DISPATCH, invoiced quantity is capped by dispatched quantity plus this dispatch staged quantity, itself rechecked against the live reservation. Order INVOICED still requires actual departure.
+
+**Why.** The specification permits pre-removal invoicing but the departure counter has not moved yet.
+
+**Where.** `preview_sales_invoice and dispatch._advance_sales_order.`
+
+**Impact if wrong.** If invoices must be post-departure only, remove READY eligibility and this staged cap.
+
+---
+
+## §C1-1. The vendor's committed delivery date is kept apart from the buyer's planning date
+
+**Assumed.** When a vendor accepts an order it may commit to a delivery date, and
+may later move it (`POST /vendor-portal/purchase-orders/{id}/delivery-date`).
+Both write `purchase_orders.vendor_committed_date`. Neither touches
+`expected_delivery_date`, the buyer's planning date. A buyer adopts the vendor's
+date explicitly with `POST /procurement/purchase-orders/{id}/accept-vendor-date`,
+which is audited and a no-op when the two already agree. The committed date may
+not precede the order date.
+
+**Why.** MRP nets supply on `expected_delivery_date` and the delay flag measures
+lateness against it. A vendor who could rewrite it could make its own late
+order look on time and move the company's plan without anyone deciding to
+(trap T8 in the procurement report).
+
+**Where.** `src/modules/vendor_portal/service.py` - `accept`, `change_date`;
+`src/modules/procurement/inbound_service.py` - `accept_vendor_date`.
+
+**Impact if wrong.** If the vendor's word should drive planning directly, `accept`
+and `change_date` also write `expected_delivery_date` and the adopt route goes.
+
+---
+
+## §C1-2. A consignment is recorded only on an accepted order with goods still due
+
+**Assumed.** A numbered consignment (`purchase_order_shipments`) can be recorded or
+corrected only while the order is ACKNOWLEDGED or PARTIALLY_RECEIVED - by the
+vendor through the portal or by a buyer on its behalf, with the same body and
+rules. Consignments are numbered 1..n per order under the order's row lock. A
+dispatch may not be dated before the order date or in the future, and a
+delivery may not precede its dispatch or lie in the future (five minutes of
+clock skew allowed). Once an order is CANCELLED or CLOSED its consignments can
+no longer change.
+
+**Why.** Goods dispatched against an order nobody has accepted arrive against a
+refusal-in-waiting. A dispatch or delivery dated tomorrow is not a fact, and the
+tracking status would report goods on the road that have not left.
+
+**Where.** `src/modules/procurement/inbound_service.py` - `SHIPPING_PO_STATUSES`,
+`SETTLED_PO_STATUSES`, `DELIVERY_CLOCK_SKEW`, `record_inbound_shipment`,
+`mark_delivered`.
+
+**Impact if wrong.** If dispatch may be recorded on a SENT order (the vendor
+ships without accepting), SENT joins `SHIPPING_PO_STATUSES`.
+
+---
+
+## §C1-3. The order's documents route is the channel shared with the vendor
+
+**Assumed.** A file carries a `kind` (INVOICE, DISPATCH_PHOTO, LR_COPY,
+DELIVERY_CHALLAN, OTHER) through a link table, `purchase_order_documents`; the
+generic `documents` table is unchanged. A vendor sees and downloads only the
+files filed through the order's documents route (by itself or by a buyer) and
+the generated PO PDF. A file a buyer filed against the order from the generic
+Documents screen stays internal. An INVOICE upload needs `vendor_portal.invoice`,
+every other kind `vendor_portal.ship`. A vendor's bill names one of its own
+orders, bills only items on that order, may name only its own receipts and
+receipt lines on that order, carries no cost centre (staff tag centres while
+reviewing) and is submitted for review at once. One uploaded invoice file
+attaches to one bill.
+
+The generated PDF is identified by its completed PURCHASE_ORDER job's document
+reference, rather than the generic REPORT category. Action responses also use an
+explicit vendor field list, so a requisition source link stays internal.
+
+**Why.** A link table is the least invasive way to type a file: nothing that
+reads `documents` changes. Internal attachments - a quote comparison, an
+approval memo - are not the supplier's to read. A vendor cannot list cost
+centres and must not name one.
+
+**Where.** `src/modules/procurement/inbound_repository.py` -
+`InboundDocumentRepository.visibility`; `src/modules/vendor_portal/service.py` -
+`create_invoice`, `_assert_bill_references`, `download`, `upload_vendor_document`.
+
+**Impact if wrong.** A file meant to stay internal but uploaded through the
+order's documents route is visible to the vendor; such a file belongs on the
+generic Documents screen. If a vendor may bill freight or charges against an
+item not on the order, `_assert_bill_references` relaxes its item check.
+
+---
+
+## §C1-4. The "QC rejected" tile looks back thirty days and counts receipt lines
+
+**Assumed.** The vendor dashboard's "QC rejected" counts the vendor's posted
+goods-receipt lines with a rejected quantity whose receipt is dated within the
+last `VENDOR_QC_LOOKBACK_DAYS` (30) days, on orders the account can see.
+"Payment pending" counts the vendor's bills in an open status with money still
+owed. Every tile is a count of documents or lines, not a sum of quantities.
+
+**Why.** Recent enough to be actionable, long enough to cover a monthly review.
+Purchase-order statuses past RECEIVED are never written by the application
+(trap T7), so the tiles are derived from receipts and bills instead.
+
+**Where.** `src/modules/vendor_portal/repository.py` - `VENDOR_QC_LOOKBACK_DAYS`,
+`VendorPortalRepository.dashboard`.
+
+**Impact if wrong.** A different window is the constant; a quantity-weighted
+tile is a different aggregate in the same statement.
+
+---
+
+## §C1-5. The tracking status describes the latest consignment
+
+**Assumed.** One ordered rule derives the proposal's tracking status. In order:
+QC_PENDING (a receipt with an open inspection, when the order is fully received
+or the receipt came after the latest dispatch); GRN_COMPLETED (fully received or
+short-closed, nothing open); RECEIVED (a receipt raised at or after the latest
+consignment's dispatch, or any receipt when nothing was dispatched); DELIVERED
+(the latest consignment is marked delivered); DISPATCHED (it left today, UTC);
+IN_TRANSIT (it left earlier); READY_FOR_DISPATCH (the vendor's ready flag);
+otherwise NOT_DISPATCHED. "Delivery expected date" is the latest consignment's
+own expectation, else the vendor's commitment, else the planning date. "Late"
+is one predicate: receivable status, goods still due, planning date passed.
+
+**Why.** The buyer's board, the vendor's order list and the vendor dashboard read
+the same rule and cannot disagree. A receipt for an earlier consignment must not
+hide the next one on the road.
+
+**Where.** `src/modules/procurement/inbound_repository.py` -
+`inbound_tracking_status`, `po_is_late`, `InboundRepository.projection`.
+
+**Impact if wrong.** A goods receipt does not name the consignment it received,
+so "after the latest dispatch" is decided by time; a receipt keyed in late for
+an earlier consignment counts for the later one. Linking receipts to
+consignments would make the rule exact.
+
+---
+
+## §C1-6. The buyer's inbound board shows open work by default
+
+**Assumed.** `GET /procurement/inbound-tracking` lists orders still in motion: SENT,
+VENDOR_DECLINED (the buyer has to decide), ACKNOWLEDGED, PARTIALLY_RECEIVED, and
+RECEIVED, QC_PENDING or QC_COMPLETED orders whose tracking status is not yet
+GRN_COMPLETED. Completed, closed and cancelled orders appear with
+`include_completed=true`. The vendor's list always shows its whole history; its
+tabs narrow it.
+
+**Why.** A work queue that fills with history stops being read.
+
+**Where.** `src/modules/procurement/inbound_repository.py` -
+`BOARD_OPEN_PO_STATUSES`, `InboundRepository.filtered_projection`.
+
+**Impact if wrong.** Change `BOARD_OPEN_PO_STATUSES`.
+
+---
+
+## §C1-7. Who hears about a vendor action or a consignment change
+
+**Assumed.** A vendor's accept, decline, date change and ready flag, and every
+consignment change - recorded, corrected, delivered, LR copy or dispatch photo
+uploaded, whoever did it - notify the order's creator, every internal user
+holding `purchase_order.approve` and the ADMIN and PURCHASE_MANAGER roles.
+Vendor accounts never receive these, and the person who made the change is not
+told about it. Everything about one consignment collapses onto one unread row
+per recipient (`po-shipment:{id}`), carrying carrier, tracking, dispatch and
+expected dates, boxes, weight and the latest event.
+
+**Why.** The proposal's "admin is notified immediately", without a row per edit;
+the creator and approvers own the order.
+
+**Where.** `src/modules/procurement/inbound_service.py` - `BUYER_ALERT_ROLE_CODES`,
+`buyer_recipients`, `notify_buyer`, `shipment_message`.
+
+**Impact if wrong.** The recipient list is `buyer_recipients`; a per-company
+setting would replace the role constant.
+
+---
+
+## §C1-8. The vendor's order detail embeds the first page of each list
+
+**Assumed.** `GET /vendor-portal/purchase-orders/{id}` embeds the first 50
+consignments, files and receipts, each with its paging metadata; the dedicated
+list routes page the rest. The timeline lists status changes from SENT onwards
+- drafting and internal approval are the buyer's process. Money totals are SQL
+aggregates.
+
+**Why.** One request paints a phone screen; nothing returned is unbounded.
+
+**Where.** `src/modules/vendor_portal/service.py` - `DETAIL_EMBED_LIMIT`;
+`src/modules/vendor_portal/repository.py` - `TIMELINE_STATUSES`.
+
+**Impact if wrong.** Change the constants.
+
+---
+
+## §C1-9. An order's header courier fields mirror its latest consignment
+
+**Assumed.** The single-shipment fields on the order header (`courier_name`,
+`tracking_reference`, `shipped_at`) stay readable and are kept equal to the
+latest numbered consignment. An order with no numbered consignment is tracked
+from the header fields alone; historical header data is not turned into
+consignment rows.
+
+**Why.** Screens and reports built on the header keep working, and no audited
+consignment record is invented after the fact.
+
+**Where.** `src/modules/procurement/inbound_service.py` - `record_inbound_shipment`;
+`src/modules/procurement/inbound_repository.py` - `InboundRepository.projection`.
+
+**Impact if wrong.** A backfill migration could create consignment 1 from each
+header that carries shipment details.
+
+---
+
+## §C1-10. A declined order stays open for the buyer's decision
+
+**Assumed.** SENT -> VENDOR_DECLINED records the vendor's reason. The buyer then
+cancels the order (VENDOR_DECLINED -> CANCELLED, which gives the quantity back to
+the requisition) or sends it again (VENDOR_DECLINED -> SENT, which re-checks that
+the vendor can still take orders and clears the old reason; the audit keeps it).
+Until then the requisition quantity stays committed, the order is not expected
+supply (it is outside `OPEN_PO_STATUSES`, so MRP and the duplicate check ignore
+it and no partial index changes), and it blocks retiring the vendor.
+
+**Why.** A decline is a question to the buyer, not an answer: re-sourcing,
+re-negotiating and cancelling are all reasonable, and none should happen behind
+the buyer's back. Counting a refused order as supply would leave the plan short.
+
+**Where.** `src/modules/procurement/service.py` - `transition_purchase_order`;
+`src/modules/procurement/service_rules.py` - `PURCHASE_ORDER_LIFECYCLE`;
+`src/modules/vendors/repository.py` - `OPEN_PURCHASE_ORDER_STATUSES`.
+
+**Impact if wrong.** If a decline should release the requisition at once, the
+VENDOR_DECLINED transition calls `_release_source_lines` and a re-send re-links.
+
+---
+
+## §C1-11. A vendor-facing notification reaches only users who could act on it
+
+**Assumed.** An order sent to a vendor notifies its assignee; when it is
+unassigned, every user of that vendor who holds `vendor_portal.respond` and can
+see the order - unrestricted, scoped to its category or an ancestor of it, or
+assigned to it. "Material received" (`vendor_portal.access`) and a rejection at
+incoming inspection (`vendor_portal.quality`) follow the same visibility rule. A
+bill approved or disputed and a payment approved or allocated notify the
+vendor's users holding `vendor_portal.invoice`; a dispute carries its reason, an
+approval does not carry the approver's note. Vendor-app links are `/vendor/...`
+routes (WP C2a).
+
+**Why.** A notification whose link the portal answers "not found" for is noise,
+and one that reaches a different vendor is a leak. The approver's note is the
+buyer's own record.
+
+**Where.** `src/modules/procurement/service.py` - `vendor_recipients_for_order`,
+`notify_vendor_about_order`, `notify_vendor_about_receipt`;
+`src/modules/finance/service.py` - `_tell_vendor_about_invoice`,
+`_tell_vendor_about_payment`; `src/modules/notifications/repository.py` -
+`user_ids_for_vendor`.
+
+**Impact if wrong.** The rights per event are named at each call.
+
+---
+
+## §C1-12. Registering a browser is the push opt-in
+
+**Assumed.** New per-type preferences default to push enabled; a user with no
+registered, unexpired device never gets the PUSH channel. An update that omits
+`push_enabled` preserves a stored opt-out.
+
+**Why.** The browser's own permission prompt is the consent; a second switch per
+type would be a setting nobody finds.
+
+**Where.** `src/modules/notifications/service.py` - `resolve_channels`, `notify`;
+`src/modules/notifications/repository.py` - `upsert_preferences`.
+
+**Impact if wrong.** Default `push_enabled` to false and the preferences screen
+becomes the opt-in.
+
+---
+
+## §C1-13. The VAPID key derives from the credential root unless one is supplied
+
+**Assumed.** Without `WEB_PUSH_VAPID_PRIVATE_KEY` the VAPID signing key is derived
+deterministically from `CREDENTIAL_ENCRYPTION_KEY` with the HMAC purpose
+`web-push-vapid`. Rotating the root key changes the VAPID key, and browsers
+re-subscribe.
+
+**Why.** No new deployment secret is needed to switch push on.
+
+**Where.** `src/core/webpush.py`; `src/core/config.py`.
+
+**Impact if wrong.** Supply an explicit key; it survives root rotation.
+
+---
+
+## §C1-14. A collapsed repeat never re-sends to a device
+
+**Assumed.** An unread grouped notification that repeats updates its wording and
+count but keeps its email and push delivery markers, so it is not sent to a
+device again. Once read, the next occurrence is a new row.
+
+**Why.** A consignment that is edited five times should buzz a phone once.
+
+**Where.** `src/modules/notifications/repository.py` - `upsert_many`.
+
+**Impact if wrong.** Clear the markers on collapse to re-send every update.
+
+---
+
+## §C3-1. A dealer account is bound to exactly one dealer-channel customer
+
+**Assumed.** `users.customer_id` (FK `customers`, CASCADE, indexed
+`ix_users_customer`) binds an account to the dealer portal; the CHECK
+`portal_binding_exclusive` refuses a vendor binding and a dealer binding on one
+account. Dealer roles (`roles.is_dealer_role`: DEALER_OWNER, DEALER_BUYER,
+DEALER_ACCOUNTS) may be held only by dealer-bound accounts, and dealer-bound
+accounts may hold only dealer roles - enforced in both directions by
+`assert_portal_role_consistency`, mirroring the vendor rule. A binding must
+name a live customer of type DEALER or DISTRIBUTOR. `dealer_route_allowed`
+keeps dealers on `/dealer-portal/**`, their own `/notifications/**` and auth
+self-service; every `/dealer-portal` route also demands a dealer principal
+(`require_dealer_user`), so staff get 403 `SCOPE_DENIED`. Repository scopes
+(`UserRepository`, `SalesOrderRepository`, `DispatchRepository`) filter dealer
+principals to their own customer as defence in depth, and a foreign order,
+consignment or statement answers 404, never 403.
+
+**Why.** One account must never see two principals' data, and a dealer user who
+also held an internal role would see the tenant's costing and every other
+dealer's book through the internal screens, which the dealer filter does not
+cover.
+
+**Where.** `src/modules/users/models.py` - `customer_id`, `is_dealer_role`;
+`src/modules/users/service.py` - `assert_portal_role_consistency`;
+`src/core/deps.py` - `dealer_route_allowed`, `require_dealer_user`;
+`src/modules/users/repository.py`, `src/modules/sales/repository.py`,
+`src/modules/dispatch/repository.py` - `_scoped`.
+
+**Impact if wrong.** If a dealer account must span several customers, the
+binding becomes a list and every scope, filter and checkout changes with it.
+
+---
+
+## §C3-2. Availability is a band from live free stock, never a quantity
+
+**Assumed.** `availability_band` folds live `available_quantity` summed across
+sellable warehouses (FINISHED_GOODS, PACKING) into IN_STOCK (>=
+`AVAILABILITY_IN_STOCK_AT` = 10), LIMITED (> 0) or MADE_TO_ORDER (0). It is
+read on every catalogue call and never cached; exact quantities are never
+returned. A DISTRIBUTOR channel with no price-list row has no item-master
+fallback column, so the item is `price: null`, `price_on_request: true` and not
+orderable - rather than quietly invoiced at the dealer rate.
+
+**Why.** Exact stock figures are commercially sensitive and go stale; a cached
+band would promise what a reservation has since taken. The distributor channel
+genuinely has no master price, and reusing the dealer one would invoice the
+wrong party at the wrong rate.
+
+**Where.** `src/modules/dealer_portal/models.py` - thresholds and warehouse
+types; `src/modules/dealer_portal/pricing.py` - `availability_band`;
+`src/modules/dealer_portal/service.py` - `_channel_price`.
+
+**Impact if wrong.** If the business wants exact figures for trusted dealers,
+the band becomes a permission-gated quantity; if more warehouse types become
+promisable, `SELLABLE_WAREHOUSE_TYPES` grows.
+
+---
+
+## §C3-3. Schemes are percentage-only, best single offer, explicit wins
+
+**Assumed.** `dealer_offers` carries one percentage rule (0 < x <= 100) with a
+scope (ALL, CATEGORY with subtree matching, BRAND, ITEM), an optional channel
+audience, an optional negotiated `customer_id`, a minimum quantity, a validity
+window and a sort order. The best single offer per line wins - highest
+percentage, then scope specificity, then `sort_order`, then id - and offers
+never stack. One pure function (`select_best_offer`) serves the catalogue, the
+cart, checkout and ERP sales pricing: a sales-order line with no explicit
+discount takes the best scheme as its default `discount_percentage` and stores
+`offer_id` (a bare UUID, no FK, so the sales table never depends on the portal
+schema); an explicit percentage or flat discount always wins and stores no
+scheme. With no offers configured, ERP pricing is byte-for-byte unchanged. A
+header-only re-price keeps a carried scheme citation when the discount is
+unchanged.
+
+**Why.** One matcher means the catalogue, the cart and the order can never
+disagree about what a dealer pays. An explicit discount is a commercial
+decision somebody signed; a scheme is a default. A foreign key from sales to
+the portal schema would make the order table uncreatable without it.
+
+**Where.** `src/modules/dealer_portal/pricing.py` - `select_best_offer`,
+`load_pricing_offers`; `src/modules/sales/service.py` - `price_line`,
+`_build_pricing_context`, `_apply_priced_line`; `src/modules/sales/models.py`
+- `offer_id`.
+
+**Impact if wrong.** Stacking, flat-amount schemes or tiered slabs change the
+matcher and the offer table together; the ERP default follows automatically.
+
+---
+
+## §C3-4. One cart per dealer user
+
+**Assumed.** `dealer_carts` has one row per dealer user (`uq` on company and
+user) carrying that user's dealer; lines carry item, variant and quantity only
+- no stored price. A duplicate grain is refused (change the quantity
+instead); a cart holds at most `MAX_CART_LINES` = 50 grains. The wishlist is
+one row per user, item and variant.
+
+**Why.** The cart is a working draft, not a bulk import: 50 lines always fit
+the checkout payload (sales allows 200), and a price stored on the line would
+go stale the moment the price list moved.
+
+**Where.** `src/modules/dealer_portal/models.py`; `src/modules/dealer_portal/service.py`
+- cart and wishlist methods.
+
+**Impact if wrong.** Raise `MAX_CART_LINES`, or key carts per dealer instead of
+per user - and decide what two users' conflicting drafts merge into.
+
+---
+
+## §C3-5. Dealer checkout fulfils from the default warehouse
+
+**Assumed.** The checkout names no warehouse: it resolves
+`warehouses.is_default` through a new `WarehouseRepository.default_warehouse`
+getter, and refuses when none is flagged. The order still reserves against
+that warehouse on confirmation like any other order.
+
+**Why.** A dealer cannot be asked to pick a warehouse, but a reservation has
+to name the position it is taken against - an order with no warehouse could be
+confirmed but never allocated.
+
+**Where.** `src/modules/warehouses/repository.py` - `default_warehouse`;
+`src/modules/dealer_portal/service.py` - `checkout`.
+
+**Impact if wrong.** If fulfilment must follow the shipping address or the
+item, the checkout resolves the warehouse per line instead.
+
+---
+
+## §C3-6. Portal orders stay DRAFT for sales review, and cancel rather than delete
+
+**Assumed.** Checkout builds `SalesOrderCreate` with no unit price and no
+discount; the server prices, discounts and taxes every line, stamps
+`source = DEALER_PORTAL` (server-only, CHECKed, default ERP, exposed in
+summary/detail and filterable), clears the cart, writes a `dealer_checkout`
+audit row and raises "New order request from \<dealer\>" (`APPROVAL_PENDING`,
+linking the SO page) for the assigned salesperson, else `sales_order.approve`
+holders - all in one outermost transaction. The order stays DRAFT: sales staff
+confirm it, which runs the credit check and reservation. The dealer cancels
+its own DRAFT with a reason; past DRAFT the portal refuses. `delete_draft_order`
+refuses portal-sourced drafts - a delete would silently drop an order the desk
+may already be reviewing.
+
+**Why.** A dealer order is a request, not a commitment: stock and credit move
+only when sales confirms. Cancelling keeps the trail the dealer and the desk
+both read; deleting would fork it.
+
+**Where.** `src/modules/sales/models.py` - `source`;
+`src/modules/sales/service.py` - `create_order(source=...)`,
+`delete_draft_order`; `src/modules/dealer_portal/service.py` - `checkout`,
+`cancel_order`.
+
+**Impact if wrong.** If trusted dealers may self-confirm, checkout confirms
+orders whose credit check passes - and the notification becomes informational.
+
+---
+
+## §C3-7. Dealer tracking drops the driver and the freight
+
+**Assumed.** The tracking projection carries courier or transporter name,
+tracking id, LR number, dispatched/expected/actual dates and the event history
+(status, time, location, remark) - but never `driver_mobile` and never freight
+fields. The feed is a bounded newest-first read (`TRACKING_EVENT_LIMIT` =
+200), not a cursor: a consignment's history is short and the dealer always
+sees the whole of it.
+
+**Why.** The driver's phone number is personal data and the freight cost is an
+internal commercial; neither is the dealer's to have. A cursor would page a
+feed nobody pages.
+
+**Where.** `src/modules/dealer_portal/service.py` - `dispatch_tracking`;
+`src/modules/dealer_portal/schemas.py` - `DealerTracking`.
+
+**Impact if wrong.** If dealers must call the driver, expose the number behind
+a separate right rather than widening this projection.
+
+---
+
+## §C3-8. Item detail carries the shape D5 will fill
+
+**Assumed.** The detail returns variants with their own channel price, the
+current channel slabs, the applicable schemes, HSN, GST rate, description,
+`can_return` and up to `CATALOGUE_MAX_IMAGES` = 8 image ids. Specifications
+and accessories return in their shapes but empty: their masters belong to WP
+D5, which does not exist yet, and this package invents no tables another
+package owns.
+
+**Why.** The screen contract is stable while the masters land; inventing
+specification tables here would collide with D5's the day it arrives
+(CLAUDE.md: never hand-write another module's table).
+
+**Where.** `src/modules/dealer_portal/service.py` - `catalog_item`.
+
+**Impact if wrong.** When D5 lands, the two empty lists are filled from its
+batch helper with no contract break.
+
+---
+
+## §C3-9. Catalogue paging limits: price sort refused, offer filter coarse
+
+**Assumed.** `GET /catalog/items` sorts by `code` or `name` in SQL; `sort_by =
+price` is refused with 422 naming the allowed fields, because a channel price
+is a slab ranking plus a fallback and cannot be ordered in the database.
+`on_offer_only` prefilters in SQL on schemes that *could* apply and matches
+exactly per row in Python (CATEGORY scopes need the subtree), so a page can
+come back short and the total is the coarse one. A cart holds at most 50 lines
+(§C3-4), well under the sales-order bound.
+
+**Why.** Refusing an unorderable sort beats returning a wrong order; resolving
+every CATEGORY scope in SQL would join the category tree into the page query
+for a filter most calls do not use.
+
+**Where.** `src/modules/dealer_portal/repository.py` - `page_items`;
+`src/modules/dealer_portal/service.py` - `catalog_items`.
+
+**Impact if wrong.** If price sorting becomes a requirement, it needs a
+materialised channel-price column with its own invalidation - which is a cache
+on inventory-adjacent data and needs a decision, not a query tweak.
+
+---
+
+## §C3-10. Overdue invoices wait for sales invoicing
+
+**Assumed.** `GET /outstanding` returns the receivables ageing for the dealer
+(overdue = total less not-due, oldest due date, open document count) with an
+empty `overdue_invoices` list: sales invoices are not in this release, so
+there is no invoice document to name, and the FIFO-netted ageing is the
+overdue position.
+
+**Why.** A placeholder row inventing invoice numbers would be mistaken for a
+receivable that exists; the ageing is the honest position until invoicing
+lands.
+
+**Where.** `src/modules/dealer_portal/service.py` - `outstanding`;
+`src/modules/dealer_portal/schemas.py` - `DealerOutstanding`.
+
+**Impact if wrong.** When sales invoices land, the list names them per the
+finance overdue shape.
+
+---
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant
@@ -1545,3 +2608,5 @@ module is used in production:
    or the customer?
 7. **Partial dispatch.** May a sales-order line be dispatched in more than two
    instalments, and is there a minimum dispatch quantity?
+
+8. **Staffing policy.** Do operators need employee records without logins? Are helpers on one machine allowed? What holidays, weekly offs and minimum rest apply? Is a weekly publish/lock step required?

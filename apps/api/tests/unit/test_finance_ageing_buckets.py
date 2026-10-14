@@ -148,6 +148,49 @@ class TestInvoiceStatusFromMoney:
         )
 
 
+class TestNetPayableAfterRecovery:
+    """The status follows the net payable, not the gross total.
+
+    A job-work invoice that recovered 250 of excess-loss debit owes 750 on a
+    1000 bill: paying 750 settles it, and paying the gross 1000 is refused
+    upstream by the allocation bound rather than redefined here.
+    docs/assumptions.md §B3-2.
+    """
+
+    def test_paying_the_net_payable_marks_the_invoice_paid(self) -> None:
+        assert (
+            invoice_status_after_payment(
+                VendorInvoiceStatus.APPROVED,
+                total_amount=Decimal("1000"),
+                paid_amount=Decimal("750"),
+                recovered_amount=Decimal("250"),
+            )
+            is VendorInvoiceStatus.PAID
+        )
+
+    def test_part_of_the_net_is_partially_paid(self) -> None:
+        assert (
+            invoice_status_after_payment(
+                VendorInvoiceStatus.APPROVED,
+                total_amount=Decimal("1000"),
+                paid_amount=Decimal("400"),
+                recovered_amount=Decimal("250"),
+            )
+            is VendorInvoiceStatus.PARTIALLY_PAID
+        )
+
+    def test_nothing_paid_leaves_a_recovered_invoice_approved(self) -> None:
+        assert (
+            invoice_status_after_payment(
+                VendorInvoiceStatus.APPROVED,
+                total_amount=Decimal("1000"),
+                paid_amount=Decimal("0"),
+                recovered_amount=Decimal("250"),
+            )
+            is VendorInvoiceStatus.APPROVED
+        )
+
+
 class TestPaymentStatusFromAllocation:
     def test_unallocated_money_stays_approved(self) -> None:
         assert (

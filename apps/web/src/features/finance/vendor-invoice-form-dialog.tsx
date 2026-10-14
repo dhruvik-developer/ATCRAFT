@@ -923,6 +923,9 @@ export function VendorInvoiceFormDialog({
         vendor_id: values.vendor_id,
         vendor_invoice_number: values.vendor_invoice_number.trim(),
         invoice_date: values.invoice_date,
+        // This form only raises purchase bills: job-work bills are recorded
+        // from the job-work screen, against an order and its receipt lines.
+        invoice_type: 'PURCHASE',
         // Both are omitted rather than blanked, because absent means something
         // here: the API falls back to the vendor's agreed credit days and to
         // the company's own denomination.

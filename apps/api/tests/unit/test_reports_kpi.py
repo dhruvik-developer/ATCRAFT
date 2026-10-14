@@ -302,6 +302,24 @@ def test_yield_is_good_output_over_everything_attempted() -> None:
     assert row["yield_percent"] == Decimal("90.00")
 
 
+def test_shift_yield_is_good_output_over_good_and_rejected() -> None:
+    row = _derive(
+        ReportKey.SHIFT_PRODUCTION,
+        {"produced_quantity": Decimal("50"), "rejected_quantity": Decimal("2")},
+        _context(),
+    )
+    assert row["yield_percent"] == Decimal("96.15")
+
+
+def test_a_shift_that_only_booked_downtime_has_no_yield_rather_than_an_error() -> None:
+    row = _derive(
+        ReportKey.SHIFT_PRODUCTION,
+        {"produced_quantity": Decimal("0"), "rejected_quantity": Decimal("0")},
+        _context(),
+    )
+    assert row["yield_percent"] == Decimal("0.00")
+
+
 def test_schedule_efficiency_is_planned_over_actual_so_faster_reads_higher() -> None:
     row = _derive(
         ReportKey.PRODUCTION_EFFICIENCY,
@@ -345,6 +363,7 @@ def test_utilisation_is_busy_minutes_against_the_capacity_of_the_whole_period() 
             "working_hours_per_day": Decimal("8"),
             "busy_minutes": Decimal("2400"),
             "downtime_minutes": Decimal("480"),
+            "rostered_minutes": Decimal("0"),
         },
         _context(period),
     )
@@ -352,6 +371,26 @@ def test_utilisation_is_busy_minutes_against_the_capacity_of_the_whole_period() 
     assert row["available_minutes"] == Decimal("4800.0000")
     assert row["utilisation_percent"] == Decimal("50.00")
     assert row["downtime_percent"] == Decimal("10.00")
+    # Nothing rostered: no rostered utilisation, and no division error either.
+    assert row["rostered_utilisation_percent"] == Decimal("0.00")
+
+
+def test_rostered_utilisation_sits_beside_calendar_utilisation() -> None:
+    """Busy against the minutes the roster planned, without moving the calendar figure."""
+    period = ReportPeriod(date_from=date(2026, 9, 1), date_to=date(2026, 9, 10))
+    row = _derive(
+        ReportKey.MACHINE_UTILISATION,
+        {
+            "working_hours_per_day": Decimal("8"),
+            "busy_minutes": Decimal("2400"),
+            "downtime_minutes": Decimal("0"),
+            # Six eight-hour shifts planned on it, net of breaks.
+            "rostered_minutes": Decimal("2880"),
+        },
+        _context(period),
+    )
+    assert row["utilisation_percent"] == Decimal("50.00")
+    assert row["rostered_utilisation_percent"] == Decimal("83.33")
 
 
 def test_a_machine_on_a_work_centre_with_no_hours_reports_zero_not_an_error() -> None:
@@ -362,6 +401,7 @@ def test_a_machine_on_a_work_centre_with_no_hours_reports_zero_not_an_error() ->
             "working_hours_per_day": Decimal("0"),
             "busy_minutes": Decimal("120"),
             "downtime_minutes": Decimal("0"),
+            "rostered_minutes": Decimal("0"),
         },
         _context(period),
     )

@@ -415,7 +415,9 @@ export const PO_LIFECYCLE: { label: string; statuses: readonly PurchaseOrderStat
   { label: 'Draft', statuses: ['DRAFT'] },
   { label: 'Pending approval', statuses: ['PENDING_APPROVAL'] },
   { label: 'Approved', statuses: ['APPROVED'] },
-  { label: 'Sent', statuses: ['SENT'] },
+  // A declined order is back with the buyer, who cancels it or sends it again;
+  // it has not left the "Sent" stage.
+  { label: 'Sent', statuses: ['SENT', 'VENDOR_DECLINED'] },
   { label: 'Acknowledged', statuses: ['ACKNOWLEDGED'] },
   { label: 'Received', statuses: ['PARTIALLY_RECEIVED', 'RECEIVED'] },
   { label: 'QC', statuses: ['QC_PENDING', 'QC_COMPLETED'] },
@@ -434,12 +436,23 @@ export function poStageIndex(status: string): number {
 
 export const isPoSubmittable = (status: string): boolean => status === 'DRAFT'
 export const isPoDecidable = (status: string): boolean => status === 'PENDING_APPROVAL'
-export const isPoSendable = (status: string): boolean => status === 'APPROVED'
+/**
+ * APPROVED -> SENT, and VENDOR_DECLINED -> SENT: a buyer re-sends an order the
+ * vendor declined (after agreeing a new date, say) through the same Send dialog.
+ */
+export const isPoSendable = (status: string): boolean =>
+  status === 'APPROVED' || status === 'VENDOR_DECLINED'
 export const isPoAcknowledgeable = (status: string): boolean => status === 'SENT'
 
-/** Cancellation is legal only before anything has been received against the order. */
+/**
+ * Cancellation is legal only before anything has been received against the
+ * order - including after the vendor declined it, which is how the buyer gives
+ * the requisition its quantity back.
+ */
 export const isPoCancellable = (status: string): boolean =>
-  ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'SENT', 'ACKNOWLEDGED'].includes(status)
+  ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'SENT', 'VENDOR_DECLINED', 'ACKNOWLEDGED'].includes(
+    status,
+  )
 
 /**
  * Statuses a goods receipt may legally be posted against.

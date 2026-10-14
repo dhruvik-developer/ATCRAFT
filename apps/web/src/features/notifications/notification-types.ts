@@ -44,6 +44,14 @@ export const NOTIFICATION_TYPES = [
   'REPORT_READY',
   'BACKGROUND_JOB_COMPLETED',
   'BACKGROUND_JOB_FAILED',
+  'PURCHASE_ORDER_SENT',
+  'PURCHASE_ORDER_ACKNOWLEDGED',
+  'PURCHASE_ORDER_DECLINED',
+  'PURCHASE_ORDER_DATE_CHANGED',
+  'PURCHASE_ORDER_READY',
+  'PURCHASE_ORDER_SHIPPED',
+  'VENDOR_INVOICE_STATUS',
+  'VENDOR_PAYMENT_RECORDED',
   'SYSTEM_ANNOUNCEMENT',
 ] as const
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
@@ -81,6 +89,7 @@ export interface NotificationPreference {
   notification_type: string
   in_app_enabled: boolean
   email_enabled: boolean
+  push_enabled?: boolean
   /** False when this row is still the system default rather than a choice. */
   is_customised?: boolean
 }

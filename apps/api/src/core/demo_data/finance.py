@@ -11,7 +11,7 @@ populated.
 
 What it builds, and why each document is in the state it is
 -----------------------------------------------------------
-**Vendor invoices - nine of them, five statuses.** A payables screen showing one
+**Vendor invoices - eight of them, four statuses.** A payables screen showing one
 row in one status teaches nobody what the statuses mean.
 
 * ``DM-VI-PACK`` sits in DRAFT, still being keyed.
@@ -24,18 +24,28 @@ row in one status teaches nobody what the statuses mean.
   purchase order's own net price, read out of the same two tables the matcher
   reads. They approve with no override because there is genuinely nothing out of
   tolerance to override.
-* Five service bills - plating, slitting, tooling, maintenance - carry no
+* ``DM-VI-JW-PLATE`` is a job-work bill of type ``JOB_WORK``: it names the
+  operations stage's received plating order and bills part of what its receipt
+  line earned, matched against the order's rate and the lot's good output. It
+  approves with no override, like the matched purchase bills - a job-work bill
+  always names its order, so there is no "not linked to a purchase order" to
+  override. The lot's balance stays unbilled, which is what the record-invoice
+  dialog on the job-work screen offers.
+* Three service bills - slitting, tooling, maintenance - carry no
   purchase order and are approved over a recorded override reason. That is not a
   shortcut: ``evaluate_match`` reports non-order spend as unmatched deliberately,
   so approving it is a named decision with a justification stored against it. It
   is also what real payables ageing is mostly made of.
 
 **Cost centres on the bills.** Each service bill names the cost centre it is
-charged to (plating to ``DM-CC-PROD-PLAT``, tooling to ``DM-CC-MAINT`` ...), and
+charged to (slitting to ``DM-CC-PROD``, tooling to ``DM-CC-MAINT`` ...), and
 ``DM-VI-SPARES`` also has a line naming a centre of its own, so its approval
-posts one purchase-expense leg per centre. Those legs are what the cost-centre
-statement reads. The bills billed against purchase orders carry none: nothing on
-the order says where the goods were charged, and that is WP B3's to add.
+posts one purchase-expense leg per centre. The job-work bill names none: its
+lines take the job-work order's centre (``DM-CC-PROD-PLAT``), which posts the
+job-work expense legs the cost-centre statement then reads. Those legs are what
+the cost-centre statement reads. The bills billed against purchase orders carry
+none: nothing on the order says where the goods were charged, and that is WP B3's
+to add.
 
 **Ageing that means something.** The boundaries live in
 ``AGEING_BUCKET_BOUNDARIES`` and the SQL compares *due dates* against edges
@@ -46,12 +56,18 @@ else. Every bucket therefore has a row, on both sides of the ledger:
 bucket                  payable                     receivable
 ======================  ==========================  ==============================
 ``not due``             the two matched PO bills,   -
-                        ``DM-VI-SPARES``
+                        ``DM-VI-SPARES``,
+                        ``DM-VI-JW-PLATE``
 ``0-30``                ``DM-VI-TOOL``              ``DM-SC-WEST``, ``DM-SC-VASTU``
 ``31-60``               ``DM-VI-SLIT``              ``DM-SC-ARCH-2``, ``DM-SC-METRO``
-``61-90``               ``DM-VI-PLATE-B``           ``DM-SC-SKYLINE``
-``90+``                 ``DM-VI-PLATE-A``           ``DM-SC-ARCH-1``
+``61-90``               -                           ``DM-SC-SKYLINE``
+``90+``                 -                           ``DM-SC-ARCH-1``
 ======================  ==========================  ==============================
+
+The payable side currently has nothing past sixty days. That is honest rather
+than thin: the old plating bills that used to age here were replaced by a typed
+job-work bill against last week's receipt, and old money that is genuinely
+overdue is service spend, which is where it usually is.
 
 The PO-linked bills *cannot* be overdue, and that is correct rather than an
 oversight: procurement's receipts are all inside the last month and these vendors
@@ -59,29 +75,22 @@ give 21 to 45 days, so an aged PO invoice would have to contradict either the
 receipt date or the agreed terms. The old money is service spend, which is where
 it usually is.
 
-**Payments - four out, two in.** One DRAFT cheque; one approved payment allocated
-across *two* invoices of the same vendor; one approved payment left deliberately
+**Payments - four out, two in.** One DRAFT cheque; one approved part-payment
+against the plating bill, which leaves it PARTIALLY_PAID; one approved payment
+left deliberately
 unallocated, so the "not fully settled" filter has a row; and two customer
 receipts. Allocation is bounded by the party - ``_assert_allocatable`` refuses an
 invoice belonging to anyone but the payment's own vendor - so a payment can span
 several invoices but never several vendors.
 
-A **RECEIPT cannot be allocated at all**: ``allocate_payment`` refuses one
-outright, because there is no customer invoice document in this schema for it to
-settle. A receipt reduces the customer's balance directly, and that is recorded
-in ``ctx.skipped`` at run time rather than worked around here.
+**Sales invoices and allocated receipts.** Dispatched demo SALES consignments are
+issued through `sales_invoice_service`, idempotent by dispatch. One customer
+receipt is allocated to an issued invoice. The earlier hand-posted customer_charge
+journals stay as historical examples; new invoices use the statutory SI series and
+post to the sales revenue control account. Fictional bank details fill only empty
+company fields, so the demo PDF footer is complete without rewriting client data.
 
-**Receivables, and why they are journals.** ``database.md`` section 2 records
-that this schema has no customer invoice: an open receivable is a ledger debit
-the customer's credits have not covered yet, FIFO-netted by
-``receivable_ageing_stmt``. So the six customer charges here are direct journals
-through ``post_journal`` - the one case that function documents itself as being
-for - each raising the customer's cached ``outstanding_amount`` through
-``customers.service.apply_outstanding_delta`` in the same call. The cached figure
-and the ledger are written together, which is the only way the two can be trusted
-to agree.
-
-**A chart with a shape.** ``ensure_system_accounts`` provisions the eight control
+**A chart with a shape.** ``ensure_system_accounts`` provisions the nine control
 accounts on first use; this stage calls it up front so the chart screen has rows
 before the first document rather than after it, and then opens a small revenue
 branch - a parent and two children - because nothing in the finance module posts
@@ -92,7 +101,8 @@ Where the balances end up
 -------------------------
 Deliberately not zero, and deliberately not tidy. Archway Interiors is left owing
 2,45,600 against a 5,00,000 limit, with the older half of it in the 90+ bucket;
-Chromeline Electroplaters is left owed 87,188 on a bill from four months ago. Both
+Chromeline Electroplaters is left owed the 373.20 balance of its plating bill,
+part-paid two days after it was raised. Both
 outstanding screens and both party ledgers have rows, and on each side the oldest
 open item belongs to a party who has paid *something* - which is the case that
 catches a netting bug, where a fully-unpaid one would not.
@@ -110,7 +120,7 @@ kind                    codes
                         ``4200``, aliased as ``DM-ACC-REVENUE``,
                         ``DM-ACC-SALES`` and ``DM-ACC-FREIGHT``
 ``vendor_invoice``      ``DM-VI-METALS``, ``DM-VI-COMP``, ``DM-VI-PACK``,
-                        ``DM-VI-RFQ``, ``DM-VI-PLATE-A``, ``DM-VI-PLATE-B``,
+                        ``DM-VI-RFQ``, ``DM-VI-JW-PLATE``,
                         ``DM-VI-SLIT``, ``DM-VI-TOOL``, ``DM-VI-SPARES``
 ``payment``             ``DM-PAY-BRASS``, ``DM-PAY-PLATE``, ``DM-PAY-FAST``,
                         ``DM-PAY-PACK``, ``DM-RCPT-ARCH``, ``DM-RCPT-VASTU``
@@ -169,6 +179,7 @@ from src.modules.finance.models import (
     SystemAccount,
     VendorInvoice,
     VendorInvoiceStatus,
+    VendorInvoiceType,
 )
 from src.modules.finance.schemas import (
     AllocationRequest,
@@ -297,7 +308,7 @@ def _cost_centre(ctx: DemoContext, suffix: tuple[str, ...] | None) -> uuid.UUID 
 # -----------------------------------------------------------------------------
 # The chart of accounts
 # -----------------------------------------------------------------------------
-# The eight control accounts are provisioned by the finance module itself. What it
+# The nine control accounts are provisioned by the finance module itself. What it
 # does not provision is anything on the income side, because nothing in the module
 # posts revenue - there is no customer invoice document to post it from. The
 # customer charges below need somewhere to credit, so this stage opens a small
@@ -508,61 +519,8 @@ class _ServiceInvoice:
 
 
 SERVICE_INVOICES: tuple[_ServiceInvoice, ...] = (
-    # 90+ bucket. Four months old, part-paid, and the oldest thing the company
-    # owes - which is what the payables screen should be sorting to the top.
-    _ServiceInvoice(
-        marker=("VI", "PLATE", "A"),
-        vendor="VEN-PLATE",
-        vendor_invoice_number="CHR/2025/0412",
-        invoiced_in=-135,
-        due_in=-120,
-        round_off="0.20",
-        override_reason=(
-            "Plating is job work against material we issue; there is no purchase order to "
-            "match to. Charges checked against the job cards for the quarter."
-        ),
-        notes="Quarterly plating charges. Rate as per the annual job-work agreement.",
-        lines=(
-            _ServiceLine(
-                description="Antique brass plating - lever handle sets",
-                hsn_code="998898",
-                quantity="4200",
-                unit_price="18.500000",
-            ),
-            _ServiceLine(
-                description="Satin nickel plating - mortise lock forends",
-                hsn_code="998898",
-                quantity="2600",
-                unit_price="21.350000",
-            ),
-        ),
-        cost_centre=("PROD", "PLAT"),
-    ),
-    # 61-90 bucket, part-paid by the same transfer. Two open items against one
-    # vendor is what makes the allocation screen worth looking at.
-    _ServiceInvoice(
-        marker=("VI", "PLATE", "B"),
-        vendor="VEN-PLATE",
-        vendor_invoice_number="CHR/2025/0518",
-        invoiced_in=-90,
-        due_in=-75,
-        round_off="0.00",
-        override_reason=(
-            "Job work, no purchase order. Charges checked against the job cards for the month."
-        ),
-        notes="Monthly plating charges. Antique brass only; no nickel work this cycle.",
-        lines=(
-            _ServiceLine(
-                description="Antique brass plating - lever handle sets",
-                hsn_code="998898",
-                quantity="3800",
-                unit_price="18.500000",
-            ),
-        ),
-        cost_centre=("PROD", "PLAT"),
-    ),
     # 31-60 bucket. Deepak Steel is in Maharashtra, so this one is IGST while the
-    # plating bills are CGST+SGST - which gives the GST summary both halves of the
+    # plating bill below is CGST+SGST - which gives the GST summary both halves of the
     # return rather than one.
     _ServiceInvoice(
         marker=("VI", "SLIT"),
@@ -648,6 +606,134 @@ SERVICE_INVOICES: tuple[_ServiceInvoice, ...] = (
         cost_centre=("MAINT",),
     ),
 )
+
+
+# -----------------------------------------------------------------------------
+# Vendor invoices billed against a job-work order and its receipt lines
+# -----------------------------------------------------------------------------
+# Plating genuinely is job work against material the works issues, so these
+# bills are typed JOB_WORK and matched to the operations stage's receipts -
+# not purchase bills approved over an override, which is what the plating bills
+# here used to be. The bill below charges part of what the received lot earned,
+# so the remainder stays unbilled and the record-invoice dialog has something
+# real to offer.
+
+
+@dataclass(frozen=True, slots=True)
+class _JobWorkInvoice:
+    marker: tuple[str, ...]
+    #: The operations-stage order, as a tag pair it registered.
+    order: tuple[str, ...]
+    vendor: str
+    vendor_invoice_number: str
+    invoiced_in: int
+    #: Good pieces billed on the receipt line's first chargeable line.
+    bill_quantity: str
+    notes: str
+
+
+JOB_WORK_INVOICES: tuple[_JobWorkInvoice, ...] = (
+    _JobWorkInvoice(
+        marker=("VI", "JW-PLATE"),
+        order=("JW", "RECEIVED"),
+        vendor="VEN-PLATE",
+        vendor_invoice_number="CHR/2026/0118",
+        invoiced_in=-4,
+        bill_quantity="40",
+        notes=(
+            "Plating charges for the levers received back last week. "
+            "Part of the lot's charge; the balance is still unbilled."
+        ),
+    ),
+)
+
+
+async def _seed_job_work_invoice(
+    ctx: DemoContext,
+    spec: _JobWorkInvoice,
+    found: dict[str, tuple[uuid.UUID, VendorInvoiceStatus]],
+    interstate: set[uuid.UUID],
+) -> None:
+    """One bill matched to a job-work receipt line, approved with no override."""
+    from src.modules.job_work.models import JobWorkOrder, JobWorkReceipt, JobWorkReceiptLine
+
+    marker = ctx.code(*spec.marker)
+    known = found.get(marker)
+    if known is not None:
+        invoice_id, status = known
+        _seen(ctx, "vendor_invoice", marker, invoice_id, created=False)
+        await _walk_invoice(
+            ctx, marker, invoice_id, status, VendorInvoiceStatus.APPROVED, override_reason=None
+        )
+        return
+
+    order_id = ctx.maybe_id("job_work_order", ctx.code(*spec.order))
+    if order_id is None:
+        ctx.skipped.append((STAGE, f"{marker} not billed: operations registered no job order"))
+        return
+    order = await ctx.session.get(JobWorkOrder, order_id)
+    if order is None:  # pragma: no cover - the register named a missing row
+        ctx.skipped.append((STAGE, f"{marker} not billed: its job order is gone"))
+        return
+    # Plain values, lifted before any service call unwinds a savepoint - see
+    # _seed_vendor_invoices.
+    rate = to_unit_price(order.rate_per_unit)
+    tax_rate = order.tax_rate if order.tax_rate is not None else Decimal(STANDARD_GST_RATE)
+    sac = order.sac_code or "9988"
+
+    stmt = (
+        select(JobWorkReceiptLine)
+        .join(JobWorkReceipt, JobWorkReceipt.id == JobWorkReceiptLine.receipt_id)
+        .where(
+            JobWorkReceiptLine.company_id == ctx.company_id,
+            JobWorkReceipt.company_id == ctx.company_id,
+            JobWorkReceipt.job_work_order_id == order_id,
+        )
+        .order_by(JobWorkReceipt.receipt_number, JobWorkReceiptLine.line_number)
+    )
+    target = next(
+        (
+            row
+            for row in (await ctx.session.execute(stmt)).scalars()
+            if to_money(row.charges - row.invoiced_amount) > ZERO
+        ),
+        None,
+    )
+    if target is None:
+        ctx.skipped.append((STAGE, f"{marker} not billed: its job order has no unbilled line"))
+        return
+    target_id = target.id
+
+    vendor_id = _vendor(ctx, spec.vendor)
+    detail = await _create_invoice(
+        ctx,
+        marker,
+        VendorInvoiceCreate(
+            vendor_id=vendor_id,
+            vendor_invoice_number=spec.vendor_invoice_number,
+            invoice_date=_on(spec.invoiced_in),
+            invoice_type=VendorInvoiceType.JOB_WORK,
+            job_work_order_id=order_id,
+            notes=_tagged(marker, spec.notes),
+            lines=[
+                VendorInvoiceLineIn(
+                    job_work_receipt_line_id=target_id,
+                    description=("Antique brass plating - lever sets, part of the received lot"),
+                    hsn_code=sac,
+                    quantity=Decimal(spec.bill_quantity),
+                    unit_price=rate,
+                    tax_rate=tax_rate,
+                    is_interstate=vendor_id in interstate,
+                )
+            ],
+        ),
+    )
+    if detail is None:
+        return
+    _seen(ctx, "vendor_invoice", marker, detail.id, created=True)
+    await _walk_invoice(
+        ctx, marker, detail.id, detail.status, VendorInvoiceStatus.APPROVED, override_reason=None
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -809,31 +895,27 @@ PAYMENTS: tuple[_Payment, ...] = (
             ),
         ),
     ),
-    # One payment across two invoices of one vendor, oldest first, neither cleared.
-    # Both stay open, so the 90+ and 61-90 buckets keep their rows and the ageing
-    # report is not a single-bucket picture.
+    # Part payment against the plating bill, two days after it was raised. The
+    # bill is a typed job-work invoice matched to the received lot, so this is
+    # an ordinary part-payment of a matched bill - and it leaves the bill
+    # PARTIALLY_PAID rather than clearing it.
     _Payment(
         marker=("PAY", "PLATE"),
         payment_type=PaymentType.PAYMENT,
         party="VEN-PLATE",
-        paid_in=-20,
-        amount="120000.00",
+        paid_in=-2,
+        amount="500.00",
         method=PaymentMethod.BANK_TRANSFER,
-        reference_number="NEFT/CHR/8841",
+        reference_number="NEFT/CHR/9207",
         bank_name="State Bank of India",
         instrument_in=None,
         approve=True,
-        notes="On account against the two oldest plating bills.",
+        notes="Part payment against the plating bill; the balance clears on the agreed terms.",
         allocations=(
             _Allocation(
-                invoice=("VI", "PLATE", "A"),
-                amount="70000.00",
-                notes="Against the oldest open bill first.",
-            ),
-            _Allocation(
-                invoice=("VI", "PLATE", "B"),
-                amount="50000.00",
-                notes="Balance of the transfer.",
+                invoice=("VI", "JW-PLATE"),
+                amount="500.00",
+                notes="Part payment; the unbilled balance of the lot is still to come.",
             ),
         ),
     ),
@@ -1093,6 +1175,8 @@ async def _seed_vendor_invoices(ctx: DemoContext, interstate: set[uuid.UUID]) ->
         await _seed_ordered_invoice(ctx, ordered, found, interstate)
     for service in SERVICE_INVOICES:
         await _seed_service_invoice(ctx, service, found, interstate)
+    for job_work in JOB_WORK_INVOICES:
+        await _seed_job_work_invoice(ctx, job_work, found, interstate)
 
 
 async def _seed_ordered_invoice(
@@ -1501,28 +1585,152 @@ async def _walk_payment(
         ctx.skipped.append((STAGE, f"{marker} left unallocated: {exc}"))
 
 
-def _note_receipt_allocation_gap(ctx: DemoContext) -> None:
-    """Record why no customer receipt here settles a document.
-
-    Not an omission and not a workaround. ``allocate_payment`` refuses a RECEIPT
-    outright, and it is right to: there is no customer invoice in this schema for a
-    receipt to be allocated against (database.md section 2), so a receipt reduces
-    the customer's outstanding balance directly and the ageing report nets it FIFO
-    out of the ledger instead.
-    """
-    receipts = [
-        ctx.code(*spec.marker) for spec in PAYMENTS if spec.payment_type is PaymentType.RECEIPT
-    ]
-    if not receipts:
-        return
-    ctx.skipped.append(
-        (
-            STAGE,
-            f"no allocation on {', '.join(receipts)}: allocation is payables-only - a customer "
-            "receipt has no invoice document to settle, so it reduces the customer's "
-            "outstanding balance directly and is FIFO-netted on the ageing report",
-        )
+async def _seed_sales_invoices(ctx: DemoContext) -> None:
+    """Issue by dispatch identity; old customer_charge journals remain historical examples."""
+    from src.modules.dispatch.models import (
+        DELIVERED_STATUSES,
+        IN_FLIGHT_STATUSES,
+        Dispatch,
+        DispatchType,
     )
+    from src.modules.finance import sales_invoice_service
+    from src.modules.finance.models import SalesInvoice, SalesInvoiceStatus
+    from src.modules.finance.sales_invoice_repository import SalesInvoiceSourceRepository
+    from src.modules.finance.sales_invoice_schemas import SalesInvoiceCreate
+    from src.modules.organization.models import Company
+    from src.modules.organization.schemas import CompanyUpdate
+    from src.modules.organization.service import CompanyService
+
+    company = (
+        await ctx.session.execute(select(Company).where(Company.id == ctx.company_id))
+    ).scalar_one()
+    fictional = {
+        "bank_name": "Fictional Foundry Bank",
+        "bank_account_name": company.legal_name or company.name,
+        "bank_account_number": "000001234567",
+        "bank_ifsc": "FICT0001234",
+        "bank_branch": "Pune Industrial Estate",
+        "invoice_terms": "Payment within the agreed credit period. "
+        "Goods supplied under the sales-order terms.",
+    }
+    missing = {key: value for key, value in fictional.items() if getattr(company, key) is None}
+    if missing:
+        await CompanyService(ctx.session, ctx.tenant).update_company(CompanyUpdate(**missing))
+    stmt = (
+        select(Dispatch.id)
+        .where(
+            Dispatch.company_id == ctx.company_id,
+            Dispatch.code.like(f"{DEMO_PREFIX}%"),
+            Dispatch.dispatch_type == DispatchType.SALES,
+            Dispatch.sales_order_id.is_not(None),
+            Dispatch.status.in_((*IN_FLIGHT_STATUSES, *DELIVERED_STATUSES)),
+        )
+        .order_by(Dispatch.id)
+    )
+    # Demo dispatch document codes are numbered DISP/...; registered refs identify the demo rows.
+    dispatch_ids = list(ctx.refs.get("dispatch", {}).values())
+    if dispatch_ids:
+        stmt = (
+            select(Dispatch.id)
+            .where(
+                Dispatch.company_id == ctx.company_id,
+                Dispatch.id.in_(dispatch_ids),
+                Dispatch.dispatch_type == DispatchType.SALES,
+                Dispatch.sales_order_id.is_not(None),
+                Dispatch.status.in_((*IN_FLIGHT_STATUSES, *DELIVERED_STATUSES)),
+            )
+            .order_by(Dispatch.id)
+        )
+    for dispatch_id in list((await ctx.session.execute(stmt)).scalars()):
+        known = (
+            await ctx.session.execute(
+                select(SalesInvoice.id).where(
+                    SalesInvoice.company_id == ctx.company_id,
+                    SalesInvoice.dispatch_id == dispatch_id,
+                    SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
+                )
+            )
+        ).scalar_one_or_none()
+        if known is None:
+            source = SalesInvoiceSourceRepository(ctx.session, ctx.tenant)
+            dispatch = await source.dispatch(dispatch_id)
+            if dispatch.sales_order_id is None:
+                continue  # The candidate query excludes these; keep the source type explicit.
+            dispatch_lines = await source.dispatch_lines(dispatch_id)
+            order_lines = await source.order_lines(dispatch.sales_order_id)
+            by_id = {line.id: line for line in order_lines}
+            if any(
+                line.sales_order_line_id not in by_id
+                or by_id[line.sales_order_line_id].item_id != line.item_id
+                for line in dispatch_lines
+            ):
+                # A line shipped before order linkage existed cannot be priced.
+                # The delivered demo consignments that do name their order lines
+                # are invoiced; this one is left as history.
+                ctx.skipped.append(
+                    (
+                        STAGE,
+                        f"{dispatch.code} not invoiced: a line does not belong to the "
+                        "sales order, so there is no agreed price to snapshot",
+                    )
+                )
+                continue
+            invoice = await sales_invoice_service.issue_sales_invoice(
+                ctx.session, ctx.tenant, SalesInvoiceCreate(dispatch_id=dispatch_id)
+            )
+            ctx.note(STAGE, created=1)
+            ctx.remember("sales_invoice", invoice.code, invoice.id)
+        else:
+            ctx.note(STAGE, existing=1)
+    # Allocate one existing demo receipt, only when it has not already been settled.
+    receipts = list(
+        (
+            await ctx.session.execute(
+                select(Payment.id, Payment.party_id, Payment.amount, Payment.currency)
+                .where(
+                    Payment.company_id == ctx.company_id,
+                    Payment.id.in_(list(ctx.refs.get("payment", {}).values())),
+                    Payment.payment_type == PaymentType.RECEIPT,
+                    Payment.status == PaymentStatus.APPROVED,
+                    Payment.allocated_amount == ZERO,
+                )
+                .order_by(Payment.payment_date, Payment.id)
+            )
+        ).all()
+    )
+    for receipt in receipts:
+        receipt_invoice = (
+            await ctx.session.execute(
+                select(SalesInvoice.id, SalesInvoice.total_amount, SalesInvoice.paid_amount)
+                .where(
+                    SalesInvoice.company_id == ctx.company_id,
+                    SalesInvoice.customer_id == receipt.party_id,
+                    SalesInvoice.currency == receipt.currency,
+                    SalesInvoice.status.in_(
+                        (SalesInvoiceStatus.ISSUED, SalesInvoiceStatus.PARTIALLY_PAID)
+                    ),
+                )
+                .order_by(SalesInvoice.due_date, SalesInvoice.id)
+                .limit(1)
+            )
+        ).first()
+        if receipt_invoice:
+            amount = min(
+                to_money(receipt.amount),
+                to_money(receipt_invoice.total_amount - receipt_invoice.paid_amount),
+            )
+            if amount > ZERO:
+                await finance.allocate_payment(
+                    ctx.session,
+                    ctx.tenant,
+                    receipt.id,
+                    AllocationRequest(
+                        allocations=[
+                            PaymentAllocationIn(sales_invoice_id=receipt_invoice.id, amount=amount)
+                        ]
+                    ),
+                )
+                break
 
 
 # =============================================================================
@@ -1551,4 +1759,4 @@ async def seed(ctx: DemoContext) -> None:
     # it is settling to be on the ledger already.
     await _seed_payments(ctx)
 
-    _note_receipt_allocation_gap(ctx)
+    await _seed_sales_invoices(ctx)

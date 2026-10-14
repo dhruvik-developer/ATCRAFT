@@ -17,7 +17,11 @@ run production":
   part demonstrates nothing;
 * **QC templates** with dimensional, visual and finish characteristics and three
   different sampling plans, so the quality stage has something to inspect
-  against and the template screen is not empty.
+  against and the template screen is not empty;
+* **shifts and a week of the shift roster**: three eight-hour shifts round the
+  clock and a general day shift with a break, and the four demonstration
+  operators planned on them - two sharing the lathe back to back, one on the
+  drill overnight, one at the assembly bench at cell level.
 
 Everything is created through the module services, so the state machines, the
 version numbering, the cost roll-up and the audit trail all run exactly as they
@@ -39,13 +43,14 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, replace
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
 
 from src.core.clock import utcnow
 from src.core.demo_data import DEMO_PREFIX, DemoContext, find_by_code
+from src.core.demo_data.masters import OPERATORS
 from src.core.errors import BusinessRuleError, DuplicateError
 from src.modules.bom import service as bom_service
 from src.modules.bom.models import Bom, BomStatus, BomType
@@ -54,17 +59,35 @@ from src.modules.products.models import Item, ItemCategory
 from src.modules.quality import service as quality_service
 from src.modules.quality.models import ParameterType, QcStage, QcTemplate, SamplingPlan
 from src.modules.quality.schemas import TemplateCreate, TemplateParameterIn
-from src.modules.routing.models import Machine, MachineStatus, Routing, RoutingStatus, WorkCenter
+from src.modules.routing.models import (
+    Machine,
+    MachineStatus,
+    Routing,
+    RoutingStatus,
+    Shift,
+    ShiftAssignment,
+    WorkCenter,
+)
 from src.modules.routing.schemas import (
     CopyAsNewVersionRequest,
     MachineCreate,
     MachineStatusChange,
     RoutingCreate,
     RoutingOperationIn,
+    ShiftAssignmentCreate,
+    ShiftCreate,
     WorkCenterCreate,
     WorkCenterUpdate,
 )
-from src.modules.routing.service import MachineService, RoutingService, WorkCenterService
+from src.modules.routing.service import (
+    MachineService,
+    RoutingService,
+    ShiftRosterService,
+    ShiftService,
+    WorkCenterService,
+    company_today,
+)
+from src.modules.users.models import User
 
 STAGE = "engineering"
 
@@ -1552,12 +1575,155 @@ async def _seed_qc_templates(ctx: DemoContext, parts: _Parts) -> None:
 
 
 # -----------------------------------------------------------------------------
+# Shifts and the roster
+# -----------------------------------------------------------------------------
+
+#: ``(code, name, start, end, break minutes, board order)``. The codes are the
+#: ones the demonstration bookings already carry, so their snapshots match.
+SHIFTS: tuple[tuple[str, str, time, time, int, int], ...] = (
+    ("A", "Morning", time(6), time(14), 0, 10),
+    ("B", "Afternoon", time(14), time(22), 0, 20),
+    # Crosses midnight: planned on the date it starts, ends the next morning.
+    ("C", "Night", time(22), time(6), 0, 30),
+    ("GEN", "General", time(9), time(17, 30), 30, 40),
+)
+
+#: The demonstration week, as ``(operator code parts, shift code, work centre
+#: suffix, machine suffix or None)``. A and B share the lathe back to back -
+#: half-open windows, so no clash - C runs the drill overnight, and the general
+#: shift staffs the assembly bench at cell level, which has no machine.
+ROSTER: tuple[tuple[tuple[str, ...], str, str, str | None], ...] = (
+    (("USER", "OP1"), "A", "WC-MACHINE", "MC-LATHE-01"),
+    (("USER", "OP2"), "B", "WC-MACHINE", "MC-LATHE-01"),
+    (("USER", "OP3"), "C", "WC-MACHINE", "MC-DRILL-01"),
+    (("USER", "OP4"), "GEN", "WC-ASSEMBLY", None),
+)
+
+ROSTER_DAYS = 7
+
+#: The roster has no code column, so this note is what marks the demonstration
+#: week's rows - and what a re-run finds them by.
+ROSTER_NOTE = "DM-ROSTER: demonstration week"
+LEGACY_ROSTER_NOTE = "DM-ROSTER-WEEK-1"
+
+
+async def _seed_shifts(ctx: DemoContext) -> None:
+    """The four demonstration shifts, created through the service so they audit."""
+    service = ShiftService(ctx.session, ctx.tenant)
+    for code, name, start, end, break_minutes, sort_order in SHIFTS:
+        existing = await find_by_code(ctx.session, Shift, ctx.company_id, code)
+        if existing is not None:
+            ctx.remember("shift", code, existing.id)
+            ctx.note(STAGE, existing=1)
+            continue
+        created = await service.create_shift(
+            ShiftCreate(
+                code=code,
+                name=name,
+                start_time=start,
+                end_time=end,
+                break_minutes=break_minutes,
+                sort_order=sort_order,
+            )
+        )
+        ctx.remember("shift", code, created.id)
+        ctx.note(STAGE, created=1)
+
+
+async def _operator_id(ctx: DemoContext, parts: tuple[str, ...]) -> uuid.UUID | None:
+    """An operator the masters stage made: by its code, or by e-mail when run alone."""
+    known = ctx.maybe_id("user", ctx.code(*parts))
+    if known is not None:
+        return known
+    email = next((row[2] for row in OPERATORS if row[0] == parts), None)
+    if email is None:
+        return None
+    stmt = select(User.id).where(User.company_id == ctx.company_id, User.email == email)
+    return (await ctx.session.execute(stmt)).scalar_one_or_none()
+
+
+async def _seed_roster(
+    ctx: DemoContext, centres: dict[str, uuid.UUID], machines: dict[str, uuid.UUID]
+) -> None:
+    """A week of the shift roster, planned through the service in one bulk write.
+
+    Idempotent by identity, never by "today": the week starts on the date an
+    earlier run planned it from, read back from the rows themselves, and a row is
+    planned only when no row for that operator, shift and day offset exists. A
+    run a day later therefore fills in nothing rather than a second, shifted
+    week (CLAUDE.md, "idempotence keyed on today is not idempotent tomorrow").
+    The first run anchors on today where the company is, so the board has
+    something on it the moment it is opened.
+    """
+    planned = (
+        await ctx.session.execute(
+            select(
+                ShiftAssignment.roster_date,
+                ShiftAssignment.operator_user_id,
+                ShiftAssignment.shift_id,
+            ).where(
+                ShiftAssignment.company_id == ctx.company_id,
+                # Keep the same week when a prior demo used the original tag.
+                ShiftAssignment.notes.in_((ROSTER_NOTE, LEGACY_ROSTER_NOTE)),
+            )
+        )
+    ).all()
+    anchor = min((row.roster_date for row in planned), default=None)
+    if anchor is None:
+        anchor = await company_today(ctx.session, ctx.tenant)
+    seen = {
+        (row.operator_user_id, row.shift_id, (row.roster_date - anchor).days) for row in planned
+    }
+
+    payloads: list[ShiftAssignmentCreate] = []
+    for operator_parts, shift_code, centre_suffix, machine_suffix in ROSTER:
+        operator_id = await _operator_id(ctx, operator_parts)
+        centre_id = centres.get(centre_suffix)
+        machine_id = machines.get(machine_suffix) if machine_suffix else None
+        shift_id = ctx.maybe_id("shift", shift_code)
+        if (
+            operator_id is None
+            or centre_id is None
+            or shift_id is None
+            or (machine_suffix is not None and machine_id is None)
+        ):
+            who = "-".join(operator_parts)
+            ctx.skipped.append((STAGE, f"roster row {who} on {shift_code}: a reference is missing"))
+            continue
+        for offset in range(ROSTER_DAYS):
+            if (operator_id, shift_id, offset) in seen:
+                continue
+            payloads.append(
+                ShiftAssignmentCreate(
+                    roster_date=anchor + timedelta(days=offset),
+                    shift_id=shift_id,
+                    work_center_id=centre_id,
+                    machine_id=machine_id,
+                    operator_user_id=operator_id,
+                    notes=ROSTER_NOTE,
+                )
+            )
+
+    ctx.note(STAGE, existing=len(planned))
+    if not payloads:
+        return
+    try:
+        await ShiftRosterService(ctx.session, ctx.tenant).plan(payloads)
+    except BusinessRuleError as exc:
+        # A clash with a plan someone made by hand on the demo database, or an
+        # operator deactivated since: the rest of the stage still lands.
+        ctx.skipped.append((STAGE, f"shift roster not planned: {exc}"))
+        return
+    ctx.note(STAGE, created=len(payloads))
+
+
+# -----------------------------------------------------------------------------
 # Entry point
 # -----------------------------------------------------------------------------
 
 
 async def seed(ctx: DemoContext) -> None:
-    """Work centres, machines, routings, bills of material and QC templates.
+    """Work centres, machines, shifts and the roster, routings, BOMs and QC templates.
 
     Ordered by dependency: cells before the machines inside them, machines before
     the routings that name them, routings before the BOMs that snapshot their
@@ -1565,6 +1731,8 @@ async def seed(ctx: DemoContext) -> None:
     """
     centres = await _seed_work_centres(ctx)
     machines = await _seed_machines(ctx, centres)
+    await _seed_shifts(ctx)
+    await _seed_roster(ctx, centres, machines)
 
     parts = await _resolve_parts(ctx)
 

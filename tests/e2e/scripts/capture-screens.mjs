@@ -133,6 +133,7 @@ const SCREENS = [
   // --- production ---------------------------------------------------------
   { file: '50-production', route: '/production', title: 'Production orders' },
   { file: '51-production-detail', route: '@production', title: 'A production order' },
+  { file: '52a-shift-roster', route: '/production/shift-roster', title: 'Shift roster' },
   { file: '52-work-orders', route: '/production/work-orders', title: 'Work orders' },
   { file: '53-assembly', route: '/assembly', title: 'Assembly' },
   { file: '54-job-work', route: '/job-work', title: 'Job work' },
@@ -153,6 +154,7 @@ const SCREENS = [
 
   // --- money and evidence -------------------------------------------------
   { file: '80-finance', route: '/finance', title: 'Finance overview', settle: 2500 },
+  { file: '81a-sales-invoices', route: '/finance/sales-invoices', title: 'Sales invoices' },
   { file: '81-vendor-invoices', route: '/finance/vendor-invoices', title: 'Vendor invoices' },
   { file: '82-payments', route: '/finance/payments', title: 'Payments' },
   { file: '83-accounts', route: '/finance/accounts', title: 'Chart of accounts' },

@@ -513,6 +513,12 @@ two deployments.
 | `SMTP_USERNAME` | *(empty)* | Only if the relay authenticates. Set both or neither. |
 | `SMTP_PASSWORD` | *(empty)* | Paired with `SMTP_USERNAME`. |
 | `SMTP_TIMEOUT_SECONDS` | `15` | |
+| `WEB_PUSH_ENABLED` | `false` | Device channel; true in local dev overlay. |
+| `WEB_PUSH_VAPID_PRIVATE_KEY` | *(empty)* | Optional base64url P-256 scalar; default derives from credential root. |
+| `WEB_PUSH_SUBJECT` | *(empty)* | mailto: or https: contact; falls back to EMAIL_FROM_ADDRESS; required deployed/enabled. |
+| `WEB_PUSH_TTL_SECONDS` | `86400` | Provider retention, 0..2419200 seconds. |
+| `WEB_PUSH_TIMEOUT_SECONDS` | `10` | HTTPS transport timeout, 1..60 seconds. |
+| `WEB_PUSH_ALLOWED_HOSTS` | Google FCM, Mozilla, Windows, Apple | Dot-boundary suffixes: fcm.googleapis.com, updates.push.services.mozilla.com, push.services.mozilla.com, notify.windows.com, web.push.apple.com, push.apple.com. |
 | `POSTGRES_DB` | `atcraft_erp` | May match the other deployment. |
 | `POSTGRES_USER` | `atcraft` | May match. |
 | `POSTGRES_PASSWORD` | — | **(UNIQUE)** Required, no default. |

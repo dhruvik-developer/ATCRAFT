@@ -17,6 +17,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.core.actors import SYSTEM_ACTOR_LABEL, actor_id, is_system_actor
 from src.core.logging import (
     get_request_id,
     ip_address_ctx,
@@ -126,7 +127,16 @@ async def record_audit(
     block exits, so the violation still surfaces inside the same operation -
     the inventory posting loop does this to write one flush for a whole
     document's audit rows.
+
+    A scheduled sweep acting as the system actor (``src.core.actors``) is
+    recorded with no user and the label ``"System"`` unless the caller names one:
+    the nil placeholder it carries is not a user, and the foreign key would
+    refuse it.
     """
+    if is_system_actor(user_id):
+        actor_label = actor_label or SYSTEM_ACTOR_LABEL
+    user_id = actor_id(user_id)
+
     if old_values is not None or new_values is not None:
         old_clean, new_clean, changed = diff_values(old_values, new_values)
     else:
@@ -143,6 +153,8 @@ async def record_audit(
         new_values=new_clean,
         changed_fields=changed or None,
         context=_clean(context),
+        # A scheduled job's placeholder actor is recorded as nobody, not as a
+        # foreign key to a user that cannot exist (``src.core.actors``).
         created_by_id=user_id,
         actor_label=actor_label,
         request_id=get_request_id(),

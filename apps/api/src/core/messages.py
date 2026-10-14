@@ -35,6 +35,13 @@ SESSION_ENDED_FOR_SECURITY = (
     "This session has been ended for security reasons. Please sign in again."
 )
 
+# --- the shift roster ---------------------------------------------------------
+
+#: A second PLANNED window for one operator or one machine. Raised by the roster
+#: service's own check, with every clash in ``details``, and by the integrity
+#: handler when a race reaches the EXCLUDE constraint first.
+SHIFT_ASSIGNMENT_OVERLAP = "That assignment overlaps another for the same operator or machine."
+
 # --- masters ------------------------------------------------------------------
 
 
@@ -52,12 +59,41 @@ def date_before(later: str, earlier: str) -> str:
     return f"The {later} cannot be before the {earlier}."
 
 
+# --- quality ------------------------------------------------------------------
+
+
+def held_for_inspection(document: str, inspections: str) -> str:
+    """Refuse an owner-side verdict while the output is under a quality inspection.
+
+    Raised by assembly and job work alike: the inspection is the one release path
+    for a hold it covers, so the document's own verdict endpoint points at it
+    instead of releasing the same stock a second time.
+    """
+    return (
+        f"{document} is held for inspection {inspections}. Record the verdict on that "
+        "inspection in Quality: deciding it releases the stock and completes this order, "
+        "once."
+    )
+
+
+def verdict_differs_from_inspection(document: str, inspections: str) -> str:
+    """Refuse a verdict that disagrees with the one an inspection already recorded."""
+    return (
+        f"Inspection {inspections} already decided {document}'s held output, and the "
+        "stock has moved accordingly. A different verdict cannot be recorded over it; "
+        "repeat the inspection's own figures to complete the order from it."
+    )
+
+
 __all__ = [
     "CURRENT_PASSWORD_INCORRECT",
     "FIELDS_NEED_ATTENTION",
     "INVALID_MFA_CHALLENGE",
     "NO_FIELDS_TO_UPDATE",
     "SESSION_ENDED_FOR_SECURITY",
+    "SHIFT_ASSIGNMENT_OVERLAP",
     "date_before",
+    "held_for_inspection",
     "inactive_record",
+    "verdict_differs_from_inspection",
 ]

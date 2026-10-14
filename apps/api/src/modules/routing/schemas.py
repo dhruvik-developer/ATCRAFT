@@ -17,18 +17,28 @@ Conventions applied throughout, each for a specific reason:
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from src.common.codes import normalise_code
 from src.modules.routing.models import (
     DEFAULT_WORKING_HOURS_PER_DAY,
     MAX_WORKING_HOURS_PER_DAY,
+    MINUTES_PER_DAY,
     MachineStatus,
     RoutingStatus,
+    ShiftAssignmentStatus,
+    shift_minutes,
 )
 
 # --- reusable constrained scalars --------------------------------------------
@@ -520,9 +530,306 @@ class LeadTimeRead(BaseModel):
     lead_time_days: int
 
 
+# -----------------------------------------------------------------------------
+# Shifts
+# -----------------------------------------------------------------------------
+
+#: The width of the ``shift`` snapshot on work orders and production entries.
+ShiftCodeField = Annotated[str, Field(min_length=1, max_length=16)]
+ShiftNameField = Annotated[str, Field(min_length=1, max_length=64)]
+BreakMinutes = Annotated[int, Field(ge=0, lt=MINUTES_PER_DAY)]
+ShiftSortOrder = Annotated[int, Field(ge=0, le=9999)]
+
+
+def _wall_clock(value: time | None) -> time | None:
+    """A shift time is a local clock reading in whole minutes.
+
+    A UTC offset would contradict ``companies.timezone``, which is what the time
+    is read in; seconds would make two shifts that look identical on the board
+    differ by a moment the roster then treats as an overlap.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        raise ValueError("Give the local clock time without a UTC offset.")
+    if value.second or value.microsecond:
+        raise ValueError("Shift times are whole minutes.")
+    return value
+
+
+def break_problem(start: time, end: time, break_minutes: int) -> str | None:
+    """Why a break does not fit inside the shift it belongs to, or ``None``.
+
+    One sentence for the create schema and the update service alike, so a
+    partial edit that moves only the end time is refused in the same words as a
+    new shift that was wrong from the start.
+    """
+    length = shift_minutes(start, end)
+    if break_minutes >= length:
+        return f"The break must be shorter than the shift, which is {length} minutes long."
+    return None
+
+
+class ShiftCreate(BaseModel):
+    """A new shift.
+
+    ``crosses_midnight`` is not accepted: it is a function of the two times
+    (:func:`~src.modules.routing.models.shift_crosses_midnight`), and a payload
+    that could state it would only be a payload that could contradict itself.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: ShiftCodeField
+    name: ShiftNameField
+    start_time: time
+    end_time: time
+    break_minutes: BreakMinutes = 0
+    sort_order: ShiftSortOrder = 0
+    is_active: bool = True
+
+    _normalise_code = field_validator("code")(_normalise)
+    _local_times = field_validator("start_time", "end_time")(_wall_clock)
+
+    @field_validator("break_minutes")
+    @classmethod
+    def _break_fits(cls, value: int, info: ValidationInfo) -> int:
+        # Declared after the times, so they are in ``info.data`` when valid; when
+        # one is missing or malformed its own error already explains the form.
+        start, end = info.data.get("start_time"), info.data.get("end_time")
+        if start is not None and end is not None:
+            problem = break_problem(start, end, value)
+            if problem:
+                raise ValueError(problem)
+        return value
+
+
+class ShiftUpdate(BaseModel):
+    """Partial update. Only the keys actually sent are applied.
+
+    ``code`` is absent by design (the snapshot argument on the model), and so is
+    ``is_active``: activation moves through the lifecycle endpoints, which carry
+    a reason. Whether a new break still fits is checked by the service against
+    the merged result, because a partial edit of one time cannot know the other.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: ShiftNameField | None = None
+    start_time: time | None = None
+    end_time: time | None = None
+    break_minutes: BreakMinutes | None = None
+    sort_order: ShiftSortOrder | None = None
+
+    _local_times = field_validator("start_time", "end_time")(_wall_clock)
+
+    @field_validator("name", "start_time", "end_time", "break_minutes", "sort_order")
+    @classmethod
+    def _not_null(cls, value: object) -> object:
+        # Omitting a key leaves it alone; sending null would blank a NOT NULL
+        # column, which is a mis-keyed request rather than an instruction.
+        if value is None:
+            raise ValueError("This value cannot be cleared.")
+        return value
+
+
+class ShiftRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    code: str
+    name: str
+    start_time: time
+    end_time: time
+    crosses_midnight: bool
+    break_minutes: int
+    sort_order: int
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class ShiftFilters(BaseModel):
+    search: str | None = None
+    is_active: bool | None = None
+
+
+# -----------------------------------------------------------------------------
+# The roster
+# -----------------------------------------------------------------------------
+
+#: The widest date range one roster read may cover, both ends included. A month
+#: is the longest view a planner works in, and the bound is what keeps a single
+#: request from reading a year of plans.
+MAX_ROSTER_RANGE_DAYS = 31
+
+#: The most assignments one bulk or copy request may write. All of them are
+#: validated and checked for overlaps in one transaction under the roster lock,
+#: so the bound is on how long that lock is held - a week for a large shop floor.
+MAX_ROSTER_BULK = 200
+
+NotesField = Annotated[str | None, Field(max_length=2000)]
+
+
+class ShiftAssignmentCreate(BaseModel):
+    """One operator on one shift at one cell, optionally one machine, on one date.
+
+    ``roster_date`` is the local date the shift *starts* on: the night shift from
+    22:00 on the 11th is planned on the 11th. ``machine_id`` left out is a
+    cell-level assignment - one person tending several machines.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    roster_date: date
+    shift_id: uuid.UUID
+    work_center_id: uuid.UUID
+    machine_id: uuid.UUID | None = None
+    operator_user_id: uuid.UUID
+    notes: NotesField = None
+
+
+class ShiftAssignmentUpdate(BaseModel):
+    """Re-staff a planned row: another operator, cell or machine, or new notes.
+
+    The date and the shift are fixed: a different window is a different plan,
+    so it is cancelled and planned again, and the history says so.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    operator_user_id: uuid.UUID | None = None
+    work_center_id: uuid.UUID | None = None
+    #: An explicit null moves the row to cell level.
+    machine_id: uuid.UUID | None = None
+    notes: NotesField = None
+
+    @field_validator("operator_user_id", "work_center_id")
+    @classmethod
+    def _required(cls, value: uuid.UUID | None) -> uuid.UUID | None:
+        if value is None:
+            raise ValueError("A planned shift always names an operator and a work centre.")
+        return value
+
+
+class ShiftAssignmentBulkCreate(BaseModel):
+    """Several assignments, written all together or not at all."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    assignments: list[ShiftAssignmentCreate] = Field(min_length=1, max_length=MAX_ROSTER_BULK)
+
+
+def _range_problem(date_from: date, date_to: date) -> str | None:
+    if date_to < date_from:
+        return "The range ends before it starts."
+    if (date_to - date_from).days + 1 > MAX_ROSTER_RANGE_DAYS:
+        return f"A roster range covers at most {MAX_ROSTER_RANGE_DAYS} days."
+    return None
+
+
+class ShiftRosterCopyRequest(BaseModel):
+    """Copy one day's planned rows onto every date of a range.
+
+    ``work_center_id`` narrows the copy to one cell, which is also how a copy too
+    large for one request is split. The source day may not sit inside the target
+    range: it would be copied onto itself and refused as an overlap with itself.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_date: date
+    target_from: date
+    target_to: date
+    work_center_id: uuid.UUID | None = None
+
+    @field_validator("target_to")
+    @classmethod
+    def _bounded(cls, value: date, info: ValidationInfo) -> date:
+        start = info.data.get("target_from")
+        if start is not None:
+            problem = _range_problem(start, value)
+            if problem:
+                raise ValueError(problem)
+            source = info.data.get("source_date")
+            if source is not None and start <= source <= value:
+                raise ValueError("The target range cannot include the day being copied.")
+        return value
+
+
+class ShiftRosterFilters(BaseModel):
+    """The roster read. The date range is required and bounded."""
+
+    date_from: date
+    date_to: date
+    shift_id: uuid.UUID | None = None
+    work_center_id: uuid.UUID | None = None
+    machine_id: uuid.UUID | None = None
+    operator_user_id: uuid.UUID | None = None
+    status: ShiftAssignmentStatus | None = None
+
+    @field_validator("date_to")
+    @classmethod
+    def _bounded(cls, value: date, info: ValidationInfo) -> date:
+        start = info.data.get("date_from")
+        if start is not None:
+            problem = _range_problem(start, value)
+            if problem:
+                raise ValueError(problem)
+        return value
+
+
+class ShiftAssignmentRead(BaseModel):
+    """One roster row with the codes and names a board prints.
+
+    A projection joined in tenant scope, so a screen whose user may read the
+    roster but not the user or machine registers still shows who is where.
+    """
+
+    id: uuid.UUID
+    roster_date: date
+    shift_id: uuid.UUID
+    shift_code: str
+    shift_name: str
+    work_center_id: uuid.UUID
+    work_center_code: str
+    work_center_name: str
+    machine_id: uuid.UUID | None
+    machine_code: str | None
+    machine_name: str | None
+    operator_user_id: uuid.UUID
+    operator_name: str
+    employee_code: str | None
+    #: The planned window as instants; ``roster_date`` is its local start date.
+    starts_at: datetime
+    ends_at: datetime
+    status: ShiftAssignmentStatus
+    notes: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class RosterOperatorRead(BaseModel):
+    """One person who can be planned on a shift or named on a booking.
+
+    Deliberately narrow: production supervisors need a name in a picker, not the
+    e-mail, roles and login history ``GET /users`` carries under ``user.view``.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    full_name: str
+    employee_code: str | None
+    plant_id: uuid.UUID | None
+    department_id: uuid.UUID | None
+
+
 __all__ = [
     "MAX_COSTING_QUANTITY",
     "MAX_OPERATIONS_PER_ROUTING",
+    "MAX_ROSTER_BULK",
+    "MAX_ROSTER_RANGE_DAYS",
     "CopyAsNewVersionRequest",
     "LeadTimeRead",
     "MachineCreate",
@@ -532,6 +839,7 @@ __all__ = [
     "MachineUpdate",
     "OperationCostRead",
     "ReasonRequest",
+    "RosterOperatorRead",
     "RoutingCostRead",
     "RoutingCreate",
     "RoutingDetail",
@@ -541,8 +849,19 @@ __all__ = [
     "RoutingStatusChange",
     "RoutingSummary",
     "RoutingUpdate",
+    "ShiftAssignmentBulkCreate",
+    "ShiftAssignmentCreate",
+    "ShiftAssignmentRead",
+    "ShiftAssignmentUpdate",
+    "ShiftCreate",
+    "ShiftFilters",
+    "ShiftRead",
+    "ShiftRosterCopyRequest",
+    "ShiftRosterFilters",
+    "ShiftUpdate",
     "WorkCenterCreate",
     "WorkCenterFilters",
     "WorkCenterRead",
     "WorkCenterUpdate",
+    "break_problem",
 ]

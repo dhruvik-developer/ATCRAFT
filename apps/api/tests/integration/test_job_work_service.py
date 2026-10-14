@@ -1025,9 +1025,15 @@ async def test_output_that_needs_inspecting_is_held_rather_than_released(ctx, jo
 
 
 async def test_the_inspection_verdict_releases_and_damages_the_right_quantities(
-    ctx, job: PvdJob
+    ctx, job: PvdJob, monkeypatch
 ) -> None:
+    """The owner-side verdict, for a lot no inspection covers.
+
+    Quality's absence is *simulated* by forcing the port to resolve to nothing
+    (CLAUDE.md): with an inspection raised, this path defers to it instead.
+    """
     session, tenant = ctx
+    monkeypatch.setattr(service, "resolve_quality_port", lambda: None)
     order, _ = await issued_order(ctx, job, requires_qc=True)
     await service.receive(
         session,
@@ -1071,9 +1077,10 @@ async def test_the_inspection_verdict_releases_and_damages_the_right_quantities(
 
 
 async def test_a_verdict_that_does_not_account_for_everything_held_is_refused(
-    ctx, job: PvdJob
+    ctx, job: PvdJob, monkeypatch
 ) -> None:
     session, tenant = ctx
+    monkeypatch.setattr(service, "resolve_quality_port", lambda: None)
     order, _ = await issued_order(ctx, job, requires_qc=True)
     await service.receive(
         session,
@@ -1086,7 +1093,7 @@ async def test_a_verdict_that_does_not_account_for_everything_held_is_refused(
         ),
     )
 
-    with pytest.raises(BusinessRuleError):
+    with pytest.raises(BusinessRuleError, match="the verdict accounts for"):
         await service.record_qc_result(
             session,
             tenant,

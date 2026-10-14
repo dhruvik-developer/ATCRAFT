@@ -145,6 +145,12 @@ class SalesOrder(TenantEntity, OptimisticLockMixin):
     #: The customer's own reference. Printed on every document sent back to them
     #: and often the only key their accounts-payable team can match on.
     customer_po_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: Who raised the order. Set by the server, never by a payload: the dealer
+    #: portal checkout passes DEALER_PORTAL, everything else stays ERP
+    #: (docs/assumptions.md §C3-6).
+    source: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="ERP", server_default="ERP"
+    )
 
     # --- dates --------------------------------------------------------------
     # order_date is the commercial date of the document; required_date is what
@@ -259,6 +265,10 @@ class SalesOrder(TenantEntity, OptimisticLockMixin):
             postgresql_where=text(f"status IN ({sql_in_list(OPEN_DEMAND_STATUSES)})"),
         ),
         CheckConstraint(f"status IN ({sql_in_list(SalesOrderStatus)})", name="status_known"),
+        CheckConstraint(
+            "source IN ('ERP', 'DEALER_PORTAL')",
+            name="source_known",
+        ),
         CheckConstraint(
             f"priority BETWEEN {MIN_PRIORITY} AND {MAX_PRIORITY}", name="priority_in_range"
         ),
@@ -377,6 +387,11 @@ class SalesOrderLine(TenantEntity):
     #: per line is maintained: a quantity change releases it and takes a new one
     #: rather than accumulating tranches nothing can later reconcile.
     reservation_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+    #: The dealer offer this line's discount came from, if any. Bare UUID, no
+    #: foreign key: the sales table must not depend on the dealer portal's
+    #: schema, and the offer may be retired while the order still cites it
+    #: (docs/assumptions.md §C3-3). Set by the server only.
+    offer_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
 
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 

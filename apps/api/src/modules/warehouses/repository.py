@@ -140,6 +140,22 @@ class WarehouseRepository(BaseRepository[Warehouse]):
         stmt = self._scoped(include_deleted=include_deleted).where(Warehouse.code == code)
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def default_warehouse(self) -> Warehouse | None:
+        """The tenant's default active warehouse, if one is flagged.
+
+        The dealer-portal checkout fulfils from here: a dealer names no
+        warehouse, and the order still has to reserve against one
+        (docs/assumptions.md §C3-5). Unscoped by the principal's warehouse
+        restriction would be wrong - but the dealer tenant carries no such
+        restriction, so ``_scoped`` is the right base.
+        """
+        stmt = (
+            self._scoped()
+            .where(Warehouse.is_active.is_(True), Warehouse.is_default.is_(True))
+            .order_by(Warehouse.code.asc(), Warehouse.id.asc())
+        )
+        return (await self.session.execute(stmt)).scalars().first()
+
     async def code_taken(self, code: str, *, exclude_id: uuid.UUID | None = None) -> bool:
         """Is this code already used in the tenant, including by a retired row?
 

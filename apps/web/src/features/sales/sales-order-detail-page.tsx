@@ -17,8 +17,18 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
-import { Ban, CheckCircle2, ListPlus, Pencil, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import {
+  Ban,
+  CheckCircle2,
+  ListPlus,
+  PackageCheck,
+  Pencil,
+  RefreshCw,
+  ShieldCheck,
+  Trash2,
+  Truck,
+} from 'lucide-react'
+import { Suspense, lazy, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
@@ -58,16 +68,19 @@ import {
   formatQuantity,
   toDecimal,
 } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { fulfilment, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
+import { FulfilmentLinks } from './fulfilment-links'
 import { SalesOrderFormDialog } from './sales-order-form-dialog'
 import { SalesOrderLineDialog } from './sales-order-line-dialog'
 import {
+  canTopUp,
   isCancellable,
   isConfirmable,
+  isDispatchable,
   isDraft,
   renumber,
   toLineInput,
@@ -80,14 +93,47 @@ import {
   type SalesOrderRow,
 } from './sales-types'
 
+/**
+ * The dispatch dialog is the dispatch feature's, and a large one; loaded on the
+ * first press of Dispatch so the order page's own chunk does not carry it.
+ */
+const CreateDispatchDialog = lazy(() =>
+  import('@/features/dispatch/dispatch-dialogs').then((m) => ({
+    default: m.CreateDispatchDialog,
+  })),
+)
+
 // ---------------------------------------------------------- allocation ------
 
 function AllocationPanel({ order }: { order: SalesOrderDetail }) {
+  const { can } = useAuth()
+  const queryClient = useQueryClient()
   const allocation = useQuery({
     queryKey: [...queryKeys.sales.detail(order.id), 'allocation-status'],
     queryFn: () => api.get<SalesOrderAllocation>(`/sales/${order.id}/allocation-status`),
     // Availability is never served stale (master rules 34).
     staleTime: staleTimes.live,
+  })
+
+  // `POST /sales/{id}/allocate` is declared on `sales_order.update`: the top-up
+  // changes the order's reservations exactly as a quantity edit does.
+  const allocate = useMutation({
+    mutationFn: () =>
+      api.post<SalesOrderAllocation>(`/sales/${order.id}/allocate`, {
+        reason: 'Available stock allocated from the order page',
+      }),
+    onSuccess: (view) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sales.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.allocation.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
+      toast.success(
+        view.fully_allocated
+          ? fulfilment.allocatedAll
+          : fulfilment.allocatedSome(view.total_shortfall_lines),
+        order.code,
+      )
+    },
+    onError: (error) => reportFieldErrors(error, 'Could not allocate stock'),
   })
 
   const lines = useMemo(() => allocation.data?.lines ?? [], [allocation.data])
@@ -126,11 +172,22 @@ function AllocationPanel({ order }: { order: SalesOrderDetail }) {
         cell: ({ row }) => formatQuantity(row.original.ordered_quantity),
       },
       {
-        id: 'allocated',
-        header: 'Reserved',
+        id: 'reserved',
+        header: fulfilment.reservedColumn,
         enableSorting: false,
         meta: { align: 'right' },
-        cell: ({ row }) => formatQuantity(row.original.allocated_quantity),
+        // The reservation's *live* remaining quantity: one released or expired
+        // elsewhere reads as nothing here, and the top-up is what re-reserves it.
+        cell: ({ row }) => formatQuantity(row.original.reserved_quantity),
+      },
+      {
+        id: 'dispatchable',
+        header: fulfilment.dispatchableColumn,
+        enableSorting: false,
+        meta: { align: 'right' },
+        // What a new consignment may carry for the line now: the live
+        // reservation, less what other open consignments already carry.
+        cell: ({ row }) => formatQuantity(row.original.dispatchable_quantity),
       },
       {
         id: 'dispatched',
@@ -141,7 +198,7 @@ function AllocationPanel({ order }: { order: SalesOrderDetail }) {
       },
       {
         id: 'shortfall',
-        header: 'Shortfall',
+        header: fulfilment.shortColumn,
         enableSorting: false,
         meta: { align: 'right' },
         // The engine's own number. Nothing here recomputes it: a browser-side
@@ -189,9 +246,13 @@ function AllocationPanel({ order }: { order: SalesOrderDetail }) {
     [],
   )
 
+  // Offered only where the top-up can act (its own status rule) and only while a
+  // line is actually short - on a covered order it would have nothing to do.
+  const offerTopUp = canTopUp(order.status) && shortLines.length > 0 && can(P.SALES_ORDER_UPDATE)
+
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between space-y-0">
+      <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0">
         <CardTitle>Allocation</CardTitle>
         {allocation.data && (
           <Badge variant={allocation.data.fully_allocated ? 'success' : 'warning'}>
@@ -212,13 +273,23 @@ function AllocationPanel({ order }: { order: SalesOrderDetail }) {
             </AlertTitle>
             <AlertDescription className="space-y-3">
               <p>
-                What is on hand has been reserved for this order. The balance needs planning - MRP
-                nets the shortfall against incoming purchase orders and production, then suggests
-                what to raise.
+                What is on hand has been reserved for this order, and what is reserved may ship now.
+                The balance waits for stock: stock that arrives is reserved for it automatically
+                every few minutes, or straight away with {fulfilment.allocateAction}. MRP nets the
+                shortfall against incoming purchase orders and production, then suggests what to
+                raise.
               </p>
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/mrp">Run MRP to plan the balance</Link>
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                {offerTopUp && (
+                  <Button size="sm" onClick={() => allocate.mutate()} loading={allocate.isPending}>
+                    <PackageCheck />
+                    {fulfilment.allocateAction}
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" asChild>
+                  <Link to="/mrp">Run MRP to plan the balance</Link>
+                </Button>
+              </div>
             </AlertDescription>
           </Alert>
         )}
@@ -298,6 +369,15 @@ export default function SalesOrderDetailPage() {
   const queryClient = useQueryClient()
 
   const [editOpen, setEditOpen] = useState(false)
+  const [dispatchOpen, setDispatchOpen] = useState(false)
+  const close = useMutation({
+    mutationFn: () =>
+      api.post(`/sales/${orderId}/close`, { reason: 'Fully invoiced order closed from detail' }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sales.all })
+      toast.success('Sales order closed')
+    },
+  })
   const [lineEditor, setLineEditor] = useState<{ index: number | null } | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [approveOpen, setApproveOpen] = useState(false)
@@ -654,6 +734,23 @@ export default function SalesOrderDetailPage() {
         }
         actions={
           <>
+            {order.status === 'INVOICED' && can(P.SALES_ORDER_UPDATE) && (
+              <Button variant="outline" loading={close.isPending} onClick={() => close.mutate()}>
+                Close order
+              </Button>
+            )}
+            {/*
+              `dispatch.create`, the right `POST /dispatch` declares. Offered on
+              every status a consignment may leave against - a CONFIRMED order
+              ships what it has reserved - and the dialog loads only the lines
+              that hold a live reservation.
+            */}
+            {isDispatchable(order.status) && can(P.DISPATCH_CREATE) && (
+              <Button onClick={() => setDispatchOpen(true)}>
+                <Truck />
+                Dispatch
+              </Button>
+            )}
             {draft && can(P.SALES_ORDER_UPDATE) && (
               <Button variant="outline" onClick={() => setEditOpen(true)}>
                 <Pencil />
@@ -814,10 +911,18 @@ export default function SalesOrderDetailPage() {
           // endpoint never asks for.
           <AllocationPanel order={order} />
         )}
+
+        {!draft && <FulfilmentLinks orderId={order.id} />}
       </div>
 
       {can(P.SALES_ORDER_UPDATE) && draft && (
         <SalesOrderFormDialog open={editOpen} onOpenChange={setEditOpen} order={order} />
+      )}
+
+      {dispatchOpen && can(P.DISPATCH_CREATE) && (
+        <Suspense fallback={null}>
+          <CreateDispatchDialog open onOpenChange={setDispatchOpen} order={order} />
+        </Suspense>
       )}
 
       {canEditLines && lineEditor !== null && (

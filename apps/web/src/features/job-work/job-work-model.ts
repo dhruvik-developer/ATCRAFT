@@ -42,6 +42,7 @@ export const jobWorkKeys = {
   list: (params: unknown) => ['job-work', 'list', params] as const,
   detail: (id: string) => ['job-work', 'detail', id] as const,
   pendingAtVendor: (params: unknown) => ['job-work', 'pending-at-vendor', params] as const,
+  billableLines: (orderId: string) => ['job-work', 'billable-lines', orderId] as const,
 }
 
 // ------------------------------------------------------------ vocabulary ----
@@ -223,6 +224,17 @@ export type PendingAtVendorRow = SchemaOf<'PendingAtVendorRow'>
 export const pendingRowKey = (row: PendingAtVendorRow): string =>
   `${row.vendor_id}:${row.item_id}:${row.warehouse_id}`
 
+/**
+ * One receipt line a job-work invoice may still bill
+ * (`GET /job-work/{id}/billable-lines`, `BillableLine`).
+ *
+ * Only lines with unbilled charges are listed. Every money field is a decimal
+ * string; compare one with `toDecimal(...).isZero()` rather than against a
+ * literal. `tax_rate` and `sac_code` ride along from the order because the
+ * invoice dialog prefills from them.
+ */
+export type BillableLine = SchemaOf<'BillableLine'>
+
 // ----------------------------------------------------------------- reads ----
 
 /**
@@ -237,6 +249,22 @@ export function useJobWorkOrder(orderId: string, enabled: boolean) {
   return useQuery({
     queryKey: jobWorkKeys.detail(orderId),
     queryFn: () => api.get<JobWorkOrderDetail>(`/job-work/${orderId}`),
+    staleTime: staleTimes.transactional,
+    enabled: enabled && Boolean(orderId),
+  })
+}
+
+/**
+ * The receipt lines of one order a job-work invoice may still bill.
+ *
+ * Read when the record-invoice dialog opens an order, and refetched after a
+ * bill is saved: approval moves `invoiced_amount` in the same transaction, so
+ * a cached copy would offer charges that are no longer unbilled.
+ */
+export function useBillableLines(orderId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: jobWorkKeys.billableLines(orderId),
+    queryFn: () => api.get<BillableLine[]>(`/job-work/${orderId}/billable-lines`),
     staleTime: staleTimes.transactional,
     enabled: enabled && Boolean(orderId),
   })

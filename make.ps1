@@ -161,7 +161,7 @@ switch ($Target) {
 
     'dev-api'    { $py = Get-VenvPython; Invoke-Step "& '$py' -m uvicorn src.main:app --reload --host 0.0.0.0 --port 8000" $ApiDir }
     'dev-web'    { Invoke-Step 'npm run dev' $WebDir }
-    'dev-worker' { $py = Get-VenvPython; Invoke-Step "& '$py' -m celery -A src.workers.celery_app:celery_app worker --loglevel=INFO --pool=solo" $ApiDir }
+    'dev-worker' { $py = Get-VenvPython; Invoke-Step "& '$py' -m celery -A src.workers.celery_app:celery_app worker -Q default,mrp,reports --loglevel=INFO --pool=solo" $ApiDir }
     'dev-docker' { Invoke-Docker ($DcDev + @('up', '--build')) }
 
     'up'      { Invoke-Docker ($DcDev + @('up', '-d')) }

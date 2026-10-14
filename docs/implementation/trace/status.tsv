@@ -1,0 +1,481 @@
+S01.1	PARTIAL	None covers the automation or the order-level trace. A2 only	One integrated system in which a sales order can automatically: check available stock, res
+S01.2	PARTIAL	None. B4 only fixes the reallocation notification link.	Covers raw material planning, parts management, BOM, production, assembly, job work, inven
+S02.1	PRESENT	n/a	Admin login & user management
+S02.2	PRESENT	Dealer login binding: C3a (users.customer_id, dealer roles) 	Dealer / customer management
+S02.3	PLANNED_PARTIAL	C3b adds items.image_document_id and PUT /products/items/{id	Product catalog management
+S02.4	PLANNED_FULL	A1-brand-manufacturer (R1, being built): brands, manufacture	Category, brand, manufacturer & specification masters
+S02.5	PLANNED_PARTIAL	D5 covers accessories (item_accessories OPTIONAL/INCLUDED, /	Product variants: size, finish, accessories
+S02.6	PLANNED_PARTIAL	C3a: dealer_offers scoped ALL/CATEGORY/BRAND/ITEM, with audi	Dealer pricing & discount management
+S02.7	PLANNED_FULL	A2: issuing an invoice moves the order to INVOICED; POST /sa	Order management
+S02.8	PLANNED_FULL	A3: sales_returns module (return against a dispatch, QC hold	Goods return management
+S02.9	PLANNED_FULL	A2: GST tax invoice per dispatch (SI/ series) and render_sal	Invoice PDF generation
+S02.10	PLANNED_FULL	A2: receivable posting when an invoice is issued, receipt al	Payment & ledger management
+S02.11	PRESENT	D3 (Shiprocket and webhook auto-tracking) and B5 (transport-	Courier & transport management
+S02.12	PLANNED_FULL	C3a: dealer_offers table and best-offer pricing, used by the	Banner & offer management
+S02.13	PLANNED_FULL	B4: internal event notifications, smart alerts and link fixe	Notifications
+S02.14	PRESENT	A4 (dealer performance report, receivable tiles) and B5 (PO 	Reports & dashboards
+S02.15	PLANNED_FULL	C3a: dealer principal with allow-list isolation; /dealer-por	Mobile API: browsing, cart, wishlist, orders, tracking, returns
+N08	NOT_SOFTWARE	n/a	Payment terms: INR 5,70,000 + GST with the module-set payment schedule
+N09	NOT_SOFTWARE	n/a	Terms, support & warranty: 30-day bug-fix support, AMC, source handover
+N10	PLANNED_PARTIAL	Finance: A2, A3, A4. Job-work invoice: B3a. Shift planning: 	Conclusion: 12 most important modules (Inventory Engine, Multi-role Item Master, Multi-lev
+S03.1	PRESENT		No manufacturing BOM
+S03.2	PRESENT		No multi-level BOM
+S03.3	PRESENT		No common parts calculation
+S03.4	PRESENT		No raw material planning
+S03.5	PRESENT		No production order management
+S03.6	PARTIAL		No assembly line tracking
+S03.7	PRESENT		No job work / vendor tracking
+S03.8	PLANNED_PARTIAL	B4-smart-alerts-events (notifies allocation.approve holders 	No reservation / reallocation engine
+S03.9	PRESENT		No automatic MRP planning
+S03.10	PARTIAL		No production QC workflow
+S03.11	PARTIAL		No packing material planning
+S03.12	PRESENT		No production costing
+S03.13	PLANNED_PARTIAL	A2-sales-invoice (Invoices panel + Close on SO detail); C4a-	No sales-order-to-dispatch traceability
+S03.14	PLANNED_FULL	C1a-vendor-portal-backend (P0: route allow-list for vendor p	Security and technical improvements required before production-ready
+P01.1	PARTIAL		Review existing API & frontend code
+P01.2	PARTIAL		Remove unused / dead code
+P01.3	PRESENT		Secure API authentication
+P01.4	PRESENT		Add JWT expiry
+P01.5	PRESENT		Remove hardcoded bypass token
+P01.6	PRESENT		Move secrets to environment variables
+P01.7	PRESENT		Remove plain-text password usage
+P01.8	PRESENT		Replace MD5 hashing with secure hashing
+P01.9	PRESENT		Secure unauthenticated APIs
+P01.10	PRESENT		Add role-based access control basics
+P01.11	PRESENT		Add standard API response format
+P01.12	PRESENT		Improve error handling
+P01.13	PRESENT		Add audit logging for critical actions
+P01.D1	PRESENT		Deliverable: secure login flow
+P01.D2	PRESENT		Deliverable: updated API authentication
+P01.D3	PRESENT		Deliverable: cleaned configuration
+P01.D4	PRESENT		Deliverable: role / permission base structure
+P01.D5	PARTIAL		Deliverable: security issue resolution report (document)
+P01.D6	PRESENT		Deliverable: production deployment checklist (document)
+P02.O1	PRESENT		Company master
+P02.O2	PRESENT		Branch master
+P02.O3	PRESENT		Plant master
+P02.O4	PRESENT		Department master
+P02.O5	PLANNED_FULL	B1-cost-centres (cost_centres tree master, /organization/cos	Cost center master
+P02.W1	PRESENT		Warehouse type: Raw material
+P02.W2	PRESENT		Warehouse type: Component
+P02.W3	PRESENT		Warehouse type: WIP
+P02.W4	PRESENT		Warehouse type: Assembly
+P02.W5	PRESENT		Warehouse type: Finished goods
+P02.W6	PRESENT		Warehouse type: Packing
+P02.W7	PRESENT		Warehouse type: Scrap
+P02.W8	PRESENT		Warehouse type: Return
+P02.U1	PRESENT		User roles
+P02.U2	PRESENT		Permission matrix
+P02.U3	PLANNED_PARTIAL	B4-smart-alerts-events (notifies approvers on requisition/PO	Approval workflow
+P02.U4	PRESENT		Activity log
+P02.B1	PRESENT		Customer / dealer
+P02.B2	PRESENT		Vendor
+P02.B3	PRESENT		Job work vendor
+P02.B4	PRESENT		Transporter
+P02.B5	PRESENT		Courier
+P02.I1	PRESENT		Item role: Can purchase
+P02.I2	PRESENT		Item role: Can manufacture
+P02.I3	PRESENT		Item role: Can sell
+P02.I4	PRESENT		Item role: Use in BOM
+P02.I5	PRESENT		Item role: Use in assembly
+P02.I6	PARTIAL		Item role: Use as spare
+P02.I7	PRESENT		Item role: Send for job work
+P02.I8	PLANNED_PARTIAL	A3-returns-credit-notes (sales return document enforcing can	Item role: Can return
+P02.I9	PARTIAL		Item role: Can scrap
+P02.CR	PRESENT		Core rule: one item can be sold, used as component, in a finished product, as spare, in as
+P03.T1	PRESENT	none	Raw materials
+P03.T2	PRESENT	none	Components
+P03.T3	PRESENT	none	Semi-finished goods
+P03.T4	PARTIAL	none	Assembly items
+P03.T5	PRESENT	none	Finished goods
+P03.T6	PRESENT	none	Packaging materials
+P03.T7	PARTIAL	none (adjacent only: B1-cost-centres adds stock_adjustments.	Consumables
+P03.T8	PARTIAL	none	Scrap
+P03.T9	PLANNED_FULL	A3-returns-credit-notes	Return stock
+P03.T10	PRESENT	none	QC hold stock
+P03.S1	PRESENT	none	On-hand
+P03.S2	PRESENT	none	Available
+P03.S3	PRESENT	none	Reserved
+P03.S4	PARTIAL	none	Allocated
+P03.S5	PRESENT	none	QC hold
+P03.S6	PRESENT	none	In transit
+P03.S7	PRESENT	none	Job work issued
+P03.S8	PRESENT	none	Damaged
+P03.S9	PARTIAL	none	Scrap
+P03.F1	PRESENT	none	Multi-warehouse stock
+P03.F2	PRESENT	none	Stock ledger
+P03.F3	PARTIAL	none	Stock transfer
+P03.F4	PARTIAL	none	Stock adjustment
+P03.F5	PARTIAL	none	Bin / location support
+P03.F6	PARTIAL	none	Batch / serial where required
+P03.F7	PARTIAL	none	Stock reservation & release
+P03.F8	PLANNED_PARTIAL	B4-smart-alerts-events (only: notify allocation.approve hold	Stock reallocation
+P03.F9	PRESENT	none	Physical stock verification
+P03.F10	PRESENT	none	Inventory audit trail
+P05.R1	PRESENT	none	Sales
+P05.R2	PRESENT	none	Production
+P05.R3	PARTIAL	none	Assembly
+P05.R4	PRESENT	none	Job work
+P05.R5	PARTIAL	none	Service / spare
+P05.R6	PARTIAL	none	Soft
+P05.R7	PRESENT	none	Hard
+P05.P1	PRESENT	none	Finished goods
+P05.P2	PARTIAL	none	Assembly stock
+P05.P3	PARTIAL	none	Semi-finished goods
+P05.P4	PARTIAL	none	Components
+P05.P5	PRESENT	none	Raw materials
+P05.P6	PARTIAL	none	Cross-warehouse stock
+P05.P7	PRESENT	none	Purchase requirement
+P05.P8	PRESENT	none	Manufacturing requirement
+P05.P9	PARTIAL	none	Job work requirement
+P05.S1	PRESENT	none	Check current reservation
+P05.S2	PRESENT	none	Check production start date
+P05.S3	PRESENT	none	Check priority
+P05.S4	PARTIAL	none	Check material issue status
+P05.S5	PARTIAL	none	Suggest reallocation
+P05.S6	PLANNED_PARTIAL	B4-smart-alerts-events - adds the 'Stock reallocation reques	Take approval
+P05.S7	PARTIAL	none	Release old reservation
+P05.S8	PARTIAL	none	Allocate to urgent order
+P05.S9	PLANNED_PARTIAL	B4-smart-alerts-events - fixes the broken link and notifies 	Notify affected department
+P05.S10	PRESENT	none	Maintain audit log
+P05.D1	ABSENT	none	Customer priority
+P05.D2	PARTIAL	none	Delivery date
+P05.D3	PARTIAL	none	Sales order priority
+P05.D4	PARTIAL	none	Production priority
+P05.D5	ABSENT	none	Work order status
+P05.D6	PARTIAL	none	Material issue status
+P05.D7	PARTIAL	none	Manager approval rules
+P04.M1	PRESENT	none	Product master: Product code
+P04.M2	PRESENT	none	Product master: Product name
+P04.M3	PRESENT	none	Product master: Category
+P04.M4	PRESENT	none	Product master: Size
+P04.M5	PRESENT	none	Product master: Finish
+P04.M6	PRESENT	none	Product master: Color
+P04.M7	PARTIAL	none	Product master: Variant
+P04.M8	PRESENT	none	Product master: HSN / GST
+P04.M9	PARTIAL	none	Product master: Sale price
+P04.M10	PARTIAL	none	Product master: Dealer price
+P04.M11	PRESENT	none	Product master: Production type
+P04.B1	PRESENT	none	BOM management: Single-level BOM
+P04.B2	PRESENT	none	BOM management: Multi-level BOM
+P04.B3	PRESENT	none	BOM management: Alternate BOM
+P04.B4	PARTIAL	none	BOM management: BOM versioning
+P04.B5	PRESENT	none	BOM management: BOM approval
+P04.B6	PARTIAL	none	BOM management: BOM costing
+P04.B7	PRESENT	none	BOM management: Common part calculation
+P04.EX	PRESENT	none	Multi-level example: Premium Lock Kit = Rose handle + Lock body + Cylinder + Keys + Screw
+P04.CP	PRESENT	none	Common parts: spring and screw across sub-assemblies merged before planning
+P04.R1	PRESENT	none	Routing: Operation sequence
+P04.R2	PRESENT	none	Routing: Work center
+P04.R3	PARTIAL	none	Routing: Machine
+P04.R4	PRESENT	none	Routing: Standard time
+P04.R5	PRESENT	none	Routing: Setup time
+P04.R6	PRESENT	none	Routing: Process cost
+P04.CON	PRESENT	none	Consolidation rule: 100 Premium Lock Kits + 50 Rose Handles + 25 Lock Bodies - spring calc
+P06.FLOW	PRESENT	none	MRP flow: Sales Order -> Check FG -> Explode BOM -> Merge -> Check Inventory -> Check Rese
+P06.O1	PRESENT	none	MRP output: Manufacturing order suggestion
+P06.O2	PRESENT	none	MRP output: Purchase requisition suggestion
+P06.O3	PARTIAL	none	MRP output: Job work order suggestion
+P06.O4	PARTIAL	none	MRP output: Stock transfer suggestion
+P06.O5	PARTIAL	none	MRP output: Reallocation suggestion
+P06.F1	PRESENT	none	MRP feature: BOM explosion
+P06.F2	PARTIAL	none	MRP feature: Multi-level demand calculation
+P06.F3	PRESENT	none	MRP feature: Common component grouping
+P06.F4	PRESENT	none	MRP feature: Shortage report
+P06.F5	PARTIAL	none	MRP feature: Auto purchase planning
+P06.F6	PARTIAL	none	MRP feature: Auto production planning
+P06.F7	PARTIAL	none	MRP feature: Lead time calculation
+P06.F8	PARTIAL	none	MRP feature: Expected availability date
+P07.M1	PLANNED_PARTIAL	C0-requisition-split covers:
+- convert-to-orders (single and	Purchase requisition
+P07.M2	PARTIAL	none	RFQ
+P07.M3	PARTIAL	none. C0 resolves vendor and price from requisition-line sug	Vendor quotation
+P07.M4	PRESENT	none	Quotation comparison
+P07.M5	PLANNED_PARTIAL	C0: category, requisition conversion, send with assignee.
+C1	Purchase order
+P07.M6	PARTIAL	none for the staff GRN screens. C1a adds only a vendor-side 	GRN
+P07.M7	PLANNED_PARTIAL	C1a derives InboundTrackingStatus (QC_PENDING / GRN_COMPLETE	Incoming QC
+P07.M8	PARTIAL	none. B3b only asks to document that returns post nothing.	Purchase return
+P07.M9	PLANNED_PARTIAL	B3a-job-work-invoice §7 fixes the cancel reversal, and §9 ad	Vendor invoice
+P07.M10	PRESENT	C1a / C2a add a vendor-side payment list and payment summary	Vendor payment
+P07.M11	PRESENT	B3a: reversal fix, and job-work invoices on the same payable	Vendor ledger
+P07.M12	PRESENT	C1a: GET /vendor-portal/rating. C2a: rating card on the vend	Vendor rating
+P07.M13	PARTIAL	none. B5's VENDOR_ACCEPTANCE measures hours to acknowledge, 	Lead time tracking
+P07.V1	PRESENT	none	Vendor type: raw material supplier
+P07.V2	PRESENT	none	Vendor type: component supplier
+P07.V3	PRESENT	none	Vendor type: packing material supplier
+P07.V4	PRESENT	none	Vendor type: job work vendor
+P07.V5	PARTIAL	none. C1a adds transporter_id and freight_amount on inbound 	Vendor type: transport vendor
+P07.V6	PARTIAL	none. B3a types vendor invoices only as PURCHASE or JOB_WORK	Vendor type: service vendor
+A03.R1	PRESENT	C0 §9: forbid_vendor_users on check-duplicates. The PATCH re	Duplicate rule: same vendor
+A03.R2	PLANNED_FULL	D1-duplicate-po-actions §1: a category-level POSSIBLE signal	Duplicate rule: same item / category
+A03.R3	PRESENT	none	Duplicate rule: same requirement date
+A03.R4	PLANNED_FULL	D1 §1: source_demand_refs JSONB on requisition lines, carrie	Duplicate rule: same sales order / MRP reference
+A03.R5	PLANNED_FULL	C0 §9: requisition_line_ids as an extra OR branch in open_li	Duplicate rule: same pending purchase request
+A03.R6	PLANNED_FULL	D1 §1: demand refs with demand_type BOM, an EXACT match and 	Duplicate rule: same BOM demand
+A03.R7	PRESENT	none	Duplicate rule: same warehouse requirement
+A03.P	PLANNED_FULL	D1 §4: real buttons in the duplicate dialog and in C0's conv	System prompt: 'already exists in PO-001 - merge, increase quantity, or create separate PO
+A03.O1	PLANNED_FULL	D1 §2 MERGE through POST /procurement/purchase-orders/duplic	Option: merge with existing PO
+A03.O2	PLANNED_FULL	D1 §2 INCREASE (candidate_line_id) and the §3 amend flow (re	Option: increase existing PO quantity
+A03.O3	PLANNED_FULL	D1 §2 CREATE_WITH_APPROVAL: flag at create without po.approv	Option: create new PO with approval
+A03.O4	PLANNED_FULL	D1 §2 CANCEL_REQUEST (purchase_requisition.create): cancels 	Option: cancel duplicate request
+A04.1	PRESENT	C0: close, and raising POs from the requisition.	PO flow: purchase requirement
+A04.2	PLANNED_PARTIAL	C0 §2: vendor resolution in the order override, suggested ve	PO flow: vendor selection
+A04.3	PLANNED_FULL	C0-requisition-split:
+- purchase_orders.item_category_id, de	PO flow: category-wise PO
+A04.4	PLANNED_FULL	C0 §6-7 (choose_vendor_assignee, validation, GET /purchase-o	PO flow: manager assignment
+A04.5	PLANNED_FULL	- C1a: PO SENT notifies the assignee or eligible vendor user	PO flow: vendor notification
+A04.6	PLANNED_FULL	- C1a: accept with committed date and reference; decline -> 	PO flow: accept / reject
+A04.7	PLANNED_FULL	- C1a: vendor_committed_date; POST /vendor-portal/purchase-o	PO flow: delivery date
+A04.8	PLANNED_FULL	- C1a: ready-for-dispatch; purchase_order_shipments with sev	PO flow: dispatch
+A04.9	PLANNED_FULL	- C1a: shipments table (transporter_id or courier_name, trac	PO flow: courier details
+A04.10	PRESENT	C1a: DELIVERED / RECEIVED derived tracking statuses and a ve	PO flow: received
+A04.11	PLANNED_PARTIAL	C1a derives the QC state from inspections for the board and 	PO flow: incoming QC
+A04.12	PLANNED_PARTIAL	C1a's derived status shows GRN_COMPLETED on the board and po	PO flow: GRN
+A04.13	PLANNED_PARTIAL	- C1a: POST /vendor-portal/invoices, with the vendor forced 	PO flow: vendor invoice
+A04.14	PLANNED_PARTIAL	- C1a: GET /vendor-portal/payments and /payments/summary.
+- 	PO flow: payment
+P08.M1	PRESENT	none (B1-cost-centres only adds an optional cost-centre sele	Manufacturing order
+P08.M2	PARTIAL	none for planning itself (B2-shifts only adds rostered capac	Production planning
+P08.M3	PRESENT	B2-shifts (shift_id on work orders, operator directory) impr	Work order
+P08.M4	PRESENT	none	Material issue
+P08.M5	PRESENT	none	Material return
+P08.M6	PLANNED_PARTIAL	B2-shifts: roster with one-operator-per-machine EXCLUDE cons	Machine allocation
+P08.M7	PLANNED_FULL	B2-shifts: GET /routing/roster/operators directory gated on 	Operator allocation
+P08.M8	PLANNED_FULL	B2-shifts: shift master, roster (/production/shift-roster da	Shift planning
+P08.M9	PLANNED_PARTIAL	B2-shifts: shift select, operator directory, optional work-o	Daily production entry
+P08.M10	PARTIAL	none	WIP tracking
+P08.M11	PARTIAL	none	Production completion
+P08.M12	PARTIAL	none (B1-cost-centres only tags production_orders.cost_centr	Production costing
+P08.S1	PRESENT	none	Draft
+P08.S2	PRESENT	none	Approved
+P08.S3	PRESENT	none	Released
+P08.S4	PRESENT	none	Material issued
+P08.S5	PRESENT	none	In process
+P08.S6	PRESENT	none	Completed
+P08.S7	PRESENT	none	Closed
+P08.S8	PRESENT	none	Cancelled
+P09.M1	PARTIAL	none	Assembly order
+P09.M2	PRESENT	none	Assembly BOM
+P09.M3	PARTIAL	none	Component issue
+P09.M4	PARTIAL	none	Assembly tracking
+P09.M5	PARTIAL	none	Assembly QC
+P09.M6	PARTIAL	none	Assembly completion
+P09.M7	PARTIAL	none	Packing handover
+P09.EX	PARTIAL	none	Lock set assembly consumes Handle, Lock body, Cylinder, Keys, Screw kit and Packing box; s
+P10.M1	PRESENT	B1-cost-centres (cost_centre_id on the order) and B3a-job-wo	Job work order
+P10.M2	PRESENT	none	Material issue to vendor
+P10.M3	PARTIAL	none	Job work challan
+P10.M4	PLANNED_PARTIAL	B4-smart-alerts-events (JOB_WORK_OVERDUE sweep, 'job work ma	Vendor process tracking
+P10.M5	PRESENT	none	Material receipt from vendor
+P10.M6	PARTIAL	none (B3a only posts the already-accrued excess-loss debit a	Short / excess receipt
+P10.M7	PARTIAL	none	Job work QC
+P10.M8	PARTIAL	none	Rejection / rework
+P10.M9	PLANNED_FULL	B3a-job-work-invoice: invoice_type JOB_WORK, job_work_order_	Job work invoice
+P10.M10	PLANNED_PARTIAL	B3a-job-work-invoice (JOB_WORK invoices and excess-loss reco	Job work vendor ledger
+P11.T1	PRESENT	none (C1a derives inbound status around the stuck PO status 	Incoming QC
+P11.T2	PARTIAL	none	In-process QC
+P11.T3	PARTIAL	none (B3a covers the job-work invoice only)	Job work QC
+P11.T4	PARTIAL	none	Assembly QC
+P11.T5	PARTIAL	none	Final QC
+P11.T6	PLANNED_FULL	A3-returns-credit-notes (sales return receive -> QC_HOLD + R	Return QC
+P11.R1	PRESENT	none	Result: Accepted
+P11.R2	PRESENT	none	Result: Rejected
+P11.R3	PRESENT	none	Result: Rework
+P11.R4	PRESENT	none	Result: Hold
+P11.R5	PRESENT	none	Result: Scrap
+P11.F1	PRESENT	none	QC checklist
+P11.F2	PRESENT	none	Parameter-based inspection
+P11.F3	PARTIAL	none	Photo upload
+P11.F4	PRESENT	none	Rejection reason
+P11.F5	PARTIAL	none	Rework tracking
+P11.F6	PRESENT	none	Vendor quality report
+P11.F7	PRESENT	none	Product quality history
+P12.M1	PARTIAL	none	Packing order
+P12.M2	PRESENT	none	Packing material issue
+P12.M3	PARTIAL	none	Box / label / barcode generation
+P12.M4	PRESENT	A2-sales-invoice (dev worker queue fix only)	Packing list
+P12.M5	PARTIAL	none	Carton tracking
+P12.M6	PARTIAL	none	Dispatch planning
+P12.M7	PRESENT	none	Transport / courier assignment
+P12.M8	PARTIAL	none for outbound (C1a covers LR and LR copy for inbound ven	LR details
+P12.M9	PRESENT	none (D3 can auto-confirm deliveries from courier events)	Delivery confirmation
+P12.M10	PLANNED_FULL	A2-sales-invoice (one GST invoice per SALES dispatch via a '	Invoice handover (from the objective)
+A06.1	PLANNED_FULL	C1a (purchase_order_shipments.courier_name/transporter_id + 	Courier name
+A06.2	PLANNED_FULL	C1a (shipment transporter_id or courier_name; GET /vendor-po	Transport name
+A06.3	PLANNED_FULL	C1a (shipment tracking_reference) + C2a + C2b; D3 auto-track	Tracking ID
+A06.4	PLANNED_FULL	C1a (shipment lr_number) + C2a + C2b	LR number
+A06.5	PLANNED_FULL	C1a (shipment vehicle_number) + C2a	Vehicle number
+A06.6	PLANNED_FULL	C1a (shipment driver_name) + C2a	Driver name
+A06.7	PLANNED_FULL	C1a (shipment driver_mobile) + C2a (C3a deliberately hides i	Driver mobile
+A06.8	PLANNED_FULL	C1a (shipment shipped_at) + C2a + C2b	Dispatch date
+A06.9	PLANNED_FULL	C1a (shipment expected_delivery_date + vendor_committed_date	Expected delivery date
+A06.10	PLANNED_FULL	C1a (shipment packages; ready_packages) + C2a	Boxes / cartons
+A06.11	PLANNED_FULL	C1a (shipment weight_kg) + C2a	Weight
+A06.12	PLANNED_FULL	C1a (shipment freight_amount) + C2a; B5 inbound freight repo	Freight amount
+A06.13	PLANNED_PARTIAL	C1a (POST /vendor-portal/purchase-orders/{id}/documents, kin	Attachment / photo
+A06.EX	PLANNED_PARTIAL	C1a: shipment creation notifies the PO creator and PURCHASE_	Admin notified immediately on dispatch (example message incl. LR copy uploaded)
+A07.V1	PLANNED_FULL	C1a (GET /procurement/inbound-tracking) + C2b (/procurement/	Admin tracking view: Vendor name
+A07.V2	PLANNED_FULL	C1a + C2b (PO column)	Admin tracking view: PO number
+A07.V3	PLANNED_FULL	C1a (latest shipment courier/transporter) + C2b	Admin tracking view: Courier / transport
+A07.V4	PLANNED_FULL	C1a + C2a + C2b; D3 auto-tracking	Admin tracking view: Tracking ID
+A07.V5	PLANNED_FULL	C1a (derived InboundTrackingStatus shared by board, portal a	Admin tracking view: Current status
+A07.V6	PLANNED_FULL	C1a + C2b ('Delivery expected date' and vendor committed dat	Admin tracking view: Expected delivery
+A07.V7	PLANNED_FULL	B4 (PO_DELIVERY_MISSED alert; DISPATCH_DELAYED moved onto th	Admin tracking view: Delay alert
+A07.V8	PLANNED_FULL	C1a + C2b (received % and RECEIVED status)	Admin tracking view: Received status
+A07.V9	PLANNED_FULL	C1a (QC pending from open inspections on posted GRN lines) +	Admin tracking view: QC pending
+A07.V10	PLANNED_FULL	C1a + C2b; B4 GRN_NOT_CREATED alert	Admin tracking view: GRN pending
+A07.S1	PLANNED_FULL	C1a (derived NOT_DISPATCHED) + C2b	Status: Not dispatched
+A07.S2	PLANNED_FULL	C1a (POST /vendor-portal/purchase-orders/{id}/ready-for-disp	Status: Ready for dispatch
+A07.S3	PLANNED_FULL	C1a (shipments -> derived DISPATCHED) + C2a	Status: Dispatched
+A07.S4	PLANNED_FULL	C1a (derived IN_TRANSIT) + C2b; D3 courier feed	Status: In transit
+A07.S5	PLANNED_FULL	C1a (shipment delivered_at via vendor or staff 'delivered' e	Status: Delivered
+A07.S6	PLANNED_FULL	C1a (derived RECEIVED = GRN exists) + C2b	Status: Received at warehouse
+A07.S7	PLANNED_FULL	C1a (derived QC_PENDING from open inspections) + C2b	Status: QC pending
+A07.S8	PLANNED_FULL	C1a (derived GRN_COMPLETED = all received lines decided and 	Status: GRN completed
+P13.M1	PLANNED_PARTIAL	A2-sales-invoice: GST invoice per dispatch posting Dr AR / C	Sales ledger
+P13.M2	PLANNED_PARTIAL	B3a-job-work-invoice fixes the cancel-without-reversal defec	Purchase ledger
+P13.M3	PLANNED_PARTIAL	B3a-job-work-invoice posts job-work recovery journals (Dr AP	Vendor ledger
+P13.M4	PLANNED_FULL	A2-sales-invoice: each invoice posts Dr AR (customer) and ap	Customer ledger
+P13.M5	PLANNED_PARTIAL	B3a-job-work-invoice: typed JOB_WORK vendor invoice matched 	Job work cost
+P13.M6	PARTIAL	none (B1 only tags production_orders.cost_centre_id. Its COS	Production cost
+P13.M7	PRESENT	none	Inventory valuation
+P13.M8	PLANNED_FULL	A2-sales-invoice: due_date = invoice_date + credit_days, the	Outstanding report (incl. receivables)
+P13.M9	PLANNED_PARTIAL	A2-sales-invoice: output from issued invoice lines with the 	GST report
+P13.M10	PLANNED_FULL	A2-sales-invoice: polymorphic PaymentAllocation, receipts al	Payment collection
+P13.M11	PLANNED_FULL	A4-collections-dealer-performance Part 1: payment_follow_ups	Payment follow-up
+P14.1	PRESENT	none	Sales order status
+P14.2	PRESENT	none	Stock availability
+P14.3	PRESENT	none	Reserved vs available
+P14.4	PRESENT	none	MRP shortage
+P14.5	PRESENT	none	Purchase pending
+P14.6	PRESENT	none	Production pending
+P14.7	PRESENT	none	Job work pending
+P14.8	PRESENT	none	QC rejection
+P14.9	PLANNED_FULL	A4-collections-dealer-performance Part 2: ReportKey.DEALER_P	Dealer performance
+P14.10	PRESENT	none	Vendor performance
+P14.11	PARTIAL	none	Product profitability
+P14.12	PRESENT	none	Fast moving products
+P14.13	PRESENT	none	Slow moving products
+P14.14	PRESENT	none	Dead stock
+P14.15	PRESENT	none	Order delay
+P14.16	PLANNED_PARTIAL	B2-shifts adds rostered_minutes and rostered_utilisation_per	Machine utilization
+P14.17	PRESENT	none	Production efficiency
+P14.18	PRESENT	none	Inventory valuation
+P14.19	PLANNED_PARTIAL	A4-collections-dealer-performance adds receivables_outstandi	Dashboards (management-level visibility)
+A09.P1	PRESENT	none	Pending PO
+A09.P2	PLANNED_FULL	B5-procurement-reports-ops-e2e: PURCHASE_ORDER_REGISTER (ven	Vendor-wise PO
+A09.P3	PLANNED_FULL	C0-requisition-split adds purchase_orders.item_category_id a	Category-wise PO
+A09.P4	PLANNED_FULL	B5 DELAYED_PURCHASE_ORDERS, using C1a's shared 'PO late' pre	Delayed PO
+A09.P5	PLANNED_FULL	B5 DUPLICATE_PO_OVERRIDES. D1-duplicate-po-actions adds cate	Duplicate PO warning
+A09.P6	PLANNED_FULL	B5 VENDOR_ACCEPTANCE (sent, acknowledged, declined, median a	Vendor acceptance
+A09.P7	PRESENT	none	Delivery performance
+A09.D1	PLANNED_FULL	C1a-vendor-portal-backend: purchase_order_shipments and GET 	In-transit material
+A09.D2	PLANNED_FULL	C1a inbound board expected_today filter, C2b filter chip, an	Expected today
+A09.D3	PLANNED_FULL	C1a board overdue filter. B5 INBOUND_SHIPMENTS late_only and	Late delivery
+A09.D4	PLANNED_FULL	B5 INBOUND_SHIPMENTS with a transporter filter, using C1a sh	Courier-wise tracking
+A09.D5	PLANNED_FULL	B5 INBOUND_FREIGHT (freight by transporter or courier and mo	Transport-wise cost
+A09.D6	PLANNED_FULL	B5 VENDOR_INBOUND_HISTORY (per-vendor shipment history with 	Vendor dispatch history
+A01.A1	PLANNED_FULL	B4 §4 (requisition submitted -> purchase_requisition.approve	Admin notification: New purchase request
+A01.A2	PLANNED_FULL	B4 §4 (PO submitted 'approval request' -> purchase_order.app	Admin notification: New vendor order
+A01.A3	PLANNED_FULL	B4 §4 (PO approved -> creator)	Admin notification: PO approved
+A01.A4	PLANNED_FULL	B4 §4 (PO rejected -> creator); C1a (vendor decline -> PO cr	Admin notification: PO rejected
+A01.A5	PLANNED_FULL	B4 §4 (GRN posted -> PO creator + qc.inspect holders when QC	Admin notification: Material received
+A01.A6	PLANNED_FULL	B4 §4 (inspection created -> qc.inspect holders, DIGEST per 	Admin notification: QC pending
+A01.A7	PLANNED_PARTIAL	C1a (vendor users with vendor_portal.quality); B4 (keeps the	Admin notification: QC rejected
+A01.A8	PLANNED_FULL	B4 §4 (challan issued -> order creator + job_work.receive ho	Admin notification: Job work material sent
+A01.A9	PLANNED_FULL	B4 §4 (job-work receipt -> order creator)	Admin notification: Job work material received
+A01.A10	PLANNED_FULL	B4 §4 (-> customer's assigned_sales_user_id, else sales_orde	Admin notification: Sales order created
+A01.A11	PLANNED_FULL	B4 §4 (MRP run completed with shortages -> run requester + m	Admin notification: Production shortage
+A01.A12	PLANNED_FULL	B4 §4 (request created -> allocation.approve holders; fix th	Admin notification: Stock reallocation request
+A01.A13	PLANNED_PARTIAL	B4 §4 (-> order's assigned sales user); A5 (dealer-facing 'O	Admin notification: Dispatch created
+A01.A14	PLANNED_PARTIAL	B4 §4 (outbound tracking event -> assigned sales user, group	Admin notification: Courier tracking updated
+A01.A15	PLANNED_FULL	B4 §4 (payment created pending approval -> payment.approve h	Admin notification: Payment pending
+A01.A16	PLANNED_FULL	B4 PO_DELIVERY_MISSED (using C1a's shared 'PO late' predicat	Admin notification: Vendor delay
+A01.M1	PLANNED_FULL	C0 (assignee rule, validation, GET /purchase-orders/{id}/ven	Mobile notification: PO assigned
+A01.M2	PLANNED_FULL	B4 (internal: creator); C1a (vendor notified when the PO is 	Mobile notification: PO approved
+A01.M3	PLANNED_FULL	A5 (dealer 'Order dispatched' with courier/transporter, trac	Mobile notification: Order dispatched
+A01.M4	PLANNED_FULL	A5 (in the body of the dealer dispatched notification, plus 	Mobile notification: Courier name & tracking ID
+A01.M5	PLANNED_FULL	A5 (expected date in the dealer dispatched notification); C1	Mobile notification: Delivery expected date
+A01.M6	PLANNED_FULL	A2 (invoice due dates); A4 (daily collections sweep, PAYMENT	Mobile notification: Payment reminder
+A01.M7	PLANNED_FULL	C1a (QC rejection on a vendor's goods -> that vendor's users	Mobile notification: Material rejected in QC
+A01.M8	PLANNED_PARTIAL	B4 (internal JOB_WORK_OVERDUE and challan-issued event); C1b	Mobile notification: Job work pending
+A01.M9	PLANNED_FULL	C3a (dealer checkout -> DRAFT SO); C3b ('New order request' 	Mobile notification: New order request
+A01.M10	PLANNED_PARTIAL	B4 (PR, PO, reallocation and payment approvals); C1b/C2b pus	Mobile notification: Approval request
+A01.C1	PRESENT	B4 (adds tests/unit/test_frontend_notification_types.py)	Channel: In-app notification
+A01.C2	PLANNED_FULL	C1b (PUSH channel, push_subscriptions, VAPID, RFC 8291 sende	Channel: Push notification
+A01.C3	PRESENT	C1b (notifications.dispatch_pending_deliveries covers EMAIL 	Channel: Email notification
+A01.C4	PLANNED_FULL	D2 (WHATSAPP and SMS channels, users.phone_e164 and opt-in t	Channel: WhatsApp / SMS
+A02.R1	PLANNED_FULL	C1a P0 (allow-list gate vendor_route_allowed; vendor_portal.	Vendor role: Vendor Owner
+A02.R2	PLANNED_FULL	C0 (category-subtree or assignee visibility, SENT and later 	Vendor role: Vendor Manager
+A02.R3	PLANNED_FULL	C1a (access + ship: ready-for-dispatch, shipments, documents	Vendor role: Dispatch Manager
+A02.R4	PLANNED_FULL	C1a (access + invoice: own invoices with vendor_id forced, p	Vendor role: Account Manager
+A02.R5	PLANNED_FULL	C1a (access + quality: own receipts and QC results; QC-rejec	Vendor role: QC Contact Person
+A02.CM	PLANNED_FULL	C0 §13 (server validation and 'Item categories' multi-select	Category mapping of vendor users (Manager 1 -> Lock Body, etc.)
+A02.CS	PLANNED_FULL	C0 (conversion-preview and convert-to-orders, single and bat	Category-wise PO separation (one requirement -> PO-001/002/003, each visible only to its m
+A05.D1	PLANNED_FULL	C1a GET /vendor-portal/dashboard ('to accept' = SENT bucket)	Vendor dashboard: Pending POs
+A05.D2	PLANNED_FULL	C1a dashboard 'accepted' bucket (ACKNOWLEDGED, not ready); C	Vendor dashboard: Accepted POs
+A05.D3	PLANNED_FULL	C1a (ready_for_dispatch_at, POST /vendor-portal/purchase-ord	Vendor dashboard: Ready for dispatch
+A05.D4	PLANNED_FULL	C1a (purchase_order_shipments; in-transit bucket = shipment 	Vendor dashboard: Dispatched orders
+A05.D5	PLANNED_FULL	C1a (shipment delivered_at; delivered/received bucket); C2a 	Vendor dashboard: Delivered orders
+A05.D6	PLANNED_FULL	C1a dashboard 'payment pending' (own invoices in open status	Vendor dashboard: Payment pending
+A05.D7	PLANNED_FULL	C1a bucket (own GRN lines rejected within VENDOR_QC_LOOKBACK	Vendor dashboard: QC rejected items
+A05.P1	PLANNED_FULL	C1a GET /vendor-portal/purchase-orders/{id}; C2a /vendor/ord	PO detail screen: PO number
+A05.P2	PLANNED_FULL	C1a (lines with item code, name, category, qty, UoM, rate, t	PO detail screen: Item details
+A05.P3	PLANNED_FULL	C0 (purchase_orders.item_category_id); C1a and C2a (shown in	PO detail screen: Category
+A05.P4	PLANNED_FULL	C1a and C2a	PO detail screen: Quantity & rate
+A05.P5	PLANNED_FULL	C1a (vendor_committed_date); C2a header shows both dates	PO detail screen: Delivery date
+A05.P6	PLANNED_FULL	C1a (PO text, else the warehouse address); C2a	PO detail screen: Delivery address
+A05.P7	PLANNED_FULL	C1a and C2a	PO detail screen: Terms & conditions
+A05.P8	PLANNED_FULL	C1a (ReportKey.PURCHASE_ORDER, reports.generate_purchase_ord	PO detail screen: Download PO PDF
+A05.A1	PLANNED_FULL	C1a (POST /vendor-portal/purchase-orders/{id}/accept storing	Vendor action: Accept PO
+A05.A2	PLANNED_FULL	C1a (decline -> VENDOR_DECLINED; staff can cancel or re-send	Vendor action: Reject with reason
+A05.A3	PLANNED_FULL	C1a (POST /vendor-portal/purchase-orders/{id}/delivery-date 	Vendor action: Update delivery date
+A05.A4	PLANNED_FULL	C1a (ready_for_dispatch_at, ready_packages); C2a	Vendor action: Mark ready for dispatch
+A05.A5	PLANNED_FULL	C1a (purchase_order_shipments with transporter/courier, trac	Vendor action: Add courier / transport
+A05.A6	PLANNED_FULL	C1a (POST /vendor-portal/invoices with vendor_id forced and 	Vendor action: Upload invoice
+A05.A7	PLANNED_FULL	C1a (POST /vendor-portal/purchase-orders/{id}/documents, kin	Vendor action: Upload dispatch photo
+A05.A8	PLANNED_FULL	C1a (kinds LR_COPY and DELIVERY_CHALLAN; shipment lr_number)	Vendor action: Upload LR / receipt
+A05.A9	PLANNED_FULL	C1a (GET /vendor-portal/receipts and /purchase-orders/{id}/r	Vendor action: View QC result
+A05.A10	PLANNED_FULL	C1a (GET /vendor-portal/invoices with status, paid, due and 	Vendor action: View payment status
+A08.1	PLANNED_FULL	B4 PO_NOT_ACKNOWLEDGED (24 h threshold, 24 h reminder; recip	Smart alert: PO not accepted within 24 hours
+A08.2	PLANNED_FULL	B4 PO_DELIVERY_MISSED (using C1a's shared 'PO late' predicat	Smart alert: Vendor delivery date missed
+A08.3	PLANNED_FULL	B4 PO_DISPATCH_NOT_UPDATED (ACKNOWLEDGED or ready with no sh	Smart alert: Dispatch not updated
+A08.4	PLANNED_FULL	B4 PO_TRACKING_MISSING (shipment with neither tracking nor L	Smart alert: Tracking ID missing
+A08.5	PLANNED_FULL	B4 QC_PENDING rule (open inspections older than 24 h) + insp	Smart alert: Material received but QC pending
+A08.6	PLANNED_PARTIAL	C1a (vendor QC-rejection notification); B4 (keeps the event)	Smart alert: QC rejected
+A08.7	PLANNED_FULL	B4 GRN_NOT_CREATED (shipment expected date + 2 days passed, 	Smart alert: GRN not created
+A08.8	PLANNED_PARTIAL	B4 VENDOR_INVOICE_PENDING (internal vendor_invoice.create ho	Smart alert: Vendor invoice pending
+A08.9	PLANNED_FULL	B4 VENDOR_PAYMENT_OVERDUE (internal only); A2 + A4 customer 	Smart alert: Payment overdue
+A10.M1	PLANNED_PARTIAL	B4 (events, alerts, link fixes, guard tests); C1a (vendor-ac	Must have: Admin notification
+A10.M2	PLANNED_FULL	C1b (backend Web Push) + C2b (PWA, sw.js, opt-in UI); vendor	Must have: Mobile push notification
+A10.M3	PLANNED_FULL	C1a (allow-list gate, vendor_portal.* rights, role remap mig	Must have: Vendor user roles
+A10.M4	PLANNED_FULL	C0 §11 and §13	Must have: Category-wise access
+A10.M5	PLANNED_FULL	C0 §6-7 (choose_vendor_assignee, validation, /vendor-assigne	Must have: PO assignment
+A10.M6	PLANNED_FULL	C1a (accept, decline, VENDOR_DECLINED) + C2a	Must have: PO accept / reject
+A10.M7	PLANNED_FULL	C1a (vendor_committed_date, POST /procurement/purchase-order	Must have: Expected delivery date
+A10.M8	PLANNED_FULL	C1a (shipments) + C2a (shipment sheet) + C2b (PO detail ship	Must have: Courier name & tracking ID
+A10.M9	PLANNED_FULL	C1a InboundTrackingStatus (NOT_DISPATCHED ... GRN_COMPLETED)	Must have: Dispatch status
+A10.M10	PLANNED_FULL	C1a GET /procurement/inbound-tracking + C2b page /procuremen	Must have: Admin tracking screen
+A10.S1	PLANNED_FULL	C0 §9 (requisition-line EXACT match; forbid vendors on check	Should have: Duplicate PO prevention
+A10.S2	PLANNED_FULL	D1 (POST /purchase-orders/duplicate-resolution MERGE/INCREAS	Should have: Merge PO option
+A10.S3	PLANNED_FULL	C1a + C2a	Should have: Vendor invoice upload
+A10.S4	PLANNED_FULL	C1a (document_kind LR_COPY/DISPATCH_PHOTO/DELIVERY_CHALLAN) 	Should have: LR / photo upload
+A10.S5	PLANNED_FULL	B4 (PO_DELIVERY_MISSED, JOB_WORK_OVERDUE, DISPATCH_DELAYED m	Should have: Delay alerts
+A10.S6	PLANNED_FULL	C1a receipts and QC + C2a /vendor/receipts + C1a QC-rejectio	Should have: QC result visible to vendor
+A10.F1	PLANNED_FULL	D2	Future (now wanted): WhatsApp notification
+A10.F2	PLANNED_FULL	D3 (courier_tracking module: Shiprocket provider + generic s	Future (now wanted): Courier API integration
+A10.F3	PLANNED_FULL	D3 (webhooks plus a polling sweep move DISPATCHED -> IN_TRAN	Future (now wanted): Auto tracking status
+A10.F4	PLANNED_PARTIAL	C1a (GET /vendor-portal/rating) + C2a (dashboard rating card	Future (now wanted): Vendor rating
+A10.F5	PLANNED_FULL	C1a (GET /vendor-portal/payments/summary: outstanding, overd	Future (now wanted): Vendor payment dashboard
+A10.F6	PLANNED_PARTIAL	D4 (requires C1a PO PDF and D1 amendment seam)	Future (now wanted): Digital signature on PO
+K01	PARTIAL	none (A2 builds invoice lines from dispatch lines carrying s	Direct finished-goods sale. Dealer orders 100 handles; FG stock is checked, reserved and d
+K02	PARTIAL	none (B4 only adds a 'Production shortage' notification afte	Finished goods not available. Dealer orders 500 handles with only 120 available; the syste
+K03	PRESENT	n/a	Same part sold and used in a BOM. One stock, multiple usage roles.
+K04	PRESENT	n/a	Common parts in a multi-level BOM. Spring and screw are merged before purchase or producti
+K05	PARTIAL	none (B4 only adds a 'Stock reallocation request' notificati	Urgent order reallocation. Parts reserved for future production are needed by an urgent de
+K06	PARTIAL	none	Packing material shortage. The finished product is ready but the box is unavailable; the s
+K07	PARTIAL	none (B3a covers the job-work invoice, not this view)	Job work vendor process. Material goes to a vendor for coating; sent, received, rejected a
+K08	PARTIAL	none	Partial dispatch. A customer orders 500 with 200 available; the system dispatches 200 and
+K09	PARTIAL	none for the return itself (C1a/C2a add only vendor-portal v	Quality rejection. Received material fails QC; the system moves it to rejected stock and s
+K10	PARTIAL	none	Multi-warehouse allocation. If one warehouse is short, the system checks another and sugge

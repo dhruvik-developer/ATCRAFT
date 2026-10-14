@@ -150,6 +150,11 @@ class UserCreate(_Base):
     #: hold only vendor roles, and a vendor role may be held only by such a
     #: user - enforced in both directions by the service (section 16).
     vendor_id: uuid.UUID | None = None
+    #: Set to bind this account to the dealer portal. A user with a customer
+    #: may hold only dealer roles, and a dealer role may be held only by such
+    #: a user - enforced in both directions by the service
+    #: (docs/assumptions.md §C3-1). Never together with ``vendor_id``.
+    customer_id: uuid.UUID | None = None
     allowed_category_ids: Annotated[list[uuid.UUID], Field(max_length=MAX_SCOPE_IDS)] = Field(
         default_factory=list
     )
@@ -206,6 +211,7 @@ class UserUpdate(BaseModel):
     plant_id: uuid.UUID | None = None
     department_id: uuid.UUID | None = None
     vendor_id: uuid.UUID | None = None
+    customer_id: uuid.UUID | None = None
 
     allowed_category_ids: Annotated[list[uuid.UUID], Field(max_length=MAX_SCOPE_IDS)] | None = None
     allowed_warehouse_ids: Annotated[list[uuid.UUID], Field(max_length=MAX_SCOPE_IDS)] | None = None
@@ -225,6 +231,9 @@ class UserUpdate(BaseModel):
     #: holds vendor roles, because that would break the isolation rule in the
     #: other direction.
     clear_vendor: bool = False
+    #: Detaching an account from the dealer portal. Refused while the user
+    #: still holds dealer roles (docs/assumptions.md §C3-1).
+    clear_customer: bool = False
 
     _email = field_validator("email")(_normalise_email)
     _name = field_validator("full_name")(clean_name)
@@ -319,6 +328,7 @@ class UserSummary(_Base):
     is_superuser: bool
     must_change_password: bool
     vendor_id: uuid.UUID | None
+    customer_id: uuid.UUID | None
     branch_id: uuid.UUID | None
     plant_id: uuid.UUID | None
     department_id: uuid.UUID | None
@@ -342,6 +352,7 @@ class RoleSummary(_Base):
     description: str | None
     is_system: bool
     is_vendor_role: bool
+    is_dealer_role: bool
     is_active: bool
     permission_count: int
     created_at: datetime
@@ -360,6 +371,7 @@ class UserDetail(UserSummary):
     denied_permissions: list[str] = Field(default_factory=list)
     preferences: dict[str, Any] | None = None
     is_vendor_user: bool = False
+    is_dealer_user: bool = False
     updated_at: datetime
     roles: list[RoleSummary] = Field(default_factory=list)
 
@@ -373,6 +385,9 @@ class UserFilters(BaseModel):
     #: True: vendor-portal accounts only. False: internal staff only.
     is_vendor_user: bool | None = None
     vendor_id: uuid.UUID | None = None
+    #: True: dealer-portal accounts only. False: everyone else.
+    is_dealer_user: bool | None = None
+    customer_id: uuid.UUID | None = None
     branch_id: uuid.UUID | None = None
     plant_id: uuid.UUID | None = None
     department_id: uuid.UUID | None = None
@@ -429,6 +444,9 @@ class RoleCreate(_Base):
     )
     #: Vendor roles are assignable only to accounts bound to a vendor.
     is_vendor_role: bool = False
+    #: Dealer roles are assignable only to accounts bound to a dealer customer
+    #: (docs/assumptions.md §C3-1). Mirrors ``is_vendor_role``.
+    is_dealer_role: bool = False
     is_active: bool = True
 
     _code = field_validator("code")(_normalise_role_code)
@@ -446,7 +464,8 @@ class RoleUpdate(BaseModel):
 
     ``is_vendor_role`` is not updatable either - flipping it would, in a single
     statement, either strip the portal boundary from every holder or make every
-    holder illegal. Create the role you actually want and reassign.
+    holder illegal. Create the role you actually want and reassign. The same
+    holds for ``is_dealer_role`` (docs/assumptions.md §C3-1).
     """
 
     model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True, extra="forbid")
@@ -479,6 +498,7 @@ class RoleFilters(BaseModel):
     search: str | None = None
     is_system: bool | None = None
     is_vendor_role: bool | None = None
+    is_dealer_role: bool | None = None
     is_active: bool | None = None
     #: "Which roles grant payment.approve?" - the question asked during an
     #: access review, answered by the database rather than by the caller

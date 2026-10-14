@@ -408,3 +408,140 @@ async def test_the_packing_list_is_a_job_that_files_a_pdf(
     assert document.entity_id == order_id
     assert document.file_name.endswith(".pdf")
     assert resolve_storage_path(document.storage_key).is_file()
+
+
+async def test_sales_invoice_pdf_job_files_permanent_document_and_dispatch_link(
+    client, engine, tenant
+):
+    from src.core.clock import today
+    from src.modules.allocation import service as allocation_service
+    from src.modules.allocation.models import DemandType
+    from src.modules.dispatch import service as dispatch_service
+    from src.modules.dispatch.models import Dispatch
+    from src.modules.dispatch.schemas import DispatchCreate, DispatchLineIn, DispatchRequest
+    from src.modules.finance import sales_invoice_service
+    from src.modules.finance.models import SalesInvoice
+    from src.modules.finance.sales_invoice_schemas import SalesInvoiceCreate
+    from src.modules.sales.models import SalesOrder, SalesOrderLine, SalesOrderStatus
+
+    async with _factory(engine)() as session:
+        uom = await seed_support.seed_uom(session, company_id=tenant.company_id)
+        item = await seed_support.seed_item(
+            session,
+            company_id=tenant.company_id,
+            code=_code("FG"),
+            base_uom_id=uom.id,
+            can_sell=True,
+            hsn_code="8302",
+        )
+        warehouse = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code=_code("WH")
+        )
+        customer = await seed_support.seed_customer(
+            session, company_id=tenant.company_id, credit_days=30
+        )
+        order = SalesOrder(
+            company_id=tenant.company_id,
+            code=_code("SO"),
+            customer_id=customer.id,
+            warehouse_id=warehouse.id,
+            order_date=today(),
+            required_date=today(),
+            status=SalesOrderStatus.ALLOCATED,
+            is_interstate=True,
+        )
+        session.add(order)
+        await session.flush()
+        line = SalesOrderLine(
+            company_id=tenant.company_id,
+            sales_order_id=order.id,
+            line_number=1,
+            item_id=item.id,
+            uom_id=uom.id,
+            quantity=Decimal("10"),
+            unit_price=Decimal("100"),
+            tax_rate=Decimal("18"),
+            allocated_quantity=Decimal("10"),
+        )
+        session.add(line)
+        await session.flush()
+        await inventory_service.post_movement(
+            session,
+            tenant,
+            item_id=item.id,
+            warehouse_id=warehouse.id,
+            quantity=Decimal("10"),
+            transaction_type=TransactionType.OPENING_BALANCE,
+            reference_type="opening",
+            reference_id=None,
+            reference_code="OPEN",
+            reason="PDF fixture stock",
+            unit_cost=Decimal("50"),
+        )
+        reservation = await allocation_service.reserve(
+            session,
+            tenant,
+            item_id=item.id,
+            warehouse_id=warehouse.id,
+            quantity=Decimal("10"),
+            demand_type=DemandType.SALES_ORDER,
+            demand_id=order.id,
+            demand_line_id=line.id,
+            reason="PDF fixture reservation",
+        )
+        line.reservation_id = reservation.id
+        await session.flush()
+        dispatch = await dispatch_service.create_dispatch(
+            session,
+            tenant,
+            DispatchCreate(
+                dispatch_type="SALES",
+                dispatch_date=today(),
+                customer_id=customer.id,
+                warehouse_id=warehouse.id,
+                sales_order_id=order.id,
+                lines=[
+                    DispatchLineIn(
+                        item_id=item.id, sales_order_line_id=line.id, quantity=Decimal("10")
+                    )
+                ],
+            ),
+        )
+        await dispatch_service.mark_ready(
+            session, tenant, dispatch.id, reason="Ready for invoice PDF"
+        )
+        await dispatch_service.dispatch_consignment(
+            session, tenant, dispatch.id, DispatchRequest(reason="Goods leave for PDF fixture")
+        )
+        invoice = await sales_invoice_service.issue_sales_invoice(
+            session, tenant, SalesInvoiceCreate(dispatch_id=dispatch.id)
+        )
+        invoice_id, dispatch_id = invoice.id, dispatch.id
+    accepted = await client.post(f"{_prefix()}/finance/sales-invoices/{invoice_id}/pdf")
+    assert accepted.status_code == 202, accepted.text
+    handed_off = accepted.json()["data"]
+    job_id = handed_off["job_id"]
+    _assert_queued(
+        await _job(client, handed_off["status_url"]), job_id=job_id, report_key="SALES_INVOICE"
+    )
+    outcome = await _run_worker(
+        report_tasks.generate_sales_invoice,
+        sales_invoice_id=str(invoice_id),
+        snapshot_id=job_id,
+        company_id=str(tenant.company_id),
+        user_id=str(tenant.user_id),
+    )
+    assert outcome["status"] == "COMPLETED", outcome
+    document_id = _assert_completed(
+        await _job(client, handed_off["status_url"]), job_id=job_id, report_key="SALES_INVOICE"
+    )
+    document = await _filed_document(engine, document_id)
+    assert document.entity_type == "sales_invoice"
+    assert document.entity_id == invoice_id
+    assert document.expires_at is None
+    assert resolve_storage_path(document.storage_key).read_bytes().startswith(b"%PDF")
+    async with _factory(engine)() as reader:
+        row = await reader.get(SalesInvoice, invoice_id)
+        dispatched = await reader.get(Dispatch, dispatch_id)
+        assert row.pdf_document_id == document.id
+        assert dispatched.invoice_document_id == document.id

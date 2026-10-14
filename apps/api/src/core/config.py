@@ -171,6 +171,10 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str = "redis://localhost:6379/2"
+    # How often `maintenance.allocate_short_orders` reserves newly available
+    # stock for short sales orders (docs/assumptions.md section E1-2). A minute
+    # is the floor: the sweep reads every tenant's open order book.
+    so_topup_interval_seconds: Annotated[int, Field(ge=60)] = 900
     cache_enabled: bool = True
     cache_default_ttl_seconds: Annotated[int, Field(ge=1)] = 300
 
@@ -356,6 +360,16 @@ class Settings(BaseSettings):
             cleaned.append(host)
         return ",".join(cleaned)
 
+    web_push_enabled: bool = False
+    web_push_vapid_private_key: SecretStr = SecretStr("")
+    web_push_subject: str = ""
+    web_push_ttl_seconds: int = Field(default=86400, ge=0, le=2419200)
+    web_push_timeout_seconds: int = Field(default=10, ge=1, le=60)
+    web_push_allowed_hosts: str = (
+        "fcm.googleapis.com,updates.push.services.mozilla.com,push.services.mozilla.com,"
+        "notify.windows.com,web.push.apple.com,push.apple.com"
+    )
+
     @model_validator(mode="after")
     def _enforce_production_safety(self) -> Settings:
         """Refuse to boot a production process with development-grade secrets.
@@ -428,6 +442,15 @@ class Settings(BaseSettings):
                 raise ValueError("SMTP_USERNAME and SMTP_PASSWORD must be configured together")
             if self.is_deployed and self.smtp_security is SmtpSecurity.none:
                 raise ValueError("SMTP must use STARTTLS or TLS when deployed")
+        subject = self.web_push_subject or (
+            f"mailto:{self.email_from_address}" if self.email_from_address else ""
+        )
+        if self.web_push_enabled and self.is_deployed and not subject:
+            raise ValueError(
+                "WEB_PUSH_SUBJECT or EMAIL_FROM_ADDRESS is required when deployed with push enabled"
+            )
+        if subject and not (subject.startswith("mailto:") or subject.startswith("https://")):
+            raise ValueError("WEB_PUSH_SUBJECT must use mailto: or https:")
         return self
 
     def ensure_storage_dirs(self) -> None:

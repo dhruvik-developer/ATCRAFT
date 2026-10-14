@@ -490,7 +490,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"assembly_line\": \"\",\n  \"notes\": \"\",\n  \"output_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_end\": \"2026-01-01T00:00:00Z\",\n  \"planned_quantity\": 0,\n  \"planned_start\": \"2026-01-01T00:00:00Z\",\n  \"requires_qc\": false,\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"assembly_line\": \"\",\n  \"notes\": \"\",\n  \"output_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_end\": \"2026-01-01T00:00:00Z\",\n  \"planned_quantity\": 0,\n  \"planned_start\": \"2026-01-01T00:00:00Z\",\n  \"priority\": 0,\n  \"requires_qc\": false,\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Only a DRAFT is editable. Changing the planned quantity re-explodes the component set from the same structure rather than rescaling the stored numbers.",
             "header": [
@@ -533,7 +533,7 @@
               },
               "raw": "{\n  \"accepted_quantity\": 0,\n  \"reason\": \"\",\n  \"qc_inspection_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"rejected_quantity\": 0\n}"
             },
-            "description": "Accepted quantity is released into the available pool; rejected quantity is moved to the damaged pool. The two must account for everything on hold.",
+            "description": "For a hold no quality inspection covers: accepted quantity is released into the available pool, rejected quantity is moved to the damaged pool, and the two must account for everything on hold. When the order names an inspection, that inspection is the one release path: an open one refuses this call and names it; a decided one completes the order from its own figures, which this request must repeat, and no stock moves a second time.",
             "header": [
               {
                 "key": "Content-Type",
@@ -993,6 +993,34 @@
           }
         },
         {
+          "name": "Live stock for each component, against what a release would reserve",
+          "request": {
+            "description": "Promisable stock at the position a release reserves - the component warehouse, no bin, no batch - read live and never cached, with what each line would still be short of. Returned whole rather than paginated: the set is bounded when the order is raised, and a release is decided on the whole kit.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assembly",
+                ":order_id",
+                "availability"
+              ],
+              "raw": "{{base_url}}/api/v1/assembly/{order_id}/availability",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Mark assembly as begun",
           "request": {
             "body": {
@@ -1035,6 +1063,53 @@
           }
         },
         {
+          "name": "Open assembly work per line",
+          "request": {
+            "description": "One row per assembly line with open orders - how many are not started, on the bench, awaiting inspection and late, and the quantity planned - aggregated in one grouped statement. Orders on no line are the row whose line is null.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assembly",
+                "board",
+                "lines"
+              ],
+              "query": [
+                {
+                  "description": "Warehouse components are drawn from",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/assembly/board/lines?"
+            }
+          }
+        },
+        {
           "name": "Raise a draft assembly order",
           "request": {
             "body": {
@@ -1044,9 +1119,9 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_quantity\": 0,\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"assembly_line\": \"\",\n  \"bom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"output_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_end\": \"2026-01-01T00:00:00Z\",\n  \"planned_start\": \"2026-01-01T00:00:00Z\",\n  \"requires_qc\": false,\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\"\n}"
+              "raw": "{\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_quantity\": 0,\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"assembly_line\": \"\",\n  \"bom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"output_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_end\": \"2026-01-01T00:00:00Z\",\n  \"planned_start\": \"2026-01-01T00:00:00Z\",\n  \"priority\": 100,\n  \"requires_qc\": false,\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\"\n}"
             },
-            "description": "Explodes one level of the item's approved ASSEMBLY bill of materials, scales each component to the planned quantity with its scrap allowance and freezes the result onto the order. No stock is reserved or consumed by a draft.",
+            "description": "Explodes one level of the item's approved ASSEMBLY or PRODUCTION bill of materials, scales each component to the planned quantity with its scrap allowance and freezes the result onto the order. No stock is reserved or consumed by a draft.",
             "header": [
               {
                 "key": "Content-Type",
@@ -1079,7 +1154,7 @@
               },
               "raw": "{\n  \"reason\": \"\",\n  \"lines\": [\n    {\n      \"issued_quantity\": {},\n      \"line_number\": {}\n    }\n  ]\n}"
             },
-            "description": "Records what was physically kitted. No stock moves here - the components are still owned, still in their warehouse position and still reserved to this order. The ledger is written at completion, when it is known what they were turned into.",
+            "description": "Records what was physically kitted. No stock moves here - the components are still owned, still in their warehouse position and still reserved to this order. The ledger is written at completion, when it is known what they were turned into. From RELEASED this is the first issue; while the order is COMPONENTS_ISSUED or IN_PROGRESS it is a top-up that raises the issued totals and leaves the status alone. Totals never go down and never exceed the reserved requirement.",
             "header": [
               {
                 "key": "Content-Type",
@@ -1148,6 +1223,71 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "The assembly board: open orders, planned against actual",
+          "request": {
+            "description": "Every open assembly order line by line, in schedule order, with its planned and actual start and end and a lateness flag worked out on the server: late once the planned end has passed while the order still owes finished stock, start overdue once the planned start has passed with the bench not begun.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assembly",
+                "board",
+                "orders"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "assembly_line",
+                  "value": ""
+                },
+                {
+                  "description": "Only open orders that are on no assembly line",
+                  "disabled": true,
+                  "key": "unassigned_line",
+                  "value": "False"
+                },
+                {
+                  "description": "Warehouse components are drawn from",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "Only orders past their planned end",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/assembly/board/orders?"
             }
           }
         },
@@ -3610,6 +3750,782 @@
     {
       "item": [
         {
+          "name": "Active brands holding sellable items",
+          "request": {
+            "description": "Active brands holding sellable items",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "catalog",
+                "brands"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/catalog/brands"
+            }
+          }
+        },
+        {
+          "name": "Add a sellable item to the cart",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"quantity\": 0,\n  \"item_variant_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Add a sellable item to the cart",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "cart",
+                "lines"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/cart/lines"
+            }
+          }
+        },
+        {
+          "name": "Cancel the dealer's own DRAFT order, with a reason",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Cancel the dealer's own DRAFT order, with a reason",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "orders",
+                ":order_id",
+                "cancel"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/orders/{order_id}/cancel",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Categories holding sellable active items",
+          "request": {
+            "description": "Categories holding sellable active items",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "catalog",
+                "categories"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/catalog/categories"
+            }
+          }
+        },
+        {
+          "name": "Change a cart line's quantity",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"quantity\": 0\n}"
+            },
+            "description": "Change a cart line's quantity",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "cart",
+                "lines",
+                ":line_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/cart/lines/{line_id}",
+              "variable": [
+                {
+                  "description": "line_id of the record",
+                  "key": "line_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Channel price plus the best offer for a quantity",
+          "request": {
+            "description": "Channel price plus the best offer for a quantity",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "catalog",
+                "items",
+                ":item_id",
+                "price"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "quantity",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "variant_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/catalog/items/{item_id}/price?",
+              "variable": [
+                {
+                  "description": "item_id of the record",
+                  "key": "item_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Dealer-safe tracking: courier, tracking id, dates, events",
+          "request": {
+            "description": "The driver's mobile number and the freight cost are never included.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "dispatches",
+                ":dispatch_id",
+                "tracking"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/dispatches/{dispatch_id}/tracking",
+              "variable": [
+                {
+                  "description": "dispatch_id of the record",
+                  "key": "dispatch_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Empty the cart",
+          "request": {
+            "description": "Empty the cart",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "cart"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/cart"
+            }
+          }
+        },
+        {
+          "name": "Move a saved item into the cart",
+          "request": {
+            "description": "Move a saved item into the cart",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "wishlist",
+                ":entry_id",
+                "move-to-cart"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "quantity",
+                  "value": "0"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/wishlist/{entry_id}/move-to-cart?",
+              "variable": [
+                {
+                  "description": "entry_id of the record",
+                  "key": "entry_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One of the dealer's orders, with fulfilment progress",
+          "request": {
+            "description": "One of the dealer's orders, with fulfilment progress",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "orders",
+                ":order_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/orders/{order_id}",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One sellable item: variants, slabs, offers, images",
+          "request": {
+            "description": "One sellable item: variants, slabs, offers, images",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "catalog",
+                "items",
+                ":item_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/catalog/items/{item_id}",
+              "variable": [
+                {
+                  "description": "item_id of the record",
+                  "key": "item_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Remove a saved item",
+          "request": {
+            "description": "Remove a saved item",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "wishlist",
+                ":entry_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/wishlist/{entry_id}",
+              "variable": [
+                {
+                  "description": "entry_id of the record",
+                  "key": "entry_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Remove one cart line",
+          "request": {
+            "description": "Remove one cart line",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "cart",
+                "lines",
+                ":line_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/cart/lines/{line_id}",
+              "variable": [
+                {
+                  "description": "line_id of the record",
+                  "key": "line_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Save an item to the wishlist",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"item_variant_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Save an item to the wishlist",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "wishlist"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/wishlist"
+            }
+          }
+        },
+        {
+          "name": "Sellable items with the dealer channel price, offers and availability",
+          "request": {
+            "description": "category_id covers the whole subtree. Sorting by price is refused with 422: a channel price is a slab ranking plus a fallback and cannot be ordered in the database.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "catalog",
+                "items"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "brand_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_stock_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "on_offer_only",
+                  "value": "False"
+                },
+                {
+                  "description": "code or name",
+                  "disabled": true,
+                  "key": "sort_by",
+                  "value": "code"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/catalog/items?"
+            }
+          }
+        },
+        {
+          "name": "The consignments raised against one of the dealer's orders",
+          "request": {
+            "description": "The consignments raised against one of the dealer's orders",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "orders",
+                ":order_id",
+                "dispatches"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/orders/{order_id}/dispatches",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "The dealer's overdue position from the receivables ageing",
+          "request": {
+            "description": "The dealer's overdue position from the receivables ageing",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "outstanding"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/outstanding"
+            }
+          }
+        },
+        {
+          "name": "The dealer's own ledger statement",
+          "request": {
+            "description": "The dealer's own ledger statement",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "statement"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                },
+                {
+                  "description": "Statement period start",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Statement period end",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/statement?"
+            }
+          }
+        },
+        {
+          "name": "The dealer's own sales orders",
+          "request": {
+            "description": "The dealer's own sales orders",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "orders"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                },
+                {
+                  "description": "Order or customer PO",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": "DRAFT"
+                },
+                {
+                  "description": "Only orders that still represent unmet demand",
+                  "disabled": true,
+                  "key": "open_only",
+                  "value": "False"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/orders?"
+            }
+          }
+        },
+        {
+          "name": "The dealer's saved items",
+          "request": {
+            "description": "The dealer's saved items",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "wishlist"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/wishlist"
+            }
+          }
+        },
+        {
+          "name": "The priced cart preview: live prices, schemes, tax, credit, warnings",
+          "request": {
+            "description": "The priced cart preview: live prices, schemes, tax, credit, warnings",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "cart"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/cart"
+            }
+          }
+        },
+        {
+          "name": "The signed-in dealer: account, channel, credit, addresses, contacts",
+          "request": {
+            "description": "The signed-in dealer: account, channel, credit, addresses, contacts",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "me"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/me"
+            }
+          }
+        },
+        {
+          "name": "Turn the cart into a DRAFT sales order for sales review",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"cart_version\": 0,\n  \"required_date\": \"2026-01-01\",\n  \"billing_address_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"customer_po_number\": \"\",\n  \"notes\": \"\",\n  \"shipping_address_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Locks the cart and checks its version, re-validates every line, fulfils from the default warehouse, and prices every line on the server with the best scheme. The order stays DRAFT for sales review.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "checkout"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/checkout"
+            }
+          }
+        }
+      ],
+      "name": "Dealer Portal"
+    },
+    {
+      "item": [
+        {
           "name": "Amend a consignment that has not left",
           "request": {
             "body": {
@@ -4675,7 +5591,7 @@
         {
           "name": "Ageing analysis bucketed 0-30 / 31-60 / 61-90 / 90+, per currency",
           "request": {
-            "description": "One row per party and denomination in one aggregate query. Payables are aged from the invoice due date. Receivables have no invoice document in this schema, so they are netted out of the ledger oldest-first and aged from the posting date.\n\nThere is no exchange-rate table in this schema, so nothing here is summed across denominations. The response carries one block per currency the company has an open item in, and `currencies[0]` - the block whose figures are also restated at the top level - is `currency` if you asked for one, otherwise the company's own currency if anything is open in it, and failing that the currency with the most open documents. Blocks are ordered by open-document count, never by amount: two denominations cannot be compared by size without a rate this schema does not hold. Asking for nothing therefore returns the whole book, never an empty page.\n\n`limit` is parties per denomination; each block reports `party_count` so a capped block is visible as capped, and its totals are the whole block's either way.",
+            "description": "One row per party and denomination in one aggregate query. Payables are aged from the invoice due date. Receivables are FIFO-netted per customer and currency; sales invoice debits age from their due dates, legacy journals from posting dates.\n\nThere is no exchange-rate table in this schema, so nothing here is summed across denominations. The response carries one block per currency the company has an open item in, and `currencies[0]` - the block whose figures are also restated at the top level - is `currency` if you asked for one, otherwise the company's own currency if anything is open in it, and failing that the currency with the most open documents. Blocks are ordered by open-document count, never by amount: two denominations cannot be compared by size without a rate this schema does not hold. Asking for nothing therefore returns the whole book, never an empty page.\n\n`limit` is parties per denomination; each block reports `party_count` so a capped block is visible as capped, and its totals are the whole block's either way.",
             "header": [],
             "method": "GET",
             "url": {
@@ -4818,7 +5734,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"due_date\": \"2026-01-01\",\n  \"goods_receipt_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"invoice_date\": \"2026-01-01\",\n  \"lines\": [],\n  \"notes\": \"\",\n  \"purchase_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"round_off_amount\": 0,\n  \"vendor_invoice_number\": \"\"\n}"
+              "raw": "{\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"due_date\": \"2026-01-01\",\n  \"goods_receipt_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"invoice_date\": \"2026-01-01\",\n  \"job_work_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"lines\": [],\n  \"notes\": \"\",\n  \"purchase_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"round_off_amount\": 0,\n  \"vendor_invoice_number\": \"\"\n}"
             },
             "description": "Sending `lines` replaces the whole set. Any edit invalidates a previous three-way match, so the invoice has to be matched again before it can be approved.",
             "header": [
@@ -5023,6 +5939,49 @@
           }
         },
         {
+          "name": "Cancel an unpaid invoice within its cancellation window",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Cancel an unpaid invoice within its cancellation window",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "sales-invoices",
+                ":invoice_id",
+                "cancel"
+              ],
+              "raw": "{{base_url}}/api/v1/finance/sales-invoices/{invoice_id}/cancel",
+              "variable": [
+                {
+                  "description": "invoice_id of the record",
+                  "key": "invoice_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Delete a draft invoice that was never used",
           "request": {
             "description": "Anything past DRAFT is cancelled instead, so the trail survives.",
@@ -5095,6 +6054,35 @@
           }
         },
         {
+          "name": "Generate a permanent GST sales invoice PDF",
+          "request": {
+            "description": "Generate a permanent GST sales invoice PDF",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "sales-invoices",
+                ":invoice_id",
+                "pdf"
+              ],
+              "raw": "{{base_url}}/api/v1/finance/sales-invoices/{invoice_id}/pdf",
+              "variable": [
+                {
+                  "description": "invoice_id of the record",
+                  "key": "invoice_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Hold an invoice while it is argued with the vendor",
           "request": {
             "body": {
@@ -5134,6 +6122,146 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Issue and post a GST sales invoice",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"dispatch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"eway_bill_number\": \"\",\n  \"invoice_date\": \"2026-01-01\",\n  \"lr_number\": \"\",\n  \"notes\": \"\",\n  \"transporter_name\": \"\",\n  \"vehicle_number\": \"\"\n}"
+            },
+            "description": "Issue and post a GST sales invoice",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "sales-invoices"
+              ],
+              "raw": "{{base_url}}/api/v1/finance/sales-invoices"
+            }
+          }
+        },
+        {
+          "name": "List issued sales invoices",
+          "request": {
+            "description": "List issued sales invoices",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "sales-invoices"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": "ISSUED"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "sales_order_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "dispatch_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "overdue_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "open_only",
+                  "value": "False"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                },
+                {
+                  "description": "Field to sort by",
+                  "disabled": true,
+                  "key": "sort_by",
+                  "value": ""
+                },
+                {
+                  "description": "Sort direction",
+                  "disabled": true,
+                  "key": "sort_dir",
+                  "value": "asc"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/finance/sales-invoices?"
             }
           }
         },
@@ -5393,6 +6521,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "invoice_type",
+                  "value": "PURCHASE"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "vendor_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -5400,6 +6534,12 @@
                   "description": "",
                   "disabled": true,
                   "key": "purchase_order_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "job_work_order_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
@@ -5622,7 +6762,7 @@
         {
           "name": "Output and input GST for a period",
           "request": {
-            "description": "Output tax is recognised when goods leave - each dispatch line's share of its sales order line's tax, apportioned by quantity - and input tax comes from vendor invoices accepted into the books. Both are grouped by HSN and rate slab, which is the shape a return is read from.",
+            "description": "Output tax comes from issued, non-cancelled sales invoice lines by invoice date, using the snapshotted HSN. Uninvoiced dispatches are reported separately. Input tax comes from vendor invoices accepted into the books. Both are grouped by HSN and rate slab, which is the shape a return is read from.",
             "header": [],
             "method": "GET",
             "url": {
@@ -5688,6 +6828,41 @@
           }
         },
         {
+          "name": "Preview a tax invoice without issuing it",
+          "request": {
+            "description": "Preview a tax invoice without issuing it",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "sales-invoices",
+                "preview"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": false,
+                  "key": "dispatch_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "invoice_date",
+                  "value": "2026-01-01"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/finance/sales-invoices/preview?"
+            }
+          }
+        },
+        {
           "name": "Queue the full-company inventory valuation",
           "request": {
             "description": "A company-wide valuation is thousands of positions and a spreadsheet nobody waits for. It goes to the reports queue and the workbook appears in the document store when it is ready (sections 22, 35).",
@@ -5719,6 +6894,34 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/finance/inventory-valuation/export?"
+            }
+          }
+        },
+        {
+          "name": "Read an issued sales invoice",
+          "request": {
+            "description": "Read an issued sales invoice",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "sales-invoices",
+                ":invoice_id"
+              ],
+              "raw": "{{base_url}}/api/v1/finance/sales-invoices/{invoice_id}",
+              "variable": [
+                {
+                  "description": "invoice_id of the record",
+                  "key": "invoice_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },
@@ -5766,7 +6969,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"invoice_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"quantity\": {},\n      \"unit_price\": {},\n      \"cost_centre_id\": {},\n      \"description\": {},\n      \"discount_amount\": {},\n      \"goods_receipt_line_id\": {},\n      \"hsn_code\": {},\n      \"is_interstate\": {},\n      \"item_id\": {},\n      \"notes\": {},\n      \"purchase_order_line_id\": {},\n      \"tax_rate\": {},\n      \"uom_id\": {}\n    }\n  ],\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vendor_invoice_number\": \"\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"currency\": \"\",\n  \"due_date\": \"2026-01-01\",\n  \"goods_receipt_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"purchase_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"round_off_amount\": 0\n}"
+              "raw": "{\n  \"invoice_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"quantity\": {},\n      \"unit_price\": {},\n      \"cost_centre_id\": {},\n      \"description\": {},\n      \"discount_amount\": {},\n      \"goods_receipt_line_id\": {},\n      \"hsn_code\": {},\n      \"is_interstate\": {},\n      \"item_id\": {},\n      \"job_work_receipt_line_id\": {},\n      \"notes\": {},\n      \"purchase_order_line_id\": {},\n      \"tax_rate\": {},\n      \"uom_id\": {}\n    }\n  ],\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vendor_invoice_number\": \"\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"currency\": \"\",\n  \"due_date\": \"2026-01-01\",\n  \"goods_receipt_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"invoice_type\": \"PURCHASE\",\n  \"job_work_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"purchase_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"round_off_amount\": 0\n}"
             },
             "description": "Creates the bill in DRAFT; nothing reaches the ledger until it is approved. A vendor billing the same invoice number twice is refused - the duplicate is named in the error so the two can be compared.",
             "header": [
@@ -5922,7 +7125,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"allocations\": [\n    {\n      \"amount\": {},\n      \"vendor_invoice_id\": {},\n      \"notes\": {}\n    }\n  ],\n  \"replace\": false\n}"
+              "raw": "{\n  \"allocations\": [\n    {\n      \"amount\": {},\n      \"notes\": {},\n      \"sales_invoice_id\": {},\n      \"vendor_invoice_id\": {}\n    }\n  ],\n  \"replace\": false\n}"
             },
             "description": "An allocation may exceed neither what the payment is worth nor what the invoice still owes; both are read under a row lock. `replace` discards what the payment previously settled, otherwise naming an invoice again amends that allocation rather than adding a second one.",
             "header": [
@@ -8215,7 +9418,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"expected_return_date\": \"2026-01-01\",\n  \"lines\": [],\n  \"notes\": \"\",\n  \"process_description\": \"\",\n  \"process_type\": \"POLISHING\",\n  \"rate_basis\": \"PER_PIECE\",\n  \"rate_per_unit\": 0,\n  \"requires_qc\": false,\n  \"return_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"expected_return_date\": \"2026-01-01\",\n  \"lines\": [],\n  \"notes\": \"\",\n  \"process_description\": \"\",\n  \"process_type\": \"POLISHING\",\n  \"rate_basis\": \"PER_PIECE\",\n  \"rate_per_unit\": 0,\n  \"requires_qc\": false,\n  \"return_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"sac_code\": \"\",\n  \"tax_rate\": 0,\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Only a DRAFT is editable. From APPROVED the order holds hard stock reservations, and from ISSUED it holds company material at somebody else's premises. Supplying `lines` replaces the whole set.",
             "header": [
@@ -8739,7 +9942,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"expected_return_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"line_number\": {},\n      \"quantity_to_issue\": {},\n      \"expected_loss_percentage\": {},\n      \"expected_output_item_id\": {},\n      \"expected_output_quantity\": {},\n      \"notes\": {}\n    }\n  ],\n  \"process_type\": \"POLISHING\",\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"process_description\": \"\",\n  \"rate_basis\": \"PER_PIECE\",\n  \"rate_per_unit\": 0,\n  \"requires_qc\": false,\n  \"return_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\"\n}"
+              "raw": "{\n  \"expected_return_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"line_number\": {},\n      \"quantity_to_issue\": {},\n      \"expected_loss_percentage\": {},\n      \"expected_output_item_id\": {},\n      \"expected_output_quantity\": {},\n      \"notes\": {}\n    }\n  ],\n  \"process_type\": \"POLISHING\",\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"process_description\": \"\",\n  \"rate_basis\": \"PER_PIECE\",\n  \"rate_per_unit\": 0,\n  \"requires_qc\": false,\n  \"return_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"sac_code\": \"\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\",\n  \"tax_rate\": 0\n}"
             },
             "description": "Validates the vendor, the warehouses and every line against the item master, and freezes the yield ratio and the estimated charge onto the order. No stock is reserved and none moves: a draft is a plan.",
             "header": [
@@ -8759,6 +9962,34 @@
                 "job-work"
               ],
               "raw": "{{base_url}}/api/v1/job-work"
+            }
+          }
+        },
+        {
+          "name": "Receipt lines of one order a job-work invoice may still bill",
+          "request": {
+            "description": "Only lines with unbilled charges are listed, in receipt and line order, with the order's rate, basis, tax rate and SAC alongside - the dialog prefills from them and the match compares against them. Returned whole rather than paginated: an order carries a handful of receipts and a billable line is only meaningful with its siblings.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "job-work",
+                ":order_id",
+                "billable-lines"
+              ],
+              "raw": "{{base_url}}/api/v1/job-work/{order_id}/billable-lines",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },
@@ -9475,6 +10706,70 @@
     {
       "item": [
         {
+          "name": "Delete Subscription",
+          "request": {
+            "description": "Delete Subscription",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "subscriptions",
+                ":subscription_id"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/subscriptions/{subscription_id}",
+              "variable": [
+                {
+                  "description": "subscription_id of the record",
+                  "key": "subscription_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Subscriptions",
+          "request": {
+            "description": "List Subscriptions",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "subscriptions"
+              ],
+              "query": [
+                {
+                  "description": "Opaque cursor from the previous page",
+                  "disabled": true,
+                  "key": "cursor",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/subscriptions?"
+            }
+          }
+        },
+        {
           "name": "List my notifications",
           "request": {
             "description": "Unread first, then newest first within each group. Keyset-paginated: pass the `next_cursor` from the previous page rather than a page number, so paging stays constant-cost however large the history grows.",
@@ -9594,6 +10889,83 @@
           }
         },
         {
+          "name": "Push Config",
+          "request": {
+            "description": "Push Config",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "config"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/config"
+            }
+          }
+        },
+        {
+          "name": "Subscribe",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"endpoint\": \"\",\n  \"keys\": {\n    \"auth\": \"\",\n    \"p256dh\": \"\"\n  },\n  \"device_label\": \"\",\n  \"expiration_time\": 0\n}"
+            },
+            "description": "Subscribe",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "subscriptions"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/subscriptions"
+            }
+          }
+        },
+        {
+          "name": "Test Push",
+          "request": {
+            "description": "Test Push",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "test"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/test"
+            }
+          }
+        },
+        {
           "name": "Unread badge count",
           "request": {
             "description": "Counts up to a ceiling and reports whether it was reached, so the badge can render `500+` without counting an unbounded backlog on every poll.",
@@ -9614,6 +10986,42 @@
           }
         },
         {
+          "name": "Unregister",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"endpoint\": \"\"\n}"
+            },
+            "description": "Unregister",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "push",
+                "subscriptions",
+                "unregister"
+              ],
+              "raw": "{{base_url}}/api/v1/notifications/push/subscriptions/unregister"
+            }
+          }
+        },
+        {
           "name": "Update my delivery preferences",
           "request": {
             "body": {
@@ -9623,7 +11031,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"preferences\": [\n    {\n      \"email_enabled\": {},\n      \"in_app_enabled\": {},\n      \"notification_type\": {}\n    }\n  ]\n}"
+              "raw": "{\n  \"preferences\": [\n    {\n      \"email_enabled\": {},\n      \"in_app_enabled\": {},\n      \"notification_type\": {},\n      \"push_enabled\": {}\n    }\n  ]\n}"
             },
             "description": "Submits the changed rows in one request. CRITICAL alerts are still delivered in-app regardless of the in-app setting.",
             "header": [
@@ -11621,6 +13029,40 @@
           }
         },
         {
+          "name": "Raise a packing order for a completed assembly",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"assembly_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"customer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"planned_date\": \"2026-01-01\",\n  \"quantity\": 0,\n  \"sales_order_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "The assembly hand-over: one transaction that locks the completed assembly, raises a draft packing order for its output - the assembled item, from the warehouse it was received into, for the assembled quantity unless a smaller one is named - and marks the assembly packed against it, so it leaves the ready-for-packing list. The customer and sales order come from the assembly's source when it was raised for a sales order; otherwise the customer must be named.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "packing",
+                "from-assembly"
+              ],
+              "raw": "{{base_url}}/api/v1/packing/from-assembly"
+            }
+          }
+        },
+        {
           "name": "Remove an unsealed carton",
           "request": {
             "description": "Remove an unsealed carton",
@@ -11829,6 +13271,35 @@
     },
     {
       "item": [
+        {
+          "name": "Adopt the vendor's committed date as the planning date",
+          "request": {
+            "description": "Copies vendor_committed_date into expected_delivery_date (which MRP nets on). The two are kept apart until a buyer does this; a no-op when they already agree.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "accept-vendor-date"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/accept-vendor-date",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
         {
           "name": "Approve a purchase order",
           "request": {
@@ -12402,6 +13873,55 @@
           }
         },
         {
+          "name": "Correct a consignment",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"shipped_at\": \"2026-01-01T00:00:00Z\",\n  \"courier_name\": \"\",\n  \"driver_mobile\": \"\",\n  \"driver_name\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"freight_amount\": 0,\n  \"lr_number\": \"\",\n  \"notes\": \"\",\n  \"packages\": 0,\n  \"tracking_reference\": \"\",\n  \"transporter_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vehicle_number\": \"\",\n  \"weight_kg\": 0\n}"
+            },
+            "description": "Replaces the consignment's details; the same validation as recording it.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "shipments",
+                ":shipment_id"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/shipments/{shipment_id}",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                },
+                {
+                  "description": "shipment_id of the record",
+                  "key": "shipment_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Delete a draft requisition",
           "request": {
             "description": "Only a DRAFT may be deleted. Anything further along is cancelled instead.",
@@ -12431,6 +13951,55 @@
                 {
                   "description": "requisition_id of the record",
                   "key": "requisition_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Every file filed against the order, typed where it was uploaded with a kind",
+          "request": {
+            "description": "Download through GET /documents/{document_id}/download.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "documents"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/documents?",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
                   "value": ""
                 }
               ]
@@ -12606,6 +14175,64 @@
           }
         },
         {
+          "name": "File a typed document against the order or one of its consignments",
+          "request": {
+            "description": "Multipart: file, kind (INVOICE, DISPATCH_PHOTO, LR_COPY, DELIVERY_CHALLAN, OTHER) and an optional shipment_id. Files filed here are shared with the order's vendor.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "documents"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/documents",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Generate the purchase order PDF",
+          "request": {
+            "description": "Queued; poll the returned status URL, then download the document.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "pdf"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/pdf",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Inbound dispatch tracking for one order",
           "request": {
             "description": "Master rules section 23: courier and tracking reference, the promised date and whether the order is late, what is still to be received, and whether quantity is sitting on QC hold awaiting inspection.",
@@ -12631,6 +14258,94 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Inbound tracking board",
+          "request": {
+            "description": "Open purchase orders with their latest consignment and the derived tracking status (NOT_DISPATCHED to GRN_COMPLETED). Completed, closed and cancelled orders appear only with include_completed. overdue uses the shared PO-late rule: receivable, goods still due, planning date passed.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "inbound-tracking"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "overdue",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expected_today",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_transit",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "not_acknowledged",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "include_completed",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/inbound-tracking?"
             }
           }
         },
@@ -13235,6 +14950,56 @@
           }
         },
         {
+          "name": "Mark a consignment delivered at the gate",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"delivered_at\": \"2026-01-01T00:00:00Z\"\n}"
+            },
+            "description": "Mark a consignment delivered at the gate",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "shipments",
+                ":shipment_id",
+                "delivered"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/shipments/{shipment_id}/delivered",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                },
+                {
+                  "description": "shipment_id of the record",
+                  "key": "shipment_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Post a goods receipt: move the stock and advance the order",
           "request": {
             "description": "One transaction: the tolerance is re-checked against locked quantities, accepted quantity is posted as PURCHASE_RECEIPT into AVAILABLE or QC_HOLD, incoming inspections are raised, the purchase order advances through its state machine, and every audit row is written. A short receipt leaves the order PARTIALLY_RECEIVED.",
@@ -13507,6 +15272,49 @@
           }
         },
         {
+          "name": "Record a consignment on the vendor's behalf",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"shipped_at\": \"2026-01-01T00:00:00Z\",\n  \"courier_name\": \"\",\n  \"driver_mobile\": \"\",\n  \"driver_name\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"freight_amount\": 0,\n  \"lr_number\": \"\",\n  \"notes\": \"\",\n  \"packages\": 0,\n  \"tracking_reference\": \"\",\n  \"transporter_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vehicle_number\": \"\",\n  \"weight_kg\": 0\n}"
+            },
+            "description": "Same body and rules as the vendor portal: only on an accepted order with goods still due. Notifies the order's creator, its approvers and administrators.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "shipments"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/shipments",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Record a delivery as a draft receipt",
           "request": {
             "body": {
@@ -13617,7 +15425,7 @@
           }
         },
         {
-          "name": "Record inbound courier and tracking details",
+          "name": "Record inbound courier and tracking details on the order header",
           "request": {
             "body": {
               "mode": "raw",
@@ -13628,7 +15436,7 @@
               },
               "raw": "{\n  \"courier_name\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"shipped_at\": \"2026-01-01T00:00:00Z\",\n  \"tracking_reference\": \"\"\n}"
             },
-            "description": "Written by the vendor's dispatch manager. Feeds the delay flag on the tracking view (master rules section 23).",
+            "description": "The single-shipment header fields (master rules section 23). Numbered consignments are recorded with POST /purchase-orders/{order_id}/shipments, which also keeps these fields in step with the latest consignment.",
             "header": [
               {
                 "key": "Content-Type",
@@ -13660,7 +15468,7 @@
           }
         },
         {
-          "name": "Record the vendor's acknowledgement",
+          "name": "Record the vendor's acknowledgement on its behalf",
           "request": {
             "body": {
               "mode": "raw",
@@ -13671,7 +15479,7 @@
               },
               "raw": "{\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"reason\": \"\",\n  \"vendor_reference\": \"\"\n}"
             },
-            "description": "The vendor may commit to a different delivery date than the one requested.",
+            "description": "A buyer recording an acceptance the vendor gave by phone or e-mail; the vendor itself accepts through /vendor-portal. Here the buyer may move the planning date.",
             "header": [
               {
                 "key": "Content-Type",
@@ -14105,6 +15913,55 @@
           }
         },
         {
+          "name": "The order's numbered consignments, newest first",
+          "request": {
+            "description": "The order's numbered consignments, newest first",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-orders",
+                ":order_id",
+                "shipments"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-orders/{order_id}/shipments?",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Update a draft RFQ",
           "request": {
             "body": {
@@ -14316,9 +16173,9 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_end_at\": \"2026-01-01T00:00:00Z\",\n  \"planned_start_at\": \"2026-01-01T00:00:00Z\",\n  \"shift\": \"\"\n}"
+              "raw": "{\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_end_at\": \"2026-01-01T00:00:00Z\",\n  \"planned_start_at\": \"2026-01-01T00:00:00Z\",\n  \"shift_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
-            "description": "Operator, machine, shift and planned times. Quantities are never set here - they only ever move through a production booking.",
+            "description": "Operator, machine, shift and planned times. Quantities are never set here - they only ever move through a production booking. The shift is chosen from the shift master by shift_id; its code is kept on the row as a snapshot. An operator the shift roster does not plan on that shift is accepted with a warning in the message - the roster is advisory.",
             "header": [
               {
                 "key": "Content-Type",
@@ -14358,7 +16215,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"downtime_minutes\": 0,\n  \"entry_date\": \"2026-01-01\",\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"produced_quantity\": 0,\n  \"rejected_quantity\": 0,\n  \"rejection_reason\": \"\",\n  \"shift\": \"\",\n  \"work_order_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"downtime_minutes\": 0,\n  \"entry_date\": \"2026-01-01\",\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"produced_quantity\": 0,\n  \"rejected_quantity\": 0,\n  \"rejection_reason\": \"\",\n  \"shift_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"work_order_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "A booking against the **last** operation of the routing - or against a job with no routing at all - posts the `PRODUCTION_RECEIPT` into the output warehouse. A booking at an intermediate operation moves that operation's completed quantity and receives no stock. Rejected output is counted but never received: it was never good stock.",
             "header": [
@@ -14437,6 +16294,12 @@
                   "disabled": true,
                   "key": "shift",
                   "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "shift_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
                   "description": "",
@@ -14635,7 +16498,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"actual_end_date\": \"2026-01-01\",\n  \"entry_date\": \"2026-01-01\",\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"note\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"produced_quantity\": 0,\n  \"rejected_quantity\": 0,\n  \"rejection_reason\": \"\",\n  \"scrap_quantity\": 0,\n  \"shift\": \"\",\n  \"work_order_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"actual_end_date\": \"2026-01-01\",\n  \"entry_date\": \"2026-01-01\",\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"note\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"produced_quantity\": 0,\n  \"rejected_quantity\": 0,\n  \"rejection_reason\": \"\",\n  \"scrap_quantity\": 0,\n  \"shift_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"work_order_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Books the final output when a quantity is given - which posts the `PRODUCTION_RECEIPT` into the output warehouse - backflushes any automatic components in proportion to what was actually made, and accounts the issued material as consumed. Consumption posts nothing: the stock left the store when it was issued.",
             "header": [
@@ -15160,6 +17023,18 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "shift_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "shift",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "open_only",
                   "value": "False"
                 },
@@ -15300,6 +17175,18 @@
                   "disabled": true,
                   "key": "operator_user_id",
                   "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "shift_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "shift",
+                  "value": ""
                 },
                 {
                   "description": "",
@@ -18847,6 +20734,106 @@
           }
         },
         {
+          "name": "Daily production by shift",
+          "request": {
+            "description": "Bookings grouped by business date, shift code, work centre, machine and operator, with produced, rejected, downtime, the number of bookings and the yield. The shift is the code recorded on each booking, so bookings made before the shift master existed appear under the code that was typed.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "shift-production"
+              ],
+              "query": [
+                {
+                  "description": "First day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "item_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": ""
+                },
+                {
+                  "description": "Age threshold in days, where the report uses one",
+                  "disabled": true,
+                  "key": "min_days",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/reports/shift-production?"
+            }
+          }
+        },
+        {
           "name": "Dead stock",
           "request": {
             "description": "Positions holding stock that has not moved for longer than the ageing threshold. Defaults to 180 days; override with `min_days`.",
@@ -19445,7 +21432,7 @@
         {
           "name": "Machine utilisation",
           "request": {
-            "description": "Busy minutes against available capacity per machine. Capacity is the work centre's working hours across the calendar days of the period - the system holds no shift calendar, so no weekend or holiday assumption is made.",
+            "description": "Busy minutes against available capacity per machine. Capacity is the work centre's working hours across the calendar days of the period - the system makes no weekend or holiday assumption. Separate rostered minutes and rostered utilisation use planned shift assignments less their breaks.",
             "header": [],
             "method": "GET",
             "url": {
@@ -20765,7 +22752,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"code\": \"\",\n  \"name\": \"\",\n  \"description\": \"\",\n  \"is_active\": true,\n  \"is_vendor_role\": false,\n  \"permissions\": [\n    \"\"\n  ]\n}"
+              "raw": "{\n  \"code\": \"\",\n  \"name\": \"\",\n  \"description\": \"\",\n  \"is_active\": true,\n  \"is_dealer_role\": false,\n  \"is_vendor_role\": false,\n  \"permissions\": [\n    \"\"\n  ]\n}"
             },
             "description": "Create a role.\n\nThe caller may only put permissions into it that they hold themselves;\notherwise ``role.manage`` alone would be equivalent to every permission in\nthe system.",
             "header": [
@@ -20847,6 +22834,12 @@
                   "description": "",
                   "disabled": true,
                   "key": "is_vendor_role",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "is_dealer_role",
                   "value": "False"
                 },
                 {
@@ -21124,6 +23117,50 @@
           }
         },
         {
+          "name": "Cancel a planned assignment",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Irreversible. The row is kept, CANCELLED, with the reason in the audit trail.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "roster",
+                "assignments",
+                ":assignment_id",
+                "cancel"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/roster/assignments/{assignment_id}/cancel",
+              "variable": [
+                {
+                  "description": "assignment_id of the record",
+                  "key": "assignment_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Change a machine's availability",
           "request": {
             "body": {
@@ -21163,6 +23200,42 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Copy one day's plan onto a range of dates",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"source_date\": \"2026-01-01\",\n  \"target_from\": \"2026-01-01\",\n  \"target_to\": \"2026-01-01\",\n  \"work_center_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Plans every PLANNED row of the source day again on each target date, all or nothing and at most 200 rows; narrow by work centre to split a larger copy.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "roster",
+                "assignments",
+                "copy"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/roster/assignments/copy"
             }
           }
         },
@@ -21232,6 +23305,40 @@
                 "routing"
               ],
               "raw": "{{base_url}}/api/v1/routing"
+            }
+          }
+        },
+        {
+          "name": "Create a shift",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"code\": \"\",\n  \"end_time\": \"\",\n  \"name\": \"\",\n  \"start_time\": \"\",\n  \"break_minutes\": 0,\n  \"is_active\": true,\n  \"sort_order\": 0\n}"
+            },
+            "description": "Times are wall-clock times in the company timezone. Whether the shift crosses midnight is derived from them: an end at or before the start ends the next day.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "shifts"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/shifts"
             }
           }
         },
@@ -21451,6 +23558,34 @@
           }
         },
         {
+          "name": "Fetch one shift",
+          "request": {
+            "description": "Fetch one shift",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "shifts",
+                ":shift_id"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/shifts/{shift_id}",
+              "variable": [
+                {
+                  "description": "shift_id of the record",
+                  "key": "shift_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Fetch one work centre",
           "request": {
             "description": "Fetch one work centre",
@@ -21567,6 +23702,89 @@
           }
         },
         {
+          "name": "List roster assignments",
+          "request": {
+            "description": "A date range is required, at most 31 days with both ends included. Rows carry the shift, work centre, machine and operator labels, so the roster is readable without the user or machine registers.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "roster",
+                "assignments"
+              ],
+              "query": [
+                {
+                  "description": "First roster date, inclusive",
+                  "disabled": false,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last roster date, inclusive - at most 31 days counting both ends",
+                  "disabled": false,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "shift_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "machine_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "operator_user_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": "PLANNED"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/routing/roster/assignments?"
+            }
+          }
+        },
+        {
           "name": "List routings",
           "request": {
             "description": "List routings",
@@ -21650,6 +23868,117 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/routing?"
+            }
+          }
+        },
+        {
+          "name": "List shifts",
+          "request": {
+            "description": "Readable with any right that fills a shift picker - the shift register's own, the roster's, a work-order reader's or a booking clerk's - so production roles need no new grant to choose a shift.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "shifts"
+              ],
+              "query": [
+                {
+                  "description": "Code or name",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "is_active",
+                  "value": "False"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                },
+                {
+                  "description": "Field to sort by",
+                  "disabled": true,
+                  "key": "sort_by",
+                  "value": ""
+                },
+                {
+                  "description": "Sort direction",
+                  "disabled": true,
+                  "key": "sort_dir",
+                  "value": "asc"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/routing/shifts?"
+            }
+          }
+        },
+        {
+          "name": "List the people who can be planned or booked",
+          "request": {
+            "description": "Active internal accounts only - no vendor-portal users - with the name and employee code a picker shows. Readable by roster readers, work-order managers and booking clerks, none of whom hold user.view.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "roster",
+                "operators"
+              ],
+              "query": [
+                {
+                  "description": "Name or employee code",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/routing/roster/operators?"
             }
           }
         },
@@ -21779,6 +24108,163 @@
           }
         },
         {
+          "name": "Offer a shift on pickers again",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Offer a shift on pickers again",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "shifts",
+                ":shift_id",
+                "activate"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/shifts/{shift_id}/activate",
+              "variable": [
+                {
+                  "description": "shift_id of the record",
+                  "key": "shift_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Plan an operator on a shift",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"roster_date\": \"2026-01-01\",\n  \"shift_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"work_center_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\"\n}"
+            },
+            "description": "Refused when the operator, or the named machine, already has a planned window that overlaps this one; every clash is listed in details.conflicts. A machine under maintenance or broken down is planned with a warning in the message.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "roster",
+                "assignments"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/roster/assignments"
+            }
+          }
+        },
+        {
+          "name": "Plan several assignments at once",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"assignments\": [\n    {\n      \"operator_user_id\": {},\n      \"roster_date\": {},\n      \"shift_id\": {},\n      \"work_center_id\": {},\n      \"machine_id\": {},\n      \"notes\": {}\n    }\n  ]\n}"
+            },
+            "description": "All or nothing, at most 200 rows. Overlaps inside the request are refused as well as overlaps with what is already planned.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "roster",
+                "assignments",
+                "bulk"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/roster/assignments/bulk"
+            }
+          }
+        },
+        {
+          "name": "Re-staff a planned assignment",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"work_center_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Another operator, work centre or machine, or new notes. The date and the shift are fixed - cancel and plan again to move the window. Re-validated like a new row; the row never conflicts with itself.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "roster",
+                "assignments",
+                ":assignment_id"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/roster/assignments/{assignment_id}",
+              "variable": [
+                {
+                  "description": "assignment_id of the record",
+                  "key": "assignment_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Retire a machine",
           "request": {
             "description": "Refused while a draft or approved routing operation still names it.",
@@ -21857,6 +24343,42 @@
           }
         },
         {
+          "name": "Retire a shift",
+          "request": {
+            "description": "Refused while planned roster assignments from today onwards use it. Work orders and bookings keep the shift's code.",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "shifts",
+                ":shift_id"
+              ],
+              "query": [
+                {
+                  "description": "Why the record is being retired",
+                  "disabled": false,
+                  "key": "reason",
+                  "value": ""
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/routing/shifts/{shift_id}?",
+              "variable": [
+                {
+                  "description": "shift_id of the record",
+                  "key": "shift_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Retire a work centre",
           "request": {
             "description": "Refused while machines still sit in the centre or a draft or approved routing still plans work there.",
@@ -21886,6 +24408,49 @@
                 {
                   "description": "work_center_id of the record",
                   "key": "work_center_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Stop offering a shift",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Refused while planned roster assignments from today onwards use it.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "shifts",
+                ":shift_id",
+                "deactivate"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/shifts/{shift_id}/deactivate",
+              "variable": [
+                {
+                  "description": "shift_id of the record",
+                  "key": "shift_id",
                   "value": ""
                 }
               ]
@@ -22047,6 +24612,48 @@
           }
         },
         {
+          "name": "Update a shift",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"break_minutes\": 0,\n  \"end_time\": \"\",\n  \"name\": \"\",\n  \"sort_order\": 0,\n  \"start_time\": \"\"\n}"
+            },
+            "description": "The code is fixed once created. New times or a new break are refused while planned roster assignments from today onwards still use the shift.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "routing",
+                "shifts",
+                ":shift_id"
+              ],
+              "raw": "{{base_url}}/api/v1/routing/shifts/{shift_id}",
+              "variable": [
+                {
+                  "description": "shift_id of the record",
+                  "key": "shift_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Update a work centre",
           "request": {
             "body": {
@@ -22093,6 +24700,48 @@
     },
     {
       "item": [
+        {
+          "name": "Allocate newly available stock to a short order",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"Newly available stock allocated to the order\"\n}"
+            },
+            "description": "The allocation top-up. Reserves stock that has become free at the order's warehouse for each line still short, in line order, and moves a CONFIRMED order to ALLOCATED once every open line is covered. The scheduled sweep `maintenance.allocate_short_orders` runs the same service for every short order. Allowed on CONFIRMED and PARTIALLY_DISPATCHED orders.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sales",
+                ":order_id",
+                "allocate"
+              ],
+              "raw": "{{base_url}}/api/v1/sales/{order_id}/allocate",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
         {
           "name": "Approve a below-cost order so it can be confirmed",
           "request": {
@@ -22167,6 +24816,48 @@
                 "cancel"
               ],
               "raw": "{{base_url}}/api/v1/sales/{order_id}/cancel",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Close an invoiced sales order",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"Order confirmed by sales\"\n}"
+            },
+            "description": "Close an invoiced sales order",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sales",
+                ":order_id",
+                "close"
+              ],
+              "raw": "{{base_url}}/api/v1/sales/{order_id}/close",
               "variable": [
                 {
                   "description": "order_id of the record",
@@ -22343,6 +25034,12 @@
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
+                  "description": "ERP or DEALER_PORTAL",
+                  "disabled": true,
+                  "key": "source",
+                  "value": ""
+                },
+                {
                   "description": "",
                   "disabled": true,
                   "key": "warehouse_id",
@@ -22484,9 +25181,9 @@
           }
         },
         {
-          "name": "Per-line reserved versus shortfall",
+          "name": "Per-line reserved, dispatchable-now and shortfall",
           "request": {
-            "description": "What each line has reserved, what it is still short of, and how much free stock there is at the order's warehouse right now.",
+            "description": "What each line's reservation still holds live, how much a new consignment may carry for it right now (the live reservation, less what other open consignments already carry), what it is still short of, and how much free stock there is at the order's warehouse.",
             "header": [],
             "method": "GET",
             "url": {
@@ -22959,7 +25656,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"email\": \"user@example.com\",\n  \"full_name\": \"\",\n  \"password\": \"\",\n  \"allowed_category_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"allowed_warehouse_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"branch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"denied_permissions\": [\n    \"\"\n  ],\n  \"department_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"employee_code\": \"\",\n  \"extra_permissions\": [\n    \"\"\n  ],\n  \"is_active\": true,\n  \"must_change_password\": true,\n  \"phone\": \"\",\n  \"plant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"preferences\": {},\n  \"role_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"full_name\": \"\",\n  \"password\": \"\",\n  \"allowed_category_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"allowed_warehouse_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"branch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"customer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"denied_permissions\": [\n    \"\"\n  ],\n  \"department_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"employee_code\": \"\",\n  \"extra_permissions\": [\n    \"\"\n  ],\n  \"is_active\": true,\n  \"must_change_password\": true,\n  \"phone\": \"\",\n  \"plant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"preferences\": {},\n  \"role_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Create an internal or vendor-portal account.\n\nThe initial password is checked against the policy and hashed with Argon2id;\nit is never stored, logged or echoed back.",
             "header": [
@@ -23123,6 +25820,18 @@
                   "description": "",
                   "disabled": true,
                   "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "True: dealer-portal accounts only. False: everyone else",
+                  "disabled": true,
+                  "key": "is_dealer_user",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
@@ -23367,7 +26076,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"allowed_category_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"allowed_warehouse_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"branch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"clear_branch\": false,\n  \"clear_department\": false,\n  \"clear_plant\": false,\n  \"clear_vendor\": false,\n  \"denied_permissions\": [\n    \"\"\n  ],\n  \"department_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"email\": \"user@example.com\",\n  \"employee_code\": \"\",\n  \"extra_permissions\": [\n    \"\"\n  ],\n  \"full_name\": \"\",\n  \"must_change_password\": false,\n  \"password\": \"\",\n  \"phone\": \"\",\n  \"plant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"preferences\": {},\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"allowed_category_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"allowed_warehouse_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"branch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"clear_branch\": false,\n  \"clear_customer\": false,\n  \"clear_department\": false,\n  \"clear_plant\": false,\n  \"clear_vendor\": false,\n  \"customer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"denied_permissions\": [\n    \"\"\n  ],\n  \"department_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"email\": \"user@example.com\",\n  \"employee_code\": \"\",\n  \"extra_permissions\": [\n    \"\"\n  ],\n  \"full_name\": \"\",\n  \"must_change_password\": false,\n  \"password\": \"\",\n  \"phone\": \"\",\n  \"plant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"preferences\": {},\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Update a user's profile, placement or direct permission overrides.\n\nDirect grants additionally require ``permission.assign`` and pass the\nprivilege-escalation guard, both enforced by the service - the route cannot\nsee which fields the payload changed relative to the stored row.",
             "header": [
@@ -23400,6 +26109,928 @@
         }
       ],
       "name": "Users"
+    },
+    {
+      "item": [
+        {
+          "name": "Accept a sent order, optionally committing a delivery date",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"committed_delivery_date\": \"2026-01-01\",\n  \"note\": \"\",\n  \"vendor_reference\": \"\"\n}"
+            },
+            "description": "SENT to ACKNOWLEDGED. The committed date is stored as vendor_committed_date; the buyer's expected_delivery_date (the planning date) is not changed.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "accept"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/accept",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Active transporters, for the shipment form",
+          "request": {
+            "description": "Active transporters, for the shipment form",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "transporters",
+                "options"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/transporters/options?"
+            }
+          }
+        },
+        {
+          "name": "Approved payments to the vendor and the bills each settled",
+          "request": {
+            "description": "Approved payments to the vendor and the bills each settled",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "payments"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/payments?"
+            }
+          }
+        },
+        {
+          "name": "Change the vendor's committed delivery date",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"date\": \"2026-01-01\",\n  \"reason\": \"\"\n}"
+            },
+            "description": "Change the vendor's committed delivery date",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "delivery-date"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/delivery-date",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Decline a sent order, with the reason",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "SENT to VENDOR_DECLINED; the buyer then cancels the order or sends it again.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "decline"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/decline",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Download a file shared on one of the vendor's orders",
+          "request": {
+            "description": "Download a file shared on one of the vendor's orders",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "documents",
+                ":document_id",
+                "download"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/documents/{document_id}/download",
+              "variable": [
+                {
+                  "description": "document_id of the record",
+                  "key": "document_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Generate the purchase order PDF",
+          "request": {
+            "description": "Queued; poll the portal job route it returns, then follow its download_url.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "pdf"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/pdf",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mark a consignment delivered",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"delivered_at\": \"2026-01-01T00:00:00Z\"\n}"
+            },
+            "description": "Mark a consignment delivered",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "shipments",
+                ":shipment_id",
+                "delivered"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/shipments/{shipment_id}/delivered",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                },
+                {
+                  "description": "shipment_id of the record",
+                  "key": "shipment_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mark an accepted order ready for dispatch",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"note\": \"\",\n  \"packages\": 0,\n  \"ready_on\": \"2026-01-01T00:00:00Z\"\n}"
+            },
+            "description": "Mark an accepted order ready for dispatch",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "ready-for-dispatch"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/ready-for-dispatch",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One of the vendor's bills, with its lines",
+          "request": {
+            "description": "One of the vendor's bills, with its lines",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "invoices",
+                ":invoice_id"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/invoices/{invoice_id}",
+              "variable": [
+                {
+                  "description": "invoice_id of the record",
+                  "key": "invoice_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One purchase order: lines, dates, timeline, shipments, files, receipts, bills",
+          "request": {
+            "description": "One purchase order: lines, dates, timeline, shipments, files, receipts, bills",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Payment dashboard per currency: outstanding, overdue, due soon, paid, last paid",
+          "request": {
+            "description": "Payment dashboard per currency: outstanding, overdue, due soon, paid, last paid",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "payments",
+                "summary"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/payments/summary"
+            }
+          }
+        },
+        {
+          "name": "Posted goods receipts on one order, with QC results",
+          "request": {
+            "description": "Posted goods receipts on one order, with QC results",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "receipts"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/receipts?",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Posted goods receipts on the vendor's orders, with QC results",
+          "request": {
+            "description": "Posted goods receipts on the vendor's orders, with QC results",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "receipts"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/receipts?"
+            }
+          }
+        },
+        {
+          "name": "Record a consignment (transporter or courier, tracking, LR, vehicle, freight)",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"shipped_at\": \"2026-01-01T00:00:00Z\",\n  \"courier_name\": \"\",\n  \"driver_mobile\": \"\",\n  \"driver_name\": \"\",\n  \"expected_delivery_date\": \"2026-01-01\",\n  \"freight_amount\": 0,\n  \"lr_number\": \"\",\n  \"notes\": \"\",\n  \"packages\": 0,\n  \"tracking_reference\": \"\",\n  \"transporter_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vehicle_number\": \"\",\n  \"weight_kg\": 0\n}"
+            },
+            "description": "Only on an accepted order with goods still due. Numbered 1..n per order.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "shipments"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/shipments",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Status of one of the vendor's own PO PDF jobs",
+          "request": {
+            "description": "Status of one of the vendor's own PO PDF jobs",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "jobs",
+                ":job_id"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/jobs/{job_id}",
+              "variable": [
+                {
+                  "description": "job_id of the record",
+                  "key": "job_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Submit a bill against one of the vendor's own orders",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"invoice_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"quantity\": {},\n      \"unit_price\": {},\n      \"description\": {},\n      \"discount_amount\": {},\n      \"goods_receipt_line_id\": {},\n      \"hsn_code\": {},\n      \"is_interstate\": {},\n      \"item_id\": {},\n      \"notes\": {},\n      \"purchase_order_line_id\": {},\n      \"tax_rate\": {},\n      \"uom_id\": {}\n    }\n  ],\n  \"purchase_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vendor_invoice_number\": \"\",\n  \"currency\": \"\",\n  \"due_date\": \"2026-01-01\",\n  \"goods_receipt_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"invoice_document_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"round_off_amount\": 0\n}"
+            },
+            "description": "Raised for the signed-in vendor and submitted for review. purchase_order_id is required; no vendor or cost-centre field is accepted. A file goes up first as an INVOICE document on the same order and is named by invoice_document_id.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "invoices"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/invoices"
+            }
+          }
+        },
+        {
+          "name": "The files shared on one order (its typed uploads and the PO PDF)",
+          "request": {
+            "description": "The files shared on one order (its typed uploads and the PO PDF)",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "documents"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/documents?",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "The order's consignments, newest first",
+          "request": {
+            "description": "The order's consignments, newest first",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "shipments"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/shipments?",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "The signed-in vendor account: vendor, roles, categories",
+          "request": {
+            "description": "The signed-in vendor account: vendor, roles, categories",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "me"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/me"
+            }
+          }
+        },
+        {
+          "name": "The vendor's bills: status, paid, balance, due date",
+          "request": {
+            "description": "The vendor's bills: status, paid, balance, due date",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "invoices"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/invoices?"
+            }
+          }
+        },
+        {
+          "name": "The vendor's own rating: on-time and rejection percentages, score, sample",
+          "request": {
+            "description": "The vendor's own rating: on-time and rejection percentages, score, sample",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "rating"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/rating"
+            }
+          }
+        },
+        {
+          "name": "The vendor's purchase orders, with tracking status",
+          "request": {
+            "description": "tab narrows to one vendor-app tab: to_accept (SENT), accepted (ACKNOWLEDGED, nothing dispatched), ready, dispatched (dispatched or in transit), delivered (delivered, received, QC pending or GRN completed); all is every order the account can see.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "tab",
+                  "value": "all"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "assigned_to_me",
+                  "value": "False"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders?"
+            }
+          }
+        },
+        {
+          "name": "Tile counts: orders by tab, bills awaiting payment, recent QC rejections",
+          "request": {
+            "description": "Tile counts: orders by tab, bills awaiting payment, recent QC rejections",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "dashboard"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/dashboard"
+            }
+          }
+        },
+        {
+          "name": "Upload an invoice, dispatch photo, LR copy, delivery challan or other file",
+          "request": {
+            "description": "Multipart: file, kind and an optional shipment_id. kind INVOICE needs vendor_portal.invoice; every other kind needs vendor_portal.ship.",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vendor-portal",
+                "purchase-orders",
+                ":order_id",
+                "documents"
+              ],
+              "raw": "{{base_url}}/api/v1/vendor-portal/purchase-orders/{order_id}/documents",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "name": "Vendor Portal"
     },
     {
       "item": [
