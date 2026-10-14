@@ -46,7 +46,7 @@ from src.modules.allocation.models import DemandType, ReservationStatus, StockRe
 from src.modules.audit.models import AuditLog
 from src.modules.customers.models import Customer, CustomerType
 from src.modules.dispatch import service
-from src.modules.dispatch.models import Dispatch, DispatchStatus, DispatchType
+from src.modules.dispatch.models import Dispatch, DispatchLine, DispatchStatus, DispatchType
 from src.modules.dispatch.schemas import (
     DeliveryConfirmation,
     DispatchCreate,
@@ -597,6 +597,53 @@ async def test_shipping_more_than_remains_is_refused_and_moves_nothing(ctx: Ctx)
             .execution_options(populate_existing=True)
         )
     ).scalar_one()
+    assert refused.status == DispatchStatus.READY_FOR_DISPATCH
+
+
+async def test_legacy_duplicate_demand_links_cannot_ship_or_change_fulfilment(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    detail = await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("40"))
+    # Simulate a draft saved before the duplicate-link fix, without bypassing the
+    # stock engine or mocking its posting behaviour.
+    ctx.session.add(
+        DispatchLine(
+            company_id=ctx.company_id,
+            dispatch_id=detail.id,
+            line_number=2,
+            item_id=bench.item.id,
+            quantity=Decimal("40"),
+            sales_order_line_id=bench.line.id,
+            serial_ids=[],
+            carton_ids=[],
+        )
+    )
+    await ctx.session.flush()
+    await service.mark_ready(ctx.session, ctx.tenant, detail.id, reason="Loaded")
+    with pytest.raises(BusinessRuleError, match="same sales-order line"):
+        await service.dispatch_consignment(
+            ctx.session, ctx.tenant, detail.id, DispatchRequest(reason="Send legacy draft")
+        )
+    balance = await balance_of(ctx, bench)
+    assert balance.on_hand_quantity == balance.reserved_quantity == Decimal("100")
+    line = (
+        await ctx.session.execute(
+            select(SalesOrderLine)
+            .where(SalesOrderLine.id == bench.line.id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    assert line.dispatched_quantity == 0
+    assert line.status == SalesOrderLineStatus.ALLOCATED
+    movements = await ctx.session.scalar(
+        select(func.count())
+        .select_from(InventoryTransaction)
+        .where(
+            InventoryTransaction.reference_type == "dispatch",
+            InventoryTransaction.reference_id == detail.id,
+        )
+    )
+    assert movements == 0
+    refused = await service.get_dispatch_detail(ctx.session, ctx.tenant, detail.id)
     assert refused.status == DispatchStatus.READY_FOR_DISPATCH
 
 
