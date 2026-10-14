@@ -14025,7 +14025,7 @@
       },
       "DispatchLineIn": {
         "additionalProperties": false,
-        "description": "One item to load onto the consignment.\n\n``sales_order_line_id`` is optional even on a dispatch raised against a sales\norder: a shipment often carries something the customer did not order on that\nline - a replacement part, a sample - and forcing a link would either block\nit or invent a demand row for it.",
+        "description": "One item to load onto the consignment.\n\n``sales_order_line_id`` is optional on a free-stock dispatch. On a dispatch\nraised against a sales order (``sales_order_id`` set) every line must name\nits order line: the service refuses unlinked and foreign lines, because an\nunlinked line would consume free stock while the order's reservation stays\nstanding (docs/assumptions.md §E1-1).",
         "properties": {
           "batch_id": {
             "anyOf": [
