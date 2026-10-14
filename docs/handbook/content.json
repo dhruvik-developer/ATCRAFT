@@ -2703,7 +2703,7 @@
         {
           "route": "/job-work",
           "title": "Job work",
-          "purpose": "Processing done outside the factory: handles going out for PVD, castings to a machinist, finished parts out for laser marking. The single most important thing this screen exists to make visible is that material sent to a job worker is still yours. It leaves the factory on a challan but it never leaves the books - it is company stock held in a job-work state, still counted in valuation, still attributable to a vendor, a challan and an order line. What it stops being is available, so nobody can be promised it. The second tab, Pending at vendor, is where you see how much of your working capital is currently sitting outside the factory and how long it has been there.",
+          "purpose": "Processing done outside the factory: handles going out for PVD, castings to a machinist, finished parts out for laser marking. The single most important thing this screen exists to make visible is that material sent to a job worker is still yours. It leaves the factory on a challan but it never leaves the books - it is company stock held in a job-work state, still counted in valuation, still attributable to a vendor, a challan and an order line. What it stops being is available, so nobody can be promised it. The second tab, Pending at vendor, is where you see how much of your working capital is currently sitting outside the factory and how long it has been there. The third tab, Invoices, is where the vendor's bills for that work are raised and tracked against what each receipt earned.",
           "whoUses": "The planner raises and approves the order, the storekeeper issues the material and receives it back, and the plant manager approves and closes.",
           "keyActions": [
             {
@@ -2758,13 +2758,23 @@
             {
               "action": "See only orders with material currently at a vendor",
               "how": "The 'At a vendor now' button on the Orders tab"
+            },
+            {
+              "action": "Record the vendor's bill for the work",
+              "how": "The 'Invoices' tab, then Record job-work invoice: choose the vendor, then the order, tick the receipt lines and check the prefilled amounts, enter the vendor's invoice number and date, and save",
+              "note": "Each line is prefilled from what that receipt line still has unbilled, at the order's rate. Saving submits the bill, so the approver sees the match straight away. Approval is on the row, through the same match dialog the purchase bills use."
+            },
+            {
+              "action": "Read what has been billed against what was earned",
+              "how": "The 'Invoices' tab",
+              "note": "Every job-work bill with its order, its match result and its status. A bill can never charge more than the receipt lines earned - billing beyond the unbilled charges is refused, not overridden."
             }
           ],
           "flow": [
             "Press New job work order. Choose the vendor, the process (polishing, coating, PVD, laser marking, machining or other), and the date the material is due back - that date is what the ageing and the overdue flag are measured against.",
             "Choose the store the material leaves from and, if different, the store the processed output returns to.",
             "Set the rate basis - per piece, per kilo, or a flat rate for the lot - and the rate. The rate is frozen on the order, so a later rate-card change does not restate what was approved.",
-            "Tick 'Output must be inspected' if the returned goods have to go through QC.",
+            "Set the GST rate and the SAC for the processing service - 18% and 9988 unless the vendor's paperwork says otherwise.",            "Tick 'Output must be inspected' if the returned goods have to go through QC.",
             "Add the lines: the item going out, the quantity, what it comes back as (leave blank if the same item comes back), the expected output quantity if the yield is not one for one, and the agreed loss percentage.",
             "Save the draft, then Approve it. Approval reserves the material.",
             "Press Issue to vendor. Enter the challan date, the expected return, the vehicle number and the quantities going out. The challan is raised and the stock moves into the job-work state - still yours, no longer available.",
@@ -2783,6 +2793,8 @@
             "Loss inside the agreed allowance on the line is written off as scrap with the receipt's reason. Loss beyond the allowance refuses the receipt until someone with the senior job-work right accepts it, and the value of the material lost is charged back to the vendor at what the company was carrying it at - not at a price list, and not as a penalty.",
             "Rejected output the vendor is going to rework keeps the material where it is: nothing moves, the order line stays open, and the quantity keeps appearing as pending at the vendor with its true ageing.",
             "The vendor's charge accrues on good output received, at the agreed rate, on the receipt date. A short or rejected delivery therefore costs less without anyone raising a credit note. A flat lot rate is charged once, on the first receipt that brings any output back.",
+            "Give the order its GST rate and SAC when raising it - 18% and 9988 unless the vendor's paperwork says otherwise. Both are copied onto the vendor-invoice lines when the work is billed.",
+            "A job-work bill charges receipt lines, never the order in the abstract. Approving one books the processing charge to the job-work expense account, moves what each receipt line has billed, and recovers the chargeback for material the vendor lost beyond allowance against the same bill. Cancelling a posted bill reverses both postings.",
             "Where an order requires inspection, the returned output is received onto QC hold rather than into the available pool, and an inspection is raised with it.",
             "Batch-tracked and serial-tracked items cannot be sent for job work, in either direction. There is no way to name a batch or a serial on the challan, so it is refused at order entry rather than after the material has left the building.",
             "Only items flagged for job work on the item master, and still active, can be put on a line."
@@ -3700,7 +3712,7 @@
         {
           "route": "/finance/vendor-invoices",
           "title": "Vendor Invoices",
-          "purpose": "This is the payables desk: every bill a supplier has sent you, recorded here and then checked against two other documents before anyone agrees to pay it. The check is the three-way match \u2014 what you ordered, what you actually accepted at the gate, and what the vendor has billed \u2014 and it is the single most valuable thing on this screen, because a quiet price increase or a bill for material that never arrived is how money leaves a manufacturer by mistake. The list is a queue you work down; opening a row shows the match line by line and is where the bill is approved.",
+          "purpose": "This is the payables desk: every bill a supplier has sent you, recorded here and then checked against two other documents before anyone agrees to pay it. The check is the three-way match \u2014 what you ordered, what you actually accepted at the gate, and what the vendor has billed \u2014 and it is the single most valuable thing on this screen, because a quiet price increase or a bill for material that never arrived is how money leaves a manufacturer by mistake. The list is a queue you work down; opening a row shows the match line by line and is where the bill is approved. Bills for job work done on your own material carry their own type: they are matched against the job-work order's rate and the receipt lines instead of against a purchase order, and they are raised from the job-work screen rather than here.",
           "whoUses": "The accounts clerk who keys the bills, and the accounts manager or owner who approves them. These are deliberately two different people.",
           "keyActions": [
             {
@@ -3756,6 +3768,11 @@
               "how": "Vendor invoices \u2192 tick \"Unpaid only\" or \"Overdue only\""
             },
             {
+              "action": "Show only purchase bills or only job-work bills",
+              "how": "Vendor invoices \u2192 \"Invoice type\" filter \u2192 Purchase or Job work",
+              "note": "Job-work bills are matched against the job-work order's rate and the receipt lines. The match dialog shows the agreed rate where it shows the order price on a purchase bill, and the good output where it shows the accepted quantity."
+            },
+            {
               "action": "Search by the supplier's own invoice number",
               "how": "Vendor invoices \u2192 search box"
             },
@@ -3785,6 +3802,8 @@
             "The match is re-run at the moment of approval, never taken from what was stored earlier. The order or the receipt may have moved since the bill was submitted, and approving against a stale verdict would defeat the check.",
             "Only a bill awaiting approval can be approved. Approving one twice is refused outright, because it would post the amount owed to the supplier a second time.",
             "Only a draft can be deleted, and it is deleted outright. A draft never reached the ledger, so there is nothing to correct with an offsetting entry; anything past draft leaves a trail instead.",
+            "Cancelling a bill that reached the ledger reverses the journals it posted - the bill and, on a job-work bill, the excess-loss recovery posted beside it - and rolls the job-work billing back, in the same step. Cancelling before approval moves nothing.",
+            "A job-work bill can never charge more than its receipt lines earned. Billing beyond the still-unbilled charges is refused outright, and no override reason can approve it.",
             "Each bill is shown and totalled in its own currency. Two currencies are never added together."
           ]
         },

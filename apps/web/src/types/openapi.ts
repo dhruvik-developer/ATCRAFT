@@ -2626,6 +2626,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/job-work/{order_id}/billable-lines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Receipt lines of one order a job-work invoice may still bill
+         * @description Only lines with unbilled charges are listed, in receipt and line order, with the order's rate, basis, tax rate and SAC alongside - the dialog prefills from them and the match compares against them. Returned whole rather than paginated: an order carries a handful of receipts and a billable line is only meaningful with its siblings.
+         */
+        get: operations["billable_lines_api_v1_job_work__order_id__billable_lines_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/job-work/{order_id}/cancel": {
         parameters: {
             query?: never;
@@ -9924,6 +9944,21 @@ export interface components {
              */
             success: boolean;
         };
+        /** ApiResponse[list[BillableLine]] */
+        ApiResponse_list_BillableLine__: {
+            /** Data */
+            data?: components["schemas"]["BillableLine"][] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
         /** ApiResponse[list[CartonDetail]] */
         ApiResponse_list_CartonDetail__: {
             /** Data */
@@ -10604,6 +10639,62 @@ export interface components {
          * @enum {string}
          */
         BatchStatus: "ACTIVE" | "QUARANTINED" | "EXPIRED" | "CONSUMED";
+        /**
+         * BillableLine
+         * @description One receipt line a job-work invoice may bill.
+         *
+         *     Only lines with unbilled charges are listed: a line fully billed has
+         *     nothing left to charge, and offering it would invite an over-bill the
+         *     approval would then have to refuse. ``unbilled_amount`` is what the dialog
+         *     prefills, ``pending_vendor_debit`` is the recovery the approval will post
+         *     beside the bill, and ``rate``/``rate_basis`` are what the match compares
+         *     the billed price against.
+         */
+        BillableLine: {
+            /** Charges */
+            charges: string;
+            /** Invoiced Amount */
+            invoiced_amount: string;
+            /**
+             * Job Work Receipt Id
+             * Format: uuid
+             */
+            job_work_receipt_id: string;
+            /**
+             * Job Work Receipt Line Id
+             * Format: uuid
+             */
+            job_work_receipt_line_id: string;
+            /** Line Number */
+            line_number: number;
+            /**
+             * Output Item Id
+             * Format: uuid
+             */
+            output_item_id: string;
+            /** Output Quantity */
+            output_quantity: string;
+            /** Pending Vendor Debit */
+            pending_vendor_debit: string;
+            rate_basis: components["schemas"]["RateBasis"];
+            /** Rate Per Unit */
+            rate_per_unit: string;
+            /** Receipt Code */
+            receipt_code: string;
+            /**
+             * Receipt Date
+             * Format: date
+             */
+            receipt_date: string;
+            /** Sac Code */
+            sac_code: string | null;
+            /** Tax Rate */
+            tax_rate: string | null;
+            /** Unbilled Amount */
+            unbilled_amount: string;
+            /** Vendor Debit Amount */
+            vendor_debit_amount: string;
+        };
         /**
          * BlockRequest
          * @description Put an account on credit hold.
@@ -14939,10 +15030,14 @@ export interface components {
             requires_qc: boolean;
             /** Return Warehouse Id */
             return_warehouse_id?: string | null;
+            /** Sac Code */
+            sac_code?: string | null;
             /** Source Id */
             source_id?: string | null;
             /** @default MANUAL */
             source_type: components["schemas"]["JobWorkSourceType"];
+            /** Tax Rate */
+            tax_rate?: number | string | null;
             /**
              * Vendor Id
              * Format: uuid
@@ -15007,10 +15102,14 @@ export interface components {
              * Format: uuid
              */
             return_warehouse_id: string;
+            /** Sac Code */
+            sac_code: string | null;
             /** Source Id */
             source_id: string | null;
             source_type: components["schemas"]["JobWorkSourceType"];
             status: components["schemas"]["JobWorkOrderStatus"];
+            /** Tax Rate */
+            tax_rate: string | null;
             /** Total Charges */
             total_charges: string;
             /** Vendor Debit Amount */
@@ -15168,10 +15267,14 @@ export interface components {
              * Format: uuid
              */
             return_warehouse_id: string;
+            /** Sac Code */
+            sac_code: string | null;
             /** Source Id */
             source_id: string | null;
             source_type: components["schemas"]["JobWorkSourceType"];
             status: components["schemas"]["JobWorkOrderStatus"];
+            /** Tax Rate */
+            tax_rate: string | null;
             /** Total Charges */
             total_charges: string;
             /** Vendor Debit Amount */
@@ -15217,6 +15320,10 @@ export interface components {
             requires_qc?: boolean | null;
             /** Return Warehouse Id */
             return_warehouse_id?: string | null;
+            /** Sac Code */
+            sac_code?: string | null;
+            /** Tax Rate */
+            tax_rate?: number | string | null;
             /** Warehouse Id */
             warehouse_id?: string | null;
         };
@@ -15806,6 +15913,8 @@ export interface components {
             item_code?: string | null;
             /** Item Id */
             item_id?: string | null;
+            /** Job Work Receipt Line Id */
+            job_work_receipt_line_id?: string | null;
             /** Line Number */
             line_number: number;
             /** Ordered Quantity */
@@ -15837,6 +15946,11 @@ export interface components {
             blocking_reasons?: string[];
             /** Goods Receipt Id */
             goods_receipt_id: string | null;
+            /**
+             * Has Overbilling
+             * @default false
+             */
+            has_overbilling: boolean;
             /** Invoice Code */
             invoice_code: string;
             /**
@@ -15844,6 +15958,8 @@ export interface components {
              * Format: uuid
              */
             invoice_id: string;
+            /** Job Work Order Id */
+            job_work_order_id?: string | null;
             /** Lines */
             lines?: components["schemas"]["MatchLineVariance"][];
             match_status: components["schemas"]["MatchStatus"];
@@ -21028,6 +21144,8 @@ export interface components {
         ReceiptLineRead: {
             /** Charges */
             charges: string;
+            /** Debit Posted Amount */
+            debit_posted_amount: string;
             /** Excess Loss Quantity */
             excess_loss_quantity: string;
             /**
@@ -21037,6 +21155,8 @@ export interface components {
             id: string;
             /** Input Consumed Quantity */
             input_consumed_quantity: string;
+            /** Invoiced Amount */
+            invoiced_amount: string;
             /**
              * Job Work Order Line Id
              * Format: uuid
@@ -25415,6 +25535,10 @@ export interface components {
              * Format: date
              */
             invoice_date: string;
+            /** @default PURCHASE */
+            invoice_type: components["schemas"]["VendorInvoiceType"];
+            /** Job Work Order Id */
+            job_work_order_id?: string | null;
             /** Lines */
             lines: components["schemas"]["VendorInvoiceLineIn"][];
             /** Notes */
@@ -25472,6 +25596,9 @@ export interface components {
              * Format: date
              */
             invoice_date: string;
+            invoice_type: components["schemas"]["VendorInvoiceType"];
+            /** Job Work Order Id */
+            job_work_order_id: string | null;
             /** Lines */
             lines?: components["schemas"]["VendorInvoiceLineRead"][];
             match_status: components["schemas"]["MatchStatus"];
@@ -25487,6 +25614,8 @@ export interface components {
             paid_amount: string;
             /** Purchase Order Id */
             purchase_order_id: string | null;
+            /** Recovered Amount */
+            recovered_amount: string;
             /** Round Off Amount */
             round_off_amount: string;
             status: components["schemas"]["VendorInvoiceStatus"];
@@ -25539,6 +25668,8 @@ export interface components {
             is_interstate: boolean;
             /** Item Id */
             item_id?: string | null;
+            /** Job Work Receipt Line Id */
+            job_work_receipt_line_id?: string | null;
             /** Notes */
             notes?: string | null;
             /** Purchase Order Line Id */
@@ -25578,6 +25709,8 @@ export interface components {
             igst_amount: string;
             /** Item Id */
             item_id: string | null;
+            /** Job Work Receipt Line Id */
+            job_work_receipt_line_id: string | null;
             /** Line Number */
             line_number: number;
             /** Line Total */
@@ -25588,6 +25721,8 @@ export interface components {
             purchase_order_line_id: string | null;
             /** Quantity */
             quantity: string;
+            /** Recovery Amount */
+            recovery_amount: string;
             /** Sgst Amount */
             sgst_amount: string;
             /** Tax Amount */
@@ -25644,6 +25779,9 @@ export interface components {
              * Format: date
              */
             invoice_date: string;
+            invoice_type: components["schemas"]["VendorInvoiceType"];
+            /** Job Work Order Id */
+            job_work_order_id: string | null;
             match_status: components["schemas"]["MatchStatus"];
             /** Outstanding Amount */
             outstanding_amount: string;
@@ -25667,6 +25805,18 @@ export interface components {
             vendor_invoice_number: string;
         };
         /**
+         * VendorInvoiceType
+         * @description What a vendor invoice is billing.
+         *
+         *     A job-work bill is the same document as a purchase bill - payments,
+         *     approval, disputes and the payables ledger are shared - and the type says
+         *     which documents it is matched against. ``PURCHASE`` matches a purchase
+         *     order and a goods receipt. ``JOB_WORK`` matches a job-work order and its
+         *     receipt lines. docs/assumptions.md §B3-1.
+         * @enum {string}
+         */
+        VendorInvoiceType: "PURCHASE" | "JOB_WORK";
+        /**
          * VendorInvoiceUpdate
          * @description Amend an invoice that has not been approved.
          *
@@ -25683,6 +25833,8 @@ export interface components {
             goods_receipt_id?: string | null;
             /** Invoice Date */
             invoice_date?: string | null;
+            /** Job Work Order Id */
+            job_work_order_id?: string | null;
             /** Lines */
             lines?: components["schemas"]["VendorInvoiceLineIn"][] | null;
             /** Notes */
@@ -39166,8 +39318,10 @@ export interface operations {
                 search?: string | null;
                 status?: components["schemas"]["VendorInvoiceStatus"] | null;
                 match_status?: components["schemas"]["MatchStatus"] | null;
+                invoice_type?: components["schemas"]["VendorInvoiceType"] | null;
                 vendor_id?: string | null;
                 purchase_order_id?: string | null;
+                job_work_order_id?: string | null;
                 invoice_from?: string | null;
                 invoice_to?: string | null;
                 due_before?: string | null;
@@ -44229,6 +44383,100 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_JobWorkOrderDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    billable_lines_api_v1_job_work__order_id__billable_lines_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_list_BillableLine__"];
                 };
             };
             /** @description Malformed request */

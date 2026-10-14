@@ -4818,7 +4818,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"due_date\": \"2026-01-01\",\n  \"goods_receipt_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"invoice_date\": \"2026-01-01\",\n  \"lines\": [],\n  \"notes\": \"\",\n  \"purchase_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"round_off_amount\": 0,\n  \"vendor_invoice_number\": \"\"\n}"
+              "raw": "{\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"due_date\": \"2026-01-01\",\n  \"goods_receipt_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"invoice_date\": \"2026-01-01\",\n  \"job_work_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"lines\": [],\n  \"notes\": \"\",\n  \"purchase_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"round_off_amount\": 0,\n  \"vendor_invoice_number\": \"\"\n}"
             },
             "description": "Sending `lines` replaces the whole set. Any edit invalidates a previous three-way match, so the invoice has to be matched again before it can be approved.",
             "header": [
@@ -5393,6 +5393,12 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "invoice_type",
+                  "value": "PURCHASE"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "vendor_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
@@ -5400,6 +5406,12 @@
                   "description": "",
                   "disabled": true,
                   "key": "purchase_order_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "job_work_order_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
@@ -5766,7 +5778,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"invoice_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"quantity\": {},\n      \"unit_price\": {},\n      \"cost_centre_id\": {},\n      \"description\": {},\n      \"discount_amount\": {},\n      \"goods_receipt_line_id\": {},\n      \"hsn_code\": {},\n      \"is_interstate\": {},\n      \"item_id\": {},\n      \"notes\": {},\n      \"purchase_order_line_id\": {},\n      \"tax_rate\": {},\n      \"uom_id\": {}\n    }\n  ],\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vendor_invoice_number\": \"\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"currency\": \"\",\n  \"due_date\": \"2026-01-01\",\n  \"goods_receipt_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"purchase_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"round_off_amount\": 0\n}"
+              "raw": "{\n  \"invoice_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"quantity\": {},\n      \"unit_price\": {},\n      \"cost_centre_id\": {},\n      \"description\": {},\n      \"discount_amount\": {},\n      \"goods_receipt_line_id\": {},\n      \"hsn_code\": {},\n      \"is_interstate\": {},\n      \"item_id\": {},\n      \"job_work_receipt_line_id\": {},\n      \"notes\": {},\n      \"purchase_order_line_id\": {},\n      \"tax_rate\": {},\n      \"uom_id\": {}\n    }\n  ],\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vendor_invoice_number\": \"\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"currency\": \"\",\n  \"due_date\": \"2026-01-01\",\n  \"goods_receipt_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"invoice_type\": \"PURCHASE\",\n  \"job_work_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"purchase_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"round_off_amount\": 0\n}"
             },
             "description": "Creates the bill in DRAFT; nothing reaches the ledger until it is approved. A vendor billing the same invoice number twice is refused - the duplicate is named in the error so the two can be compared.",
             "header": [
@@ -7550,7 +7562,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"expected_return_date\": \"2026-01-01\",\n  \"lines\": [],\n  \"notes\": \"\",\n  \"process_description\": \"\",\n  \"process_type\": \"POLISHING\",\n  \"rate_basis\": \"PER_PIECE\",\n  \"rate_per_unit\": 0,\n  \"requires_qc\": false,\n  \"return_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"expected_return_date\": \"2026-01-01\",\n  \"lines\": [],\n  \"notes\": \"\",\n  \"process_description\": \"\",\n  \"process_type\": \"POLISHING\",\n  \"rate_basis\": \"PER_PIECE\",\n  \"rate_per_unit\": 0,\n  \"requires_qc\": false,\n  \"return_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"sac_code\": \"\",\n  \"tax_rate\": 0,\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Only a DRAFT is editable. From APPROVED the order holds hard stock reservations, and from ISSUED it holds company material at somebody else's premises. Supplying `lines` replaces the whole set.",
             "header": [
@@ -8074,7 +8086,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"expected_return_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"line_number\": {},\n      \"quantity_to_issue\": {},\n      \"expected_loss_percentage\": {},\n      \"expected_output_item_id\": {},\n      \"expected_output_quantity\": {},\n      \"notes\": {}\n    }\n  ],\n  \"process_type\": \"POLISHING\",\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"process_description\": \"\",\n  \"rate_basis\": \"PER_PIECE\",\n  \"rate_per_unit\": 0,\n  \"requires_qc\": false,\n  \"return_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\"\n}"
+              "raw": "{\n  \"expected_return_date\": \"2026-01-01\",\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"line_number\": {},\n      \"quantity_to_issue\": {},\n      \"expected_loss_percentage\": {},\n      \"expected_output_item_id\": {},\n      \"expected_output_quantity\": {},\n      \"notes\": {}\n    }\n  ],\n  \"process_type\": \"POLISHING\",\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"process_description\": \"\",\n  \"rate_basis\": \"PER_PIECE\",\n  \"rate_per_unit\": 0,\n  \"requires_qc\": false,\n  \"return_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"sac_code\": \"\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\",\n  \"tax_rate\": 0\n}"
             },
             "description": "Validates the vendor, the warehouses and every line against the item master, and freezes the yield ratio and the estimated charge onto the order. No stock is reserved and none moves: a draft is a plan.",
             "header": [
@@ -8094,6 +8106,34 @@
                 "job-work"
               ],
               "raw": "{{base_url}}/api/v1/job-work"
+            }
+          }
+        },
+        {
+          "name": "Receipt lines of one order a job-work invoice may still bill",
+          "request": {
+            "description": "Only lines with unbilled charges are listed, in receipt and line order, with the order's rate, basis, tax rate and SAC alongside - the dialog prefills from them and the match compares against them. Returned whole rather than paginated: an order carries a handful of receipts and a billable line is only meaningful with its siblings.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "job-work",
+                ":order_id",
+                "billable-lines"
+              ],
+              "raw": "{{base_url}}/api/v1/job-work/{order_id}/billable-lines",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },

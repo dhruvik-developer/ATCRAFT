@@ -106,7 +106,9 @@ Rules (`docs/assumptions.md` §41 to §46):
 
 * **NULL is "unallocated"**, never "the default centre". Nothing is backfilled.
 * **Precedence is explicit value -> source document -> NULL.** A vendor invoice
-  line resolves line -> header -> NULL at approval. Production and job-work
+  line resolves line -> header -> NULL at approval, except on a job-work bill,
+  where the job-work order's centre sits between the line and the header
+  (line -> order -> header -> NULL). Production and job-work
   orders take only an explicit value: their sources (MRP, a sales order, a
   production order behind a job-work order) carry none this release.
 * **Every write validates through the organisation seam** -
@@ -122,7 +124,8 @@ Rules (`docs/assumptions.md` §41 to §46):
 * **Approving a vendor invoice splits `PURCHASE_EXPENSE` per effective line
   centre** - one leg per centre, in line order, summing exactly to the subtotal
   (`split_by_cost_centre`). An invoice naming no centre posts the single
-  unallocated leg it always did.
+  unallocated leg it always did. A `JOB_WORK` invoice splits `JOB_WORK_EXPENSE`
+  instead, with the job-work order's centre between the line and the header.
 * **Two retirement levels.** Deactivating is refused while an active child, a
   department default or a work centre still hands the centre out. Archiving is
   refused while anything at all names it - a live child, a department, a work
@@ -568,6 +571,11 @@ Purchase order    DRAFT -> PENDING_APPROVAL -> APPROVED -> SENT -> ACKNOWLEDGED
 Production order  DRAFT -> APPROVED -> RELEASED -> MATERIAL_ISSUED -> IN_PROCESS
                         -> COMPLETED -> CLOSED   (CANCELLED before IN_PROCESS)
 
+Vendor invoice    DRAFT -> PENDING_APPROVAL -> APPROVED <-> PARTIALLY_PAID <-> PAID
+                        (DISPUTED from PENDING_APPROVAL/APPROVED/PARTIALLY_PAID;
+                        CANCELLED from DRAFT, PENDING_APPROVAL, APPROVED, DISPUTED -
+                        cancelling a posted bill reverses its journals)
+
 QC inspection     PENDING -> IN_PROGRESS -> (ACCEPTED | REWORK | REJECTED | HOLD | SCRAP) -> CLOSED
 
 Job work order    DRAFT -> APPROVED -> ISSUED -> PARTIALLY_RECEIVED -> RECEIVED
@@ -607,7 +615,8 @@ Every transition writes an audit row via `record_status_change`.
 | Dispatch | `allocation.consume`, then `post_movements` (`DISPATCH`) |
 | Sales order confirmed | `allocation.reserve` per line against available stock |
 | Requisition converted | One DRAFT purchase order per (vendor, procurement category, warehouse) through `procurement.service._create_purchase_order` (duplicate check included); `_link_source_documents` adds to each line's `ordered_quantity` and moves the requisition APPROVED → CONVERTED; one CREATE audit row per order and one "Split into …" row per requisition - all in one transaction, or nothing |
-| Vendor invoice approved | `finance.post_journal`: one `PURCHASE_EXPENSE` debit per effective line cost centre (line -> header -> none), input tax, payable |
+| Vendor invoice approved | `finance.post_journal`: one `PURCHASE_EXPENSE` debit per effective line cost centre (line -> header -> none), input tax, payable. A `JOB_WORK` invoice debits `JOB_WORK_EXPENSE` instead (line -> job-work order -> header -> none), moves each receipt line's `invoiced_amount`, and posts the excess-loss recovery (`job_work_recovery`: Dr AP / Cr job-work expense) for the still-unposted vendor debit |
+| Vendor invoice cancelled | reverse every journal the invoice posted (the bill and, on a job-work invoice, the recovery beside it) and roll the job-work tracking back, in the same transaction |
 | Any write naming a cost centre | `organization.service.require_cost_centre` / `require_cost_centres` (tenant, live, active) before the row is written |
 | Any status change | `audit.record_status_change` in the same transaction |
 

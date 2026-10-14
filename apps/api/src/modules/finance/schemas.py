@@ -32,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 from src.core.messages import date_before
 from src.core.responses import OffsetPagination
 from src.modules.finance.models import (
+    JOB_WORK_ALLOW_FREE_LINES,
     MAX_INVOICE_LINES,
     MAX_PAYMENT_ALLOCATIONS,
     CustomerAdjustmentType,
@@ -42,6 +43,7 @@ from src.modules.finance.models import (
     PaymentStatus,
     PaymentType,
     VendorInvoiceStatus,
+    VendorInvoiceType,
 )
 
 # --- reusable constrained scalars --------------------------------------------
@@ -222,6 +224,11 @@ class VendorInvoiceLineIn(BaseModel):
     item_id: uuid.UUID | None = None
     purchase_order_line_id: uuid.UUID | None = None
     goods_receipt_line_id: uuid.UUID | None = None
+    #: The job-work receipt line this charge bills. Set only on a JOB_WORK
+    #: invoice; mutually exclusive with ``purchase_order_line_id`` - a line is
+    #: one supply or the other, which the row's ``one_source_document`` CHECK
+    #: also enforces. docs/assumptions.md §B3-1.
+    job_work_receipt_line_id: uuid.UUID | None = None
     description: Annotated[str, Field(max_length=500)] | None = None
     hsn_code: Annotated[str, Field(max_length=16)] | None = None
     quantity: PositiveQuantity
@@ -245,11 +252,23 @@ class VendorInvoiceLineIn(BaseModel):
         receipt. A line that names only the receipt could be quantity-matched
         and never price-matched, which is a two-way match wearing a three-way
         match's name.
+
+        A job-work line names the job-work receipt line instead: its price is
+        matched against the job-work order's rate and its quantity against the
+        receipt line's good output, so a purchase-order link on the same line
+        would price it against the wrong document.
         """
         if self.goods_receipt_line_id is not None and self.purchase_order_line_id is None:
             raise ValueError(
                 "A line billing against a goods receipt must also name the purchase order line "
                 "it was received against."
+            )
+        if self.job_work_receipt_line_id is not None and (
+            self.purchase_order_line_id is not None or self.goods_receipt_line_id is not None
+        ):
+            raise ValueError(
+                "A line billing a job-work receipt line cannot also name a purchase order line "
+                "or a goods receipt line."
             )
         if self.item_id is None and not (self.description or "").strip():
             raise ValueError("A line with no item must carry a description of what is billed.")
@@ -269,6 +288,14 @@ class VendorInvoiceCreate(BaseModel):
     due_date: date | None = None
     purchase_order_id: uuid.UUID | None = None
     goods_receipt_id: uuid.UUID | None = None
+    #: What the bill charges for. ``JOB_WORK`` matches a job-work order and its
+    #: receipt lines instead of a purchase order and a goods receipt, and shares
+    #: everything else - payments, allocations, approval, disputes, the payables
+    #: ledger and ageing - with a purchase bill. docs/assumptions.md §B3-1.
+    invoice_type: VendorInvoiceType = VendorInvoiceType.PURCHASE
+    #: The job-work order being billed. Required exactly when ``invoice_type``
+    #: is ``JOB_WORK``; forbidden otherwise.
+    job_work_order_id: uuid.UUID | None = None
     #: The cost centre the bill is charged to, and the default for every line
     #: naming none of its own. Optional; NULL is "unallocated".
     cost_centre_id: uuid.UUID | None = None
@@ -286,6 +313,44 @@ class VendorInvoiceCreate(BaseModel):
     def _due_date_not_before_invoice(self) -> VendorInvoiceCreate:
         if self.due_date is not None and self.due_date < self.invoice_date:
             raise ValueError(date_before("due date", "invoice date"))
+        return self._typed_links_cohere()
+
+    def _typed_links_cohere(self) -> VendorInvoiceCreate:
+        """The header links must agree with the invoice type.
+
+        A job-work bill is matched against its order and receipt lines, so a
+        purchase-order or goods-receipt link on it would price the bill against
+        one document while claiming another - and a purchase bill naming a
+        job-work order would be matched against the wrong documents entirely.
+        Every goods line of a job-work bill must name a receipt line; a free
+        service or freight line is refused unless the named constant permits it
+        (docs/assumptions.md §B3-1).
+        """
+        is_job_work = self.invoice_type is VendorInvoiceType.JOB_WORK
+        if is_job_work and self.job_work_order_id is None:
+            raise ValueError("A job-work invoice must name the job-work order it bills.")
+        if not is_job_work and self.job_work_order_id is not None:
+            raise ValueError("Only a job-work invoice may name a job-work order.")
+        if is_job_work and (
+            self.purchase_order_id is not None or self.goods_receipt_id is not None
+        ):
+            raise ValueError(
+                "A job-work invoice is matched against its job-work order, not against a "
+                "purchase order or a goods receipt."
+            )
+        if is_job_work and not JOB_WORK_ALLOW_FREE_LINES:
+            for number, line in enumerate(self.lines, start=1):
+                if line.job_work_receipt_line_id is None:
+                    raise ValueError(
+                        f"Line {number} of a job-work invoice must name the job-work receipt "
+                        "line it bills."
+                    )
+        if not is_job_work:
+            for number, line in enumerate(self.lines, start=1):
+                if line.job_work_receipt_line_id is not None:
+                    raise ValueError(
+                        f"Line {number} bills a job-work receipt line on a purchase invoice."
+                    )
         return self
 
 
@@ -304,6 +369,11 @@ class VendorInvoiceUpdate(BaseModel):
     due_date: date | None = None
     purchase_order_id: uuid.UUID | None = None
     goods_receipt_id: uuid.UUID | None = None
+    #: Repoint a job-work bill at another order of the same vendor. The type
+    #: itself is frozen at creation: turning a purchase bill into a job-work
+    #: bill would reprice every line against different documents, which is a
+    #: new document, not an amendment.
+    job_work_order_id: uuid.UUID | None = None
     #: An explicit null clears the header cost centre.
     cost_centre_id: uuid.UUID | None = None
     round_off_amount: Money | None = None
@@ -319,6 +389,8 @@ class VendorInvoiceLineRead(BaseModel):
     item_id: uuid.UUID | None
     purchase_order_line_id: uuid.UUID | None
     goods_receipt_line_id: uuid.UUID | None
+    #: The job-work receipt line billed, on a JOB_WORK invoice.
+    job_work_receipt_line_id: uuid.UUID | None
     #: The line's own cost centre; null means it takes the invoice's.
     cost_centre_id: uuid.UUID | None
     description: str | None
@@ -334,6 +406,9 @@ class VendorInvoiceLineRead(BaseModel):
     igst_amount: Decimal
     tax_amount: Decimal
     line_total: Decimal
+    #: This line's share of the excess-loss recovery posted with the invoice.
+    #: Zero on purchase bills and on lines that recovered nothing.
+    recovery_amount: Decimal
     notes: str | None
 
 
@@ -359,6 +434,10 @@ class VendorInvoiceSummary(BaseModel):
     outstanding_amount: Decimal
     purchase_order_id: uuid.UUID | None
     goods_receipt_id: uuid.UUID | None
+    #: What the bill charges for; a JOB_WORK row is matched against its order.
+    invoice_type: VendorInvoiceType
+    #: The job-work order billed, on a JOB_WORK invoice.
+    job_work_order_id: uuid.UUID | None
     cost_centre_id: uuid.UUID | None
     created_at: datetime
 
@@ -372,6 +451,10 @@ class VendorInvoiceDetail(VendorInvoiceSummary):
     approved_at: datetime | None
     dispute_reason: str | None
     cancellation_reason: str | None
+    #: The excess-loss recovery posted beside this invoice (Dr AP / Cr
+    #: job-work expense). The vendor's net payable is
+    #: ``total_amount - recovered_amount``. docs/assumptions.md §B3-2.
+    recovered_amount: Decimal
     notes: str | None
     version: int
     lines: list[VendorInvoiceLineRead] = Field(default_factory=list)
@@ -383,8 +466,11 @@ class VendorInvoiceFilters(BaseModel):
     search: Annotated[str, Field(max_length=120)] | None = None
     status: VendorInvoiceStatus | None = None
     match_status: MatchStatus | None = None
+    #: Only bills of this type - the job-work "Invoices" tab lists JOB_WORK.
+    invoice_type: VendorInvoiceType | None = None
     vendor_id: uuid.UUID | None = None
     purchase_order_id: uuid.UUID | None = None
+    job_work_order_id: uuid.UUID | None = None
     invoice_from: date | None = None
     invoice_to: date | None = None
     due_before: date | None = None
@@ -415,6 +501,11 @@ class MatchLineVariance(BaseModel):
     #: NULL when the line names no purchase-order line - a freight or service
     #: charge with nothing to match against.
     purchase_order_line_id: uuid.UUID | None = None
+
+    #: The job-work receipt line billed, on a JOB_WORK invoice. Its price is
+    #: matched against the order's rate and its quantity against the good
+    #: output the receipt line delivered.
+    job_work_receipt_line_id: uuid.UUID | None = None
 
     invoiced_quantity: Decimal
     #: What was accepted at the gate: the goods receipt's accepted quantity when
@@ -453,6 +544,8 @@ class MatchResult(BaseModel):
     vendor_id: uuid.UUID
     purchase_order_id: uuid.UUID | None
     goods_receipt_id: uuid.UUID | None
+    #: The job-work order matched against, on a JOB_WORK invoice.
+    job_work_order_id: uuid.UUID | None = None
 
     matched: bool
     match_status: MatchStatus
@@ -469,6 +562,10 @@ class MatchResult(BaseModel):
     lines: list[MatchLineVariance] = Field(default_factory=list)
     #: Why approval is blocked. Empty exactly when ``matched`` is true.
     blocking_reasons: list[str] = Field(default_factory=list)
+    #: True when a job-work line bills beyond its receipt line's unbilled
+    #: charges. A hard block: no override reason can approve it, because
+    #: approving it would bill the same charges twice.
+    has_overbilling: bool = False
 
 
 class InvoiceApproval(BaseModel):

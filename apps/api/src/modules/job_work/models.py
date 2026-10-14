@@ -107,6 +107,17 @@ class JobWorkProcess(StrEnum):
     OTHER = "OTHER"
 
 
+#: GST on manufacturing services performed on goods the customer owns. The
+#: client must confirm the rate that applies to their vendors; 18% is the
+#: ordinary rate for SAC 9988 and is what a new order is filled with when the
+#: form does not name one. docs/assumptions.md §B3-3.
+JOB_WORK_DEFAULT_GST_RATE = Decimal("18")
+
+#: SAC for manufacturing services on physical inputs owned by others.
+#: docs/assumptions.md §B3-3.
+JOB_WORK_DEFAULT_SAC = "9988"
+
+
 class RateBasis(StrEnum):
     """How the vendor's charge is computed.
 
@@ -210,6 +221,18 @@ CANCELLABLE_STATUSES: tuple[JobWorkOrderStatus, ...] = (
     JobWorkOrderStatus.APPROVED,
 )
 
+#: Orders whose material has left the premises. A job-work invoice is raised
+#: against one of these: a draft has no receipts, and an approved order has not
+#: been issued yet.
+ISSUED_OR_LATER_STATUSES: tuple[JobWorkOrderStatus, ...] = (
+    JobWorkOrderStatus.ISSUED,
+    JobWorkOrderStatus.PARTIALLY_RECEIVED,
+    JobWorkOrderStatus.RECEIVED,
+    JobWorkOrderStatus.QC_PENDING,
+    JobWorkOrderStatus.COMPLETED,
+    JobWorkOrderStatus.CLOSED,
+)
+
 
 class JobWorkOrder(TenantEntity, OptimisticLockMixin):
     """One instruction to send material to a vendor and get it back processed."""
@@ -278,6 +301,15 @@ class JobWorkOrder(TenantEntity, OptimisticLockMixin):
     #: off the charge when the vendor is paid.
     vendor_debit_amount: Mapped[Decimal] = mapped_column(
         Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: GST rate for the processing service. NULL until somebody sets it; a new
+    #: order is filled from ``JOB_WORK_DEFAULT_GST_RATE`` when the payload omits
+    #: it. docs/assumptions.md §B3-3.
+    tax_rate: Mapped[Decimal | None] = mapped_column(Percentage, nullable=True)
+    #: SAC copied onto the vendor-invoice line. Defaults to manufacturing
+    #: services on others' goods.
+    sac_code: Mapped[str | None] = mapped_column(
+        String(16), nullable=True, default=JOB_WORK_DEFAULT_SAC, server_default=JOB_WORK_DEFAULT_SAC
     )
 
     # --- lifecycle -----------------------------------------------------------
@@ -361,6 +393,14 @@ class JobWorkOrder(TenantEntity, OptimisticLockMixin):
         CheckConstraint("estimated_charges >= 0", name="estimated_charges_non_negative"),
         CheckConstraint("total_charges >= 0", name="total_charges_non_negative"),
         CheckConstraint("vendor_debit_amount >= 0", name="vendor_debit_non_negative"),
+        CheckConstraint(
+            "tax_rate IS NULL OR (tax_rate >= 0 AND tax_rate <= 100)",
+            name="tax_rate_bounded",
+        ),
+        CheckConstraint(
+            "sac_code IS NULL OR length(btrim(sac_code)) > 0",
+            name="sac_code_not_blank",
+        ),
         CheckConstraint("receipt_count >= 0", name="receipt_count_non_negative"),
         # Approval evidence is all-or-nothing: an approver with no timestamp
         # cannot be audited, and a timestamp with no approver names nobody.
@@ -830,6 +870,16 @@ class JobWorkReceiptLine(TenantEntity):
     vendor_debit_amount: Mapped[Decimal] = mapped_column(
         Money, nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: How much of ``charges`` approved job-work invoices have billed. Written
+    #: only when an invoice is approved or cancelled, under a row lock.
+    invoiced_amount: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: How much of ``vendor_debit_amount`` has been posted as an excess-loss
+    #: recovery. The next invoice of this line posts only the remainder.
+    debit_posted_amount: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
 
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -853,6 +903,13 @@ class JobWorkReceiptLine(TenantEntity):
         CheckConstraint("excess_loss_quantity >= 0", name="excess_loss_non_negative"),
         CheckConstraint("charges >= 0", name="charges_non_negative"),
         CheckConstraint("vendor_debit_amount >= 0", name="vendor_debit_non_negative"),
+        CheckConstraint("invoiced_amount >= 0", name="invoiced_non_negative"),
+        CheckConstraint("invoiced_amount <= charges", name="invoiced_within_charges"),
+        CheckConstraint("debit_posted_amount >= 0", name="debit_posted_non_negative"),
+        CheckConstraint(
+            "debit_posted_amount <= vendor_debit_amount",
+            name="debit_posted_within_vendor_debit",
+        ),
         # A receipt line that consumed nothing and returned nothing is a row
         # nobody meant to write.
         CheckConstraint("input_consumed_quantity > 0", name="input_consumed_positive"),
@@ -869,6 +926,9 @@ class JobWorkReceiptLine(TenantEntity):
 
 __all__ = [
     "CANCELLABLE_STATUSES",
+    "ISSUED_OR_LATER_STATUSES",
+    "JOB_WORK_DEFAULT_GST_RATE",
+    "JOB_WORK_DEFAULT_SAC",
     "MATERIAL_AT_VENDOR_STATUSES",
     "MAX_LINES_PER_ORDER",
     "OPEN_SUPPLY_STATUSES",

@@ -123,6 +123,7 @@ from src.modules.finance.schemas import (
     VendorInvoiceFilters,
 )
 from src.modules.inventory.models import InventoryBalance, InventoryCostLayer
+from src.modules.job_work.models import JobWorkOrder, JobWorkReceipt, JobWorkReceiptLine
 from src.modules.organization.models import Company, FinancialYear
 from src.modules.procurement.models import (
     GoodsReceipt,
@@ -229,6 +230,50 @@ class GoodsReceiptLineFacts:
 
 
 @dataclass(frozen=True, slots=True)
+class JobWorkOrderFacts:
+    """The order half of the job-work match: who, at what rate, and how."""
+
+    id: uuid.UUID
+    code: str
+    vendor_id: uuid.UUID
+    status: str
+    rate_per_unit: Decimal
+    rate_basis: str
+    cost_centre_id: uuid.UUID | None
+    tax_rate: Decimal | None
+    sac_code: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class JobWorkReceiptLineFacts:
+    """One job-work receipt line: what it earned and what has been billed.
+
+    ``unbilled_charges`` is the money basis of the match - ``charges`` less
+    what approved invoices have already billed. ``pending_vendor_debit`` is the
+    recovery basis: ``vendor_debit_amount`` less what approvals already posted.
+    """
+
+    id: uuid.UUID
+    receipt_id: uuid.UUID
+    job_work_order_id: uuid.UUID
+    line_number: int
+    output_item_id: uuid.UUID
+    output_quantity: Decimal
+    charges: Decimal
+    invoiced_amount: Decimal
+    vendor_debit_amount: Decimal
+    debit_posted_amount: Decimal
+
+    @property
+    def unbilled_charges(self) -> Decimal:
+        return self.charges - self.invoiced_amount
+
+    @property
+    def pending_vendor_debit(self) -> Decimal:
+        return self.vendor_debit_amount - self.debit_posted_amount
+
+
+@dataclass(frozen=True, slots=True)
 class PostingAccount:
     """What a journal needs to know about each account it posts to."""
 
@@ -282,6 +327,18 @@ class LedgerAccountRepository(BaseRepository[LedgerAccount]):
 
     async def get_by_code(self, code: str) -> LedgerAccount | None:
         return await self.get_by_field("code", code)
+
+    async def existing_codes(self) -> set[str]:
+        """Every chart code in use, for the control-account picker.
+
+        The chart is a master table of dozens of rows, not millions, so one
+        narrow read is cheaper than a probe per candidate code.
+        """
+        stmt = select(LedgerAccount.code).where(
+            LedgerAccount.company_id == self.tenant.company_id,
+            LedgerAccount.deleted_at.is_(None),
+        )
+        return set((await self.session.execute(stmt)).scalars().all())
 
     async def by_system_codes(self, codes: Sequence[SystemAccount]) -> dict[str, LedgerAccount]:
         """Resolve the control accounts an automatic posting needs, in one read."""
@@ -933,10 +990,14 @@ class VendorInvoiceRepository(BaseRepository[VendorInvoice]):
             stmt = stmt.where(VendorInvoice.status == filters.status)
         if filters.match_status is not None:
             stmt = stmt.where(VendorInvoice.match_status == filters.match_status)
+        if filters.invoice_type is not None:
+            stmt = stmt.where(VendorInvoice.invoice_type == filters.invoice_type)
         if filters.vendor_id is not None:
             stmt = stmt.where(VendorInvoice.vendor_id == filters.vendor_id)
         if filters.purchase_order_id is not None:
             stmt = stmt.where(VendorInvoice.purchase_order_id == filters.purchase_order_id)
+        if filters.job_work_order_id is not None:
+            stmt = stmt.where(VendorInvoice.job_work_order_id == filters.job_work_order_id)
         if filters.invoice_from is not None:
             stmt = stmt.where(VendorInvoice.invoice_date >= filters.invoice_from)
         if filters.invoice_to is not None:
@@ -1521,6 +1582,114 @@ class GoodsReceiptLineLookupRepository(BaseRepository[GoodsReceiptLine]):
             )
             for row in (await self.session.execute(stmt)).all()
         }
+
+
+class JobWorkOrderLookupRepository(BaseRepository[JobWorkOrder]):
+    """The order half of the job-work match."""
+
+    model = JobWorkOrder
+
+    async def get_facts(self, order_id: uuid.UUID) -> JobWorkOrderFacts | None:
+        stmt = select(
+            JobWorkOrder.id,
+            JobWorkOrder.code,
+            JobWorkOrder.vendor_id,
+            JobWorkOrder.status,
+            JobWorkOrder.rate_per_unit,
+            JobWorkOrder.rate_basis,
+            JobWorkOrder.cost_centre_id,
+            JobWorkOrder.tax_rate,
+            JobWorkOrder.sac_code,
+        ).where(
+            JobWorkOrder.company_id == self.tenant.company_id,
+            JobWorkOrder.id == order_id,
+        )
+        row = (await self.session.execute(stmt)).first()
+        if row is None:
+            return None
+        return JobWorkOrderFacts(
+            id=row.id,
+            code=row.code,
+            vendor_id=row.vendor_id,
+            status=str(row.status),
+            rate_per_unit=Decimal(row.rate_per_unit),
+            rate_basis=str(row.rate_basis),
+            cost_centre_id=row.cost_centre_id,
+            tax_rate=Decimal(row.tax_rate) if row.tax_rate is not None else None,
+            sac_code=row.sac_code,
+        )
+
+
+class JobWorkReceiptLineLookupRepository(BaseRepository[JobWorkReceiptLine]):
+    """The receipt half of the job-work match: what each lot earned."""
+
+    model = JobWorkReceiptLine
+
+    def _columns(self) -> Any:
+        return (
+            select(
+                JobWorkReceiptLine.id,
+                JobWorkReceiptLine.receipt_id,
+                JobWorkReceipt.job_work_order_id,
+                JobWorkReceiptLine.line_number,
+                JobWorkReceiptLine.output_item_id,
+                JobWorkReceiptLine.output_quantity,
+                JobWorkReceiptLine.charges,
+                JobWorkReceiptLine.invoiced_amount,
+                JobWorkReceiptLine.vendor_debit_amount,
+                JobWorkReceiptLine.debit_posted_amount,
+            )
+            .select_from(JobWorkReceiptLine)
+            .join(
+                JobWorkReceipt,
+                JobWorkReceipt.id == JobWorkReceiptLine.receipt_id,
+            )
+        )
+
+    def _facts(self, row: Any) -> JobWorkReceiptLineFacts:
+        return JobWorkReceiptLineFacts(
+            id=row.id,
+            receipt_id=row.receipt_id,
+            job_work_order_id=row.job_work_order_id,
+            line_number=row.line_number,
+            output_item_id=row.output_item_id,
+            output_quantity=Decimal(row.output_quantity),
+            charges=Decimal(row.charges),
+            invoiced_amount=Decimal(row.invoiced_amount),
+            vendor_debit_amount=Decimal(row.vendor_debit_amount),
+            debit_posted_amount=Decimal(row.debit_posted_amount),
+        )
+
+    async def load(self, line_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, JobWorkReceiptLineFacts]:
+        """Every job-work receipt line an invoice references, in one query."""
+        if not line_ids:
+            return {}
+        stmt = self._columns().where(
+            JobWorkReceiptLine.company_id == self.tenant.company_id,
+            JobWorkReceipt.company_id == self.tenant.company_id,
+            JobWorkReceiptLine.id.in_(set(line_ids)),
+        )
+        return {row.id: self._facts(row) for row in (await self.session.execute(stmt)).all()}
+
+    async def lock_lines(
+        self, line_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, JobWorkReceiptLine]:
+        """Lock receipt lines for the billing write, in id order.
+
+        The order matters: two invoices billing overlapping line sets in
+        opposite orders would deadlock. Sorting the set gives every caller the
+        same acquisition order (database.md section 4.4).
+        """
+        if not line_ids:
+            return {}
+        stmt = (
+            self._scoped()
+            .where(JobWorkReceiptLine.id.in_(set(line_ids)))
+            .order_by(JobWorkReceiptLine.id.asc())
+            .with_for_update()
+        )
+        rows = list((await self.session.execute(stmt)).scalars().unique().all())
+        return {row.id: row for row in rows}
 
 
 class FinancialYearRepository(BaseRepository[FinancialYear]):

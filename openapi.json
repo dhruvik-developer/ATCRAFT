@@ -4720,6 +4720,36 @@
         "title": "ApiResponse[list[AssemblyComponentRead]]",
         "type": "object"
       },
+      "ApiResponse_list_BillableLine__": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/BillableLine"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[list[BillableLine]]",
+        "type": "object"
+      },
       "ApiResponse_list_CartonDetail__": {
         "properties": {
           "data": {
@@ -6525,6 +6555,120 @@
         ],
         "title": "BatchStatus",
         "type": "string"
+      },
+      "BillableLine": {
+        "description": "One receipt line a job-work invoice may bill.\n\nOnly lines with unbilled charges are listed: a line fully billed has\nnothing left to charge, and offering it would invite an over-bill the\napproval would then have to refuse. ``unbilled_amount`` is what the dialog\nprefills, ``pending_vendor_debit`` is the recovery the approval will post\nbeside the bill, and ``rate``/``rate_basis`` are what the match compares\nthe billed price against.",
+        "properties": {
+          "charges": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Charges",
+            "type": "string"
+          },
+          "invoiced_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Invoiced Amount",
+            "type": "string"
+          },
+          "job_work_receipt_id": {
+            "format": "uuid",
+            "title": "Job Work Receipt Id",
+            "type": "string"
+          },
+          "job_work_receipt_line_id": {
+            "format": "uuid",
+            "title": "Job Work Receipt Line Id",
+            "type": "string"
+          },
+          "line_number": {
+            "title": "Line Number",
+            "type": "integer"
+          },
+          "output_item_id": {
+            "format": "uuid",
+            "title": "Output Item Id",
+            "type": "string"
+          },
+          "output_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Output Quantity",
+            "type": "string"
+          },
+          "pending_vendor_debit": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Pending Vendor Debit",
+            "type": "string"
+          },
+          "rate_basis": {
+            "$ref": "#/components/schemas/RateBasis"
+          },
+          "rate_per_unit": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Rate Per Unit",
+            "type": "string"
+          },
+          "receipt_code": {
+            "title": "Receipt Code",
+            "type": "string"
+          },
+          "receipt_date": {
+            "format": "date",
+            "title": "Receipt Date",
+            "type": "string"
+          },
+          "sac_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sac Code"
+          },
+          "tax_rate": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax Rate"
+          },
+          "unbilled_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unbilled Amount",
+            "type": "string"
+          },
+          "vendor_debit_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Vendor Debit Amount",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_work_receipt_line_id",
+          "job_work_receipt_id",
+          "receipt_code",
+          "receipt_date",
+          "line_number",
+          "output_item_id",
+          "output_quantity",
+          "charges",
+          "invoiced_amount",
+          "unbilled_amount",
+          "vendor_debit_amount",
+          "pending_vendor_debit",
+          "rate_per_unit",
+          "rate_basis",
+          "tax_rate",
+          "sac_code"
+        ],
+        "title": "BillableLine",
+        "type": "object"
       },
       "BlockRequest": {
         "description": "Put an account on credit hold.",
@@ -18842,6 +18986,19 @@
             ],
             "title": "Return Warehouse Id"
           },
+          "sac_code": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sac Code"
+          },
           "source_id": {
             "anyOf": [
               {
@@ -18857,6 +19014,23 @@
           "source_type": {
             "$ref": "#/components/schemas/JobWorkSourceType",
             "default": "MANUAL"
+          },
+          "tax_rate": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,5}|(?=[\\d.]{1,10}0*$)\\d{0,5}\\.\\d{0,4}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax Rate"
           },
           "vendor_id": {
             "format": "uuid",
@@ -19025,6 +19199,17 @@
             "title": "Return Warehouse Id",
             "type": "string"
           },
+          "sac_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sac Code"
+          },
           "source_id": {
             "anyOf": [
               {
@@ -19042,6 +19227,18 @@
           },
           "status": {
             "$ref": "#/components/schemas/JobWorkOrderStatus"
+          },
+          "tax_rate": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax Rate"
           },
           "total_charges": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -19083,6 +19280,8 @@
           "estimated_charges",
           "total_charges",
           "vendor_debit_amount",
+          "tax_rate",
+          "sac_code",
           "status",
           "approved_by_id",
           "approved_at",
@@ -19461,6 +19660,17 @@
             "title": "Return Warehouse Id",
             "type": "string"
           },
+          "sac_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sac Code"
+          },
           "source_id": {
             "anyOf": [
               {
@@ -19478,6 +19688,18 @@
           },
           "status": {
             "$ref": "#/components/schemas/JobWorkOrderStatus"
+          },
+          "tax_rate": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax Rate"
           },
           "total_charges": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -19519,6 +19741,8 @@
           "estimated_charges",
           "total_charges",
           "vendor_debit_amount",
+          "tax_rate",
+          "sac_code",
           "status",
           "approved_by_id",
           "approved_at",
@@ -19660,6 +19884,36 @@
               }
             ],
             "title": "Return Warehouse Id"
+          },
+          "sac_code": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sac Code"
+          },
+          "tax_rate": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,5}|(?=[\\d.]{1,10}0*$)\\d{0,5}\\.\\d{0,4}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax Rate"
           },
           "warehouse_id": {
             "anyOf": [
@@ -21261,6 +21515,18 @@
             ],
             "title": "Item Id"
           },
+          "job_work_receipt_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Work Receipt Line Id"
+          },
           "line_number": {
             "title": "Line Number",
             "type": "integer"
@@ -21386,6 +21652,11 @@
             ],
             "title": "Goods Receipt Id"
           },
+          "has_overbilling": {
+            "default": false,
+            "title": "Has Overbilling",
+            "type": "boolean"
+          },
           "invoice_code": {
             "title": "Invoice Code",
             "type": "string"
@@ -21394,6 +21665,18 @@
             "format": "uuid",
             "title": "Invoice Id",
             "type": "string"
+          },
+          "job_work_order_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Work Order Id"
           },
           "lines": {
             "items": {
@@ -34033,6 +34316,11 @@
             "title": "Charges",
             "type": "string"
           },
+          "debit_posted_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Debit Posted Amount",
+            "type": "string"
+          },
           "excess_loss_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Excess Loss Quantity",
@@ -34046,6 +34334,11 @@
           "input_consumed_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Input Consumed Quantity",
+            "type": "string"
+          },
+          "invoiced_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Invoiced Amount",
             "type": "string"
           },
           "job_work_order_line_id": {
@@ -34122,6 +34415,8 @@
           "input_consumed_quantity",
           "charges",
           "vendor_debit_amount",
+          "invoiced_amount",
+          "debit_posted_amount",
           "notes"
         ],
         "title": "ReceiptLineRead",
@@ -46991,6 +47286,22 @@
             "title": "Invoice Date",
             "type": "string"
           },
+          "invoice_type": {
+            "$ref": "#/components/schemas/VendorInvoiceType",
+            "default": "PURCHASE"
+          },
+          "job_work_order_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Work Order Id"
+          },
           "lines": {
             "items": {
               "$ref": "#/components/schemas/VendorInvoiceLineIn"
@@ -47158,6 +47469,21 @@
             "title": "Invoice Date",
             "type": "string"
           },
+          "invoice_type": {
+            "$ref": "#/components/schemas/VendorInvoiceType"
+          },
+          "job_work_order_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Work Order Id"
+          },
           "lines": {
             "items": {
               "$ref": "#/components/schemas/VendorInvoiceLineRead"
@@ -47217,6 +47543,11 @@
               }
             ],
             "title": "Purchase Order Id"
+          },
+          "recovered_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Recovered Amount",
+            "type": "string"
           },
           "round_off_amount": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -47283,6 +47614,8 @@
           "outstanding_amount",
           "purchase_order_id",
           "goods_receipt_id",
+          "invoice_type",
+          "job_work_order_id",
           "cost_centre_id",
           "created_at",
           "round_off_amount",
@@ -47293,6 +47626,7 @@
           "approved_at",
           "dispute_reason",
           "cancellation_reason",
+          "recovered_amount",
           "notes",
           "version"
         ],
@@ -47381,6 +47715,18 @@
               }
             ],
             "title": "Item Id"
+          },
+          "job_work_receipt_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Work Receipt Line Id"
           },
           "notes": {
             "anyOf": [
@@ -47547,6 +47893,18 @@
             ],
             "title": "Item Id"
           },
+          "job_work_receipt_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Work Receipt Line Id"
+          },
           "line_number": {
             "title": "Line Number",
             "type": "integer"
@@ -47582,6 +47940,11 @@
           "quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Quantity",
+            "type": "string"
+          },
+          "recovery_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Recovery Amount",
             "type": "string"
           },
           "sgst_amount": {
@@ -47628,6 +47991,7 @@
           "item_id",
           "purchase_order_line_id",
           "goods_receipt_line_id",
+          "job_work_receipt_line_id",
           "cost_centre_id",
           "description",
           "hsn_code",
@@ -47642,6 +48006,7 @@
           "igst_amount",
           "tax_amount",
           "line_total",
+          "recovery_amount",
           "notes"
         ],
         "title": "VendorInvoiceLineRead",
@@ -47716,6 +48081,21 @@
             "title": "Invoice Date",
             "type": "string"
           },
+          "invoice_type": {
+            "$ref": "#/components/schemas/VendorInvoiceType"
+          },
+          "job_work_order_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Work Order Id"
+          },
           "match_status": {
             "$ref": "#/components/schemas/MatchStatus"
           },
@@ -47786,11 +48166,22 @@
           "outstanding_amount",
           "purchase_order_id",
           "goods_receipt_id",
+          "invoice_type",
+          "job_work_order_id",
           "cost_centre_id",
           "created_at"
         ],
         "title": "VendorInvoiceSummary",
         "type": "object"
+      },
+      "VendorInvoiceType": {
+        "description": "What a vendor invoice is billing.\n\nA job-work bill is the same document as a purchase bill - payments,\napproval, disputes and the payables ledger are shared - and the type says\nwhich documents it is matched against. ``PURCHASE`` matches a purchase\norder and a goods receipt. ``JOB_WORK`` matches a job-work order and its\nreceipt lines. docs/assumptions.md §B3-1.",
+        "enum": [
+          "PURCHASE",
+          "JOB_WORK"
+        ],
+        "title": "VendorInvoiceType",
+        "type": "string"
       },
       "VendorInvoiceUpdate": {
         "additionalProperties": false,
@@ -47843,6 +48234,18 @@
               }
             ],
             "title": "Invoice Date"
+          },
+          "job_work_order_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Work Order Id"
           },
           "lines": {
             "anyOf": [
@@ -70451,6 +70854,22 @@
           },
           {
             "in": "query",
+            "name": "invoice_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/VendorInvoiceType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Invoice Type"
+            }
+          },
+          {
+            "in": "query",
             "name": "vendor_id",
             "required": false,
             "schema": {
@@ -70481,6 +70900,23 @@
                 }
               ],
               "title": "Purchase Order Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "job_work_order_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Work Order Id"
             }
           },
           {
@@ -78367,6 +78803,125 @@
           }
         ],
         "summary": "Approve a draft and reserve the material it will send out",
+        "tags": [
+          "Job Work"
+        ]
+      }
+    },
+    "/api/v1/job-work/{order_id}/billable-lines": {
+      "get": {
+        "description": "Only lines with unbilled charges are listed, in receipt and line order, with the order's rate, basis, tax rate and SAC alongside - the dialog prefills from them and the match compares against them. Returned whole rather than paginated: an order carries a handful of receipts and a billable line is only meaningful with its siblings.",
+        "operationId": "billable_lines_api_v1_job_work__order_id__billable_lines_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Order Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_list_BillableLine__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Receipt lines of one order a job-work invoice may still bill",
         "tags": [
           "Job Work"
         ]

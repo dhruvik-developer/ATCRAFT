@@ -1488,6 +1488,78 @@ floor, `conversion_delivery_date` takes the vendor's lead time as a third input.
 
 ---
 
+## §B3-1. A job-work invoice is a typed vendor invoice, billed line by line
+
+**Assumed.** A job-work bill shares payments, allocations, approval, disputes, the payables ledger and ageing with a purchase bill, and matches a job-work order and its receipt lines instead of a purchase order and a goods receipt. Every goods line names a receipt line; a free service or freight line is refused unless `JOB_WORK_ALLOW_FREE_LINES` is turned on, because an unbilled extra is how the same charges get billed twice.
+
+**Why.** A separate invoice table would reimplement approval, payment and ageing for a document that differs only in what it is matched against.
+
+**Where.** `finance.models.VendorInvoiceType`, `VendorInvoice.invoice_type/job_work_order_id`, `VendorInvoiceLine.job_work_receipt_line_id`, `finance.schemas` validators, `finance.service._match_job_work`.
+
+**Impact if wrong.** Freight or service extras on a job-work bill need their own matching rule before the constant is enabled.
+
+---
+
+## §B3-2. The excess-loss recovery posts beside the bill, and over-billing is a hard block
+
+**Assumed.** At approval, the still-unposted vendor debit on the invoiced receipt lines posts as Dr AP against the vendor / Cr job-work expense under `job_work_recovery`, in the same transaction as the bill. The vendor's net payable is the invoice minus the recoveries. Billing beyond a receipt line's unbilled charges is refused outright - no override reason can approve it - and is re-checked under a row lock at approval, when the money actually moves.
+
+**Why.** The debit is money the vendor owes back for company material lost beyond allowance; netting it at payment time without posting it would leave the payable overstated and the recovery untraceable. An overridable over-bill would bill the same charges twice with a sentence attached.
+
+**Where.** `finance.service._post_job_work_billing`, `evaluate_match` job-work branch, `approve_invoice` over-billing guard.
+
+**Impact if wrong.** If recoveries should settle through a separate debit-note document, the recovery journal becomes that document's posting; the tracking columns stay.
+
+---
+
+## §B3-3. The GST rate and SAC default, and the client confirms them
+
+**Assumed.** A new job-work order takes GST 18% and SAC 9988 (manufacturing services on others' goods) when the payload omits them. Rates vary by vendor and ruling; 18% is the ordinary rate for this SAC, not a determination.
+
+**Why.** An order with no rate cannot produce an invoice line with one, and refusing to raise the order until somebody looks the rate up blocks real despatch-morning work.
+
+**Where.** `job_work.models.JOB_WORK_DEFAULT_GST_RATE/JOB_WORK_DEFAULT_SAC`, `job_work.service.create_order`, `job_work.schemas` tax fields.
+
+**Impact if wrong.** Confirm the rate per vendor; orders already raised keep the rate they were raised with until amended.
+
+---
+
+## §B3-4. The job-work expense account takes the next free code above 5150
+
+**Assumed.** `JOB_WORK_EXPENSE` is provisioned at chart code 5150, inside the 5xxx expense range beside purchases; when that code belongs to a hand-built account the provisioning walks upward to the next free one. Postings resolve the system code, never the chart code, so the walk changes nothing they read.
+
+**Why.** Fixed-code provisioning fails on any chart that already holds the preferred code, and the failure arrives as a unique-constraint error at the first approval.
+
+**Where.** `finance.service.DEFAULT_CHART`, `pick_free_chart_code`, `ensure_system_accounts`.
+
+**Impact if wrong.** A chart numbering plan that reserves the 515x range needs its own preferred code per company.
+
+---
+
+## §B3-5. Cancelling a posted bill reverses its journals
+
+**Assumed.** Any cancel of an invoice with posted journals reverses each one - the bill and, on a job-work invoice, the recovery beside it - and rolls the job-work tracking back, in the same transaction. Cancelling before approval moves nothing and rolls nothing back.
+
+**Why.** Cancelling without reversing leaves the payable and the input GST on the ledger while the invoice vanishes from ageing and the GST summary, which is the defect this package fixes.
+
+**Where.** `finance.service.cancel_invoice`, `VENDOR_INVOICE_LIFECYCLE` APPROVED to CANCELLED edge.
+
+**Impact if wrong.** A bill cancelled in error needs re-raising; the reversed journals are the trail.
+
+---
+
+## §B3-6. Vendor-submitted job-work bills are a follow-up, not this package
+
+**Assumed.** Vendor-portal invoice submission stays purchase-order-only. A vendor-submitted job-work bill - matched to an order the vendor can see through the portal scope - is recorded here as a follow-up.
+
+**Why.** The portal scope and submission flow were built around purchase orders; extending them to job-work orders needs its own scoping review.
+
+**Where.** This section only; no code.
+
+**Impact if wrong.** Staff continue to key job-work bills from the job-work screen until the portal flow is extended.
+
+---
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant
