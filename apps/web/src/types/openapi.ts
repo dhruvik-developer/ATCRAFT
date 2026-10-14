@@ -22473,11 +22473,8 @@ export interface components {
             billing_address_id?: string | null;
             /** Branch Id */
             branch_id?: string | null;
-            /**
-             * Currency
-             * @default INR
-             */
-            currency: string;
+            /** Currency */
+            currency?: string | null;
             /**
              * Customer Id
              * Format: uuid

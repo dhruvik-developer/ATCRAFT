@@ -1444,6 +1444,40 @@ form's method options. Historical display and method filters retain the label.
 **Impact if wrong:** Add a defined journal adjustment workflow before enabling
 noncash adjustments. Never reinterpret existing postings silently.
 
+## §ADDITIONAL11-4. Warehouse assignments cover stock documents and posting
+
+**Assumed:** An empty assignment and a platform superuser are unrestricted within
+the company. Transfers require both warehouses; adjustments and counts require
+their single warehouse. User operations retain their assignment at posting.
+Trusted background contexts retain their existing empty assignment.
+
+**Why:** Permission to act on inventory does not grant access to every warehouse.
+Documents created before a restriction must not bypass it when stock moves.
+
+**Where:** Shared warehouse policy, document repositories, procurement/production
+destination checks and every grain touched by the movement engine. Company
+isolation applies to restricted, unrestricted and system contexts alike.
+
+**Impact if wrong:** Define a separate authority for cross-warehouse operations
+before changing the both-endpoint transfer rule. No database schema change is
+needed for this policy.
+
+## §ADDITIONAL11-5. Selected cartons travel with their complete contents
+
+**Assumed:** A selected sealed carton ships whole. A mixed-item carton can appear
+on distinct dispatch lines for its actual item, batch and sales-order demand.
+Each carton/content grain appears once and matches its quantity and serials.
+Loose goods may use lines without cartons.
+
+**Why:** A carton reference alone cannot prove which goods physically leave.
+Omitting one of a mixed carton's contents understates the physical shipment.
+
+**Where:** Dispatch create/update and the locked pre-shipment validation of
+legacy drafts. Unlinked packing demand matches only unlinked dispatch demand.
+
+**Impact if wrong:** Repack or split a carton before shipping part of its contents;
+do not label a partial or different item shipment with the original sealed box.
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant
@@ -1471,15 +1505,3 @@ module is used in production:
    or the customer?
 7. **Partial dispatch.** May a sales-order line be dispatched in more than two
    instalments, and is there a minimum dispatch quantity?
-
-## Warehouse assignment policy for A02/A03
-
-An empty warehouse assignment denotes unrestricted access within the company;
-platform superusers use that same exemption. Company isolation always applies.
-Transfers require assignment to both warehouses, matching their existing create
-rule. Adjustments/counts require their single warehouse. Procurement/production
-destinations and every grain touched by a stock movement are checked with this
-same policy, including documents raised before the restriction. Trusted system
-contexts use an empty assignment; user-driven operations retain the caller's
-assignment. This clarifies existing assignment semantics without changing the
-database schema.

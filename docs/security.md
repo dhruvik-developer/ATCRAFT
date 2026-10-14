@@ -413,6 +413,15 @@ production — Postgres and Redis are reachable only on the internal network.
 
 ---
 
+## Owned valuation export files (A07)
+
+An internal user with `inventory.valuation_view` and `report.export` can poll and
+download their own finance valuation job through `/reports/jobs/{id}` and
+`/reports/jobs/{id}/download`. The service checks tenant, creator and the
+server-set valuation task provenance. This grants no general report catalogue or
+document access. Vendor users are refused. Existing report readers retain
+`report.view` for status and `document.view` for the file.
+
 ## Pre-production checklist
 
 - [ ] `JWT_SECRET` generated with `secrets.token_urlsafe(64)`, unique per environment

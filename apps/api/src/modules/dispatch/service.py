@@ -706,6 +706,8 @@ def _assert_unique_sales_order_lines(lines: Sequence[SalesOrderLineReference]) -
         )
 
 
+# ASSUMPTION: selected cartons travel whole; mixed contents use distinct demand/lot
+# lines (docs/assumptions.md §ADDITIONAL11-5).
 def _assert_carton_contents_match(
     lines: Sequence[DispatchLineIn | DispatchLine], contents: Sequence[CartonContentFacts]
 ) -> None:
