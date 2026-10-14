@@ -14,6 +14,12 @@ that module's service.
     expensive in a specific way: it hides stock from availability, so MRP orders
     material the company already owns.
 
+``maintenance.allocate_short_orders``
+    The allocation top-up: hands each short sales order to
+    ``sales.service.allocate_order``, so stock that arrives from a goods
+    receipt, a production or assembly output or a transfer reaches the orders
+    waiting for it without any of those modules knowing about sales.
+
 ``maintenance.purge_expired_sessions``
     Removes refresh-session rows that can no longer authenticate anything.
 
@@ -34,8 +40,9 @@ Three properties every task here holds.
 :class:`~src.core.deps.TenantContext`. Each sweep begins with a deliberately
 cross-tenant read to discover which companies have work, then partitions by
 company and scopes every write again - the same shape ``dispatch.scan_delays``
-uses. The nil actor id is only ever used for stamping; nothing here writes it to
-a foreign key.
+uses. The nil actor id (``src.core.ids.SYSTEM_ACTOR_ID``) is only ever used for
+stamping: every actor column is written through ``persisted_actor``, which
+stores it as NULL rather than as a foreign key to a user that does not exist.
 
 **One tenant's failure must not stop the others.** Each company runs in its own
 session, and a failure is logged and skipped. A single company with a corrupt row
@@ -57,18 +64,21 @@ from pathlib import Path
 from typing import Any
 
 import anyio
-from sqlalchemy import delete, select
+from sqlalchemy import Exists, and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.database import affected_rows, session_scope, transaction
 from src.core.deps import TenantContext, system_tenant
+from src.core.errors import BusinessRuleError
 from src.core.logging import get_logger
 from src.modules.allocation import service as allocation_service
 from src.modules.allocation.models import OPEN_RESERVATION_STATUSES, StockReservation
 from src.modules.quality import service as quality_service
 from src.modules.reports import service as reports_service
+from src.modules.sales import service as sales_service
+from src.modules.sales.models import SalesOrder, SalesOrderLine, SalesOrderLineStatus
 from src.modules.users.models import UserSession
 from src.workers.celery_app import async_task
 
@@ -98,6 +108,13 @@ MAX_PURGE_BATCHES = 40
 
 #: The scratch directory, from the storage tree section 43 defines.
 TEMP_SUBDIRECTORY = "temp"
+
+#: Most short sales orders one company's top-up handles per tick. ASSUMPTION:
+#: 200 orders every ``SO_TOPUP_INTERVAL_SECONDS`` (900 by default) keeps a tick
+#: well inside its interval while still reaching a large order book within the
+#: hour; the most urgent orders are taken first, so a backlog delays the least
+#: urgent ones rather than random ones (docs/assumptions.md section E1-2).
+MAX_TOPUP_ORDERS = 200
 
 
 def _system_tenant(company_id: uuid.UUID) -> TenantContext:
@@ -220,6 +237,162 @@ async def release_stale_reservations(request_id: str | None = None, **_: Any) ->
         failed=failed,
     )
     return {"companies": len(companies), "released": released, "failed": failed}
+
+
+# -----------------------------------------------------------------------------
+# Allocation top-up for short sales orders
+# -----------------------------------------------------------------------------
+
+
+def _has_short_line() -> Exists:
+    """Correlated on ``sales_orders``: a live line whose open demand its reservation does not cover.
+
+    "Covered" reads the reservation's live remaining quantity. A line whose
+    reservation was released, expired or consumed joins nothing and counts as
+    holding none - exactly how ``sales.service`` reads it.
+    """
+    return (
+        select(SalesOrderLine.id)
+        .outerjoin(
+            StockReservation,
+            and_(
+                StockReservation.id == SalesOrderLine.reservation_id,
+                StockReservation.company_id == SalesOrderLine.company_id,
+                StockReservation.status.in_(sorted(OPEN_RESERVATION_STATUSES)),
+            ),
+        )
+        .where(
+            SalesOrderLine.company_id == SalesOrder.company_id,
+            SalesOrderLine.sales_order_id == SalesOrder.id,
+            SalesOrderLine.status != SalesOrderLineStatus.CANCELLED,
+            SalesOrderLine.quantity - SalesOrderLine.dispatched_quantity
+            > func.coalesce(StockReservation.remaining_quantity, 0),
+        )
+        .exists()
+    )
+
+
+async def _companies_with_short_orders(session: AsyncSession) -> list[uuid.UUID]:
+    """Tenants with at least one open order (confirmed, allocated or part-shipped) still short."""
+    stmt = (
+        select(SalesOrder.company_id)
+        .where(SalesOrder.status.in_(sales_service.TOP_UP_STATUSES), _has_short_line())
+        .distinct()
+    )
+    return list((await session.execute(stmt)).scalars().all())
+
+
+async def _short_orders(session: AsyncSession, company_id: uuid.UUID) -> list[uuid.UUID]:
+    """One company's short orders, most urgent first, at most ``MAX_TOPUP_ORDERS``.
+
+    Priority first (lower is more urgent), then the date the customer needs the
+    goods, then the date they ordered; the id breaks the remaining ties so the
+    order is stable from one tick to the next.
+    """
+    stmt = (
+        select(SalesOrder.id)
+        .where(
+            SalesOrder.company_id == company_id,
+            SalesOrder.status.in_(sales_service.TOP_UP_STATUSES),
+            _has_short_line(),
+        )
+        .order_by(
+            SalesOrder.priority,
+            SalesOrder.required_date,
+            SalesOrder.order_date,
+            SalesOrder.id,
+        )
+        .limit(MAX_TOPUP_ORDERS)
+    )
+    return list((await session.execute(stmt)).scalars().all())
+
+
+@async_task(name="maintenance.allocate_short_orders", queue="default")
+async def allocate_short_orders(request_id: str | None = None, **_: Any) -> dict[str, Any]:
+    """Reserve newly available stock for every short sales order (K02, K08).
+
+    The Celery entry point; the work is :func:`top_up_short_orders`.
+    """
+    return await top_up_short_orders()
+
+
+async def top_up_short_orders() -> dict[str, Any]:
+    """One tick of the allocation top-up, over every tenant.
+
+    The rule belongs to ``sales.service.allocate_order``; this only decides
+    *when* and *for whom*, which is what keeps goods receipts, production and
+    transfers free of any knowledge of sales (docs/assumptions.md section E1-2).
+    Each order runs in its own session and transaction, so one that cannot be
+    topped up - a lock timeout, a reservation the engine refuses - is logged and
+    skipped without undoing the orders before it. An order that stopped being
+    eligible between the read and its lock (shipped, fully covered, cancelled)
+    is a race the lock resolved, not a failure.
+
+    The service writes its audit row only when a reservation changed, so a tick
+    over orders whose items are still out of stock leaves no trace beyond the
+    log line below. A plain coroutine, apart from the task, so it can be awaited
+    on a caller's own event loop.
+    """
+    async with session_scope() as session:
+        companies = await _companies_with_short_orders(session)
+
+    examined = 0
+    skipped = 0
+    failed = 0
+    for company_id in companies:
+        try:
+            async with session_scope() as session:
+                order_ids = await _short_orders(session, company_id)
+        except Exception as exc:
+            failed += 1
+            log.error(
+                "maintenance.topup_scan_failed",
+                company_id=str(company_id),
+                error=str(exc),
+                exc_info=exc,
+            )
+            continue
+        for order_id in order_ids:
+            examined += 1
+            try:
+                async with session_scope() as session:
+                    await sales_service.allocate_order(
+                        session,
+                        _system_tenant(company_id),
+                        order_id,
+                        reason="Scheduled allocation of newly available stock",
+                    )
+            except BusinessRuleError as exc:
+                skipped += 1
+                log.info(
+                    "maintenance.topup_skipped",
+                    company_id=str(company_id),
+                    order_id=str(order_id),
+                    reason=exc.message,
+                )
+            except Exception as exc:
+                failed += 1
+                log.error(
+                    "maintenance.topup_failed",
+                    company_id=str(company_id),
+                    order_id=str(order_id),
+                    error=str(exc),
+                    exc_info=exc,
+                )
+
+    log.info(
+        "maintenance.short_orders_topped_up",
+        companies=len(companies),
+        examined=examined,
+        skipped=skipped,
+        failed=failed,
+    )
+    return {
+        "companies": len(companies),
+        "examined": examined,
+        "skipped": skipped,
+        "failed": failed,
+    }
 
 
 # -----------------------------------------------------------------------------
@@ -422,12 +595,15 @@ async def reconcile_quality_owners(request_id: str | None = None, **_: Any) -> d
 
 __all__ = [
     "MAX_PURGE_BATCHES",
+    "MAX_TOPUP_ORDERS",
     "PURGE_BATCH",
     "SESSION_RETENTION_DAYS",
     "TEMP_FILE_MAX_AGE_HOURS",
+    "allocate_short_orders",
     "purge_expired_sessions",
     "purge_temp_files",
     "reconcile_quality_owners",
     "refresh_summary_views",
     "release_stale_reservations",
+    "top_up_short_orders",
 ]

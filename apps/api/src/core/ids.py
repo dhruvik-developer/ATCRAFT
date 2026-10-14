@@ -23,6 +23,8 @@ import time
 import uuid
 from threading import Lock
 
+from src.core import actors
+
 _lock = Lock()
 _last_timestamp_ms = 0
 _last_counter = 0
@@ -82,4 +84,36 @@ def new_id() -> uuid.UUID:
     return uuid7()
 
 
-__all__ = ["new_id", "uuid7", "uuid7_timestamp_ms"]
+#: The user id a scheduled job runs under. ``TenantContext`` requires a user id and a
+#: beat sweep has no person behind it, so the nil UUID stands in for "the system".
+#: It can never collide with a real account (user ids are UUIDv7) and it must never
+#: reach an actor column: every one of those is a foreign key to ``users``. Writers
+#: pass the tenant's user id through :func:`persisted_actor`, which turns it back
+#: into NULL.
+#:
+#: Single source of truth is :mod:`src.core.actors`; the names here are
+#: backwards-compatible aliases so existing callers keep working.
+SYSTEM_ACTOR_ID = actors.SYSTEM_ACTOR_ID
+
+
+def persisted_actor(user_id: uuid.UUID | None) -> uuid.UUID | None:
+    """The value to store in an actor column (``created_by_id`` and the like).
+
+    A person is stored as themselves; the system placeholder is stored as NULL,
+    which is what "nobody did this by hand" means in every actor column here.
+    Storing the placeholder instead violates the foreign key to ``users`` and
+    fails the whole operation - which is how a scheduled sweep that reserves or
+    releases stock on a tenant's behalf failed on its first write.
+
+    Alias of :func:`src.core.actors.actor_id`; both names stay valid.
+    """
+    return actors.actor_id(user_id)
+
+
+__all__ = [
+    "SYSTEM_ACTOR_ID",
+    "new_id",
+    "persisted_actor",
+    "uuid7",
+    "uuid7_timestamp_ms",
+]

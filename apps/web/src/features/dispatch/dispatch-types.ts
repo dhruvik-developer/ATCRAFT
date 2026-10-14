@@ -104,6 +104,7 @@ export const isSettled = (status: string): boolean => SETTLED.has(status)
 
 /** One row of `GET /dispatch` (`DispatchSummary`). */
 export interface DispatchRow {
+  sales_invoice_id: string | null
   id: string
   code: string
   dispatch_type: DispatchType
@@ -295,13 +296,20 @@ export interface ItemFacts {
   is_serial_tracked: boolean
 }
 
+/**
+ * The query for one item's tracking flags, as options - shared by
+ * {@link useItemFacts} and by the dispatch dialog's per-order-line reads, so
+ * both hit one cache entry per item.
+ */
+export const itemFactsQuery = (itemId: string, enabled: boolean) => ({
+  queryKey: queryKeys.items.detail(itemId),
+  queryFn: () => api.get<ItemFacts>(`/products/items/${itemId}`),
+  enabled: Boolean(itemId) && enabled,
+  staleTime: staleTimes.master,
+})
+
 export function useItemFacts(itemId: string, enabled: boolean) {
-  return useQuery({
-    queryKey: queryKeys.items.detail(itemId),
-    queryFn: () => api.get<ItemFacts>(`/products/items/${itemId}`),
-    enabled: Boolean(itemId) && enabled,
-    staleTime: staleTimes.master,
-  })
+  return useQuery(itemFactsQuery(itemId, enabled))
 }
 
 /** One row of `GET /inventory/batches` (`StockBatchRead`), as the pickers read it. */

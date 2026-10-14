@@ -165,12 +165,54 @@ export const prompts = {
   reasonRequired: `Give a reason of at least ${REASON_MIN_LENGTH} characters - it is kept in the audit trail.`,
 } as const
 
+// --------------------------------------------------------- fulfilment ------
+
+/**
+ * Sales-order fulfilment, explained the same way on the order page and in the
+ * dispatch dialog it opens. Both show what each line has reserved, what may
+ * leave now and what is still short, and the two must never describe those
+ * figures differently.
+ */
+export const fulfilment = {
+  allocateAction: 'Allocate available stock',
+  /** Toast after a manual top-up, by outcome. */
+  allocatedAll: 'Every line is now fully reserved',
+  allocatedSome: (shortLines: number) =>
+    `${shortLines} line${shortLines === 1 ? '' : 's'} still short of stock`,
+  reservedColumn: 'Reserved',
+  dispatchableColumn: 'Dispatchable now',
+  shortColumn: 'Short',
+  /** Under the sales-order select of the dispatch dialog. */
+  linkedDispatch:
+    "The order's lines that hold a live stock reservation are loaded below, each at the most it may carry now. Lower a quantity or remove a line; anything more has to be reserved first.",
+  loadingDispatchable: 'Loading the order lines that may leave...',
+  nothingDispatchable:
+    'Nothing on this order can leave yet: no line holds a live stock reservation. Allocate available stock to the order first.',
+  quantityTooHigh: (most: string) =>
+    `At most ${most} may leave now - the line's live reservation, less what other open consignments already carry.`,
+  quantityInvalid: 'Enter a quantity above zero, with up to 4 decimal places.',
+  /** Why the warehouse cannot be changed once an order is chosen. */
+  orderWarehouse:
+    "A consignment against an order leaves from the order's warehouse, where its stock is reserved.",
+} as const
+
 export const messages = {
   success,
   errors,
   empty,
   prompts,
+  fulfilment,
   errorTitle,
   errorDescription,
   raisedDocuments,
+} as const
+
+export const salesInvoiceMessages = {
+  issued: 'Sales invoice issued',
+  preview:
+    'Review the dispatch quantities, agreed prices and tax before issuing. The number is assigned when you confirm.',
+  snapshot: 'Party details, prices and tax are fixed as they were at issue.',
+  cancel:
+    'The receivable journal and invoiced quantities are reversed together. Paid invoices or invoices outside the cancellation window need a credit note.',
+  gst: 'Output GST comes from issued sales invoice lines by invoice date. Uninvoiced dispatches are shown separately for follow-up.',
 } as const

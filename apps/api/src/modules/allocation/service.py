@@ -66,6 +66,7 @@ without a database.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -82,6 +83,7 @@ from src.core.errors import (
     InsufficientStockError,
     NotFoundError,
 )
+from src.core.ids import persisted_actor
 from src.core.logging import get_logger
 from src.core.observability import insufficient_stock_events
 from src.core.pagination import PageParams, SortParams, paginate
@@ -121,7 +123,9 @@ from src.modules.inventory.models import InventoryBalance, TransactionType
 from src.modules.inventory.repository import BalanceGrain, InventoryRepository, ItemFacts
 from src.modules.inventory.service import (
     MovementEngine,
+    MovementRequest,
     post_movement,
+    post_movements,
 )
 from src.modules.inventory.service import get_available as inventory_available
 from src.modules.notifications.models import NotificationSeverity, NotificationType
@@ -862,7 +866,7 @@ class ReservationEngine:
             )
 
         balance.reserved_quantity = to_quantity(to_quantity(balance.reserved_quantity) + quantity)
-        balance.updated_by_id = self.tenant.user_id
+        balance.updated_by_id = persisted_actor(self.tenant.user_id)
         return available
 
     def apply_drawdown(self, balance: InventoryBalance, quantity: Decimal) -> None:
@@ -885,7 +889,7 @@ class ReservationEngine:
                 },
             )
         balance.reserved_quantity = to_quantity(reserved - quantity)
-        balance.updated_by_id = self.tenant.user_id
+        balance.updated_by_id = persisted_actor(self.tenant.user_id)
 
     # --- audit --------------------------------------------------------------
 
@@ -1079,7 +1083,9 @@ async def release(
             to_quantity(reservation.released_quantity) + plan.applied_quantity
         )
         reservation.status = plan.next_status
-        reservation.released_by_id = tenant.user_id
+        # NULL when the release is a scheduled top-up re-reserving the line; a
+        # person releasing it is recorded as themselves.
+        reservation.released_by_id = persisted_actor(tenant.user_id)
         reservation.released_at = utcnow()
         # The row keeps the most recent reason so a screen can show it without a
         # second query; the audit log keeps every individual release.
@@ -1129,6 +1135,7 @@ async def consume(
     reference_code: str | None,
     transaction_type: TransactionType | None = None,
     occurred_at: datetime | None = None,
+    serial_ids: Sequence[uuid.UUID] = (),
 ) -> StockReservation:
     """Turn part or all of a reservation into a real stock movement.
 
@@ -1143,8 +1150,25 @@ async def consume(
     The flush before the posting is also load-bearing: the movement engine
     re-reads the balance row with ``populate_existing``, which would overwrite an
     unflushed in-memory change with the value still in the database.
+
+    ``serial_ids`` names the units of a serial-tracked item, one per unit. Such
+    an item cannot leave as an anonymous quantity (docs/assumptions.md section
+    23), so the drawdown is posted as one movement of one unit per serial - the
+    same shape a direct dispatch of the item posts. A reservation never pins a
+    serial (``serial_id`` is not part of the balance grain), so the units drawn
+    are whichever the caller names, from the reservation's own position.
     """
     engine = ReservationEngine(session, tenant)
+    units = list(serial_ids)
+    if units and (
+        len(set(units)) != len(units) or to_quantity(quantity) != to_quantity(Decimal(len(units)))
+    ):
+        raise BusinessRuleError(
+            f"{len(units)} serial(s) were named for a consumption of {to_quantity(quantity)}; "
+            "a serial-tracked drawdown names exactly one distinct unit per unit consumed.",
+            code=ErrorCode.SERIAL_REQUIRED,
+            details={"requested": str(to_quantity(quantity)), "serials": len(units)},
+        )
 
     async with transaction(session):
         preview = await engine.reservations.get(reservation_id)
@@ -1183,21 +1207,46 @@ async def consume(
             f"{movement_type} against reservation for {reservation.demand_type} "
             f"{reservation.demand_code or reservation.demand_id}"
         )[:255]
-        txn = await post_movement(
-            session,
-            tenant,
-            item_id=reservation.item_id,
-            warehouse_id=reservation.warehouse_id,
-            quantity=plan.applied_quantity,
-            transaction_type=movement_type,
-            reference_type=reference_type,
-            reference_id=reference_id,
-            reference_code=reference_code,
-            reason=movement_reason,
-            location_id=reservation.location_id,
-            batch_id=reservation.batch_id,
-            occurred_at=occurred_at,
-        )
+        if units:
+            posted = await post_movements(
+                session,
+                tenant,
+                [
+                    MovementRequest(
+                        item_id=reservation.item_id,
+                        warehouse_id=reservation.warehouse_id,
+                        quantity=Decimal("1"),
+                        transaction_type=movement_type,
+                        reference_type=reference_type,
+                        reference_id=reference_id,
+                        reference_code=reference_code,
+                        reason=movement_reason,
+                        location_id=reservation.location_id,
+                        batch_id=reservation.batch_id,
+                        serial_id=serial_id,
+                        occurred_at=occurred_at,
+                    )
+                    for serial_id in units
+                ],
+            )
+        else:
+            posted = [
+                await post_movement(
+                    session,
+                    tenant,
+                    item_id=reservation.item_id,
+                    warehouse_id=reservation.warehouse_id,
+                    quantity=plan.applied_quantity,
+                    transaction_type=movement_type,
+                    reference_type=reference_type,
+                    reference_id=reference_id,
+                    reference_code=reference_code,
+                    reason=movement_reason,
+                    location_id=reservation.location_id,
+                    batch_id=reservation.batch_id,
+                    occurred_at=occurred_at,
+                )
+            ]
 
         await engine.audit_reservation(
             reservation,
@@ -1210,7 +1259,8 @@ async def consume(
                 "consumed_now": plan.applied_quantity,
                 "remaining_after": plan.remaining_after,
                 "transaction_type": str(movement_type),
-                "inventory_transaction_id": txn.id,
+                "inventory_transaction_id": posted[0].id,
+                "inventory_transaction_ids": [row.id for row in posted] if units else None,
                 "reference_type": reference_type,
                 "reference_id": reference_id,
                 "reference_code": reference_code,

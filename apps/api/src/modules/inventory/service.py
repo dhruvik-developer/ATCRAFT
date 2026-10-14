@@ -107,7 +107,7 @@ from src.core.errors import (
     StockLockTimeoutError,
     ValidationError,
 )
-from src.core.ids import new_id
+from src.core.ids import new_id, persisted_actor
 from src.core.logging import get_logger
 from src.core.messages import NO_FIELDS_TO_UPDATE, inactive_record
 from src.core.observability import insufficient_stock_events, inventory_conflicts
@@ -3123,7 +3123,7 @@ class MovementEngine:
             balance.average_cost = valuation.average_cost
             balance.stock_value = valuation.stock_value
         balance.last_movement_at = occurred_at
-        balance.updated_by_id = self.tenant.user_id
+        balance.updated_by_id = persisted_actor(self.tenant.user_id)
 
         # The primary key is assigned here rather than left to the flush,
         # because the cost layers and consumption rows written below carry it as

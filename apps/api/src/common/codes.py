@@ -64,7 +64,7 @@ class DocType:
 
 class DocTypes:
     SALES_ORDER = DocType("sales_order", "SO")
-    SALES_INVOICE = DocType("sales_invoice", "INV")
+    SALES_INVOICE = DocType("sales_invoice", "SI", padding=5)
     PURCHASE_REQUISITION = DocType("purchase_requisition", "PR")
     RFQ = DocType("rfq", "RFQ")
     PURCHASE_ORDER = DocType("purchase_order", "PO")

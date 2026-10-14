@@ -206,6 +206,7 @@ export const P = {
   DEALER_MANAGE: 'dealer.manage',
   SALES_INVOICE_VIEW: 'sales_invoice.view',
   SALES_INVOICE_CREATE: 'sales_invoice.create',
+  SALES_INVOICE_CANCEL: 'sales_invoice.cancel',
   PURCHASE_RETURN_VIEW: 'purchase_return.view',
   PURCHASE_RETURN_CREATE: 'purchase_return.create',
   WORK_ORDER_VIEW: 'work_order.view',

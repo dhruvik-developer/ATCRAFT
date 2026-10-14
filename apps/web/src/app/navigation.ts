@@ -272,6 +272,12 @@ export const navigation: NavSection[] = [
         permissions: [P.FINANCE_VIEW],
       },
       {
+        label: 'Sales invoices',
+        to: '/finance/sales-invoices',
+        icon: Receipt,
+        permissions: [P.SALES_INVOICE_VIEW],
+      },
+      {
         label: 'Vendor Invoices',
         to: '/finance/vendor-invoices',
         icon: Receipt,

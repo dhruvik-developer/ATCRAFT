@@ -11,13 +11,14 @@ describes.
 Isolation follows the pattern in ``test_bom_service.py``: one throwaway schema
 per module, built once, with each test's writes rolled back.
 
-The allocation engine is exercised through a double (:class:`FakeAllocation`)
-that really moves ``inventory_balances.reserved_quantity``. ``allocation`` is a
-module built alongside this one; what these tests are about is *this* module's
-rule - reserve the minimum of demand and availability, report the rest - and the
-double keeps availability genuinely responding to what has already been
-reserved, so the arithmetic being asserted is the arithmetic that runs in
-production.
+The allocation engine is reached through a recording wrapper
+(:class:`FakeAllocation`) around the real ``AllocationService``. What these tests
+are about is *this* module's rule - reserve the minimum of demand and
+availability, report the rest - but since WP E1a the module also reads each
+line's *live* reservation (a released or consumed one counts as none), so the
+reservations have to be real rows: a double that only moved
+``inventory_balances.reserved_quantity`` would leave every line reading as
+unreserved. The wrapper records the calls the assertions below inspect.
 """
 
 from __future__ import annotations
@@ -201,28 +202,6 @@ class FakeAllocation:
         self.reserve_calls: list[dict[str, object]] = []
         self.release_calls: list[uuid.UUID] = []
 
-    async def _move_reserved(
-        self,
-        session: AsyncSession,
-        company_id: uuid.UUID,
-        item_id: uuid.UUID,
-        warehouse_id: uuid.UUID,
-        delta: Decimal,
-    ) -> None:
-        await session.execute(
-            text(
-                "UPDATE inventory_balances SET reserved_quantity = reserved_quantity + :delta "
-                "WHERE company_id = :company_id AND item_id = :item_id "
-                "AND warehouse_id = :warehouse_id"
-            ),
-            {
-                "delta": delta,
-                "company_id": company_id,
-                "item_id": item_id,
-                "warehouse_id": warehouse_id,
-            },
-        )
-
     async def reserve(
         self,
         session: AsyncSession,
@@ -250,10 +229,20 @@ class FakeAllocation:
                 "required_date": required_date,
             }
         )
-        await self._move_reserved(
-            session, tenant.company_id, item_id, warehouse_id, Decimal(quantity)
+        reservation = await service.AllocationService().reserve(
+            session,
+            tenant,
+            item_id=item_id,
+            warehouse_id=warehouse_id,
+            quantity=quantity,
+            demand_id=demand_id,
+            demand_line_id=demand_line_id,
+            demand_code=demand_code,
+            priority=priority,
+            required_date=required_date,
+            reason=reason,
         )
-        reservation_id = uuid.uuid4()
+        reservation_id = reservation.id
         self.held[reservation_id] = (item_id, warehouse_id, Decimal(quantity))
         return service.ReservationRef(id=reservation_id, quantity=Decimal(quantity))
 
@@ -266,10 +255,10 @@ class FakeAllocation:
         reason: str,
         quantity: Decimal | None = None,
     ) -> None:
-        item_id, warehouse_id, held = self.held.pop(reservation_id)
+        self.held.pop(reservation_id)
         self.release_calls.append(reservation_id)
-        await self._move_reserved(
-            session, tenant.company_id, item_id, warehouse_id, -(quantity or held)
+        await service.AllocationService().release(
+            session, tenant, reservation_id=reservation_id, reason=reason, quantity=quantity
         )
 
     @property

@@ -359,6 +359,51 @@ class SalesOrderLineRepository(BaseRepository[SalesOrderLine]):
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
+    async def lock_for_order(self, order_id: uuid.UUID) -> list[SalesOrderLine]:
+        """Every line of one order, row-locked in primary-key order and re-read.
+
+        Primary-key order is the order a consignment locks an order's lines in,
+        so a top-up and a dispatch touching the same order queue rather than
+        deadlock; ``populate_existing`` makes the quantities the ones under the
+        lock, not whatever an earlier read left in the identity map.
+        """
+        stmt = (
+            self._scoped()
+            .where(SalesOrderLine.sales_order_id == order_id)
+            .order_by(SalesOrderLine.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def live_reservation_quantities(
+        self, reservation_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, Decimal]:
+        """What each named reservation still holds - for the open ones only.
+
+        A RELEASED, EXPIRED or CONSUMED reservation is absent from the answer,
+        which is how every caller here reads it: as no live reservation at all.
+        One statement for any number of ids.
+
+        The allocation model is imported here rather than at module import, for
+        the reason ``sales.service.AllocationService`` gives: the sales module
+        stays importable where allocation is not deployed.
+        """
+        ids = list(dict.fromkeys(reservation_ids))
+        if not ids:
+            return {}
+        from src.modules.allocation.models import OPEN_RESERVATION_STATUSES, StockReservation
+
+        stmt = select(StockReservation.id, StockReservation.remaining_quantity).where(
+            StockReservation.company_id == self.tenant.company_id,
+            StockReservation.id.in_(ids),
+            StockReservation.status.in_(sorted(OPEN_RESERVATION_STATUSES)),
+        )
+        return {
+            row.id: Decimal(row.remaining_quantity)
+            for row in (await self.session.execute(stmt)).all()
+        }
+
     async def list_for_orders(
         self, order_ids: Sequence[uuid.UUID]
     ) -> dict[uuid.UUID, list[SalesOrderLine]]:
@@ -568,6 +613,23 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
             has_next=has_next,
             has_previous=params.page > 1,
         )
+
+    async def has_live_invoice(self, order_id: uuid.UUID) -> bool:
+        from src.core.models import Base
+
+        table = Base.metadata.tables.get("sales_invoices")
+        if table is None:
+            return False
+        stmt = (
+            select(table.c.id)
+            .where(
+                table.c.company_id == self.tenant.company_id,
+                table.c.sales_order_id == order_id,
+                table.c.status != "CANCELLED",
+            )
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).first() is not None
 
 
 __all__ = [

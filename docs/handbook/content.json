@@ -1346,6 +1346,18 @@
             {
               "action": "Clear the filters",
               "how": "Clear, which appears once at least one filter is set."
+            },
+            {
+              "action": "Dispatch reserved goods",
+              "how": "Open an order, choose Dispatch, review the prefilled order lines and lower quantities if needed. Record vehicle/LR/tracking evidence, then create the consignment."
+            },
+            {
+              "action": "Allocate arriving stock",
+              "how": "For a confirmed or partially dispatched order with a shortage, choose Allocate available stock on Allocation. The scheduled sweep also checks waiting orders every fifteen minutes."
+            },
+            {
+              "action": "Read fulfilment and close",
+              "how": "Order detail lists its dispatches and invoices. Once the order is INVOICED, Close order completes it."
             }
           ],
           "flow": [
@@ -1360,7 +1372,7 @@
             "Priority is a rank from 1 to 9 (5 is normal), and urgency is a separate flag. The two are shown separately because they mean different things: priority decides who gets scarce stock first, urgency is a marker for the desk."
           ],
           "permission": "Anyone with the right to see sales orders can open this list. The New order button appears only for someone who may create them. The standard Sales Executive role has both.",
-          "notes": "There is no customer name column \u2014 the order row carries a customer reference, not a name, so the customer is offered as a filter instead. Worth saying in the caption so the client does not read it as an omission. A screenshot with a mix of statuses, one red late date and one Approval badge will carry the whole page."
+          "notes": "There is no customer name column \u2014 the order row carries a customer reference, not a name, so the customer is offered as a filter instead. Worth saying in the caption so the client does not read it as an omission. A screenshot with a mix of statuses, one red late date and one Approval badge will carry the whole page. Reserved / Dispatchable now / Short are live figures. Closed reservations do not permit shipment; short confirmed orders may dispatch their reserved part."
         },
         {
           "route": "/sales-orders/:id",
@@ -1406,6 +1418,18 @@
             {
               "action": "Take a shortfall to planning",
               "how": "Run MRP to plan the balance, in the amber box at the top of the Allocation panel."
+            },
+            {
+              "action": "Dispatch reserved goods",
+              "how": "Open an order, choose Dispatch, review the prefilled order lines and lower quantities if needed. Record vehicle/LR/tracking evidence, then create the consignment."
+            },
+            {
+              "action": "Allocate arriving stock",
+              "how": "For a confirmed or partially dispatched order with a shortage, choose Allocate available stock on Allocation. The scheduled sweep also checks waiting orders every fifteen minutes."
+            },
+            {
+              "action": "Read fulfilment and close",
+              "how": "Order detail lists its dispatches and invoices. Once the order is INVOICED, Close order completes it."
             }
           ],
           "flow": [
@@ -1428,7 +1452,7 @@
             "Cancelling releases every reservation the order held back to free stock, in the same step. A cancelled order cannot be reopened, and it cannot be cancelled once anything has shipped \u2014 a document that moved stock cannot claim never to have existed."
           ],
           "permission": "Opening the order needs the right to see sales orders. Edit, Add line, and Confirm all need the right to change sales orders \u2014 the same right, so anyone who can edit an order can confirm one. Approve pricing needs the separate right to approve sales orders. Cancel order needs the right to cancel them. The standard Sales Executive role can view, create and update but cannot approve or cancel \u2014 those sit with a manager.",
-          "notes": "Two honest gaps worth knowing before the deck is written. First, there is no Delete button for a draft, even though a draft can technically be removed; in practice anything past draft must be cancelled anyway, so cancellation is the only path this screen offers. Second, the system will accept a quantity or delivery-date change on a confirmed order and will move the reservation to match, but this screen does not offer it \u2014 a confirmed order is read-only here. Also: a line shows the description that was keyed against it plus the item's reference, not an item code, because the line record does not carry one. For the screenshot, use a confirmed order with at least one short line so the Allocation panel and its amber banner are both visible; on a draft the panel is replaced by a one-line notice."
+          "notes": "Two honest gaps worth knowing before the deck is written. First, there is no Delete button for a draft, even though a draft can technically be removed; in practice anything past draft must be cancelled anyway, so cancellation is the only path this screen offers. Second, the system will accept a quantity or delivery-date change on a confirmed order and will move the reservation to match, but this screen does not offer it \u2014 a confirmed order is read-only here. Also: a line shows the description that was keyed against it plus the item's reference, not an item code, because the line record does not carry one. For the screenshot, use a confirmed order with at least one short line so the Allocation panel and its amber banner are both visible; on a draft the panel is replaced by a one-line notice. Reserved / Dispatchable now / Short are live figures. Closed reservations do not permit shipment; short confirmed orders may dispatch their reserved part."
         },
         {
           "route": "/customers",
@@ -3267,6 +3291,10 @@
               "action": "Watch inbound as well as outbound",
               "how": "The Tracking board tab",
               "note": "Both directions in one list: the party, the purchase or sales order reference, the carrier, the tracking id, the promised date, the delay and its stated reason, and whether inspection or a goods receipt is still owed at the far end."
+            },
+            {
+              "action": "Raise a GST invoice",
+              "how": "On a linked SALES dispatch that is ready or later, choose Raise invoice, review the preview and optional date, then Confirm and issue. View invoice opens its stored record."
             }
           ],
           "flow": [
@@ -3292,7 +3320,7 @@
             "Anything past its promised delivery date is picked up by an automatic sweep that raises one notification for the company - not one per consignment and not one per hour - and the tracking board is where the full list is read."
           ],
           "permission": "Seeing the dispatch list and the tracking board needs the dispatch view right. Raising a consignment and releasing it need the right to create dispatches - releasing is the act that moves stock, so it is held to the stronger right. Staging, marking in transit, cancelling and adding a tracking event need the right to update dispatches. Confirming a delivery is a right of its own again, because it is the sentence that closes a customer's expectation.",
-          "notes": "Three gaps worth knowing before the deck is assembled. First, the screen offers no way to amend a consignment after it is created and no way to delete one; the only route back is Cancel, and only before it leaves. Second, lines added on this screen are not tied to a particular sales-order line: the consignment names the order, and releasing it does mark the order partly dispatched, but the outstanding quantity on each individual order line is not reduced by a consignment raised here, and the stock comes out of free stock rather than out of what that order had reserved. Third, boxes and weight on the create form are typed by hand - they are not carried across from the packing order's own carton totals, and there is no packing-order or carton field on this form at all; the link between a packed order and a consignment is made from the Packing screen's \"Hand to dispatch\", not from here. Also minor: the delivery confirmation dialog says that anything requiring inspection on arrival moves to QC pending, but in the system that state is reached by recording a tracking event of that kind rather than automatically on confirmation, so do not repeat the claim in the caption. The delay notification points at a \"delayed\" view that is not a page in the application; the board's \"Delayed only\" filter is the equivalent. The dispatch list shows the counterparty as \"Sales order\" or \"Vendor consignment\" rather than a name - the tracking board does show party names, so it is the better screenshot for a client audience."
+          "notes": "Three gaps worth knowing before the deck is assembled. First, the screen offers no way to amend a consignment after it is created and no way to delete one; the only route back is Cancel, and only before it leaves. Second, lines added on this screen are not tied to a particular sales-order line: the consignment names the order, and releasing it does mark the order partly dispatched, but the outstanding quantity on each individual order line is not reduced by a consignment raised here, and the stock comes out of free stock rather than out of what that order had reserved. Third, boxes and weight on the create form are typed by hand - they are not carried across from the packing order's own carton totals, and there is no packing-order or carton field on this form at all; the link between a packed order and a consignment is made from the Packing screen's \"Hand to dispatch\", not from here. Also minor: the delivery confirmation dialog says that anything requiring inspection on arrival moves to QC pending, but in the system that state is reached by recording a tracking event of that kind rather than automatically on confirmation, so do not repeat the claim in the caption. The delay notification points at a \"delayed\" view that is not a page in the application; the board's \"Delayed only\" filter is the equivalent. The dispatch list shows the counterparty as \"Sales order\" or \"Vendor consignment\" rather than a name - the tracking board does show party names, so it is the better screenshot for a client audience. An order-linked line must name its order line and fit the live reservation; a live invoice blocks dispatch cancellation or amendment."
         }
       ]
     },
@@ -3773,7 +3801,7 @@
             "Move to Inventory valuation for the closing stock value, and to GST summary for the month's return figures."
           ],
           "keyActions_note": null,
-          "notes": "Deliberately read-only: nothing on this screen creates or changes a document. Screenshot advice \u2014 take the Outstanding tab and the Ageing tab separately, since the Ageing tab is the only one with a chart. Three tabs (Ledger, Inventory valuation, GST summary) are hidden from an account that lacks their right, so a screenshot taken as a limited user will show only two tabs. Thin spots worth knowing: the Outstanding tab has no sort or search box, because the system always returns those bills oldest-due-first and offers no other order; and it has no currency selector even though rows carry their own currency. The Ageing report returns party-by-party detail for at most five currencies at a time and up to 200 parties in each, though the totals for every currency are always shown.",
+          "notes": "Deliberately read-only: nothing on this screen creates or changes a document. Screenshot advice \u2014 take the Outstanding tab and the Ageing tab separately, since the Ageing tab is the only one with a chart. Three tabs (Ledger, Inventory valuation, GST summary) are hidden from an account that lacks their right, so a screenshot taken as a limited user will show only two tabs. Thin spots worth knowing: the Outstanding tab has no sort or search box, because the system always returns those bills oldest-due-first and offers no other order; and it has no currency selector even though rows carry their own currency. The Ageing report returns party-by-party detail for at most five currencies at a time and up to 200 parties in each, though the totals for every currency are always shown. Receivable ageing uses sales-invoice due dates and legacy posting dates, FIFO within each customer/currency. GST output uses issued invoice HSN snapshots by invoice date; uninvoiced dispatch GST is shown separately.",
           "permission": "Anyone with the right to view finance can open the page and use Outstanding and Ageing. The Ledger tab needs the right to view the general ledger; Inventory valuation needs the right to view stock valuation; GST summary needs the right to view GST reports. Exporting the full valuation additionally needs the right to export reports.",
           "rules": [
             "Amounts in two different currencies are never added together, and no total spans them. There is no exchange-rate table in this system, so a combined figure would be a number with no meaning. Each currency is reported in its own block, and the screen tells you plainly when money is outstanding in a currency other than the one you are looking at.",
@@ -3783,6 +3811,38 @@
             "Cost per unit in the valuation is shown to six decimal places, not two, because a washer that genuinely costs four-tenths of a paisa each would otherwise appear to cost nothing.",
             "The GST figures come from what actually happened, not from what was ordered: output tax is taken from consignments dispatched in the period, and input credit from purchase invoices approved in the period. Document counts in the HSN tables are per rate slab and are never added up, because one invoice spanning two rates is counted under both."
           ]
+        },
+        {
+          "route": "/finance/sales-invoices",
+          "title": "Sales invoices",
+          "purpose": "The issued GST invoice register, its fixed seller/buyer and line snapshots, receipt allocations, due dates and permanent PDFs.",
+          "whoUses": "Accounts and sales staff who hold sales_invoice.view.",
+          "keyActions": [
+            {
+              "action": "Filter invoices",
+              "how": "Search by number/customer or filter status, customer, date range and overdue only."
+            },
+            {
+              "action": "Inspect or print",
+              "how": "Open an invoice row to read its lines, tax totals and allocated receipts. Generate PDF queues a job; Download opens its permanent document."
+            },
+            {
+              "action": "Cancel within the window",
+              "how": "An unpaid ISSUED invoice with no credits or allocations offers Cancel invoice for twenty-four hours. Enter the reason; the journal and fulfilment counters reverse together."
+            }
+          ],
+          "flow": [
+            "Open Sales invoices under Finance.",
+            "Filter and open an issued invoice.",
+            "Review tax and receipts, then download its PDF."
+          ],
+          "rules": [
+            "Issue starts from a priced SALES dispatch in READY_FOR_DISPATCH or later. Preview allocates no number; Confirm and issue allocates an SI number and posts receivables.",
+            "Due date follows customer credit days. A live invoice prevents the dispatch from being cancelled or amended.",
+            "Paid invoices and invoices outside the cancellation window need a credit note."
+          ],
+          "permission": "View: sales_invoice.view. Issue: sales_invoice.create. Cancel: sales_invoice.cancel. Receipt allocation: payment.record. Report polling and document download retain their existing read rights.",
+          "notes": "Totals round to the nearest rupee HALF_UP. Flat discounts across partial consignments reconcile on the final invoice. Issued invoice PDFs never expire."
         },
         {
           "route": "/finance/vendor-invoices",
@@ -3948,7 +4008,7 @@
             "The approver opens the row menu and presses \"Approve - post the money\". The journal is posted.",
             "Back on the row menu, press \"Settle invoices\", tick the supplier's open bills the money paid, put an amount against each, and save."
           ],
-          "notes": "A receipt from a customer is never settled against invoices \u2014 there is no customer invoice document in this system \u2014 so the Settled and Unsettled columns show \"n/a\" for receipts and the settle action is not offered on them. A receipt reduces the customer's outstanding balance at the moment it is approved, and that is the whole story. The list shows only a short form of the party's identifier, not their name, so use the party filter or open the payment when you need the name. One payment may settle at most 100 bills. There is also a debit-note and credit-note facility in the system for adjusting what a customer owes, but it has no screen \u2014 if the client needs to raise a credit note against a customer, that is a screen still to be built.",
+          "notes": "Customer receipts settle issued or partially paid sales invoices of the same customer and currency. Receipt approval already posts the money and reduces outstanding; allocation identifies which invoices were paid. Cancelling a receipt releases its allocations and reverses the journal. Vendor payments retain their existing settlement rules. Manual non-GST customer adjustments remain API-only.",
           "permission": "Anyone with the right to view payments can see the register and open a payment. Recording, amending, deleting a draft and settling against invoices need the right to record payments. Approving and cancelling need the separate right to approve payments \u2014 the same authority in both directions, because a cancellation reverses a posting.",
           "rules": [
             "A payment goes to a vendor and a receipt comes from a customer. The opposite pairing describes a refund, which is a different document with different accounting, and it is refused.",
@@ -4005,7 +4065,7 @@
             "If it is Accounts Receivable or Accounts Payable, press \"Open a customer ledger\" or \"Open a vendor ledger\" and choose the party to see the postings behind the balance.",
             "To walk the structure, press \"Accounts beneath this one\" to list the accounts filed under it."
           ],
-          "notes": "This screen and the Ledger tab on the Finance screen show the same party statement; the only difference is how you get to it. Do not describe them twice in the deck \u2014 cross-reference instead. The chart is shown as a flat, paged list rather than an indented tree, and you drill down one level at a time. A row does not name its parent account; the parent is named in the detail dialog. The company starts with eight accounts the system needs by name: Accounts Receivable (1100), Bank (1200), Cash (1210), Input GST Credit (1300), Accounts Payable (2100), Output GST Payable (2200), Purchases and Services (5100) and Rounding Differences (5900). That list is worth putting in the deck as a small table.",
+          "notes": "This screen and the Ledger tab on the Finance screen show the same party statement; the only difference is how you get to it. Do not describe them twice in the deck \u2014 cross-reference instead. The chart is shown as a flat, paged list rather than an indented tree, and you drill down one level at a time. A row does not name its parent account; the parent is named in the detail dialog. The company starts with eight accounts the system needs by name: Accounts Receivable (1100), Bank (1200), Cash (1210), Input GST Credit (1300), Accounts Payable (2100), Output GST Payable (2200), Purchases and Services (5100) and Rounding Differences (5900). That list is worth putting in the deck as a small table. Sales Revenue is an additional system income account, preferred code 4500; an occupied preferred code advances to the first free number.",
           "permission": "Needs the right to view the general ledger, which also covers the party statement reached from here. Opening the party picker additionally needs the right to view customers or vendors, so the drill-down button is only offered to someone who can use it. Creating, editing or retiring an account is a settings-management right and is not done from this screen.",
           "rules": [
             "The accounts the system posts to automatically are found by an internal system code, not by their number or name. That means you can safely rename one to suit your accountant \u2014 but you cannot retire it, because the automatic postings would then have nowhere to go.",

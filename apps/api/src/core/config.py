@@ -171,6 +171,10 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     celery_broker_url: str = "redis://localhost:6379/1"
     celery_result_backend: str = "redis://localhost:6379/2"
+    # How often `maintenance.allocate_short_orders` reserves newly available
+    # stock for short sales orders (docs/assumptions.md section E1-2). A minute
+    # is the floor: the sweep reads every tenant's open order book.
+    so_topup_interval_seconds: Annotated[int, Field(ge=60)] = 900
     cache_enabled: bool = True
     cache_default_ttl_seconds: Annotated[int, Field(ge=1)] = 300
 

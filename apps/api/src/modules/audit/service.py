@@ -153,6 +153,8 @@ async def record_audit(
         new_values=new_clean,
         changed_fields=changed or None,
         context=_clean(context),
+        # A scheduled job's placeholder actor is recorded as nobody, not as a
+        # foreign key to a user that cannot exist (``src.core.actors``).
         created_by_id=user_id,
         actor_label=actor_label,
         request_id=get_request_id(),

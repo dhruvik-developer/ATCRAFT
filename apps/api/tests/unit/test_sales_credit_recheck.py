@@ -25,7 +25,12 @@ import pytest
 from src.core.deps import TenantContext
 from src.core.errors import BusinessRuleError
 from src.modules.sales import service
-from src.modules.sales.models import SalesOrder, SalesOrderLine, SalesOrderLineStatus
+from src.modules.sales.models import (
+    SalesOrder,
+    SalesOrderLine,
+    SalesOrderLineStatus,
+    SalesOrderStatus,
+)
 from src.modules.sales.schemas import SalesOrderLineIn, SalesOrderUpdate
 from src.modules.sales.service import prospective_totals
 
@@ -46,6 +51,7 @@ def _line(number: int, quantity: str, unit_price: str, *, tax_rate: str = "18") 
         discount_percentage=D("0"),
         discount_amount=D("0"),
         dispatched_quantity=D("0"),
+        invoiced_quantity=D("0"),
         allocated_quantity=D("0"),
         status=SalesOrderLineStatus.PENDING,
     )
@@ -72,6 +78,7 @@ def _order(lines: list[SalesOrderLine]) -> SalesOrder:
         required_date=date(2026, 9, 20),
         priority=5,
         is_interstate=False,
+        status=SalesOrderStatus.CONFIRMED,
     )
     service._apply_totals(order, totals)
     return order

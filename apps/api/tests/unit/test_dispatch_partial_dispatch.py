@@ -137,10 +137,26 @@ def test_an_order_shipped_complete_in_one_go_is_walked_through_partially_dispatc
     assert path == (SalesOrderStatus.PARTIALLY_DISPATCHED, SalesOrderStatus.DISPATCHED)
 
 
+def test_a_partly_reserved_confirmed_order_ships_its_reserved_part() -> None:
+    # K08: an order confirmed short may send what it has reserved; it becomes
+    # PARTIALLY_DISPATCHED exactly as an allocated one does.
+    path = sales_order_status_path(SalesOrderStatus.CONFIRMED, fully_dispatched=False)
+    assert path == (SalesOrderStatus.PARTIALLY_DISPATCHED,)
+
+
+def test_a_confirmed_order_shipped_complete_still_passes_through_partially_dispatched() -> None:
+    # A CONFIRMED order whose lines all became covered without being relabelled
+    # can ship complete; there is no CONFIRMED -> DISPATCHED edge either.
+    path = sales_order_status_path(SalesOrderStatus.CONFIRMED, fully_dispatched=True)
+    assert path == (SalesOrderStatus.PARTIALLY_DISPATCHED, SalesOrderStatus.DISPATCHED)
+
+
 def test_every_step_of_the_path_is_a_legal_sales_order_transition() -> None:
     from src.modules.sales.service import SALES_ORDER_LIFECYCLE
 
     for start, fully in (
+        (SalesOrderStatus.CONFIRMED, False),
+        (SalesOrderStatus.CONFIRMED, True),
         (SalesOrderStatus.ALLOCATED, False),
         (SalesOrderStatus.ALLOCATED, True),
         (SalesOrderStatus.PARTIALLY_DISPATCHED, True),

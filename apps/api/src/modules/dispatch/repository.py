@@ -39,6 +39,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import Select, and_, delete, func, or_, select, update
@@ -53,6 +54,7 @@ from src.core.responses import CursorPagination, OffsetPagination
 from src.modules.customers.models import Customer
 from src.modules.dispatch.models import (
     DELIVERED_STATUSES,
+    EDITABLE_STATUSES,
     IN_FLIGHT_STATUSES,
     Dispatch,
     DispatchLine,
@@ -424,16 +426,20 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
     model = SalesOrder
 
     async def lock_header(self, sales_order_id: uuid.UUID) -> SalesOrder | None:
-        stmt = self._scoped().where(SalesOrder.id == sales_order_id).with_for_update()
-        return (await self.session.execute(stmt)).scalar_one_or_none()
+        """The order header under a row lock, re-read so its status is current.
 
-    async def get_code(self, sales_order_id: uuid.UUID) -> tuple[str, uuid.UUID, str] | None:
-        """Code, customer and status - enough to validate an attachment cheaply."""
-        stmt = select(SalesOrder.code, SalesOrder.customer_id, SalesOrder.status).where(
-            SalesOrder.company_id == self.tenant.company_id, SalesOrder.id == sales_order_id
+        Taken before the order's lines - the order every writer of an order
+        locks in (sales confirmation, the top-up, a consignment) - and when a
+        plan is saved, so two plans against one order are checked one after the
+        other.
+        """
+        stmt = (
+            self._scoped()
+            .where(SalesOrder.id == sales_order_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
-        row = (await self.session.execute(stmt)).first()
-        return (row.code, row.customer_id, row.status) if row is not None else None
+        return (await self.session.execute(stmt)).scalar_one_or_none()
 
 
 class SalesOrderLineRepository(BaseRepository[SalesOrderLine]):
@@ -454,6 +460,9 @@ class SalesOrderLineRepository(BaseRepository[SalesOrderLine]):
             .where(SalesOrderLine.id.in_(set(line_ids)))
             .order_by(SalesOrderLine.id)
             .with_for_update()
+            # The quantities under the lock, not whatever an earlier read left in
+            # the identity map - the re-check after locking reads these.
+            .execution_options(populate_existing=True)
         )
         return list((await self.session.execute(stmt)).scalars().unique().all())
 
@@ -471,6 +480,19 @@ class SalesOrderLineRepository(BaseRepository[SalesOrderLine]):
                 SalesOrderLine.sales_order_id == sales_order_id,
                 SalesOrderLine.status != "CANCELLED",
                 SalesOrderLine.dispatched_quantity < SalesOrderLine.quantity,
+            )
+        )
+        return int((await self.session.execute(stmt)).scalar_one())
+
+    async def uninvoiced_line_count(self, order_id: uuid.UUID) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(SalesOrderLine)
+            .where(
+                SalesOrderLine.company_id == self.tenant.company_id,
+                SalesOrderLine.sales_order_id == order_id,
+                SalesOrderLine.status != "CANCELLED",
+                SalesOrderLine.invoiced_quantity < SalesOrderLine.quantity,
             )
         )
         return int((await self.session.execute(stmt)).scalar_one())
@@ -524,6 +546,43 @@ class DispatchLineRepository(BaseRepository[DispatchLine]):
             DispatchLine.dispatch_id == dispatch_id,
         )
         return affected_rows(await self.session.execute(stmt))
+
+    async def open_quantities_by_order_line(
+        self, sales_order_id: uuid.UUID, *, exclude_dispatch_id: uuid.UUID | None = None
+    ) -> dict[uuid.UUID, Decimal]:
+        """What consignments raised but not yet sent carry, per sales-order line.
+
+        "Not yet sent" is :data:`EDITABLE_STATUSES` - NOT_DISPATCHED and
+        READY_FOR_DISPATCH. Those lines have not moved the order line's
+        ``dispatched_quantity`` yet, so without this figure two plans could each
+        be accepted against the same balance. ``exclude_dispatch_id`` leaves out
+        the consignment being amended or released, which must not count against
+        itself. One grouped statement for the whole order.
+        """
+        stmt = (
+            select(DispatchLine.sales_order_line_id, func.sum(DispatchLine.quantity))
+            .join(
+                Dispatch,
+                and_(
+                    Dispatch.id == DispatchLine.dispatch_id,
+                    Dispatch.company_id == DispatchLine.company_id,
+                ),
+            )
+            .where(
+                DispatchLine.company_id == self.tenant.company_id,
+                Dispatch.sales_order_id == sales_order_id,
+                DispatchLine.sales_order_line_id.is_not(None),
+                Dispatch.status.in_([str(status) for status in EDITABLE_STATUSES]),
+            )
+            .group_by(DispatchLine.sales_order_line_id)
+        )
+        if exclude_dispatch_id is not None:
+            stmt = stmt.where(Dispatch.id != exclude_dispatch_id)
+        return {
+            line_id: Decimal(quantity)
+            for line_id, quantity in (await self.session.execute(stmt)).all()
+            if line_id is not None
+        }
 
 
 class DispatchTrackingEventRepository(BaseRepository[DispatchTrackingEvent]):
@@ -795,6 +854,39 @@ class DispatchRepository(BaseRepository[Dispatch]):
             self.session, self.delayed_stmt(as_of=as_of, warehouse_id=warehouse_id), params
         )
         return [_delayed_row(row, as_of=as_of) for row in rows], pagination
+
+    async def live_invoice_ids(
+        self, dispatch_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, uuid.UUID]:
+        from src.core.models import Base
+
+        table = Base.metadata.tables.get("sales_invoices")
+        if table is None or not dispatch_ids:
+            return {}
+        stmt = select(table.c.dispatch_id, table.c.id).where(
+            table.c.company_id == self.tenant.company_id,
+            table.c.dispatch_id.in_(dispatch_ids),
+            table.c.status != "CANCELLED",
+        )
+        return {row.dispatch_id: row.id for row in (await self.session.execute(stmt)).all()}
+
+    async def has_live_invoice(self, dispatch_id: uuid.UUID) -> bool:
+        # Finance owns this upper-layer table. Resolve its read-only seam without importing it.
+        from src.core.models import Base
+
+        table = Base.metadata.tables.get("sales_invoices")
+        if table is None:
+            return False
+        stmt = (
+            select(table.c.id)
+            .where(
+                table.c.company_id == self.tenant.company_id,
+                table.c.dispatch_id == dispatch_id,
+                table.c.status != "CANCELLED",
+            )
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).first() is not None
 
 
 # -----------------------------------------------------------------------------

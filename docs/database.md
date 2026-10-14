@@ -70,7 +70,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `quality` | `qc_templates`, `qc_template_parameters`, `qc_inspections`, `qc_inspection_results` |
 | `packing` | `packing_orders`, `packing_order_lines`, `cartons`, `carton_contents` |
 | `dispatch` | `dispatches`, `dispatch_lines`, `dispatch_tracking_events` |
-| `finance` | `ledger_accounts`, `ledger_entries`, `vendor_invoices`, `vendor_invoice_lines`, `payments`, `payment_allocations` |
+| `finance` | `ledger_accounts`, `ledger_entries`, `vendor_invoices`, `vendor_invoice_lines`, `sales_invoices`, `sales_invoice_lines`, `payments`, `payment_allocations` |
 | `reports` | `report_snapshots`, `inventory_summary` |
 | `documents` | `documents` |
 | `notifications` | `notifications`, `notification_preferences` |
@@ -609,7 +609,13 @@ permitted to change a status column.
 
 ```
 Sales order       DRAFT -> CONFIRMED -> ALLOCATED -> PARTIALLY_DISPATCHED -> DISPATCHED -> INVOICED -> CLOSED
+                  CONFIRMED -> PARTIALLY_DISPATCHED (reserved portion may ship)
+                  ALLOCATED -> CONFIRMED (quantity increase restores a shortage)
+                  INVOICED -> DISPATCHED (invoice cancellation)
                   (CANCELLED reachable from DRAFT/CONFIRMED/ALLOCATED only)
+
+Sales invoice     ISSUED <-> PARTIALLY_PAID <-> PAID; ISSUED <-> PAID
+                  ISSUED -> CANCELLED (irreversible; unpaid, within 24 hours)
 
 Purchase          DRAFT -> PENDING_APPROVAL -> APPROVED -> CONVERTED -> CLOSED
 requisition       (REJECTED from PENDING_APPROVAL; CANCELLED from DRAFT, PENDING_APPROVAL,
@@ -683,6 +689,10 @@ Every transition writes an audit row via `record_status_change`.
 | QC verdict decided | `quality.owners.notify_owner` in the same transaction, after the stock moves: the owning document completes itself from the verdict and moves nothing again |
 | Dispatch | `allocation.consume`, then `post_movements` (`DISPATCH`) |
 | Sales order confirmed | `allocation.reserve` per line against available stock |
+| Stock arrives for a short sales order | `maintenance.allocate_short_orders` finds live shortfalls, then calls `sales.allocate_order` per order in its own transaction; default cadence 900 seconds, at most 200 orders per company |
+| Invoice issued | `finance.post_journal` debits AR and credits sales revenue/output GST, posts round-off, increases customer outstanding and SO-line invoiced quantities; full dispatched orders become INVOICED; queue permanent PDF after commit |
+| Invoice cancelled | Reverse its entire journal, reduce customer outstanding and SO-line invoiced quantities, restore INVOICED to DISPATCHED; dispatch cancellation stays blocked until the live invoice is cancelled |
+| Customer receipt allocated or released | Lock payment then invoice headers in id order; update invoice paid quantities and status through SALES_INVOICE_LIFECYCLE; cancelling a receipt releases its allocations before reversing its journal |
 | Requisition converted | One DRAFT purchase order per (vendor, procurement category, warehouse) through `procurement.service._create_purchase_order` (duplicate check included); `_link_source_documents` adds to each line's `ordered_quantity` and moves the requisition APPROVED → CONVERTED; one CREATE audit row per order and one "Split into …" row per requisition - all in one transaction, or nothing |
 | Vendor invoice approved | `finance.post_journal`: one `PURCHASE_EXPENSE` debit per effective line cost centre (line -> header -> none), input tax, payable. A `JOB_WORK` invoice debits `JOB_WORK_EXPENSE` instead (line -> job-work order -> header -> none), moves each receipt line's `invoiced_amount`, and posts the excess-loss recovery (`job_work_recovery`: Dr AP / Cr job-work expense) for the still-unposted vendor debit |
 | Vendor invoice cancelled | reverse every journal the invoice posted (the bill and, on a job-work invoice, the recovery beside it) and roll the job-work tracking back, in the same transaction |
@@ -756,3 +766,39 @@ aggregations on every request (§25). The order of escalation is fixed:
 6. ClickHouse only when measured volume proves the need — not before
 
 Inventory availability is **never** served from cache (§34).
+
+
+### Sales fulfilment and issued tax invoices
+
+A SALES dispatch naming an order must name a matching `sales_order_line_id` on
+ every line. Dispatchable quantity is `max(0, min(live reservation remaining,
+ordered - dispatched - other open dispatch quantities))`; closed reservations
+are zero. Planning and departure both validate it under the order lock. A SALES
+consignment without an order retains the direct free-stock movement path.
+
+`sales_invoices` and `sales_invoice_lines` belong to finance. The header snapshots
+seller/buyer identity and addresses, GST registration, place of supply, currency,
+bank details, terms and transport; lines snapshot HSN, UoM, agreed price and tax.
+A partial unique index allows one non-cancelled invoice per dispatch. Issue uses
+one transaction and the SI/financial-year/five-digit series. Flat discounts are
+shared pro rata; the last invoice takes the rounding remainder. The total rounds
+to the nearest rupee HALF_UP. Due date is invoice date plus customer credit days.
+
+An invoice can precede removal on a READY_FOR_DISPATCH consignment. Its staged
+quantity must still be reserved; invoiced quantity is capped by dispatched goods
+plus that consignment's staged quantity. Departure moves the SO to INVOICED when
+all ordered goods have both shipped and been invoiced. A free-stock dispatch
+needs an agreed priced sales order before it can issue this invoice.
+
+`payment_allocations` names exactly one nullable `vendor_invoice_id` or
+`sales_invoice_id`, with separate partial uniqueness per payment/invoice. A
+receipt only settles the same customer's issued invoices in the same currency.
+An empty replacement set releases allocations. Vendor-payment semantics stay
+unchanged. The income account `SALES_REVENUE` prefers code 4500, skipping any
+client-owned code to the next free number.
+
+Receivable ageing retains FIFO per customer/currency, but invoice debits use the
+snapshotted due date; legacy journal debits use their entry date. GST output is
+read from issued non-cancelled invoice lines by invoice date and stored HSN;
+dispatched not yet invoiced goods form a separate operational figure. Invoice
+PDF jobs and REPORT documents never expire.

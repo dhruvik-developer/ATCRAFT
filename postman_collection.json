@@ -4815,7 +4815,7 @@
         {
           "name": "Ageing analysis bucketed 0-30 / 31-60 / 61-90 / 90+, per currency",
           "request": {
-            "description": "One row per party and denomination in one aggregate query. Payables are aged from the invoice due date. Receivables have no invoice document in this schema, so they are netted out of the ledger oldest-first and aged from the posting date.\n\nThere is no exchange-rate table in this schema, so nothing here is summed across denominations. The response carries one block per currency the company has an open item in, and `currencies[0]` - the block whose figures are also restated at the top level - is `currency` if you asked for one, otherwise the company's own currency if anything is open in it, and failing that the currency with the most open documents. Blocks are ordered by open-document count, never by amount: two denominations cannot be compared by size without a rate this schema does not hold. Asking for nothing therefore returns the whole book, never an empty page.\n\n`limit` is parties per denomination; each block reports `party_count` so a capped block is visible as capped, and its totals are the whole block's either way.",
+            "description": "One row per party and denomination in one aggregate query. Payables are aged from the invoice due date. Receivables are FIFO-netted per customer and currency; sales invoice debits age from their due dates, legacy journals from posting dates.\n\nThere is no exchange-rate table in this schema, so nothing here is summed across denominations. The response carries one block per currency the company has an open item in, and `currencies[0]` - the block whose figures are also restated at the top level - is `currency` if you asked for one, otherwise the company's own currency if anything is open in it, and failing that the currency with the most open documents. Blocks are ordered by open-document count, never by amount: two denominations cannot be compared by size without a rate this schema does not hold. Asking for nothing therefore returns the whole book, never an empty page.\n\n`limit` is parties per denomination; each block reports `party_count` so a capped block is visible as capped, and its totals are the whole block's either way.",
             "header": [],
             "method": "GET",
             "url": {
@@ -5163,6 +5163,49 @@
           }
         },
         {
+          "name": "Cancel an unpaid invoice within its cancellation window",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Cancel an unpaid invoice within its cancellation window",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "sales-invoices",
+                ":invoice_id",
+                "cancel"
+              ],
+              "raw": "{{base_url}}/api/v1/finance/sales-invoices/{invoice_id}/cancel",
+              "variable": [
+                {
+                  "description": "invoice_id of the record",
+                  "key": "invoice_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Delete a draft invoice that was never used",
           "request": {
             "description": "Anything past DRAFT is cancelled instead, so the trail survives.",
@@ -5235,6 +5278,35 @@
           }
         },
         {
+          "name": "Generate a permanent GST sales invoice PDF",
+          "request": {
+            "description": "Generate a permanent GST sales invoice PDF",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "sales-invoices",
+                ":invoice_id",
+                "pdf"
+              ],
+              "raw": "{{base_url}}/api/v1/finance/sales-invoices/{invoice_id}/pdf",
+              "variable": [
+                {
+                  "description": "invoice_id of the record",
+                  "key": "invoice_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Hold an invoice while it is argued with the vendor",
           "request": {
             "body": {
@@ -5274,6 +5346,146 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Issue and post a GST sales invoice",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"dispatch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"eway_bill_number\": \"\",\n  \"invoice_date\": \"2026-01-01\",\n  \"lr_number\": \"\",\n  \"notes\": \"\",\n  \"transporter_name\": \"\",\n  \"vehicle_number\": \"\"\n}"
+            },
+            "description": "Issue and post a GST sales invoice",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "sales-invoices"
+              ],
+              "raw": "{{base_url}}/api/v1/finance/sales-invoices"
+            }
+          }
+        },
+        {
+          "name": "List issued sales invoices",
+          "request": {
+            "description": "List issued sales invoices",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "sales-invoices"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": "ISSUED"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "sales_order_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "dispatch_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "overdue_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "open_only",
+                  "value": "False"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                },
+                {
+                  "description": "Field to sort by",
+                  "disabled": true,
+                  "key": "sort_by",
+                  "value": ""
+                },
+                {
+                  "description": "Sort direction",
+                  "disabled": true,
+                  "key": "sort_dir",
+                  "value": "asc"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/finance/sales-invoices?"
             }
           }
         },
@@ -5774,7 +5986,7 @@
         {
           "name": "Output and input GST for a period",
           "request": {
-            "description": "Output tax is recognised when goods leave - each dispatch line's share of its sales order line's tax, apportioned by quantity - and input tax comes from vendor invoices accepted into the books. Both are grouped by HSN and rate slab, which is the shape a return is read from.",
+            "description": "Output tax comes from issued, non-cancelled sales invoice lines by invoice date, using the snapshotted HSN. Uninvoiced dispatches are reported separately. Input tax comes from vendor invoices accepted into the books. Both are grouped by HSN and rate slab, which is the shape a return is read from.",
             "header": [],
             "method": "GET",
             "url": {
@@ -5840,6 +6052,41 @@
           }
         },
         {
+          "name": "Preview a tax invoice without issuing it",
+          "request": {
+            "description": "Preview a tax invoice without issuing it",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "sales-invoices",
+                "preview"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": false,
+                  "key": "dispatch_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "invoice_date",
+                  "value": "2026-01-01"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/finance/sales-invoices/preview?"
+            }
+          }
+        },
+        {
           "name": "Queue the full-company inventory valuation",
           "request": {
             "description": "A company-wide valuation is thousands of positions and a spreadsheet nobody waits for. It goes to the reports queue and the workbook appears in the document store when it is ready (sections 22, 35).",
@@ -5871,6 +6118,34 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/finance/inventory-valuation/export?"
+            }
+          }
+        },
+        {
+          "name": "Read an issued sales invoice",
+          "request": {
+            "description": "Read an issued sales invoice",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "sales-invoices",
+                ":invoice_id"
+              ],
+              "raw": "{{base_url}}/api/v1/finance/sales-invoices/{invoice_id}",
+              "variable": [
+                {
+                  "description": "invoice_id of the record",
+                  "key": "invoice_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },
@@ -6074,7 +6349,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"allocations\": [\n    {\n      \"amount\": {},\n      \"vendor_invoice_id\": {},\n      \"notes\": {}\n    }\n  ],\n  \"replace\": false\n}"
+              "raw": "{\n  \"allocations\": [\n    {\n      \"amount\": {},\n      \"notes\": {},\n      \"sales_invoice_id\": {},\n      \"vendor_invoice_id\": {}\n    }\n  ],\n  \"replace\": false\n}"
             },
             "description": "An allocation may exceed neither what the payment is worth nor what the invoice still owes; both are read under a row lock. `replace` discards what the payment previously settled, otherwise naming an invoice again amends that allocation rather than adding a second one.",
             "header": [
@@ -23052,6 +23327,48 @@
     {
       "item": [
         {
+          "name": "Allocate newly available stock to a short order",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"Newly available stock allocated to the order\"\n}"
+            },
+            "description": "The allocation top-up. Reserves stock that has become free at the order's warehouse for each line still short, in line order, and moves a CONFIRMED order to ALLOCATED once every open line is covered. The scheduled sweep `maintenance.allocate_short_orders` runs the same service for every short order. Allowed on CONFIRMED and PARTIALLY_DISPATCHED orders.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sales",
+                ":order_id",
+                "allocate"
+              ],
+              "raw": "{{base_url}}/api/v1/sales/{order_id}/allocate",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Approve a below-cost order so it can be confirmed",
           "request": {
             "body": {
@@ -23125,6 +23442,48 @@
                 "cancel"
               ],
               "raw": "{{base_url}}/api/v1/sales/{order_id}/cancel",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Close an invoiced sales order",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"Order confirmed by sales\"\n}"
+            },
+            "description": "Close an invoiced sales order",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sales",
+                ":order_id",
+                "close"
+              ],
+              "raw": "{{base_url}}/api/v1/sales/{order_id}/close",
               "variable": [
                 {
                   "description": "order_id of the record",
@@ -23442,9 +23801,9 @@
           }
         },
         {
-          "name": "Per-line reserved versus shortfall",
+          "name": "Per-line reserved, dispatchable-now and shortfall",
           "request": {
-            "description": "What each line has reserved, what it is still short of, and how much free stock there is at the order's warehouse right now.",
+            "description": "What each line's reservation still holds live, how much a new consignment may carry for it right now (the live reservation, less what other open consignments already carry), what it is still short of, and how much free stock there is at the order's warehouse.",
             "header": [],
             "method": "GET",
             "url": {

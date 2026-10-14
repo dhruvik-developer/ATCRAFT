@@ -186,6 +186,7 @@ class SystemAccount(StrEnum):
     JOB_WORK_EXPENSE = "JOB_WORK_EXPENSE"
     INPUT_TAX = "INPUT_TAX"
     OUTPUT_TAX = "OUTPUT_TAX"
+    SALES_REVENUE = "SALES_REVENUE"
     BANK = "BANK"
     CASH = "CASH"
     ROUND_OFF = "ROUND_OFF"
@@ -891,6 +892,202 @@ class VendorInvoiceLine(TenantEntity):
 # -----------------------------------------------------------------------------
 
 
+class SalesInvoiceStatus(StrEnum):
+    ISSUED = "ISSUED"
+    PARTIALLY_PAID = "PARTIALLY_PAID"
+    PAID = "PAID"
+    CANCELLED = "CANCELLED"
+
+
+class SalesInvoice(TenantEntity):
+    """Issued GST invoice; parties, terms and prices are immutable snapshots."""
+
+    __tablename__ = "sales_invoices"
+    code: Mapped[str] = mapped_column(String(16), nullable=False)
+    dispatch_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("dispatches.id", ondelete="RESTRICT"), nullable=False
+    )
+    sales_order_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("sales_orders.id", ondelete="RESTRICT"), nullable=False
+    )
+    customer_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("customers.id", ondelete="RESTRICT"), nullable=False
+    )
+    invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
+    due_date: Mapped[date] = mapped_column(Date, nullable=False)
+    currency: Mapped[str] = mapped_column(String(CURRENCY_CODE_LENGTH), nullable=False)
+    status: Mapped[SalesInvoiceStatus] = mapped_column(
+        String(24), nullable=False, default=SalesInvoiceStatus.ISSUED
+    )
+    is_interstate: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    place_of_supply_state_code: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    subtotal: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    discount_amount: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    taxable_amount: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    cgst_amount: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    sgst_amount: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    igst_amount: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    tax_amount: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    round_off_amount: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    total_amount: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    paid_amount: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    seller_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    seller_gstin: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    seller_state_code: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    seller_state_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    buyer_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    buyer_gstin: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    buyer_state_code: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    buyer_state_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    transporter_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    vehicle_number: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    lr_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    eway_bill_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    bank_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    bank_account_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    bank_account_number: Mapped[str | None] = mapped_column(String(34), nullable=True)
+    bank_ifsc: Mapped[str | None] = mapped_column(String(11), nullable=True)
+    bank_branch: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    seller_address: Mapped[str] = mapped_column(Text, nullable=False)
+    billing_address: Mapped[str] = mapped_column(Text, nullable=False)
+    shipping_address: Mapped[str] = mapped_column(Text, nullable=False)
+    invoice_terms: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    issued_by_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    journal_id: Mapped[uuid.UUID] = mapped_column(GUID, nullable=False)
+    reversal_journal_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+    pdf_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
+    )
+    __table_args__ = (
+        UniqueConstraint("company_id", "code", name="uq_sales_invoices_company_code"),
+        Index(
+            "uq_sales_invoices_live_dispatch",
+            "company_id",
+            "dispatch_id",
+            unique=True,
+            postgresql_where=text("status <> 'CANCELLED'"),
+        ),
+        Index("ix_sales_invoices_customer_due", "company_id", "customer_id", "due_date"),
+        Index("ix_sales_invoices_order", "company_id", "sales_order_id"),
+        Index("ix_sales_invoices_status_date", "company_id", "status", "invoice_date"),
+        CheckConstraint(f"status IN ({sql_in_list(SalesInvoiceStatus)})", name="status_known"),
+        CheckConstraint("due_date >= invoice_date", name="due_not_before_invoice"),
+        CheckConstraint(
+            "total_amount = taxable_amount + tax_amount + round_off_amount", name="total_reconciles"
+        ),
+        CheckConstraint("subtotal = taxable_amount + discount_amount", name="subtotal_reconciles"),
+        CheckConstraint("paid_amount >= 0 AND paid_amount <= total_amount", name="paid_bounded"),
+        CheckConstraint(
+            "total_amount > 0 AND taxable_amount >= 0 AND discount_amount >= 0",
+            name="amounts_bounded",
+        ),
+        CheckConstraint(
+            "tax_amount = cgst_amount + sgst_amount + igst_amount", name="tax_split_reconciles"
+        ),
+        CheckConstraint(
+            "cgst_amount >= 0 AND sgst_amount >= 0 AND igst_amount >= 0", name="tax_non_negative"
+        ),
+        CheckConstraint(
+            "igst_amount = 0 OR (cgst_amount = 0 AND sgst_amount = 0)", name="tax_exclusive"
+        ),
+        CheckConstraint("length(currency) = 3", name="currency_iso"),
+        CheckConstraint(
+            "status <> 'CANCELLED' OR (cancellation_reason IS NOT NULL "
+            "AND cancelled_at IS NOT NULL AND reversal_journal_id IS NOT NULL)",
+            name="cancellation_evidence",
+        ),
+    )
+
+
+class SalesInvoiceLine(TenantEntity):
+    __tablename__ = "sales_invoice_lines"
+    sales_invoice_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("sales_invoices.id", ondelete="RESTRICT"), nullable=False
+    )
+    dispatch_line_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("dispatch_lines.id", ondelete="RESTRICT"), nullable=False
+    )
+    sales_order_line_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("sales_order_lines.id", ondelete="RESTRICT"), nullable=False
+    )
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=False
+    )
+    uom_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("units_of_measure.id", ondelete="RESTRICT"), nullable=False
+    )
+    line_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    hsn_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    uom_code: Mapped[str] = mapped_column(String(16), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    unit_price: Mapped[Decimal] = mapped_column(UnitPrice, nullable=False)
+    tax_rate: Mapped[Decimal] = mapped_column(Percentage, nullable=False)
+    subtotal: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    discount_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    taxable_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    cgst_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    sgst_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    igst_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    tax_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    line_total: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    __table_args__ = (
+        UniqueConstraint("sales_invoice_id", "line_number", name="uq_sales_invoice_lines_number"),
+        UniqueConstraint(
+            "sales_invoice_id", "dispatch_line_id", name="uq_sales_invoice_lines_dispatch"
+        ),
+        Index("ix_sales_invoice_lines_invoice", "company_id", "sales_invoice_id", "line_number"),
+        Index("ix_sales_invoice_lines_order_line", "company_id", "sales_order_line_id"),
+        Index("ix_sales_invoice_lines_hsn", "company_id", "hsn_code", "tax_rate"),
+        CheckConstraint("line_number > 0 AND quantity > 0", name="positive_quantity_number"),
+        CheckConstraint(
+            "unit_price >= 0 AND discount_amount >= 0 AND taxable_amount >= 0",
+            name="amounts_bounded",
+        ),
+        CheckConstraint("tax_rate >= 0 AND tax_rate <= 100", name="tax_rate_bounded"),
+        CheckConstraint("subtotal = taxable_amount + discount_amount", name="subtotal_reconciles"),
+        CheckConstraint(
+            "tax_amount = cgst_amount + sgst_amount + igst_amount", name="tax_split_reconciles"
+        ),
+        CheckConstraint("line_total = taxable_amount + tax_amount", name="total_reconciles"),
+        CheckConstraint(
+            "cgst_amount >= 0 AND sgst_amount >= 0 AND igst_amount >= 0", name="tax_non_negative"
+        ),
+        CheckConstraint(
+            "igst_amount = 0 OR (cgst_amount = 0 AND sgst_amount = 0)", name="tax_exclusive"
+        ),
+    )
+
+
 class Payment(TenantEntity, OptimisticLockMixin):
     """Money paid to a vendor or received from a customer.
 
@@ -977,19 +1174,11 @@ class Payment(TenantEntity, OptimisticLockMixin):
 
 
 class PaymentAllocation(TenantEntity):
-    """How much of one payment settles one vendor invoice.
+    """How much of one payment settles one vendor or sales invoice.
 
-    ASSUMPTION: allocations target vendor invoices only, because
-    ``vendor_invoices`` is the only settleable document the schema defines
-    (database.md section 2 gives finance no customer-invoice table). A customer
-    receipt is recorded as a ``RECEIPT`` payment and reduces the customer's
-    outstanding balance directly; it carries no allocation rows until a
-    sales-invoice document exists to allocate against. Recorded in the returned
-    notes.
-
-    One row per (payment, invoice): settling the same invoice twice from one
-    payment is an amendment of the existing allocation, not a second row that
-    somebody has to add up.
+    Exactly one invoice foreign key is populated. Vendor payments settle vendor
+    invoices; customer receipts settle issued sales invoices of the same party
+    and currency. The two partial unique indexes keep amendments idempotent.
     """
 
     __tablename__ = "payment_allocations"
@@ -999,16 +1188,34 @@ class PaymentAllocation(TenantEntity):
     )
     #: RESTRICT: the invoice records that it was paid, and deleting it would
     #: leave the payment claiming to have settled something that never existed.
-    vendor_invoice_id: Mapped[uuid.UUID] = mapped_column(
-        GUID, ForeignKey("vendor_invoices.id", ondelete="RESTRICT"), nullable=False, index=True
+    vendor_invoice_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("vendor_invoices.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+
+    sales_invoice_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("sales_invoices.id", ondelete="RESTRICT"), nullable=True, index=True
     )
 
     amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
-        UniqueConstraint(
-            "payment_id", "vendor_invoice_id", name="uq_payment_allocations_payment_invoice"
+        CheckConstraint(
+            "(vendor_invoice_id IS NULL) <> (sales_invoice_id IS NULL)", name="exactly_one_invoice"
+        ),
+        Index(
+            "uq_payment_allocations_vendor",
+            "payment_id",
+            "vendor_invoice_id",
+            unique=True,
+            postgresql_where=text("vendor_invoice_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_payment_allocations_sales",
+            "payment_id",
+            "sales_invoice_id",
+            unique=True,
+            postgresql_where=text("sales_invoice_id IS NOT NULL"),
         ),
         # "What settled this invoice?" - the invoice's payment history.
         Index("ix_payment_allocations_invoice", "company_id", "vendor_invoice_id"),
@@ -1047,6 +1254,9 @@ __all__ = [
     "PaymentMethod",
     "PaymentStatus",
     "PaymentType",
+    "SalesInvoice",
+    "SalesInvoiceLine",
+    "SalesInvoiceStatus",
     "SystemAccount",
     "VendorInvoice",
     "VendorInvoiceLine",

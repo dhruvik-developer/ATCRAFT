@@ -87,6 +87,18 @@ celery_app.conf.update(
             "schedule": 3600.0,
             "options": {"queue": "default", "expires": 1800},
         },
+        # The allocation top-up: stock that arrived since the last tick is
+        # reserved for the short sales orders waiting for it, most urgent first.
+        # A tick that could not start before the next one is due is dropped
+        # rather than queued behind it - the next tick re-derives the same work.
+        "allocate-short-orders": {
+            "task": "maintenance.allocate_short_orders",
+            "schedule": float(settings.so_topup_interval_seconds),
+            "options": {
+                "queue": "default",
+                "expires": max(settings.so_topup_interval_seconds // 2, 30),
+            },
+        },
         # Section 23: a purchase order past its expected delivery date raises a
         # delay alert rather than waiting for someone to notice.
         "dispatch-delay-alerts": {

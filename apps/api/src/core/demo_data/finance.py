@@ -83,20 +83,12 @@ receipts. Allocation is bounded by the party - ``_assert_allocatable`` refuses a
 invoice belonging to anyone but the payment's own vendor - so a payment can span
 several invoices but never several vendors.
 
-A **RECEIPT cannot be allocated at all**: ``allocate_payment`` refuses one
-outright, because there is no customer invoice document in this schema for it to
-settle. A receipt reduces the customer's balance directly, and that is recorded
-in ``ctx.skipped`` at run time rather than worked around here.
-
-**Receivables, and why they are journals.** ``database.md`` section 2 records
-that this schema has no customer invoice: an open receivable is a ledger debit
-the customer's credits have not covered yet, FIFO-netted by
-``receivable_ageing_stmt``. So the six customer charges here are direct journals
-through ``post_journal`` - the one case that function documents itself as being
-for - each raising the customer's cached ``outstanding_amount`` through
-``customers.service.apply_outstanding_delta`` in the same call. The cached figure
-and the ledger are written together, which is the only way the two can be trusted
-to agree.
+**Sales invoices and allocated receipts.** Dispatched demo SALES consignments are
+issued through `sales_invoice_service`, idempotent by dispatch. One customer
+receipt is allocated to an issued invoice. The earlier hand-posted customer_charge
+journals stay as historical examples; new invoices use the statutory SI series and
+post to the sales revenue control account. Fictional bank details fill only empty
+company fields, so the demo PDF footer is complete without rewriting client data.
 
 **A chart with a shape.** ``ensure_system_accounts`` provisions the nine control
 accounts on first use; this stage calls it up front so the chart screen has rows
@@ -1593,28 +1585,152 @@ async def _walk_payment(
         ctx.skipped.append((STAGE, f"{marker} left unallocated: {exc}"))
 
 
-def _note_receipt_allocation_gap(ctx: DemoContext) -> None:
-    """Record why no customer receipt here settles a document.
-
-    Not an omission and not a workaround. ``allocate_payment`` refuses a RECEIPT
-    outright, and it is right to: there is no customer invoice in this schema for a
-    receipt to be allocated against (database.md section 2), so a receipt reduces
-    the customer's outstanding balance directly and the ageing report nets it FIFO
-    out of the ledger instead.
-    """
-    receipts = [
-        ctx.code(*spec.marker) for spec in PAYMENTS if spec.payment_type is PaymentType.RECEIPT
-    ]
-    if not receipts:
-        return
-    ctx.skipped.append(
-        (
-            STAGE,
-            f"no allocation on {', '.join(receipts)}: allocation is payables-only - a customer "
-            "receipt has no invoice document to settle, so it reduces the customer's "
-            "outstanding balance directly and is FIFO-netted on the ageing report",
-        )
+async def _seed_sales_invoices(ctx: DemoContext) -> None:
+    """Issue by dispatch identity; old customer_charge journals remain historical examples."""
+    from src.modules.dispatch.models import (
+        DELIVERED_STATUSES,
+        IN_FLIGHT_STATUSES,
+        Dispatch,
+        DispatchType,
     )
+    from src.modules.finance import sales_invoice_service
+    from src.modules.finance.models import SalesInvoice, SalesInvoiceStatus
+    from src.modules.finance.sales_invoice_repository import SalesInvoiceSourceRepository
+    from src.modules.finance.sales_invoice_schemas import SalesInvoiceCreate
+    from src.modules.organization.models import Company
+    from src.modules.organization.schemas import CompanyUpdate
+    from src.modules.organization.service import CompanyService
+
+    company = (
+        await ctx.session.execute(select(Company).where(Company.id == ctx.company_id))
+    ).scalar_one()
+    fictional = {
+        "bank_name": "Fictional Foundry Bank",
+        "bank_account_name": company.legal_name or company.name,
+        "bank_account_number": "000001234567",
+        "bank_ifsc": "FICT0001234",
+        "bank_branch": "Pune Industrial Estate",
+        "invoice_terms": "Payment within the agreed credit period. "
+        "Goods supplied under the sales-order terms.",
+    }
+    missing = {key: value for key, value in fictional.items() if getattr(company, key) is None}
+    if missing:
+        await CompanyService(ctx.session, ctx.tenant).update_company(CompanyUpdate(**missing))
+    stmt = (
+        select(Dispatch.id)
+        .where(
+            Dispatch.company_id == ctx.company_id,
+            Dispatch.code.like(f"{DEMO_PREFIX}%"),
+            Dispatch.dispatch_type == DispatchType.SALES,
+            Dispatch.sales_order_id.is_not(None),
+            Dispatch.status.in_((*IN_FLIGHT_STATUSES, *DELIVERED_STATUSES)),
+        )
+        .order_by(Dispatch.id)
+    )
+    # Demo dispatch document codes are numbered DISP/...; registered refs identify the demo rows.
+    dispatch_ids = list(ctx.refs.get("dispatch", {}).values())
+    if dispatch_ids:
+        stmt = (
+            select(Dispatch.id)
+            .where(
+                Dispatch.company_id == ctx.company_id,
+                Dispatch.id.in_(dispatch_ids),
+                Dispatch.dispatch_type == DispatchType.SALES,
+                Dispatch.sales_order_id.is_not(None),
+                Dispatch.status.in_((*IN_FLIGHT_STATUSES, *DELIVERED_STATUSES)),
+            )
+            .order_by(Dispatch.id)
+        )
+    for dispatch_id in list((await ctx.session.execute(stmt)).scalars()):
+        known = (
+            await ctx.session.execute(
+                select(SalesInvoice.id).where(
+                    SalesInvoice.company_id == ctx.company_id,
+                    SalesInvoice.dispatch_id == dispatch_id,
+                    SalesInvoice.status != SalesInvoiceStatus.CANCELLED,
+                )
+            )
+        ).scalar_one_or_none()
+        if known is None:
+            source = SalesInvoiceSourceRepository(ctx.session, ctx.tenant)
+            dispatch = await source.dispatch(dispatch_id)
+            if dispatch.sales_order_id is None:
+                continue  # The candidate query excludes these; keep the source type explicit.
+            dispatch_lines = await source.dispatch_lines(dispatch_id)
+            order_lines = await source.order_lines(dispatch.sales_order_id)
+            by_id = {line.id: line for line in order_lines}
+            if any(
+                line.sales_order_line_id not in by_id
+                or by_id[line.sales_order_line_id].item_id != line.item_id
+                for line in dispatch_lines
+            ):
+                # A line shipped before order linkage existed cannot be priced.
+                # The delivered demo consignments that do name their order lines
+                # are invoiced; this one is left as history.
+                ctx.skipped.append(
+                    (
+                        STAGE,
+                        f"{dispatch.code} not invoiced: a line does not belong to the "
+                        "sales order, so there is no agreed price to snapshot",
+                    )
+                )
+                continue
+            invoice = await sales_invoice_service.issue_sales_invoice(
+                ctx.session, ctx.tenant, SalesInvoiceCreate(dispatch_id=dispatch_id)
+            )
+            ctx.note(STAGE, created=1)
+            ctx.remember("sales_invoice", invoice.code, invoice.id)
+        else:
+            ctx.note(STAGE, existing=1)
+    # Allocate one existing demo receipt, only when it has not already been settled.
+    receipts = list(
+        (
+            await ctx.session.execute(
+                select(Payment.id, Payment.party_id, Payment.amount, Payment.currency)
+                .where(
+                    Payment.company_id == ctx.company_id,
+                    Payment.id.in_(list(ctx.refs.get("payment", {}).values())),
+                    Payment.payment_type == PaymentType.RECEIPT,
+                    Payment.status == PaymentStatus.APPROVED,
+                    Payment.allocated_amount == ZERO,
+                )
+                .order_by(Payment.payment_date, Payment.id)
+            )
+        ).all()
+    )
+    for receipt in receipts:
+        receipt_invoice = (
+            await ctx.session.execute(
+                select(SalesInvoice.id, SalesInvoice.total_amount, SalesInvoice.paid_amount)
+                .where(
+                    SalesInvoice.company_id == ctx.company_id,
+                    SalesInvoice.customer_id == receipt.party_id,
+                    SalesInvoice.currency == receipt.currency,
+                    SalesInvoice.status.in_(
+                        (SalesInvoiceStatus.ISSUED, SalesInvoiceStatus.PARTIALLY_PAID)
+                    ),
+                )
+                .order_by(SalesInvoice.due_date, SalesInvoice.id)
+                .limit(1)
+            )
+        ).first()
+        if receipt_invoice:
+            amount = min(
+                to_money(receipt.amount),
+                to_money(receipt_invoice.total_amount - receipt_invoice.paid_amount),
+            )
+            if amount > ZERO:
+                await finance.allocate_payment(
+                    ctx.session,
+                    ctx.tenant,
+                    receipt.id,
+                    AllocationRequest(
+                        allocations=[
+                            PaymentAllocationIn(sales_invoice_id=receipt_invoice.id, amount=amount)
+                        ]
+                    ),
+                )
+                break
 
 
 # =============================================================================
@@ -1643,4 +1759,4 @@ async def seed(ctx: DemoContext) -> None:
     # it is settling to be on the ledger already.
     await _seed_payments(ctx)
 
-    _note_receipt_allocation_gap(ctx)
+    await _seed_sales_invoices(ctx)

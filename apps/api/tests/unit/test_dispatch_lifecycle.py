@@ -262,16 +262,26 @@ def test_every_movement_points_back_at_the_consignment() -> None:
 # -----------------------------------------------------------------------------
 
 
-def test_only_allocated_or_part_dispatched_orders_may_be_dispatched() -> None:
+def test_confirmed_allocated_and_part_dispatched_orders_may_be_dispatched() -> None:
+    # Changed deliberately by WP E1a (K08): the sales lifecycle gained a
+    # CONFIRMED -> PARTIALLY_DISPATCHED edge, so a partly reserved order may ship
+    # what it has reserved. Each line stays capped at its live reservation by
+    # dispatch's own validation, not by this gate.
     assert (
-        frozenset({SalesOrderStatus.ALLOCATED, SalesOrderStatus.PARTIALLY_DISPATCHED})
+        frozenset(
+            {
+                SalesOrderStatus.CONFIRMED,
+                SalesOrderStatus.ALLOCATED,
+                SalesOrderStatus.PARTIALLY_DISPATCHED,
+            }
+        )
         == DISPATCHABLE_ORDER_STATUSES
     )
 
 
 def test_the_dispatchable_set_is_derived_from_the_sales_lifecycle() -> None:
-    # Not a second copy of the rule: if the sales module ever opens a
-    # CONFIRMED -> PARTIALLY_DISPATCHED edge, the gate follows it automatically.
+    # Not a second copy of the rule: the CONFIRMED -> PARTIALLY_DISPATCHED edge
+    # the sales module opened is what put CONFIRMED in the set.
     for status in SalesOrderStatus:
         expected = status is SalesOrderStatus.PARTIALLY_DISPATCHED or SALES_FLOW.can_transition(
             status, SalesOrderStatus.PARTIALLY_DISPATCHED
@@ -296,7 +306,11 @@ def test_an_order_that_is_not_ready_is_refused_with_the_remedy_named(
     # allowed in this state"; the message itself says what to do about it.
     assert error.code is ErrorCode.INVALID_STATE_TRANSITION
     assert "SO/2026-27/00001" in error.message
-    assert "fully allocated" in error.message
+    remedy = {
+        SalesOrderStatus.DRAFT: "confirm it first",
+        SalesOrderStatus.CANCELLED: "it was cancelled",
+    }.get(status, "already been dispatched")
+    assert remedy in error.message
     assert error.details["sales_order_status"] == str(status)
     assert set(error.details["dispatchable_statuses"]) == {
         str(s) for s in DISPATCHABLE_ORDER_STATUSES
