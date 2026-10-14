@@ -39,6 +39,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import Select, and_, delete, func, or_, select, update
@@ -71,7 +72,13 @@ from src.modules.inventory.models import (
     StockBatch,
     StockSerial,
 )
-from src.modules.packing.models import Carton, PackingOrder, PackingOrderStatus
+from src.modules.packing.models import (
+    Carton,
+    CartonContent,
+    PackingOrder,
+    PackingOrderLine,
+    PackingOrderStatus,
+)
 from src.modules.products.models import Item
 from src.modules.sales.models import SalesOrder, SalesOrderLine
 from src.modules.vendors.models import Transporter, Vendor
@@ -320,6 +327,16 @@ class PackingOrderLookupRepository(BaseRepository[PackingOrder]):
         )
 
 
+@dataclass(frozen=True, slots=True)
+class CartonContentFacts:
+    carton_id: uuid.UUID
+    item_id: uuid.UUID
+    batch_id: uuid.UUID | None
+    sales_order_line_id: uuid.UUID | None
+    quantity: Decimal
+    serial_ids: tuple[uuid.UUID, ...]
+
+
 class CartonLookupRepository(BaseRepository[Carton]):
     model = Carton
 
@@ -341,6 +358,47 @@ class CartonLookupRepository(BaseRepository[Carton]):
             Carton.is_sealed.is_(True),
         )
         return {row.id for row in (await self.session.execute(stmt)).all()}
+
+    async def contents_of(
+        self, packing_order_id: uuid.UUID, carton_ids: Sequence[uuid.UUID]
+    ) -> list[CartonContentFacts]:
+        """Actual sealed contents and demand links, scoped on every joined table."""
+        if not carton_ids:
+            return []
+        stmt = (
+            select(
+                CartonContent.carton_id,
+                CartonContent.item_id,
+                CartonContent.batch_id,
+                PackingOrderLine.sales_order_line_id,
+                CartonContent.quantity,
+                CartonContent.serial_ids,
+            )
+            .join(Carton, Carton.id == CartonContent.carton_id)
+            .join(PackingOrderLine, PackingOrderLine.id == CartonContent.packing_order_line_id)
+            .where(
+                Carton.company_id == self.tenant.company_id,
+                CartonContent.company_id == self.tenant.company_id,
+                PackingOrderLine.company_id == self.tenant.company_id,
+                Carton.packing_order_id == packing_order_id,
+                PackingOrderLine.packing_order_id == packing_order_id,
+                Carton.is_sealed.is_(True),
+                Carton.id.in_(set(carton_ids)),
+            )
+            .order_by(Carton.id, CartonContent.id)
+        )
+        rows = (await self.session.execute(stmt)).all()
+        return [
+            CartonContentFacts(
+                carton_id=row.carton_id,
+                item_id=row.item_id,
+                batch_id=row.batch_id,
+                sales_order_line_id=row.sales_order_line_id,
+                quantity=Decimal(row.quantity),
+                serial_ids=tuple(row.serial_ids),
+            )
+            for row in rows
+        ]
 
 
 class SerialLookupRepository(BaseRepository[StockSerial]):

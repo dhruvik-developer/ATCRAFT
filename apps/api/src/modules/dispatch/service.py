@@ -89,6 +89,7 @@ from src.modules.dispatch.models import (
 from src.modules.dispatch.repository import (
     GRN_OUTSTANDING_STATUSES,
     BatchLookupRepository,
+    CartonContentFacts,
     CartonLookupRepository,
     CustomerLookupRepository,
     DispatchItem,
@@ -705,6 +706,100 @@ def _assert_unique_sales_order_lines(lines: Sequence[SalesOrderLineReference]) -
         )
 
 
+def _assert_carton_contents_match(
+    lines: Sequence[DispatchLineIn | DispatchLine], contents: Sequence[CartonContentFacts]
+) -> None:
+    """Each selected box travels whole, including every item, lot and serial.
+
+    A mixed-item carton may be referenced by several different content rows.
+    The same carton/content grain cannot be counted again on a second line.
+    """
+    content_key = tuple[uuid.UUID, uuid.UUID | None, uuid.UUID | None]
+    packed: dict[tuple[uuid.UUID, content_key], tuple[Decimal, set[uuid.UUID]]] = {}
+    for content in contents:
+        key = (content.item_id, content.batch_id, content.sales_order_line_id)
+        identity = (content.carton_id, key)
+        quantity, serials = packed.get(identity, (ZERO, set()))
+        incoming_serials = set(content.serial_ids)
+        if len(incoming_serials) != len(content.serial_ids) or serials & incoming_serials:
+            raise BusinessRuleError("A selected carton contains a repeated serial number.")
+        packed[identity] = (quantity + content.quantity, serials | incoming_serials)
+
+    covered: set[tuple[uuid.UUID, content_key]] = set()
+    for number, line in enumerate(lines, start=1):
+        if not line.carton_ids:
+            continue
+        if len(set(line.carton_ids)) != len(line.carton_ids):
+            raise BusinessRuleError(f"Line {number}: the same carton is listed twice.")
+        key = (line.item_id, line.batch_id, line.sales_order_line_id)
+        expected_quantity = ZERO
+        expected_serials: set[uuid.UUID] = set()
+        for carton_id in line.carton_ids:
+            identity = (carton_id, key)
+            if identity in covered:
+                raise BusinessRuleError(
+                    f"Line {number}: this carton's same item, batch and demand is already loaded.",
+                    details={"carton_id": str(carton_id)},
+                )
+            if identity not in packed:
+                raise BusinessRuleError(
+                    f"Line {number}: the carton contains no matching item, batch and demand.",
+                    details={"carton_id": str(carton_id)},
+                )
+            quantity, serials = packed[identity]
+            expected_quantity += quantity
+            expected_serials.update(serials)
+            covered.add(identity)
+        if Decimal(line.quantity) != expected_quantity:
+            raise BusinessRuleError(
+                f"Line {number}: dispatch quantity does not match its cartons' contents.",
+                details={
+                    "line_number": number,
+                    "packed_quantity": str(to_quantity(expected_quantity)),
+                    "dispatch_quantity": str(to_quantity(line.quantity)),
+                },
+            )
+        if set(line.serial_ids) != expected_serials or len(set(line.serial_ids)) != len(
+            line.serial_ids
+        ):
+            raise BusinessRuleError(
+                f"Line {number}: dispatch serials do not match its cartons' contents.",
+                details={"line_number": number},
+            )
+
+    if set(packed) != covered:
+        raise BusinessRuleError(
+            "Every item in the selected cartons must be loaded; some contents are missing.",
+            details={"missing_content_count": len(set(packed) - covered)},
+        )
+
+
+async def _validate_carton_contents(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    lines: Sequence[DispatchLineIn | DispatchLine],
+    packing_order_id: uuid.UUID | None,
+) -> None:
+    carton_ids = sorted({carton for line in lines for carton in line.carton_ids}, key=str)
+    if not carton_ids:
+        return
+    if packing_order_id is None:
+        raise BusinessRuleError(
+            "Cartons can only be loaded onto a consignment that names their packing order."
+        )
+    repo = CartonLookupRepository(session, tenant)
+    sealed = await repo.sealed_cartons_of(packing_order_id, carton_ids)
+    missing = set(carton_ids) - sealed
+    if missing:
+        raise BusinessRuleError(
+            "The cartons named are not sealed cartons of this consignment's packing order.",
+            details={"carton_ids": sorted(str(carton_id) for carton_id in missing)},
+        )
+    contents = await repo.contents_of(packing_order_id, carton_ids)
+    _assert_carton_contents_match(lines, contents)
+
+
 async def _validate_lines(
     session: AsyncSession,
     tenant: TenantContext,
@@ -752,18 +847,6 @@ async def _validate_lines(
             )
         found = await SalesOrderLineRepository(session, tenant).get_many(referenced)
         order_lines = {row.id: row for row in found}
-
-    carton_ids = [carton for line in lines for carton in line.carton_ids]
-    sealed_cartons: set[uuid.UUID] = set()
-    if carton_ids:
-        if packing_order_id is None:
-            raise BusinessRuleError(
-                "Cartons can only be loaded onto a consignment that names the packing order "
-                "they came from."
-            )
-        sealed_cartons = await CartonLookupRepository(session, tenant).sealed_cartons_of(
-            packing_order_id, carton_ids
-        )
 
     for position, line in enumerate(lines, start=1):
         label = f"Line {position}"
@@ -826,14 +909,6 @@ async def _validate_lines(
                     details={"serial_id": str(serial_id)},
                 )
 
-        missing_cartons = set(line.carton_ids) - sealed_cartons
-        if missing_cartons:
-            raise BusinessRuleError(
-                f"{label}: {len(missing_cartons)} of the cartons named are not sealed cartons "
-                "of this consignment's packing order.",
-                details={"carton_ids": sorted(str(c) for c in missing_cartons)},
-            )
-
         if line.sales_order_line_id is not None:
             order_line = order_lines.get(line.sales_order_line_id)
             if order_line is None:
@@ -859,6 +934,7 @@ async def _validate_lines(
                 line_label=f"{label} ({item.code})",
             )
 
+    await _validate_carton_contents(session, tenant, lines=lines, packing_order_id=packing_order_id)
     return items
 
 
@@ -1265,6 +1341,9 @@ async def update_dispatch(
             lines = await _persist_lines(session, tenant, dispatch, payload.lines or [])
         else:
             lines = await line_repo.for_dispatch(dispatch.id)
+            await _validate_carton_contents(
+                session, tenant, lines=lines, packing_order_id=dispatch.packing_order_id
+            )
 
         if payload.packing_order_id is not None and dispatch.packing_order_id is not None:
             await _claim_packing_order(
@@ -1439,6 +1518,9 @@ async def dispatch_consignment(
         # Old drafts may predate request validation. Refuse before consuming any
         # reservation or posting stock, while the consignment is locked.
         _assert_unique_sales_order_lines(lines)
+        await _validate_carton_contents(
+            session, tenant, lines=lines, packing_order_id=dispatch.packing_order_id
+        )
         items = await ItemLookupRepository(session, tenant).load([line.item_id for line in lines])
 
         # Lock the order lines this consignment draws on. Ordered by primary key
