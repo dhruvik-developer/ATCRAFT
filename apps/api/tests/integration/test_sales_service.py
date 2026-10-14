@@ -506,6 +506,18 @@ async def make_draft(
     return order
 
 
+async def test_omitted_sales_currency_uses_the_company_denomination(ctx: Ctx):
+    company = await ctx.session.get(Company, ctx.tenant.company_id)
+    company.currency = "USD"
+    await ctx.session.flush()
+    customer, _ = await seed_customer(ctx)
+    warehouse = await seed_warehouse(ctx)
+    uom = await seed_uom(ctx)
+    item = await seed_item(ctx, uom)
+    order = await make_draft(ctx, customer, warehouse, [line(item, "1")])
+    assert order.currency == "USD"
+
+
 # -----------------------------------------------------------------------------
 # Creation, pricing and tax
 # -----------------------------------------------------------------------------

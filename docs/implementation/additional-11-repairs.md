@@ -12,7 +12,7 @@ Repairs are applied and verified in audit order. No production deployment or bus
 | A03 | Warehouse scope on procurement/production destination and posting checks | Pending |
 | A04 | Duplicate SO line dispatch validation | Pending |
 | A05 | Carton content reconciliation, preserving mixed-item cartons | Pending |
-| A06 | Company-currency customer credit/receipt safeguards | Pending |
+| A06 | Company-currency customer credit/receipt safeguards | Fixed in preparation branch; 9 boundary integration and 35 unit checks passed; neighbouring sales/finance cases checked; combined verification pending |
 | A07 | Export job/file access consistent with originating authorization | Pending |
 | A08 | Recoverable packing PDF polling errors | Pending |
 | A09 | Server search/pagination for batch selection | Pending |

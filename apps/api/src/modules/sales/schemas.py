@@ -26,7 +26,6 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from src.core.constants import DEFAULT_CURRENCY
 from src.modules.sales.models import (
     DEFAULT_PRIORITY,
     MAX_PRIORITY,
@@ -165,7 +164,8 @@ class SalesOrderCreate(BaseModel):
 
     priority: Priority = DEFAULT_PRIORITY
     is_urgent: bool = False
-    currency: CurrencyCode = DEFAULT_CURRENCY
+    #: Unspecified currency follows the company's credit-balance denomination.
+    currency: CurrencyCode | None = None
 
     billing_address_id: uuid.UUID | None = None
     shipping_address_id: uuid.UUID | None = None

@@ -41,6 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
 from src.core.clock import today, utcnow
+from src.core.currency import assert_customer_currency
 from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import Principal, TenantContext
 from src.core.errors import (
@@ -1038,6 +1039,9 @@ async def create_order(
 
     async with transaction(session):
         customer = await get_customer_for_order(session, tenant, payload.customer_id)
+        home_currency = await parties.company_currency()
+        denomination = payload.currency or home_currency
+        assert_customer_currency(denomination, home_currency)
         if customer.deleted_at is not None or not customer.is_active:
             raise BusinessRuleError(
                 f"Customer {customer.code} is not active and cannot be sold to.",
@@ -1091,7 +1095,7 @@ async def create_order(
             status=SalesOrderStatus.DRAFT,
             priority=payload.priority,
             is_urgent=payload.is_urgent,
-            currency=payload.currency,
+            currency=denomination,
             place_of_supply_state_code=place_of_supply,
             is_interstate=is_interstate,
             billing_address_id=billing_id,
@@ -1170,6 +1174,9 @@ async def update_order(
             raise NotFoundError(SALES_ORDER_ENTITY, order_id)
 
         status = SalesOrderStatus(order.status)
+        assert_customer_currency(
+            order.currency, await OrderPartyRepository(session, tenant).company_currency()
+        )
         before = snapshot(order, ORDER_AUDITED_FIELDS)
 
         if status is SalesOrderStatus.DRAFT:
@@ -1639,6 +1646,9 @@ async def confirm_order(
         # Validated before any work is done, so a wrong-state request costs one
         # comparison rather than a credit check and a round of reservations.
         SALES_ORDER_LIFECYCLE.assert_transition(current, SalesOrderStatus.CONFIRMED)
+        assert_customer_currency(
+            order.currency, await OrderPartyRepository(session, tenant).company_currency()
+        )
 
         if order.requires_approval and order.approved_at is None:
             raise ApprovalRequiredError(

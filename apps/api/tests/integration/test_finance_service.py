@@ -1527,20 +1527,27 @@ class TestMultiCurrencyReporting:
 
         if receipt is not None:
             amount, currency = receipt
-            payment = await service.create_payment(
+            # Historical multi-currency ledger rows remain reportable, without
+            # mutating the company-currency customer credit cache via a receipt.
+            await service.post_journal(
                 session,
                 tenant,
-                PaymentCreate(
-                    payment_type=PaymentType.RECEIPT,
-                    party_type=PartyType.CUSTOMER,
-                    party_id=customer.id,
-                    payment_date=date(2026, 6, 15),
-                    amount=Decimal(amount),
-                    payment_method=PaymentMethod.BANK_TRANSFER,
-                    currency=currency,
-                ),
+                [
+                    service.JournalLine(
+                        account_id=accounts[str(SystemAccount.BANK)].id, debit=Decimal(amount)
+                    ),
+                    service.JournalLine(
+                        account_id=accounts[str(SystemAccount.ACCOUNTS_RECEIVABLE)].id,
+                        credit=Decimal(amount),
+                        party_type=PartyType.CUSTOMER,
+                        party_id=customer.id,
+                    ),
+                ],
+                entry_date=date(2026, 6, 15),
+                reference_type="historical_receipt",
+                reference_code=_code("RCPT"),
+                currency=currency,
             )
-            await service.approve_payment(session, tenant, principal, payment.id)
         return customer
 
     async def test_the_payables_ageing_never_adds_two_currencies_together(self, ctx) -> None:

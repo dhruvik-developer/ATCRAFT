@@ -1409,6 +1409,24 @@ operations and the administration email input.
 separate authenticated workflow. Generic profile PATCH must retain the credential
 authority boundary until that flow exists.
 
+## §ADDITIONAL11-2. Customer credit operates only in company currency
+
+**Assumed:** Customer orders and receipts must use the company's denomination
+while outstanding/credit is a single company-currency balance. Omitted order and
+receipt currencies resolve to company currency. Vendor foreign-currency documents
+and denomination-separated historical reporting remain supported.
+
+**Why:** A nominal USD receipt cannot subtract an equal number of INR from a
+company-currency credit balance. No frozen conversion-rate or per-currency credit
+balance implementation exists yet.
+
+**Where:** Sales create/update/confirm and customer receipt create/update/approve.
+Unposted legacy foreign receipts may be cancelled; reversal of posted foreign
+receipts is refused before any journal/cache mutation pending reconciliation.
+
+**Impact if wrong:** Implement audited conversion or per-currency customer credit
+before lifting the restriction. Do not change existing financial data silently.
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant

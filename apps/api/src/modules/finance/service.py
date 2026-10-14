@@ -79,6 +79,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
 from src.core.clock import today, utcnow
+from src.core.currency import assert_customer_currency
 from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import Principal, TenantContext
 from src.core.errors import (
@@ -2688,8 +2689,11 @@ async def create_payment(
         # ASSUMPTION: as for an invoice, money that does not name a currency is
         # in the company's own. The two must default the same way or an
         # allocation would refuse the pair on a denomination nobody chose.
-        denomination = payload.currency or await company_currency(session, tenant)
+        home_currency = await company_currency(session, tenant)
+        denomination = payload.currency or home_currency
 
+        if PaymentType(payload.payment_type) is PaymentType.RECEIPT:
+            assert_customer_currency(denomination, home_currency)
         code = await next_document_number(session, tenant.company_id, DocTypes.PAYMENT)
         payment = repo.add(
             Payment(
@@ -2748,6 +2752,8 @@ async def update_payment(
             )
 
         before = snapshot(payment, PAYMENT_AUDITED_FIELDS)
+        if PaymentType(payment.payment_type) is PaymentType.RECEIPT:
+            assert_customer_currency(payment.currency, await company_currency(session, tenant))
         for attribute, value in payload.model_dump(exclude_unset=True).items():
             if value is not None:
                 setattr(payment, attribute, to_money(value) if attribute == "amount" else value)
@@ -2836,6 +2842,9 @@ async def approve_payment(
                 "Approving it again would post the settlement a second time.",
                 details={"payment_id": str(payment.id), "status": str(current)},
             )
+
+        if PaymentType(payment.payment_type) is PaymentType.RECEIPT:
+            assert_customer_currency(payment.currency, await company_currency(session, tenant))
 
         payment.approved_by_id = principal.user_id
         payment.approved_at = utcnow()
@@ -2967,6 +2976,10 @@ async def cancel_payment(
         # "Not a draft" is not the same question, and answers it wrongly for a
         # document that is already cancelled.
         was_posted = current in POSTED_PAYMENT_STATUSES
+        if was_posted and PaymentType(payment.payment_type) is PaymentType.RECEIPT:
+            # Legacy foreign receipts require explicit reconciliation, because
+            # their nominal cache delta cannot be safely converted on reversal.
+            assert_customer_currency(payment.currency, await company_currency(session, tenant))
         payment.cancellation_reason = reason
         repo.touch(payment)
         await _transition_payment(

@@ -258,6 +258,11 @@ class OrderPartyRepository(BaseRepository[CustomerAddress]):
 
     model = CustomerAddress
 
+    async def company_currency(self) -> str:
+        stmt = select(Company.currency).where(Company.id == self.tenant.company_id)
+        currency = (await self.session.execute(stmt)).scalar_one()
+        return str(currency)
+
     async def addresses_of(
         self, customer_id: uuid.UUID, address_ids: Sequence[uuid.UUID]
     ) -> dict[uuid.UUID, CustomerAddress]:
