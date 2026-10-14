@@ -115,7 +115,7 @@ export function SalesOrderLineDialog({
   line?: SalesOrderLineIn | null
   /** Position this line will hold in the set. */
   lineNumber: number
-  currency: string
+  currency?: string
   /** Handed the line as the API's `SalesOrderLineIn` wants it. */
   onSubmit: (line: SalesOrderLineIn) => void
 }) {
@@ -307,26 +307,31 @@ export function SalesOrderLineDialog({
               <dl className="grid gap-2 text-sm sm:grid-cols-3">
                 <div>
                   <dt className="text-xs uppercase tracking-wide text-muted-foreground">Gross</dt>
-                  <dd className="tabular">{formatMoney(gross.toFixed(2), { currency })}</dd>
+                  <dd className="tabular">
+                    {formatMoney(gross.toFixed(2), { currency, showSymbol: Boolean(currency) })}
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-xs uppercase tracking-wide text-muted-foreground">
                     Discount
                   </dt>
-                  <dd className="tabular">{formatMoney(discount.toFixed(2), { currency })}</dd>
+                  <dd className="tabular">
+                    {formatMoney(discount.toFixed(2), { currency, showSymbol: Boolean(currency) })}
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-xs uppercase tracking-wide text-muted-foreground">
                     Net of discount
                   </dt>
                   <dd className="font-medium tabular">
-                    {formatMoney(net.toFixed(2), { currency })}
+                    {formatMoney(net.toFixed(2), { currency, showSymbol: Boolean(currency) })}
                   </dd>
                 </div>
               </dl>
               <p className="mt-2 text-xs text-muted-foreground">
                 A preview before tax. The API prices the line and splits the tax into CGST + SGST or
                 IGST from the place of supply.
+                {!currency && ' Amounts use the company currency when the order is saved.'}
               </p>
             </div>
           </DialogBody>

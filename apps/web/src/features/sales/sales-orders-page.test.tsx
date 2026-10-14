@@ -498,6 +498,20 @@ describe('what the new-order form sends', () => {
     await user.click(screen.getByRole('button', { name: 'Add line' }))
   }
 
+  it('does not guess the currency of a new order in the line preview', async () => {
+    const { user, fetch } = renderScreen(<SalesOrdersPage />, {
+      permissions: formPermissions,
+      routes: formRoutes(),
+    })
+    await openForm(user, fetch)
+    await user.click(screen.getByRole('button', { name: /add line/i }))
+    const dialog = await stable(() => screen.getByRole('dialog', { name: 'Add a line' }))
+    await user.type(within(dialog).getByRole('textbox', { name: /unit price/i }), '10')
+    expect(within(dialog).getAllByText('10.00')).toHaveLength(2)
+    expect(dialog.textContent).not.toContain('₹')
+    expect(within(dialog).getByText(/Amounts use the company currency/)).toBeVisible()
+  })
+
   it('posts the header and its lines with every decimal still a string', async () => {
     const { user, fetch } = renderScreen(<SalesOrdersPage />, {
       permissions: formPermissions,
@@ -525,6 +539,7 @@ describe('what the new-order form sends', () => {
     expect(body.promised_date).toBeNull()
     expect(body.customer_po_number).toBeNull()
     expect(body.notes).toBeNull()
+    expect(body).not.toHaveProperty('currency')
     // "The customer's default" address, which the API resolves itself.
     expect(body.billing_address_id).toBeNull()
     expect(body.shipping_address_id).toBeNull()
@@ -950,6 +965,17 @@ describe('cancelling an order', () => {
 })
 
 describe('editing the lines of an order', () => {
+  it('uses the saved USD denomination in a line preview', async () => {
+    const { user } = renderDetail({
+      order: orderDetail({ currency: 'USD' }),
+      permissions: [P.SALES_ORDER_VIEW, P.SALES_ORDER_UPDATE],
+    })
+    await user.click(await screen.findByRole('button', { name: 'Edit line 1' }))
+    const dialog = await stable(() => screen.getByRole('dialog', { name: 'Edit line 1' }))
+    expect(within(dialog).getAllByText('$2,500.00')).toHaveLength(2)
+    expect(dialog.textContent).not.toContain('₹')
+  })
+
   it('offers the line actions on a draft to a holder of sales_order.update', async () => {
     renderDetail({
       order: orderDetail(),

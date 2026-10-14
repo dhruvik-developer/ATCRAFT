@@ -42,7 +42,7 @@ import { CustomerPicker } from '@/features/customers/customer-picker'
 import type { AddressType, CustomerAddress } from '@/features/customers/customer-types'
 import { WarehouseSelect } from '@/features/inventory/pickers'
 import { api } from '@/lib/api-client'
-import { DEFAULT_CURRENCY, SELECT_NONE } from '@/lib/constants'
+import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatQuantity, toDateInput } from '@/lib/format'
 import { success } from '@/lib/messages'
@@ -588,7 +588,7 @@ export function SalesOrderFormDialog({
           lineNumber={
             lineEditor.index === null ? lines.length + 1 : lines[lineEditor.index]!.line_number
           }
-          currency={DEFAULT_CURRENCY}
+          currency={order?.currency}
           onSubmit={(line) => {
             setLines((current) =>
               renumber(
