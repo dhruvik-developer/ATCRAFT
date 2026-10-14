@@ -52,6 +52,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
+from src.common.warehouse_scope import warehouse_scope
 from src.core.database import affected_rows
 from src.core.models import Base
 from src.core.pagination import COUNT_CEILING, PageParams, SortParams
@@ -634,6 +635,7 @@ class WarehouseLookupRepository(BaseRepository[Warehouse]):
             Warehouse.company_id == self.tenant.company_id,
             Warehouse.id == warehouse_id,
             Warehouse.deleted_at.is_(None),
+            *warehouse_scope(self.tenant, Warehouse.id),
         )
         return (await self.session.execute(stmt.limit(1))).first() is not None
 

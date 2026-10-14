@@ -1436,3 +1436,15 @@ module is used in production:
    or the customer?
 7. **Partial dispatch.** May a sales-order line be dispatched in more than two
    instalments, and is there a minimum dispatch quantity?
+
+## Warehouse assignment policy for A02/A03
+
+An empty warehouse assignment denotes unrestricted access within the company;
+platform superusers use that same exemption. Company isolation always applies.
+Transfers require assignment to both warehouses, matching their existing create
+rule. Adjustments/counts require their single warehouse. Procurement/production
+destinations and every grain touched by a stock movement are checked with this
+same policy, including documents raised before the restriction. Trusted system
+contexts use an empty assignment; user-driven operations retain the caller's
+assignment. This clarifies existing assignment semantics without changing the
+database schema.

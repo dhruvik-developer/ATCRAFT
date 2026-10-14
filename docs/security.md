@@ -434,3 +434,21 @@ production — Postgres and Redis are reachable only on the internal network.
 - [ ] Rate limits reviewed against expected legitimate traffic
 - [ ] `/docs`, `/redoc` and `/openapi.json` confirmed disabled in production
 - [ ] Audit-log immutability trigger verified present in the deployed schema
+
+## Warehouse assignments on stock documents and movements (A02/A03)
+
+Warehouse assignments use the shared policy in `src/common/warehouse_scope.py`.
+An empty assignment means unrestricted warehouse access within the verified
+company. A platform superuser is also exempt from warehouse assignments;
+neither case bypasses company isolation.
+
+Transfer visibility and actions require **both** source and destination to be
+assigned. Adjustment and physical-count list/detail/line/action lookups use the
+same warehouse restriction before pagination or locking. The policy also
+applies to procurement and production warehouse destination lookups.
+
+Posting rechecks documents created before a restriction was assigned. The
+movement engine checks every movement, additional transit grain and prelocked
+grain before it locks or creates a balance. Trusted background/system contexts
+retain their existing empty assignment while still requiring tenant-scoped
+master records. A user's request context is never widened for posting.

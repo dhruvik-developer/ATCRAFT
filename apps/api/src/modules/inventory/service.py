@@ -2073,6 +2073,7 @@ class MovementEngine:
         quantity before they know what to post - a physical count works out its
         variance from the locked value, not from the snapshot it took days ago.
         """
+        assert_warehouse_scope(self.tenant, *(grain.warehouse_id for grain in grains))
         await set_lock_timeout(self.session, LOCK_TIMEOUT_MS)
         try:
             return await self.balances.lock_balances(grains)
@@ -2146,6 +2147,14 @@ class MovementEngine:
             return [], prelocked or {}
 
         extra = list(dict.fromkeys(extra_grains or ()))
+        # Every touched grain is authorized before any lock/upsert or stock work.
+        # Trusted system contexts have empty assignments and retain company scope.
+        assert_warehouse_scope(
+            self.tenant,
+            *(movement.warehouse_id for movement in movements),
+            *(grain.warehouse_id for grain in extra),
+            *(grain.warehouse_id for grain in (prelocked or {})),
+        )
         async with transaction(self.session):
             master = await self._load_master_data(movements, extra)
             # Master data is validated before the first lock is taken. The
@@ -2537,6 +2546,7 @@ class MovementEngine:
         if not grains:
             return
         wanted = list(dict.fromkeys(grains))
+        assert_warehouse_scope(self.tenant, *(grain.warehouse_id for grain in wanted))
         master = await self._load_master_data([], wanted)
         inbound = set(receiving)
         for grain in wanted:
