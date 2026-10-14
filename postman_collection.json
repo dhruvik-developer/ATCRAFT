@@ -18270,6 +18270,35 @@
           }
         },
         {
+          "name": "Download the generated file authorized by its originating job",
+          "request": {
+            "description": "Download the generated file authorized by its originating job",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "jobs",
+                ":job_id",
+                "download"
+              ],
+              "raw": "{{base_url}}/api/v1/reports/jobs/{job_id}/download",
+              "variable": [
+                {
+                  "description": "job_id of the record",
+                  "key": "job_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Fast-moving items",
           "request": {
             "description": "Fast-moving items",

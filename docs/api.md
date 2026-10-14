@@ -25,7 +25,7 @@ CI and the pre-push hook run the same three checks `contract-check` runs.
 
 ### Using the Postman collection
 
-Import `postman_collection.json` (Postman v2.1 format, 516 requests in 27
+Import `postman_collection.json` (Postman v2.1 format, 517 requests in 27
 folders, one per tag). Then:
 
 1. Set the `base_url` variable if it is not `http://127.0.0.1:8000/api/v1`.
@@ -104,6 +104,15 @@ notifications, which grow without bound.
 ```
 
 **Accepted background job** — HTTP 202.
+
+Poll the returned `status_url`, then use the job's `download_url`. A finance
+valuation exporter with `inventory.valuation_view` and `report.export` can watch
+and download their own valuation job without general report or document rights.
+`GET /reports/jobs/{job_id}/download` binds the file to that authorized job;
+another creator's job, a catalogue job, and unrelated documents remain outside
+this limited access. Internal `report.view` readers retain their existing job
+visibility and need `document.view` to download files. Vendor accounts cannot
+use these internal job routes.
 
 ```json
 {
