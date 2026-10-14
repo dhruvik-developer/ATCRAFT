@@ -63,13 +63,15 @@ Name = Annotated[str, Field(min_length=1, max_length=255)]
 Reason = Annotated[str, Field(min_length=3, max_length=255)]
 
 
-def _normalise_email(value: str) -> str:
+def _normalise_email(value: str | None) -> str:
     """Lower-case and trim.
 
     ``users.email`` is ``CIText`` so the column already normalises on write, but
     the duplicate check, the audit summary and the password-policy check all
     read this string before it ever reaches the column.
     """
+    if value is None:
+        raise ValueError("Email cannot be null. Omit it to leave the email unchanged.")
     return value.strip().lower()
 
 

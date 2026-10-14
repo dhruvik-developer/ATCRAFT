@@ -187,8 +187,10 @@ def validate_code(value: str) -> str:
     return normalised
 
 
-def clean_name(value: str) -> str:
+def clean_name(value: str | None) -> str:
     """Collapse internal whitespace and refuse a blank name."""
+    if value is None:
+        raise ValueError("Name cannot be null. Omit it to leave the name unchanged.")
     cleaned = " ".join(value.split())
     if not cleaned:
         raise ValueError("Name cannot be blank.")
