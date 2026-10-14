@@ -25,7 +25,7 @@ CI and the pre-push hook run the same three checks `contract-check` runs.
 
 ### Using the Postman collection
 
-Import `postman_collection.json` (Postman v2.1 format, 556 requests in 28
+Import `postman_collection.json` (Postman v2.1 format, 579 requests in 29
 folders, one per tag). Then:
 
 1. Set the `base_url` variable if it is not `http://127.0.0.1:8000/api/v1`.
@@ -409,6 +409,10 @@ download. No endpoint holds a connection open for a calculation.
 /vendor-portal        vendor accounts only: me · dashboard · orders (accept, decline,
                       delivery date, ready, consignments, delivered, files, receipts,
                       PDF) · transporter options · receipts · bills · payments · rating
+/dealer-portal        dealer accounts only: me · catalogue (categories, brands,
+                      items, item detail, price) · cart · wishlist · checkout ·
+                      orders (cancel) · dispatches · tracking · statement ·
+                      outstanding
 /audit                logs · entity history · approvals
 ```
 
@@ -441,6 +445,31 @@ The buyer's companions sit under `/procurement` (staff only):
 `POST .../shipments/{id}/delivered` (`grn.create`), `GET`/`POST .../documents`
 (`document.upload` to file), `POST .../accept-vendor-date` and `POST .../pdf`
 (202, polled at `/reports/jobs/{id}`).
+
+## Dealer portal
+
+A dealer account calls `/dealer-portal` and nothing else (plus its own
+notifications and auth self-service; every other route is 403 `SCOPE_DENIED`).
+Every portal route names its `dealer_portal.*` right and refuses staff accounts;
+another dealer's order, consignment, tracking or statement is 404.
+
+| Route | Right | Notes |
+|---|---|---|
+| `GET /me` | browse | account, channel, `price_list_type`, credit, ship-to addresses, primary contact, salesperson (name and phone) |
+| `GET /catalog/categories`, `GET /catalog/brands` | browse | categories/brands holding sellable active items |
+| `GET /catalog/items` | browse | `search`, `category_id` (subtree), `brand_id`, `in_stock_only`, `on_offer_only`, `sort_by` = code or name (price refused 422); channel price, best scheme, availability band, wishlist/cart flags, primary image |
+| `GET /catalog/items/{id}` | browse | variants with own prices, channel slabs, schemes, HSN/GST, images; specifications and accessories empty until D5 |
+| `GET /catalog/items/{id}/price` | browse | gross, best scheme, net unit and tax estimate for `quantity` and `variant_id` |
+| `GET /cart` | order | priced preview: per-line price and scheme, tax split, totals, credit preview, warnings |
+| `POST /cart/lines`, `PATCH /cart/lines/{id}`, `DELETE /cart/lines/{id}`, `DELETE /cart` | order | quantities only; duplicates refused; at most 50 grains |
+| `GET`/`POST /wishlist`, `DELETE /wishlist/{id}` | browse | one row per user, item and variant |
+| `POST /wishlist/{id}/move-to-cart` | order | merges into the existing grain when there is one |
+| `POST /checkout` (201) | order | cart version lock, server prices and schemes, DRAFT order with `source = DEALER_PORTAL`, cart cleared, sales desk notified |
+| `GET /orders`, `GET /orders/{id}` | order | `search`, `status`, `open_only`; header, lines with fulfilment progress |
+| `POST /orders/{id}/cancel` | order | the dealer's own DRAFT only, with a reason |
+| `GET /orders/{id}/dispatches`, `GET /dispatches/{id}/tracking` | order | dealer-safe tracking: no driver mobile, no freight |
+| `GET /statement` | account | the dealer's own ledger statement (`date_from`, `date_to`) |
+| `GET /outstanding` | account | receivables ageing position; overdue invoice list empty until sales invoicing |
 
 All six `/notifications/push` endpoints require notification.view: config;
 POST/GET subscriptions; DELETE subscriptions/{id}; POST subscriptions/unregister

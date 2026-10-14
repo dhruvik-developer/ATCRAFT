@@ -75,6 +75,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `documents` | `documents` |
 | `notifications` | `notifications`, `notification_preferences`, `push_subscriptions` |
 | `vendor_portal` | none - a facade over procurement, finance, quality and documents, scoped by the token's vendor |
+| `dealer_portal` | `dealer_offers`, `dealer_carts`, `dealer_cart_lines`, `dealer_wishlist_items` - a facade over sales, dispatch and finance, scoped by the token's customer, plus its own schemes, carts and wishlists |
 | `common` | `document_sequences` |
 
 ### Cost centres
@@ -584,6 +585,7 @@ Every transition writes an audit row via `record_status_change`.
 | Goods receipt posted / incoming inspection rejects goods | Also `notify` the vendor's users holding `vendor_portal.access` / `vendor_portal.quality` who can see the order |
 | Vendor bill approved or disputed; payment to a vendor approved or allocated | Also `notify` the vendor's users holding `vendor_portal.invoice` |
 | Vendor invoice approved | `finance.post_journal`: one `PURCHASE_EXPENSE` debit per effective line cost centre (line -> header -> none), input tax, payable |
+| Dealer checkout | One DRAFT `sales_orders` row with `source = DEALER_PORTAL`, server prices and scheme `offer_id`s per line, cart cleared, one `dealer_checkout` audit row, and `notify` the assigned salesperson else `sales_order.approve` holders - all in one transaction, or nothing (§C3-6) |
 | Any write naming a cost centre | `organization.service.require_cost_centre` / `require_cost_centres` (tenant, live, active) before the row is written |
 | Any status change | `audit.record_status_change` in the same transaction |
 
@@ -664,8 +666,36 @@ counted by quality's `open_inspection_count`, reached through a guarded import.
 A vendor's shared-file query verifies the completed PURCHASE_ORDER job's
 `document_id`; labelling an internal upload REPORT does not share it.
 
-### Notification devices and recovery (C1b)
+### Dealer portal core (C3a)
 
+**Portal binding.** `users.customer_id` (nullable FK `customers` CASCADE,
+`ix_users_customer`) binds an account to the dealer portal; the CHECK
+`portal_binding_exclusive` refuses a vendor and a dealer binding together.
+`roles.is_dealer_role` marks the three system dealer roles. A binding must
+name a live DEALER/DISTRIBUTOR customer (§C3-1).
+
+**`dealer_offers`** (TenantMasterEntity) - one percentage scheme: `code`
+(unique per company), `scope_kind` (ALL, CATEGORY, BRAND, ITEM, with the
+matching id column required and the others NULL - CHECKed),
+`audience_price_type` (NULL means every channel), `customer_id` (NULL means
+the audience; set means that dealer's negotiated scheme),
+`min_quantity`, `discount_percentage` (0 < x <= 100), validity window,
+`is_active`, `sort_order`. Best single offer wins; no stacking (§C3-3).
+
+**Cart and wishlist.** `dealer_carts` (TenantEntity + optimistic locking) - one
+per dealer user (`uq` on company and user) carrying that user's dealer.
+`dealer_cart_lines` - item, variant, quantity > 0, unique per cart grain (NULL
+variant folded to the nil-UUID sentinel), no stored price. Same grain for
+`dealer_wishlist_items` per user (§C3-4).
+
+**Sales-order columns.** `sales_orders.source` (`ERP | DEALER_PORTAL`, literal
+CHECK, server default ERP, set by the server only) and
+`sales_order_lines.offer_id` (bare UUID, no FK - the sales table does not
+depend on the portal schema, §C3-3). A line with no explicit discount takes
+the best scheme as its default discount in `price_line`, on ERP orders as well
+as portal ones.
+
+### Notification devices and recovery (C1b)
 PUSH is a channel, after IN_APP and EMAIL. Preferences have constant true
 `push_enabled`; registering a device provides opt-in. Null/omitted updates preserve
 an existing push preference using COALESCE. CRITICAL only overrides an in-app mute.

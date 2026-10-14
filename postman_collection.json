@@ -3610,6 +3610,782 @@
     {
       "item": [
         {
+          "name": "Active brands holding sellable items",
+          "request": {
+            "description": "Active brands holding sellable items",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "catalog",
+                "brands"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/catalog/brands"
+            }
+          }
+        },
+        {
+          "name": "Add a sellable item to the cart",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"quantity\": 0,\n  \"item_variant_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Add a sellable item to the cart",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "cart",
+                "lines"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/cart/lines"
+            }
+          }
+        },
+        {
+          "name": "Cancel the dealer's own DRAFT order, with a reason",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Cancel the dealer's own DRAFT order, with a reason",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "orders",
+                ":order_id",
+                "cancel"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/orders/{order_id}/cancel",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Categories holding sellable active items",
+          "request": {
+            "description": "Categories holding sellable active items",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "catalog",
+                "categories"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/catalog/categories"
+            }
+          }
+        },
+        {
+          "name": "Change a cart line's quantity",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"quantity\": 0\n}"
+            },
+            "description": "Change a cart line's quantity",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PATCH",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "cart",
+                "lines",
+                ":line_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/cart/lines/{line_id}",
+              "variable": [
+                {
+                  "description": "line_id of the record",
+                  "key": "line_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Channel price plus the best offer for a quantity",
+          "request": {
+            "description": "Channel price plus the best offer for a quantity",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "catalog",
+                "items",
+                ":item_id",
+                "price"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "quantity",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "variant_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/catalog/items/{item_id}/price?",
+              "variable": [
+                {
+                  "description": "item_id of the record",
+                  "key": "item_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Dealer-safe tracking: courier, tracking id, dates, events",
+          "request": {
+            "description": "The driver's mobile number and the freight cost are never included.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "dispatches",
+                ":dispatch_id",
+                "tracking"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/dispatches/{dispatch_id}/tracking",
+              "variable": [
+                {
+                  "description": "dispatch_id of the record",
+                  "key": "dispatch_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Empty the cart",
+          "request": {
+            "description": "Empty the cart",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "cart"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/cart"
+            }
+          }
+        },
+        {
+          "name": "Move a saved item into the cart",
+          "request": {
+            "description": "Move a saved item into the cart",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "wishlist",
+                ":entry_id",
+                "move-to-cart"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "quantity",
+                  "value": "0"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/wishlist/{entry_id}/move-to-cart?",
+              "variable": [
+                {
+                  "description": "entry_id of the record",
+                  "key": "entry_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One of the dealer's orders, with fulfilment progress",
+          "request": {
+            "description": "One of the dealer's orders, with fulfilment progress",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "orders",
+                ":order_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/orders/{order_id}",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "One sellable item: variants, slabs, offers, images",
+          "request": {
+            "description": "One sellable item: variants, slabs, offers, images",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "catalog",
+                "items",
+                ":item_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/catalog/items/{item_id}",
+              "variable": [
+                {
+                  "description": "item_id of the record",
+                  "key": "item_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Remove a saved item",
+          "request": {
+            "description": "Remove a saved item",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "wishlist",
+                ":entry_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/wishlist/{entry_id}",
+              "variable": [
+                {
+                  "description": "entry_id of the record",
+                  "key": "entry_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Remove one cart line",
+          "request": {
+            "description": "Remove one cart line",
+            "header": [],
+            "method": "DELETE",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "cart",
+                "lines",
+                ":line_id"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/cart/lines/{line_id}",
+              "variable": [
+                {
+                  "description": "line_id of the record",
+                  "key": "line_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Save an item to the wishlist",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"item_variant_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Save an item to the wishlist",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "wishlist"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/wishlist"
+            }
+          }
+        },
+        {
+          "name": "Sellable items with the dealer channel price, offers and availability",
+          "request": {
+            "description": "category_id covers the whole subtree. Sorting by price is refused with 422: a channel price is a slab ranking plus a fallback and cannot be ordered in the database.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "catalog",
+                "items"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "brand_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "in_stock_only",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "on_offer_only",
+                  "value": "False"
+                },
+                {
+                  "description": "code or name",
+                  "disabled": true,
+                  "key": "sort_by",
+                  "value": "code"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/catalog/items?"
+            }
+          }
+        },
+        {
+          "name": "The consignments raised against one of the dealer's orders",
+          "request": {
+            "description": "The consignments raised against one of the dealer's orders",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "orders",
+                ":order_id",
+                "dispatches"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/orders/{order_id}/dispatches",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "The dealer's overdue position from the receivables ageing",
+          "request": {
+            "description": "The dealer's overdue position from the receivables ageing",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "outstanding"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/outstanding"
+            }
+          }
+        },
+        {
+          "name": "The dealer's own ledger statement",
+          "request": {
+            "description": "The dealer's own ledger statement",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "statement"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                },
+                {
+                  "description": "Statement period start",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Statement period end",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/statement?"
+            }
+          }
+        },
+        {
+          "name": "The dealer's own sales orders",
+          "request": {
+            "description": "The dealer's own sales orders",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "orders"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                },
+                {
+                  "description": "Order or customer PO",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": "DRAFT"
+                },
+                {
+                  "description": "Only orders that still represent unmet demand",
+                  "disabled": true,
+                  "key": "open_only",
+                  "value": "False"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/orders?"
+            }
+          }
+        },
+        {
+          "name": "The dealer's saved items",
+          "request": {
+            "description": "The dealer's saved items",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "wishlist"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/wishlist"
+            }
+          }
+        },
+        {
+          "name": "The priced cart preview: live prices, schemes, tax, credit, warnings",
+          "request": {
+            "description": "The priced cart preview: live prices, schemes, tax, credit, warnings",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "cart"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/cart"
+            }
+          }
+        },
+        {
+          "name": "The signed-in dealer: account, channel, credit, addresses, contacts",
+          "request": {
+            "description": "The signed-in dealer: account, channel, credit, addresses, contacts",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "me"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/me"
+            }
+          }
+        },
+        {
+          "name": "Turn the cart into a DRAFT sales order for sales review",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"cart_version\": 0,\n  \"required_date\": \"2026-01-01\",\n  \"billing_address_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"customer_po_number\": \"\",\n  \"notes\": \"\",\n  \"shipping_address_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Locks the cart and checks its version, re-validates every line, fulfils from the default warehouse, and prices every line on the server with the best scheme. The order stays DRAFT for sales review.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dealer-portal",
+                "checkout"
+              ],
+              "raw": "{{base_url}}/api/v1/dealer-portal/checkout"
+            }
+          }
+        }
+      ],
+      "name": "Dealer Portal"
+    },
+    {
+      "item": [
+        {
           "name": "Amend a consignment that has not left",
           "request": {
             "body": {
@@ -20492,7 +21268,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"code\": \"\",\n  \"name\": \"\",\n  \"description\": \"\",\n  \"is_active\": true,\n  \"is_vendor_role\": false,\n  \"permissions\": [\n    \"\"\n  ]\n}"
+              "raw": "{\n  \"code\": \"\",\n  \"name\": \"\",\n  \"description\": \"\",\n  \"is_active\": true,\n  \"is_dealer_role\": false,\n  \"is_vendor_role\": false,\n  \"permissions\": [\n    \"\"\n  ]\n}"
             },
             "description": "Create a role.\n\nThe caller may only put permissions into it that they hold themselves;\notherwise ``role.manage`` alone would be equivalent to every permission in\nthe system.",
             "header": [
@@ -20574,6 +21350,12 @@
                   "description": "",
                   "disabled": true,
                   "key": "is_vendor_role",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "is_dealer_role",
                   "value": "False"
                 },
                 {
@@ -22070,6 +22852,12 @@
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
+                  "description": "ERP or DEALER_PORTAL",
+                  "disabled": true,
+                  "key": "source",
+                  "value": ""
+                },
+                {
                   "description": "",
                   "disabled": true,
                   "key": "warehouse_id",
@@ -22686,7 +23474,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"email\": \"user@example.com\",\n  \"full_name\": \"\",\n  \"password\": \"\",\n  \"allowed_category_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"allowed_warehouse_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"branch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"denied_permissions\": [\n    \"\"\n  ],\n  \"department_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"employee_code\": \"\",\n  \"extra_permissions\": [\n    \"\"\n  ],\n  \"is_active\": true,\n  \"must_change_password\": true,\n  \"phone\": \"\",\n  \"plant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"preferences\": {},\n  \"role_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"email\": \"user@example.com\",\n  \"full_name\": \"\",\n  \"password\": \"\",\n  \"allowed_category_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"allowed_warehouse_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"branch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"customer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"denied_permissions\": [\n    \"\"\n  ],\n  \"department_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"employee_code\": \"\",\n  \"extra_permissions\": [\n    \"\"\n  ],\n  \"is_active\": true,\n  \"must_change_password\": true,\n  \"phone\": \"\",\n  \"plant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"preferences\": {},\n  \"role_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Create an internal or vendor-portal account.\n\nThe initial password is checked against the policy and hashed with Argon2id;\nit is never stored, logged or echoed back.",
             "header": [
@@ -22850,6 +23638,18 @@
                   "description": "",
                   "disabled": true,
                   "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "True: dealer-portal accounts only. False: everyone else",
+                  "disabled": true,
+                  "key": "is_dealer_user",
+                  "value": "False"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
@@ -23094,7 +23894,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"allowed_category_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"allowed_warehouse_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"branch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"clear_branch\": false,\n  \"clear_department\": false,\n  \"clear_plant\": false,\n  \"clear_vendor\": false,\n  \"denied_permissions\": [\n    \"\"\n  ],\n  \"department_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"email\": \"user@example.com\",\n  \"employee_code\": \"\",\n  \"extra_permissions\": [\n    \"\"\n  ],\n  \"full_name\": \"\",\n  \"must_change_password\": false,\n  \"password\": \"\",\n  \"phone\": \"\",\n  \"plant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"preferences\": {},\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"allowed_category_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"allowed_warehouse_ids\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"branch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"clear_branch\": false,\n  \"clear_customer\": false,\n  \"clear_department\": false,\n  \"clear_plant\": false,\n  \"clear_vendor\": false,\n  \"customer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"denied_permissions\": [\n    \"\"\n  ],\n  \"department_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"email\": \"user@example.com\",\n  \"employee_code\": \"\",\n  \"extra_permissions\": [\n    \"\"\n  ],\n  \"full_name\": \"\",\n  \"must_change_password\": false,\n  \"password\": \"\",\n  \"phone\": \"\",\n  \"plant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"preferences\": {},\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Update a user's profile, placement or direct permission overrides.\n\nDirect grants additionally require ``permission.assign`` and pass the\nprivilege-escalation guard, both enforced by the service - the route cannot\nsee which fields the payload changed relative to the stored row.",
             "header": [

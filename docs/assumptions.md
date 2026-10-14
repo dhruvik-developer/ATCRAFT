@@ -1696,6 +1696,246 @@ device again. Once read, the next occurrence is a new row.
 
 ---
 
+## §C3-1. A dealer account is bound to exactly one dealer-channel customer
+
+**Assumed.** `users.customer_id` (FK `customers`, CASCADE, indexed
+`ix_users_customer`) binds an account to the dealer portal; the CHECK
+`portal_binding_exclusive` refuses a vendor binding and a dealer binding on one
+account. Dealer roles (`roles.is_dealer_role`: DEALER_OWNER, DEALER_BUYER,
+DEALER_ACCOUNTS) may be held only by dealer-bound accounts, and dealer-bound
+accounts may hold only dealer roles - enforced in both directions by
+`assert_portal_role_consistency`, mirroring the vendor rule. A binding must
+name a live customer of type DEALER or DISTRIBUTOR. `dealer_route_allowed`
+keeps dealers on `/dealer-portal/**`, their own `/notifications/**` and auth
+self-service; every `/dealer-portal` route also demands a dealer principal
+(`require_dealer_user`), so staff get 403 `SCOPE_DENIED`. Repository scopes
+(`UserRepository`, `SalesOrderRepository`, `DispatchRepository`) filter dealer
+principals to their own customer as defence in depth, and a foreign order,
+consignment or statement answers 404, never 403.
+
+**Why.** One account must never see two principals' data, and a dealer user who
+also held an internal role would see the tenant's costing and every other
+dealer's book through the internal screens, which the dealer filter does not
+cover.
+
+**Where.** `src/modules/users/models.py` - `customer_id`, `is_dealer_role`;
+`src/modules/users/service.py` - `assert_portal_role_consistency`;
+`src/core/deps.py` - `dealer_route_allowed`, `require_dealer_user`;
+`src/modules/users/repository.py`, `src/modules/sales/repository.py`,
+`src/modules/dispatch/repository.py` - `_scoped`.
+
+**Impact if wrong.** If a dealer account must span several customers, the
+binding becomes a list and every scope, filter and checkout changes with it.
+
+---
+
+## §C3-2. Availability is a band from live free stock, never a quantity
+
+**Assumed.** `availability_band` folds live `available_quantity` summed across
+sellable warehouses (FINISHED_GOODS, PACKING) into IN_STOCK (>=
+`AVAILABILITY_IN_STOCK_AT` = 10), LIMITED (> 0) or MADE_TO_ORDER (0). It is
+read on every catalogue call and never cached; exact quantities are never
+returned. A DISTRIBUTOR channel with no price-list row has no item-master
+fallback column, so the item is `price: null`, `price_on_request: true` and not
+orderable - rather than quietly invoiced at the dealer rate.
+
+**Why.** Exact stock figures are commercially sensitive and go stale; a cached
+band would promise what a reservation has since taken. The distributor channel
+genuinely has no master price, and reusing the dealer one would invoice the
+wrong party at the wrong rate.
+
+**Where.** `src/modules/dealer_portal/models.py` - thresholds and warehouse
+types; `src/modules/dealer_portal/pricing.py` - `availability_band`;
+`src/modules/dealer_portal/service.py` - `_channel_price`.
+
+**Impact if wrong.** If the business wants exact figures for trusted dealers,
+the band becomes a permission-gated quantity; if more warehouse types become
+promisable, `SELLABLE_WAREHOUSE_TYPES` grows.
+
+---
+
+## §C3-3. Schemes are percentage-only, best single offer, explicit wins
+
+**Assumed.** `dealer_offers` carries one percentage rule (0 < x <= 100) with a
+scope (ALL, CATEGORY with subtree matching, BRAND, ITEM), an optional channel
+audience, an optional negotiated `customer_id`, a minimum quantity, a validity
+window and a sort order. The best single offer per line wins - highest
+percentage, then scope specificity, then `sort_order`, then id - and offers
+never stack. One pure function (`select_best_offer`) serves the catalogue, the
+cart, checkout and ERP sales pricing: a sales-order line with no explicit
+discount takes the best scheme as its default `discount_percentage` and stores
+`offer_id` (a bare UUID, no FK, so the sales table never depends on the portal
+schema); an explicit percentage or flat discount always wins and stores no
+scheme. With no offers configured, ERP pricing is byte-for-byte unchanged. A
+header-only re-price keeps a carried scheme citation when the discount is
+unchanged.
+
+**Why.** One matcher means the catalogue, the cart and the order can never
+disagree about what a dealer pays. An explicit discount is a commercial
+decision somebody signed; a scheme is a default. A foreign key from sales to
+the portal schema would make the order table uncreatable without it.
+
+**Where.** `src/modules/dealer_portal/pricing.py` - `select_best_offer`,
+`load_pricing_offers`; `src/modules/sales/service.py` - `price_line`,
+`_build_pricing_context`, `_apply_priced_line`; `src/modules/sales/models.py`
+- `offer_id`.
+
+**Impact if wrong.** Stacking, flat-amount schemes or tiered slabs change the
+matcher and the offer table together; the ERP default follows automatically.
+
+---
+
+## §C3-4. One cart per dealer user
+
+**Assumed.** `dealer_carts` has one row per dealer user (`uq` on company and
+user) carrying that user's dealer; lines carry item, variant and quantity only
+- no stored price. A duplicate grain is refused (change the quantity
+instead); a cart holds at most `MAX_CART_LINES` = 50 grains. The wishlist is
+one row per user, item and variant.
+
+**Why.** The cart is a working draft, not a bulk import: 50 lines always fit
+the checkout payload (sales allows 200), and a price stored on the line would
+go stale the moment the price list moved.
+
+**Where.** `src/modules/dealer_portal/models.py`; `src/modules/dealer_portal/service.py`
+- cart and wishlist methods.
+
+**Impact if wrong.** Raise `MAX_CART_LINES`, or key carts per dealer instead of
+per user - and decide what two users' conflicting drafts merge into.
+
+---
+
+## §C3-5. Dealer checkout fulfils from the default warehouse
+
+**Assumed.** The checkout names no warehouse: it resolves
+`warehouses.is_default` through a new `WarehouseRepository.default_warehouse`
+getter, and refuses when none is flagged. The order still reserves against
+that warehouse on confirmation like any other order.
+
+**Why.** A dealer cannot be asked to pick a warehouse, but a reservation has
+to name the position it is taken against - an order with no warehouse could be
+confirmed but never allocated.
+
+**Where.** `src/modules/warehouses/repository.py` - `default_warehouse`;
+`src/modules/dealer_portal/service.py` - `checkout`.
+
+**Impact if wrong.** If fulfilment must follow the shipping address or the
+item, the checkout resolves the warehouse per line instead.
+
+---
+
+## §C3-6. Portal orders stay DRAFT for sales review, and cancel rather than delete
+
+**Assumed.** Checkout builds `SalesOrderCreate` with no unit price and no
+discount; the server prices, discounts and taxes every line, stamps
+`source = DEALER_PORTAL` (server-only, CHECKed, default ERP, exposed in
+summary/detail and filterable), clears the cart, writes a `dealer_checkout`
+audit row and raises "New order request from \<dealer\>" (`APPROVAL_PENDING`,
+linking the SO page) for the assigned salesperson, else `sales_order.approve`
+holders - all in one outermost transaction. The order stays DRAFT: sales staff
+confirm it, which runs the credit check and reservation. The dealer cancels
+its own DRAFT with a reason; past DRAFT the portal refuses. `delete_draft_order`
+refuses portal-sourced drafts - a delete would silently drop an order the desk
+may already be reviewing.
+
+**Why.** A dealer order is a request, not a commitment: stock and credit move
+only when sales confirms. Cancelling keeps the trail the dealer and the desk
+both read; deleting would fork it.
+
+**Where.** `src/modules/sales/models.py` - `source`;
+`src/modules/sales/service.py` - `create_order(source=...)`,
+`delete_draft_order`; `src/modules/dealer_portal/service.py` - `checkout`,
+`cancel_order`.
+
+**Impact if wrong.** If trusted dealers may self-confirm, checkout confirms
+orders whose credit check passes - and the notification becomes informational.
+
+---
+
+## §C3-7. Dealer tracking drops the driver and the freight
+
+**Assumed.** The tracking projection carries courier or transporter name,
+tracking id, LR number, dispatched/expected/actual dates and the event history
+(status, time, location, remark) - but never `driver_mobile` and never freight
+fields. The feed is a bounded newest-first read (`TRACKING_EVENT_LIMIT` =
+200), not a cursor: a consignment's history is short and the dealer always
+sees the whole of it.
+
+**Why.** The driver's phone number is personal data and the freight cost is an
+internal commercial; neither is the dealer's to have. A cursor would page a
+feed nobody pages.
+
+**Where.** `src/modules/dealer_portal/service.py` - `dispatch_tracking`;
+`src/modules/dealer_portal/schemas.py` - `DealerTracking`.
+
+**Impact if wrong.** If dealers must call the driver, expose the number behind
+a separate right rather than widening this projection.
+
+---
+
+## §C3-8. Item detail carries the shape D5 will fill
+
+**Assumed.** The detail returns variants with their own channel price, the
+current channel slabs, the applicable schemes, HSN, GST rate, description,
+`can_return` and up to `CATALOGUE_MAX_IMAGES` = 8 image ids. Specifications
+and accessories return in their shapes but empty: their masters belong to WP
+D5, which does not exist yet, and this package invents no tables another
+package owns.
+
+**Why.** The screen contract is stable while the masters land; inventing
+specification tables here would collide with D5's the day it arrives
+(CLAUDE.md: never hand-write another module's table).
+
+**Where.** `src/modules/dealer_portal/service.py` - `catalog_item`.
+
+**Impact if wrong.** When D5 lands, the two empty lists are filled from its
+batch helper with no contract break.
+
+---
+
+## §C3-9. Catalogue paging limits: price sort refused, offer filter coarse
+
+**Assumed.** `GET /catalog/items` sorts by `code` or `name` in SQL; `sort_by =
+price` is refused with 422 naming the allowed fields, because a channel price
+is a slab ranking plus a fallback and cannot be ordered in the database.
+`on_offer_only` prefilters in SQL on schemes that *could* apply and matches
+exactly per row in Python (CATEGORY scopes need the subtree), so a page can
+come back short and the total is the coarse one. A cart holds at most 50 lines
+(§C3-4), well under the sales-order bound.
+
+**Why.** Refusing an unorderable sort beats returning a wrong order; resolving
+every CATEGORY scope in SQL would join the category tree into the page query
+for a filter most calls do not use.
+
+**Where.** `src/modules/dealer_portal/repository.py` - `page_items`;
+`src/modules/dealer_portal/service.py` - `catalog_items`.
+
+**Impact if wrong.** If price sorting becomes a requirement, it needs a
+materialised channel-price column with its own invalidation - which is a cache
+on inventory-adjacent data and needs a decision, not a query tweak.
+
+---
+
+## §C3-10. Overdue invoices wait for sales invoicing
+
+**Assumed.** `GET /outstanding` returns the receivables ageing for the dealer
+(overdue = total less not-due, oldest due date, open document count) with an
+empty `overdue_invoices` list: sales invoices are not in this release, so
+there is no invoice document to name, and the FIFO-netted ageing is the
+overdue position.
+
+**Why.** A placeholder row inventing invoice numbers would be mistaken for a
+receivable that exists; the ageing is the honest position until invoicing
+lands.
+
+**Where.** `src/modules/dealer_portal/service.py` - `outstanding`;
+`src/modules/dealer_portal/schemas.py` - `DealerOutstanding`.
+
+**Impact if wrong.** When sales invoices land, the list names them per the
+finance overdue shape.
+
+---
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant

@@ -238,6 +238,40 @@ consignment companions - also carry `forbid_vendor_users` as a second line.
 
 ---
 
+## Dealer portal isolation
+
+Dealer users share `users` and carry `customer_id` pointing at a DEALER or
+DISTRIBUTOR customer - never a vendor id alongside it. Their isolation mirrors
+the vendor portal's, decision for decision:
+
+1. **Route allow-list.** `core.deps.get_current_principal` lets a dealer
+   principal reach only `/dealer-portal/**`, its own `/notifications/**` and
+   auth self-service. Every other authenticated route answers 403
+   `SCOPE_DENIED` before a handler runs, whatever permissions the account's
+   roles carry. The predicate (`dealer_route_allowed`, docs/assumptions.md
+   §C3-1) matches whole path segments.
+2. **Portal rights.** The three system dealer roles hold only
+   `dealer_portal.browse`, `.order`, `.account`, `.return` and
+   `notification.view` (none ends in `.view`, so the AUDITOR bundle does not
+   absorb them). Each portal route names its right literally.
+3. **Dealer principals only.** Every portal route also requires a dealer
+   principal (`require_dealer_user`): an internal administrator holds every
+   permission string and still gets 403.
+4. **Ownership is "not found".** The dealer comes from the verified token; no
+   portal request carries a customer id. `SalesOrderRepository._scoped` and
+   `DispatchRepository._scoped` confine a dealer principal to its own
+   customer's rows, and the portal checks ownership before reading an order,
+   its consignments, its tracking or its statement. Another dealer's order,
+   consignment, tracking or statement answers 404.
+5. **Allow-listed responses.** Portal read models name their fields. Standard
+   cost, exact stock quantities, approval evidence, driver mobile numbers and
+   freight costs are not in them (docs/assumptions.md §C3-2, §C3-7).
+6. **Notifications** about a dealer order go to the assigned salesperson, else
+   `sales_order.approve` holders - internal users only, never the dealer
+   (§C3-6).
+
+---
+
 ## 5. Input validation
 
 Pydantic v2 validates every request body, query parameter and path parameter.

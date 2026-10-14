@@ -164,7 +164,7 @@ execution    production · assembly · job_work
    ↓
 downstream   quality · packing · dispatch · finance · reports
    ↓
-portals      vendor_portal
+portals      vendor_portal · dealer_portal
 ```
 
 Dependencies point downward only. A master-data module must never import from an
@@ -183,6 +183,21 @@ the vendor taken from the verified token, and returns allow-listed read models.
 A vendor account cannot reach any other module: `core.deps` refuses every route
 outside `/vendor-portal/**`, `/notifications/**` and auth self-service for a
 principal with a `vendor_id` (docs/security.md section 4).
+
+`dealer_portal` (WP C3a) sits downstream of sales and owns four tables:
+`dealer_offers` (percentage schemes, also used as ERP sales-order defaults),
+`dealer_carts` and `dealer_cart_lines` (quantities only - prices are read
+live), and `dealer_wishlist_items`. It is the dealer's whole surface:
+catalogue with channel pricing and availability bands, cart, wishlist,
+checkout to a DRAFT sales order, orders, dealer-safe tracking, statement and
+outstanding - a facade over sales, dispatch and finance with the customer
+taken from the verified token, returning allow-listed read models. Sales
+reaches the scheme matcher through a deferred import (the allocation seam
+pattern), because the portal imports sales for checkout and a top-level import
+would cycle. A dealer account cannot reach any other module: `core.deps`
+refuses every route outside `/dealer-portal/**`, `/notifications/**` and auth
+self-service for a principal with a `customer_id` (docs/security.md, Dealer
+portal isolation).
 
 ## The two data patterns that matter
 

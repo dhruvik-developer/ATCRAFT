@@ -1286,6 +1286,358 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/dealer-portal/cart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The priced cart preview: live prices, schemes, tax, credit, warnings */
+        get: operations["get_cart_api_v1_dealer_portal_cart_get"];
+        put?: never;
+        post?: never;
+        /** Empty the cart */
+        delete: operations["clear_cart_api_v1_dealer_portal_cart_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/cart/lines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add a sellable item to the cart */
+        post: operations["add_cart_line_api_v1_dealer_portal_cart_lines_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/cart/lines/{line_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove one cart line */
+        delete: operations["remove_cart_line_api_v1_dealer_portal_cart_lines__line_id__delete"];
+        options?: never;
+        head?: never;
+        /** Change a cart line's quantity */
+        patch: operations["update_cart_line_api_v1_dealer_portal_cart_lines__line_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/catalog/brands": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Active brands holding sellable items */
+        get: operations["catalog_brands_api_v1_dealer_portal_catalog_brands_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/catalog/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Categories holding sellable active items */
+        get: operations["catalog_categories_api_v1_dealer_portal_catalog_categories_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/catalog/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sellable items with the dealer channel price, offers and availability
+         * @description category_id covers the whole subtree. Sorting by price is refused with 422: a channel price is a slab ranking plus a fallback and cannot be ordered in the database.
+         */
+        get: operations["catalog_items_api_v1_dealer_portal_catalog_items_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/catalog/items/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One sellable item: variants, slabs, offers, images */
+        get: operations["catalog_item_api_v1_dealer_portal_catalog_items__item_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/catalog/items/{item_id}/price": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Channel price plus the best offer for a quantity */
+        get: operations["catalog_item_price_api_v1_dealer_portal_catalog_items__item_id__price_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/checkout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn the cart into a DRAFT sales order for sales review
+         * @description Locks the cart and checks its version, re-validates every line, fulfils from the default warehouse, and prices every line on the server with the best scheme. The order stays DRAFT for sales review.
+         */
+        post: operations["checkout_api_v1_dealer_portal_checkout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/dispatches/{dispatch_id}/tracking": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Dealer-safe tracking: courier, tracking id, dates, events
+         * @description The driver's mobile number and the freight cost are never included.
+         */
+        get: operations["dispatch_tracking_api_v1_dealer_portal_dispatches__dispatch_id__tracking_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The signed-in dealer: account, channel, credit, addresses, contacts */
+        get: operations["me_api_v1_dealer_portal_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The dealer's own sales orders */
+        get: operations["list_orders_api_v1_dealer_portal_orders_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/orders/{order_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One of the dealer's orders, with fulfilment progress */
+        get: operations["get_order_api_v1_dealer_portal_orders__order_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/orders/{order_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel the dealer's own DRAFT order, with a reason */
+        post: operations["cancel_order_api_v1_dealer_portal_orders__order_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/orders/{order_id}/dispatches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The consignments raised against one of the dealer's orders */
+        get: operations["list_order_dispatches_api_v1_dealer_portal_orders__order_id__dispatches_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/outstanding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The dealer's overdue position from the receivables ageing */
+        get: operations["outstanding_api_v1_dealer_portal_outstanding_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/statement": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The dealer's own ledger statement */
+        get: operations["statement_api_v1_dealer_portal_statement_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/wishlist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The dealer's saved items */
+        get: operations["list_wishlist_api_v1_dealer_portal_wishlist_get"];
+        put?: never;
+        /** Save an item to the wishlist */
+        post: operations["add_wishlist_item_api_v1_dealer_portal_wishlist_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/wishlist/{entry_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a saved item */
+        delete: operations["remove_wishlist_item_api_v1_dealer_portal_wishlist__entry_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/dealer-portal/wishlist/{entry_id}/move-to-cart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move a saved item into the cart */
+        post: operations["move_wishlist_to_cart_api_v1_dealer_portal_wishlist__entry_id__move_to_cart_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/dispatch": {
         parameters: {
             query?: never;
@@ -8777,6 +9129,118 @@ export interface components {
              */
             success: boolean;
         };
+        /** ApiResponse[DealerCartRead] */
+        ApiResponse_DealerCartRead_: {
+            data?: components["schemas"]["DealerCartRead"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[DealerCatalogItemDetail] */
+        ApiResponse_DealerCatalogItemDetail_: {
+            data?: components["schemas"]["DealerCatalogItemDetail"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[DealerOrderDetail] */
+        ApiResponse_DealerOrderDetail_: {
+            data?: components["schemas"]["DealerOrderDetail"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[DealerOutstanding] */
+        ApiResponse_DealerOutstanding_: {
+            data?: components["schemas"]["DealerOutstanding"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[DealerPortalMe] */
+        ApiResponse_DealerPortalMe_: {
+            data?: components["schemas"]["DealerPortalMe"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[DealerPriceQuote] */
+        ApiResponse_DealerPriceQuote_: {
+            data?: components["schemas"]["DealerPriceQuote"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[DealerTracking] */
+        ApiResponse_DealerTracking_: {
+            data?: components["schemas"]["DealerTracking"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[DealerWishlistRead] */
+        ApiResponse_DealerWishlistRead_: {
+            data?: components["schemas"]["DealerWishlistRead"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
         /** ApiResponse[DecisionResponse] */
         ApiResponse_DecisionResponse_: {
             data?: components["schemas"]["DecisionResponse"] | null;
@@ -10476,6 +10940,66 @@ export interface components {
              */
             success: boolean;
         };
+        /** ApiResponse[list[DealerBrandRead]] */
+        ApiResponse_list_DealerBrandRead__: {
+            /** Data */
+            data?: components["schemas"]["DealerBrandRead"][] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[list[DealerCategoryNode]] */
+        ApiResponse_list_DealerCategoryNode__: {
+            /** Data */
+            data?: components["schemas"]["DealerCategoryNode"][] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[list[DealerDispatchSummary]] */
+        ApiResponse_list_DealerDispatchSummary__: {
+            /** Data */
+            data?: components["schemas"]["DealerDispatchSummary"][] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[list[DealerWishlistRead]] */
+        ApiResponse_list_DealerWishlistRead__: {
+            /** Data */
+            data?: components["schemas"]["DealerWishlistRead"][] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
         /** ApiResponse[list[NotificationPreferenceRead]] */
         ApiResponse_list_NotificationPreferenceRead__: {
             /** Data */
@@ -11083,6 +11607,12 @@ export interface components {
             /** Roles */
             roles?: string[];
         };
+        /**
+         * AvailabilityBand
+         * @description A stock indication that does not reveal a quantity.
+         * @enum {string}
+         */
+        AvailabilityBand: "IN_STOCK" | "LIMITED" | "MADE_TO_ORDER";
         /**
          * AvailabilityRead
          * @description Answer to "how much can I promise?" - never served from cache (section 34).
@@ -13457,6 +13987,686 @@ export interface components {
             stock_refreshed_at?: string | null;
             /** Stock Value */
             stock_value: string;
+        };
+        /** DealerAccessoryRead */
+        DealerAccessoryRead: {
+            /**
+             * Accessory Item Id
+             * Format: uuid
+             */
+            accessory_item_id: string;
+            /** Code */
+            code: string;
+            /** In The Box */
+            in_the_box: boolean;
+            /** Name */
+            name: string;
+            /** Price */
+            price: string | null;
+            /** Price On Request */
+            price_on_request: boolean;
+            /** Quantity */
+            quantity: string;
+            /** Relation */
+            relation: string;
+        };
+        /** DealerAddressRead */
+        DealerAddressRead: {
+            /** Address Line1 */
+            address_line1: string;
+            /** Address Type */
+            address_type: string;
+            /** City */
+            city: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Is Default */
+            is_default: boolean;
+            /** Label */
+            label: string | null;
+            /** Postal Code */
+            postal_code: string | null;
+            /** State */
+            state: string | null;
+            /** State Code */
+            state_code: string | null;
+        };
+        /** DealerBrandRead */
+        DealerBrandRead: {
+            /** Code */
+            code: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /** DealerCancelRequest */
+        DealerCancelRequest: {
+            /** Reason */
+            reason: string;
+        };
+        /** DealerCartLineIn */
+        DealerCartLineIn: {
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Item Variant Id */
+            item_variant_id?: string | null;
+            /** Quantity */
+            quantity: number | string;
+        };
+        /** DealerCartLineRead */
+        DealerCartLineRead: {
+            /** Discount Percentage */
+            discount_percentage: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Item Code */
+            item_code: string;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Item Name */
+            item_name: string;
+            /** Item Variant Id */
+            item_variant_id: string | null;
+            /** Line Total */
+            line_total: string | null;
+            /** Net Amount */
+            net_amount: string | null;
+            offer: components["schemas"]["DealerOfferSnippet"] | null;
+            /** Price On Request */
+            price_on_request: boolean;
+            /** Quantity */
+            quantity: string;
+            /** Tax Amount */
+            tax_amount: string | null;
+            /** Unit Price */
+            unit_price: string | null;
+            /** Warnings */
+            warnings: components["schemas"]["DealerCartWarning"][];
+        };
+        /** DealerCartLineUpdate */
+        DealerCartLineUpdate: {
+            /** Quantity */
+            quantity: number | string;
+        };
+        /** DealerCartRead */
+        DealerCartRead: {
+            /** Cart Id */
+            cart_id: string | null;
+            /** Cart Version */
+            cart_version: number | null;
+            credit: components["schemas"]["DealerCreditPosition"];
+            /** Discount Amount */
+            discount_amount: string;
+            /** Lines */
+            lines: components["schemas"]["DealerCartLineRead"][];
+            /** Subtotal */
+            subtotal: string;
+            /** Tax Amount */
+            tax_amount: string;
+            /** Total Amount */
+            total_amount: string;
+            /** Warnings */
+            warnings: components["schemas"]["DealerCartWarning"][];
+        };
+        /** DealerCartWarning */
+        DealerCartWarning: {
+            /** Code */
+            code: string;
+            /** Line Id */
+            line_id?: string | null;
+            /** Message */
+            message: string;
+        };
+        /** DealerCatalogItem */
+        DealerCatalogItem: {
+            availability_band: components["schemas"]["AvailabilityBand"];
+            best_offer: components["schemas"]["DealerOfferSnippet"] | null;
+            /** Brand Id */
+            brand_id: string | null;
+            /** Category Id */
+            category_id: string | null;
+            /** Code */
+            code: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** In Cart Quantity */
+            in_cart_quantity: string;
+            /** In Wishlist */
+            in_wishlist: boolean;
+            /** Name */
+            name: string;
+            /** Orderable */
+            orderable: boolean;
+            /** Price */
+            price: string | null;
+            /** Price On Request */
+            price_on_request: boolean;
+            /** Primary Image Id */
+            primary_image_id: string | null;
+        };
+        /** DealerCatalogItemDetail */
+        DealerCatalogItemDetail: {
+            /** Accessories */
+            accessories: components["schemas"]["DealerAccessoryRead"][];
+            availability_band: components["schemas"]["AvailabilityBand"];
+            best_offer: components["schemas"]["DealerOfferSnippet"] | null;
+            /** Brand Id */
+            brand_id: string | null;
+            /** Can Return */
+            can_return: boolean;
+            /** Category Id */
+            category_id: string | null;
+            /** Code */
+            code: string;
+            /** Description */
+            description: string | null;
+            /** Gst Rate */
+            gst_rate: string;
+            /** Hsn Code */
+            hsn_code: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Image Ids */
+            image_ids: string[];
+            /** In Cart Quantity */
+            in_cart_quantity: string;
+            /** In Wishlist */
+            in_wishlist: boolean;
+            /** Name */
+            name: string;
+            /** Offers */
+            offers: components["schemas"]["DealerOfferSnippet"][];
+            /** Orderable */
+            orderable: boolean;
+            /** Price */
+            price: string | null;
+            /** Price On Request */
+            price_on_request: boolean;
+            /** Primary Image Id */
+            primary_image_id: string | null;
+            /** Slabs */
+            slabs: components["schemas"]["DealerPriceSlab"][];
+            /** Specifications */
+            specifications: components["schemas"]["DealerSpecificationRead"][];
+            /** Variants */
+            variants: components["schemas"]["DealerVariantRead"][];
+        };
+        /** DealerCategoryNode */
+        DealerCategoryNode: {
+            /** Code */
+            code: string;
+            /** Depth */
+            depth: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Parent Id */
+            parent_id: string | null;
+        };
+        /** DealerCheckoutRequest */
+        DealerCheckoutRequest: {
+            /** Billing Address Id */
+            billing_address_id?: string | null;
+            /** Cart Version */
+            cart_version: number;
+            /** Customer Po Number */
+            customer_po_number?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Required Date
+             * Format: date
+             */
+            required_date: string;
+            /** Shipping Address Id */
+            shipping_address_id?: string | null;
+        };
+        /** DealerContactRead */
+        DealerContactRead: {
+            /** Designation */
+            designation: string | null;
+            /** Email */
+            email: string | null;
+            /** Name */
+            name: string;
+            /** Phone */
+            phone: string | null;
+        };
+        /** DealerCreditPosition */
+        DealerCreditPosition: {
+            /** Credit Days */
+            credit_days: number;
+            /** Credit Limit */
+            credit_limit: string | null;
+            /** Exposure */
+            exposure: string;
+            /** Failure Reason */
+            failure_reason: string | null;
+            /** Headroom */
+            headroom: string | null;
+            /** Is Blocked */
+            is_blocked: boolean;
+            /** Is Unlimited */
+            is_unlimited: boolean;
+            /** Order Value */
+            order_value: string;
+            /** Outstanding Amount */
+            outstanding_amount: string;
+            /** Within Limit */
+            within_limit: boolean;
+        };
+        /** DealerDispatchSummary */
+        DealerDispatchSummary: {
+            /** Actual Delivery Date */
+            actual_delivery_date: string | null;
+            /** Code */
+            code: string;
+            /** Courier Name */
+            courier_name: string | null;
+            /**
+             * Dispatch Date
+             * Format: date
+             */
+            dispatch_date: string;
+            /** Dispatched At */
+            dispatched_at: string | null;
+            /** Expected Delivery Date */
+            expected_delivery_date: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Lr Number */
+            lr_number: string | null;
+            /** Status */
+            status: string;
+            /** Tracking Id */
+            tracking_id: string | null;
+            /** Transport Name */
+            transport_name: string | null;
+        };
+        /** DealerOfferSnippet */
+        DealerOfferSnippet: {
+            /** Code */
+            code: string;
+            /** Discount Percentage */
+            discount_percentage: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Min Quantity */
+            min_quantity: string;
+            scope_kind: components["schemas"]["OfferScopeKind"];
+            /** Title */
+            title: string;
+        };
+        /** DealerOrderDetail */
+        DealerOrderDetail: {
+            /** Code */
+            code: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Currency */
+            currency: string;
+            /** Customer Po Number */
+            customer_po_number: string | null;
+            /** Discount Amount */
+            discount_amount: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Line Count */
+            line_count: number;
+            /** Lines */
+            lines: components["schemas"]["DealerOrderLineRead"][];
+            /** Notes */
+            notes: string | null;
+            /**
+             * Order Date
+             * Format: date
+             */
+            order_date: string;
+            /**
+             * Required Date
+             * Format: date
+             */
+            required_date: string;
+            /** Source */
+            source: string;
+            status: components["schemas"]["SalesOrderStatus"];
+            /** Subtotal */
+            subtotal: string;
+            /** Tax Amount */
+            tax_amount: string;
+            /** Total Amount */
+            total_amount: string;
+        };
+        /** DealerOrderLineRead */
+        DealerOrderLineRead: {
+            /** Allocated Quantity */
+            allocated_quantity: string;
+            allocation_status: components["schemas"]["SalesOrderLineStatus"];
+            /** Discount Percentage */
+            discount_percentage: string;
+            /** Dispatched Quantity */
+            dispatched_quantity: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Invoiced Quantity */
+            invoiced_quantity: string;
+            /** Item Code */
+            item_code: string;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Item Name */
+            item_name: string;
+            /** Item Variant Id */
+            item_variant_id: string | null;
+            /** Line Number */
+            line_number: number;
+            /** Line Total */
+            line_total: string;
+            /** Offer Id */
+            offer_id: string | null;
+            /** Quantity */
+            quantity: string;
+            /** Tax Amount */
+            tax_amount: string;
+            /** Unit Price */
+            unit_price: string;
+        };
+        /** DealerOrderSummary */
+        DealerOrderSummary: {
+            /** Code */
+            code: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Currency */
+            currency: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Line Count */
+            line_count: number;
+            /**
+             * Order Date
+             * Format: date
+             */
+            order_date: string;
+            /**
+             * Required Date
+             * Format: date
+             */
+            required_date: string;
+            /** Source */
+            source: string;
+            status: components["schemas"]["SalesOrderStatus"];
+            /** Total Amount */
+            total_amount: string;
+        };
+        /** DealerOutstanding */
+        DealerOutstanding: {
+            /** Ageing Not Due */
+            ageing_not_due: string;
+            /** Ageing Total Outstanding */
+            ageing_total_outstanding: string;
+            /** Currency */
+            currency: string;
+            /** Oldest Due Date */
+            oldest_due_date: string | null;
+            /** Open Document Count */
+            open_document_count: number;
+            /** Overdue Amount */
+            overdue_amount: string;
+            /** Overdue Invoices */
+            overdue_invoices: components["schemas"]["DealerOverdueInvoice"][];
+        };
+        /**
+         * DealerOverdueInvoice
+         * @description A placeholder row for a sales invoice that is past due.
+         *
+         *     Sales invoices are not in this release. The list stays empty and the ageing
+         *     report is the overdue position. ASSUMPTION: docs/assumptions.md §C3-10.
+         */
+        DealerOverdueInvoice: {
+            /** Currency */
+            currency: string;
+            /** Document Code */
+            document_code: string;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /** Due Date */
+            due_date: string | null;
+            /** Outstanding Amount */
+            outstanding_amount: string;
+        };
+        /** DealerPortalMe */
+        DealerPortalMe: {
+            /** Addresses */
+            addresses: components["schemas"]["DealerAddressRead"][];
+            credit: components["schemas"]["DealerCreditPosition"];
+            /** Customer Code */
+            customer_code: string;
+            /**
+             * Customer Id
+             * Format: uuid
+             */
+            customer_id: string;
+            /** Customer Name */
+            customer_name: string;
+            /** Customer Type */
+            customer_type: string;
+            /** Price List Type */
+            price_list_type: string;
+            primary_contact: components["schemas"]["DealerContactRead"] | null;
+            sales_person: components["schemas"]["DealerSalesPerson"] | null;
+        };
+        /** DealerPriceQuote */
+        DealerPriceQuote: {
+            /** Discount Percentage */
+            discount_percentage: string;
+            /** Gross Unit */
+            gross_unit: string | null;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Net Unit */
+            net_unit: string | null;
+            offer: components["schemas"]["DealerOfferSnippet"] | null;
+            /** Price On Request */
+            price_on_request: boolean;
+            /** Quantity */
+            quantity: string;
+            /** Tax Estimate */
+            tax_estimate: string | null;
+            /** Tax Rate */
+            tax_rate: string;
+            /** Variant Id */
+            variant_id: string | null;
+        };
+        /** DealerPriceSlab */
+        DealerPriceSlab: {
+            /** Min Quantity */
+            min_quantity: string;
+            /** Price */
+            price: string;
+            /** Valid From */
+            valid_from: string | null;
+            /** Valid To */
+            valid_to: string | null;
+            /** Variant Id */
+            variant_id: string | null;
+        };
+        /**
+         * DealerSalesPerson
+         * @description Name and phone only. The salesperson's email is not a dealer's to have.
+         */
+        DealerSalesPerson: {
+            /** Name */
+            name: string;
+            /** Phone */
+            phone: string | null;
+        };
+        /** DealerSpecificationRead */
+        DealerSpecificationRead: {
+            /** Name */
+            name: string;
+            /** Unit */
+            unit: string | null;
+            /** Value */
+            value: string;
+        };
+        /**
+         * DealerTracking
+         * @description A consignment a dealer may see. Driver mobile and freight are absent.
+         */
+        DealerTracking: {
+            /** Actual Delivery Date */
+            actual_delivery_date: string | null;
+            /** Code */
+            code: string;
+            /** Courier Name */
+            courier_name: string | null;
+            /**
+             * Dispatch Date
+             * Format: date
+             */
+            dispatch_date: string;
+            /** Dispatched At */
+            dispatched_at: string | null;
+            /** Events */
+            events: components["schemas"]["DealerTrackingEvent"][];
+            /** Expected Delivery Date */
+            expected_delivery_date: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Lr Number */
+            lr_number: string | null;
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Status */
+            status: string;
+            /** Tracking Id */
+            tracking_id: string | null;
+            /** Transport Name */
+            transport_name: string | null;
+        };
+        /** DealerTrackingEvent */
+        DealerTrackingEvent: {
+            /** Event Status */
+            event_status: string;
+            /**
+             * Event Time
+             * Format: date-time
+             */
+            event_time: string;
+            /** Location */
+            location: string | null;
+            /** Remark */
+            remark: string | null;
+        };
+        /** DealerVariantRead */
+        DealerVariantRead: {
+            /** Code */
+            code: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Is Active */
+            is_active: boolean;
+            /** Price */
+            price: string | null;
+            /** Price On Request */
+            price_on_request: boolean;
+        };
+        /** DealerWishlistIn */
+        DealerWishlistIn: {
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Item Variant Id */
+            item_variant_id?: string | null;
+        };
+        /** DealerWishlistRead */
+        DealerWishlistRead: {
+            availability_band: components["schemas"]["AvailabilityBand"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Item Code */
+            item_code: string;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Item Name */
+            item_name: string;
+            /** Item Variant Id */
+            item_variant_id: string | null;
+            /** Price */
+            price: string | null;
+            /** Price On Request */
+            price_on_request: boolean;
         };
         /**
          * DecideRequest
@@ -16932,6 +18142,8 @@ export interface components {
             company_id: string;
             /** Company Name */
             company_name: string;
+            /** Customer Id */
+            customer_id?: string | null;
             /** Department Id */
             department_id?: string | null;
             /** Email */
@@ -17541,6 +18753,12 @@ export interface components {
          */
         NotificationType: "APPROVAL_PENDING" | "APPROVAL_GRANTED" | "APPROVAL_REJECTED" | "PURCHASE_ORDER_DELAYED" | "PRODUCTION_ORDER_DELAYED" | "JOB_WORK_OVERDUE" | "DISPATCH_DELAYED" | "SALES_ORDER_AT_RISK" | "STOCK_BELOW_REORDER" | "STOCK_SHORTAGE" | "ALLOCATION_CHANGED" | "QC_INSPECTION_PENDING" | "QC_FAILED" | "GOODS_RECEIPT_POSTED" | "PAYMENT_DUE" | "MRP_RUN_COMPLETED" | "REPORT_READY" | "BACKGROUND_JOB_COMPLETED" | "BACKGROUND_JOB_FAILED" | "PURCHASE_ORDER_SENT" | "PURCHASE_ORDER_ACKNOWLEDGED" | "PURCHASE_ORDER_DECLINED" | "PURCHASE_ORDER_DATE_CHANGED" | "PURCHASE_ORDER_READY" | "PURCHASE_ORDER_SHIPPED" | "VENDOR_INVOICE_STATUS" | "VENDOR_PAYMENT_RECORDED" | "SYSTEM_ANNOUNCEMENT";
         /**
+         * OfferScopeKind
+         * @description What an offer applies to. The matching id column is required; the others are null.
+         * @enum {string}
+         */
+        OfferScopeKind: "ALL" | "CATEGORY" | "BRAND" | "ITEM";
+        /**
          * OffsetPagination
          * @description Page/limit metadata.
          *
@@ -18127,6 +19345,38 @@ export interface components {
         PaginatedResponse_CustomerSummary_: {
             /** Data */
             data?: components["schemas"]["CustomerSummary"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** PaginatedResponse[DealerCatalogItem] */
+        PaginatedResponse_DealerCatalogItem_: {
+            /** Data */
+            data?: components["schemas"]["DealerCatalogItem"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** PaginatedResponse[DealerOrderSummary] */
+        PaginatedResponse_DealerOrderSummary_: {
+            /** Data */
+            data?: components["schemas"]["DealerOrderSummary"][];
             /**
              * Message
              * @default Operation completed successfully
@@ -23348,6 +24598,11 @@ export interface components {
              */
             is_active: boolean;
             /**
+             * Is Dealer Role
+             * @default false
+             */
+            is_dealer_role: boolean;
+            /**
              * Is Vendor Role
              * @default false
              */
@@ -23378,6 +24633,8 @@ export interface components {
             id: string;
             /** Is Active */
             is_active: boolean;
+            /** Is Dealer Role */
+            is_dealer_role: boolean;
             /** Is System */
             is_system: boolean;
             /** Is Vendor Role */
@@ -23424,6 +24681,8 @@ export interface components {
             id: string;
             /** Is Active */
             is_active: boolean;
+            /** Is Dealer Role */
+            is_dealer_role: boolean;
             /** Is System */
             is_system: boolean;
             /** Is Vendor Role */
@@ -23443,7 +24702,8 @@ export interface components {
          *
          *     ``is_vendor_role`` is not updatable either - flipping it would, in a single
          *     statement, either strip the portal boundary from every holder or make every
-         *     holder illegal. Create the role you actually want and reassign.
+         *     holder illegal. Create the role you actually want and reassign. The same
+         *     holds for ``is_dealer_role`` (docs/assumptions.md §C3-1).
          */
         RoleUpdate: {
             /** Description */
@@ -23872,6 +25132,8 @@ export interface components {
             requires_approval: boolean;
             /** Shipping Address Id */
             shipping_address_id: string | null;
+            /** Source */
+            source: string;
             status: components["schemas"]["SalesOrderStatus"];
             /** Subtotal */
             subtotal: string;
@@ -23961,6 +25223,8 @@ export interface components {
             line_total: string;
             /** Notes */
             notes: string | null;
+            /** Offer Id */
+            offer_id: string | null;
             /** Quantity */
             quantity: string;
             /** Required Date */
@@ -24066,6 +25330,8 @@ export interface components {
             required_date: string;
             /** Requires Approval */
             requires_approval: boolean;
+            /** Source */
+            source: string;
             status: components["schemas"]["SalesOrderStatus"];
             /** Subtotal */
             subtotal: string;
@@ -25494,6 +26760,8 @@ export interface components {
             allowed_warehouse_ids?: string[];
             /** Branch Id */
             branch_id?: string | null;
+            /** Customer Id */
+            customer_id?: string | null;
             /** Denied Permissions */
             denied_permissions?: string[];
             /** Department Id */
@@ -25550,6 +26818,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Customer Id */
+            customer_id: string | null;
             /** Denied Permissions */
             denied_permissions?: string[];
             /** Department Id */
@@ -25571,6 +26841,11 @@ export interface components {
             id: string;
             /** Is Active */
             is_active: boolean;
+            /**
+             * Is Dealer User
+             * @default false
+             */
+            is_dealer_user: boolean;
             /** Is Superuser */
             is_superuser: boolean;
             /**
@@ -25624,6 +26899,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Customer Id */
+            customer_id: string | null;
             /** Department Id */
             department_id: string | null;
             /** Email */
@@ -25681,6 +26958,11 @@ export interface components {
              */
             clear_branch: boolean;
             /**
+             * Clear Customer
+             * @default false
+             */
+            clear_customer: boolean;
+            /**
              * Clear Department
              * @default false
              */
@@ -25695,6 +26977,8 @@ export interface components {
              * @default false
              */
             clear_vendor: boolean;
+            /** Customer Id */
+            customer_id?: string | null;
             /** Denied Permissions */
             denied_permissions?: string[] | null;
             /** Department Id */
@@ -36508,6 +37792,2204 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_CustomerDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_cart_api_v1_dealer_portal_cart_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_DealerCartRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    clear_cart_api_v1_dealer_portal_cart_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_DealerCartRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    add_cart_line_api_v1_dealer_portal_cart_lines_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DealerCartLineIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_DealerCartRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    remove_cart_line_api_v1_dealer_portal_cart_lines__line_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_DealerCartRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_cart_line_api_v1_dealer_portal_cart_lines__line_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DealerCartLineUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_DealerCartRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    catalog_brands_api_v1_dealer_portal_catalog_brands_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_list_DealerBrandRead__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    catalog_categories_api_v1_dealer_portal_catalog_categories_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_list_DealerCategoryNode__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    catalog_items_api_v1_dealer_portal_catalog_items_get: {
+        parameters: {
+            query?: {
+                search?: string | null;
+                category_id?: string | null;
+                brand_id?: string | null;
+                in_stock_only?: boolean;
+                on_offer_only?: boolean;
+                /** @description code or name */
+                sort_by?: string;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_DealerCatalogItem_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    catalog_item_api_v1_dealer_portal_catalog_items__item_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_DealerCatalogItemDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    catalog_item_price_api_v1_dealer_portal_catalog_items__item_id__price_get: {
+        parameters: {
+            query?: {
+                quantity?: number | string;
+                variant_id?: string | null;
+            };
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_DealerPriceQuote_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    checkout_api_v1_dealer_portal_checkout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DealerCheckoutRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_DealerOrderDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    dispatch_tracking_api_v1_dealer_portal_dispatches__dispatch_id__tracking_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dispatch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_DealerTracking_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    me_api_v1_dealer_portal_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_DealerPortalMe_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_orders_api_v1_dealer_portal_orders_get: {
+        parameters: {
+            query?: {
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+                /** @description Order or customer PO */
+                search?: string | null;
+                status?: components["schemas"]["SalesOrderStatus"] | null;
+                /** @description Only orders that still represent unmet demand */
+                open_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_DealerOrderSummary_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_order_api_v1_dealer_portal_orders__order_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_DealerOrderDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    cancel_order_api_v1_dealer_portal_orders__order_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DealerCancelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_DealerOrderDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_order_dispatches_api_v1_dealer_portal_orders__order_id__dispatches_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_list_DealerDispatchSummary__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    outstanding_api_v1_dealer_portal_outstanding_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_DealerOutstanding_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    statement_api_v1_dealer_portal_statement_get: {
+        parameters: {
+            query?: {
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+                /** @description Statement period start */
+                date_from?: string | null;
+                /** @description Statement period end */
+                date_to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_LedgerStatement_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_wishlist_api_v1_dealer_portal_wishlist_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_list_DealerWishlistRead__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    add_wishlist_item_api_v1_dealer_portal_wishlist_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DealerWishlistIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_DealerWishlistRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    remove_wishlist_item_api_v1_dealer_portal_wishlist__entry_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    move_wishlist_to_cart_api_v1_dealer_portal_wishlist__entry_id__move_to_cart_post: {
+        parameters: {
+            query?: {
+                quantity?: number | string;
+            };
+            header?: never;
+            path: {
+                entry_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_DealerCartRead_"];
                 };
             };
             /** @description Malformed request */
@@ -71171,6 +74653,7 @@ export interface operations {
                 search?: string | null;
                 is_system?: boolean | null;
                 is_vendor_role?: boolean | null;
+                is_dealer_role?: boolean | null;
                 is_active?: boolean | null;
                 /** @description Roles granting this permission */
                 grants_permission?: string | null;
@@ -74228,6 +77711,8 @@ export interface operations {
                 /** @description Order or customer PO */
                 search?: string | null;
                 customer_id?: string | null;
+                /** @description ERP or DEALER_PORTAL */
+                source?: string | null;
                 warehouse_id?: string | null;
                 branch_id?: string | null;
                 status?: components["schemas"]["SalesOrderStatus"] | null;
@@ -76196,6 +79681,9 @@ export interface operations {
                 /** @description True: vendor-portal accounts only. False: internal staff */
                 is_vendor_user?: boolean | null;
                 vendor_id?: string | null;
+                /** @description True: dealer-portal accounts only. False: everyone else */
+                is_dealer_user?: boolean | null;
+                customer_id?: string | null;
                 branch_id?: string | null;
                 plant_id?: string | null;
                 department_id?: string | null;
