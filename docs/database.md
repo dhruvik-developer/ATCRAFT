@@ -597,9 +597,25 @@ QC inspection     PENDING -> IN_PROGRESS -> (ACCEPTED | REWORK | REJECTED | HOLD
 Job work order    DRAFT -> APPROVED -> ISSUED -> PARTIALLY_RECEIVED -> RECEIVED
                         -> QC_PENDING -> COMPLETED -> CLOSED
 
+Assembly order    DRAFT -> APPROVED -> RELEASED -> COMPONENTS_ISSUED -> IN_PROGRESS
+                        -> QC_PENDING -> COMPLETED -> CLOSED
+                  (IN_PROGRESS -> COMPLETED direct when no inspection is needed;
+                  CANCELLED from DRAFT, APPROVED, RELEASED only - past issue the
+                  parts are on the bench and the order completes or closes)
+
 Dispatch          NOT_DISPATCHED -> READY_FOR_DISPATCH -> DISPATCHED -> IN_TRANSIT
                         -> DELIVERED -> QC_PENDING -> RECEIVED -> QC_COMPLETED -> GRN_COMPLETED
 ```
+
+Assembly and job-work QC_PENDING have exactly one way out: the inspection
+verdict. `POST /assembly/{id}/qc-result` and `POST /job-work/{id}/qc-result`
+serve only holds no inspection covers; when the hold names an inspection, the
+inspection is decided through quality instead, and the owner completes itself
+from that verdict in the same transaction (§8). A PO in QC_PENDING advances to
+QC_COMPLETED -> GRN_COMPLETED through
+`procurement.record_incoming_inspection_outcome` once no received line is still
+PENDING; assembly reservations taken at release carry the order's priority and
+its planned start as their required date.
 
 Master records with no status column - branch, plant, department, cost centre,
 financial year, brand and manufacturer - project `is_active` / `deleted_at` onto
@@ -625,12 +641,39 @@ Every transition writes an audit row via `record_status_change`.
 | Production completion | `post_movements` (`PRODUCTION_RECEIPT`) for output, `ASSEMBLY_CONSUME`/`MATERIAL_ISSUE` for components |
 | Job-work issue | `post_movements` (`JOB_WORK_ISSUE`) moving stock to `stock_state=JOB_WORK` — still company-owned |
 | QC rejection | `change_stock_state` to `DAMAGED`/`SCRAP`, raise return/rework |
+| QC verdict decided | `quality.owners.notify_owner` in the same transaction, after the stock moves: the owning document completes itself from the verdict and moves nothing again |
 | Dispatch | `allocation.consume`, then `post_movements` (`DISPATCH`) |
 | Sales order confirmed | `allocation.reserve` per line against available stock |
 | Requisition converted | One DRAFT purchase order per (vendor, procurement category, warehouse) through `procurement.service._create_purchase_order` (duplicate check included); `_link_source_documents` adds to each line's `ordered_quantity` and moves the requisition APPROVED → CONVERTED; one CREATE audit row per order and one "Split into …" row per requisition - all in one transaction, or nothing |
 | Vendor invoice approved | `finance.post_journal`: one `PURCHASE_EXPENSE` debit per effective line cost centre (line -> header -> none), input tax, payable |
 | Any write naming a cost centre | `organization.service.require_cost_centre` / `require_cost_centres` (tenant, live, active) before the row is written |
 | Any status change | `audit.record_status_change` in the same transaction |
+
+### QC verdict to owner (`quality.owners`)
+
+Quality sits downstream of procurement, assembly and job work, so it may call
+them - never the reverse. `quality.owners` is a registry from
+`reference_type` to an owner handler, resolved once with lazy imports.
+`decide_inspection` (and `close_inspection`, which settles nothing new) locks
+the owner's row before touching a balance, posts its own movements, then calls
+the handler **in the same transaction** with the inspection's cumulative
+disposition: accepted, rejected, rework, hold, scrap, still-held. Handlers
+**never move stock** - quality already did. An owner that refuses rolls the
+whole decision back.
+
+| Reference type | Handler | Effect, without moving stock |
+|---|---|---|
+| `goods_receipt` | `procurement.record_incoming_inspection_outcome` | Receipt line PENDING → PASSED/FAILED once nothing is held (docs/assumptions.md §E4-2); PO QC_PENDING → QC_COMPLETED → GRN_COMPLETED when no line is PENDING |
+| `assembly_order` | `assembly.record_quality_verdict` | Tallies applied, QC_PENDING → COMPLETED |
+| `job_work_receipt` / `job_work_order` | `job_work.record_quality_verdict` | Receipt released; order completed when nothing remains held (per-receipt release while PARTIALLY_RECEIVED allowed) |
+| `production_entry` | no-op placeholder | Wired when production output goes on QC hold |
+| `sales_return` | no handler | The return document pulls via `inspections_for_reference` |
+
+A job-work lot that returns several output items raises **one inspection per
+output item**, each recorded on its receipt line (`job_work_receipt_lines.qc_inspection_id`).
+Rows stranded before the callback existed are repaired by the idempotent
+`maintenance.reconcile_quality_owners` sweep (beat start, then daily), not by
+a migration (docs/assumptions.md §E4-1).
 
 ### Requisition conversion and the purchase-order category
 

@@ -4728,6 +4728,36 @@
         "title": "ApiResponse[WorkOrderRead]",
         "type": "object"
       },
+      "ApiResponse_list_AssemblyComponentAvailability__": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AssemblyComponentAvailability"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[list[AssemblyComponentAvailability]]",
+        "type": "object"
+      },
       "ApiResponse_list_AssemblyComponentRead__": {
         "properties": {
           "data": {
@@ -5246,6 +5276,204 @@
         "title": "ApprovalStatus",
         "type": "string"
       },
+      "AssemblyBoardOrder": {
+        "description": "One open assembly order on the board: plan against reality.\n\n``is_late`` means the planned end has passed while the order still owes\nfinished stock; ``start_overdue`` means the planned start has passed and the\nbench has not begun. Both are worked out on the server at read time.",
+        "properties": {
+          "actual_end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual End"
+          },
+          "actual_start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Start"
+          },
+          "assembled_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Assembled Quantity",
+            "type": "string"
+          },
+          "assembly_line": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assembly Line"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "days_late": {
+            "title": "Days Late",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_late": {
+            "title": "Is Late",
+            "type": "boolean"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "output_warehouse_id": {
+            "format": "uuid",
+            "title": "Output Warehouse Id",
+            "type": "string"
+          },
+          "planned_end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planned End"
+          },
+          "planned_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Planned Quantity",
+            "type": "string"
+          },
+          "planned_start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planned Start"
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "integer"
+          },
+          "rejected_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Rejected Quantity",
+            "type": "string"
+          },
+          "requires_qc": {
+            "title": "Requires Qc",
+            "type": "boolean"
+          },
+          "start_overdue": {
+            "title": "Start Overdue",
+            "type": "boolean"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AssemblyOrderStatus"
+          },
+          "warehouse_id": {
+            "format": "uuid",
+            "title": "Warehouse Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "item_id",
+          "status",
+          "assembly_line",
+          "warehouse_id",
+          "output_warehouse_id",
+          "priority",
+          "planned_quantity",
+          "assembled_quantity",
+          "rejected_quantity",
+          "planned_start",
+          "planned_end",
+          "actual_start",
+          "actual_end",
+          "requires_qc",
+          "is_late",
+          "start_overdue",
+          "days_late"
+        ],
+        "title": "AssemblyBoardOrder",
+        "type": "object"
+      },
+      "AssemblyComponentAvailability": {
+        "description": "One component's stock position, read live for a release decision.\n\n``available_quantity`` is promisable stock at the position a component\nreservation holds - the order's component warehouse, no bin, no batch - and\nis never cached (section 34). ``shortage_quantity`` is what releasing would\nstill lack: zero once the line is reserved.",
+        "properties": {
+          "available_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Available Quantity",
+            "type": "string"
+          },
+          "is_reserved": {
+            "title": "Is Reserved",
+            "type": "boolean"
+          },
+          "issued_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Issued Quantity",
+            "type": "string"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "line_number": {
+            "title": "Line Number",
+            "type": "integer"
+          },
+          "required_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Required Quantity",
+            "type": "string"
+          },
+          "shortage_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Shortage Quantity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "line_number",
+          "item_id",
+          "required_quantity",
+          "issued_quantity",
+          "is_reserved",
+          "available_quantity",
+          "shortage_quantity"
+        ],
+        "title": "AssemblyComponentAvailability",
+        "type": "object"
+      },
       "AssemblyComponentRead": {
         "properties": {
           "assembly_order_id": {
@@ -5338,6 +5566,84 @@
           "notes"
         ],
         "title": "AssemblyComponentRead",
+        "type": "object"
+      },
+      "AssemblyLineLoad": {
+        "description": "What one assembly line (or bench) has open, aggregated in the database.\n\n``assembly_line`` is ``None`` for open orders nobody has put on a line yet.",
+        "properties": {
+          "assembly_line": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assembly Line"
+          },
+          "earliest_planned_start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Earliest Planned Start"
+          },
+          "in_progress_orders": {
+            "title": "In Progress Orders",
+            "type": "integer"
+          },
+          "late_orders": {
+            "title": "Late Orders",
+            "type": "integer"
+          },
+          "latest_planned_end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Planned End"
+          },
+          "not_started_orders": {
+            "title": "Not Started Orders",
+            "type": "integer"
+          },
+          "open_orders": {
+            "title": "Open Orders",
+            "type": "integer"
+          },
+          "planned_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Planned Quantity",
+            "type": "string"
+          },
+          "qc_pending_orders": {
+            "title": "Qc Pending Orders",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "assembly_line",
+          "open_orders",
+          "not_started_orders",
+          "in_progress_orders",
+          "qc_pending_orders",
+          "late_orders",
+          "planned_quantity",
+          "earliest_planned_start",
+          "latest_planned_end"
+        ],
+        "title": "AssemblyLineLoad",
         "type": "object"
       },
       "AssemblyOrderCreate": {
@@ -5434,6 +5740,13 @@
               }
             ],
             "title": "Planned Start"
+          },
+          "priority": {
+            "default": 100,
+            "maximum": 9999.0,
+            "minimum": 0.0,
+            "title": "Priority",
+            "type": "integer"
           },
           "requires_qc": {
             "default": false,
@@ -5619,6 +5932,10 @@
             ],
             "title": "Planned Start"
           },
+          "priority": {
+            "title": "Priority",
+            "type": "integer"
+          },
           "qc_held_at": {
             "anyOf": [
               {
@@ -5695,6 +6012,7 @@
           "planned_end",
           "actual_start",
           "actual_end",
+          "priority",
           "status",
           "requires_qc",
           "qc_held_at",
@@ -5867,6 +6185,10 @@
             ],
             "title": "Planned Start"
           },
+          "priority": {
+            "title": "Priority",
+            "type": "integer"
+          },
           "qc_held_at": {
             "anyOf": [
               {
@@ -5943,6 +6265,7 @@
           "planned_end",
           "actual_start",
           "actual_end",
+          "priority",
           "status",
           "requires_qc",
           "qc_held_at",
@@ -6038,6 +6361,19 @@
               }
             ],
             "title": "Planned Start"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "maximum": 9999.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
           },
           "requires_qc": {
             "anyOf": [
@@ -11291,7 +11627,7 @@
       },
       "ComponentIssueIn": {
         "additionalProperties": false,
-        "description": "Override how much of one component is handed to the line.\n\nOmitting a line issues its full ``required_quantity``, which is the normal\ncase. An explicit quantity exists for the kitting reality of topping a line\nup beyond the recipe, or of issuing short because the rest arrives later.",
+        "description": "How much of one component has been handed to the line, in total.\n\nOmitting a line issues its full ``required_quantity``, which is the normal\ncase. An explicit quantity exists for issuing short because the rest\narrives later; a later top-up states the line's new total, which may not be\nbelow what is already on the bench nor above the reserved requirement.",
         "properties": {
           "issued_quantity": {
             "anyOf": [
@@ -18848,6 +19184,7 @@
       },
       "IssueComponentsRequest": {
         "additionalProperties": false,
+        "description": "Hand components to the bench - first from RELEASED, or as a top-up.\n\nThe first issue moves the order to COMPONENTS_ISSUED. A top-up while the\norder is COMPONENTS_ISSUED or IN_PROGRESS raises the issued totals and\nleaves the status where it is.",
         "properties": {
           "lines": {
             "items": {
@@ -19592,12 +19929,14 @@
         "type": "object"
       },
       "ItemGroup": {
-        "description": "Reporting classification only.\n\nMaster rules section 1: no business rule may branch on this value to decide\nwhether an operation is allowed. It drives reports, default capability flags\nat creation time, and nothing else.",
+        "description": "Reporting classification only.\n\nMaster rules section 1: no business rule may branch on this value to decide\nwhether an operation is allowed. It drives reports, default capability flags\nat creation time, and nothing else.\n\n``SUB_ASSEMBLY`` and ``ASSEMBLY`` classify what the assembly bench builds - a\nsub-assembly is consumed by a higher assembly or a production order, an\nassembly (a lock set) is sold as built. Like every other member they only\nseed defaults; an assembly order checks ``can_manufacture`` and\n``can_be_assembly_component``, never this value. ``items.item_group`` has no\nCHECK, so adding a member needs no migration.",
         "enum": [
           "RAW_MATERIAL",
           "COMPONENT",
           "SEMI_FINISHED",
+          "SUB_ASSEMBLY",
           "FINISHED_GOOD",
+          "ASSEMBLY",
           "CONSUMABLE",
           "PACKING_MATERIAL",
           "SPARE",
@@ -25160,6 +25499,86 @@
         "title": "PackingCompletionResult",
         "type": "object"
       },
+      "PackingFromAssemblyCreate": {
+        "additionalProperties": false,
+        "description": "Raise a draft packing order for a completed assembly's output.\n\nEverything the assembly already knows is taken from it: the item, the\nquantity it produced and the warehouse that output sits in. The customer\nand sales order come from the assembly's source when it was raised for a\nsales order; otherwise the customer has to be named here.",
+        "properties": {
+          "assembly_order_id": {
+            "format": "uuid",
+            "title": "Assembly Order Id",
+            "type": "string"
+          },
+          "customer_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Id"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "planned_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planned Date"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "sales_order_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sales Order Id"
+          }
+        },
+        "required": [
+          "assembly_order_id"
+        ],
+        "title": "PackingFromAssemblyCreate",
+        "type": "object"
+      },
       "PackingHandoverRequest": {
         "additionalProperties": false,
         "description": "Claim a completed assembly for a packing order.",
@@ -25803,6 +26222,58 @@
           }
         },
         "title": "PaginatedResponse[ApprovalRequestRead]",
+        "type": "object"
+      },
+      "PaginatedResponse_AssemblyBoardOrder_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/AssemblyBoardOrder"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/OffsetPagination"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "PaginatedResponse[AssemblyBoardOrder]",
+        "type": "object"
+      },
+      "PaginatedResponse_AssemblyLineLoad_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/AssemblyLineLoad"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/OffsetPagination"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "PaginatedResponse[AssemblyLineLoad]",
         "type": "object"
       },
       "PaginatedResponse_AssemblyOrderSummary_": {
@@ -34884,6 +35355,21 @@
           "requires_qc": {
             "title": "Requires Qc",
             "type": "boolean"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "source_type": {
+            "$ref": "#/components/schemas/AssemblySourceType"
           }
         },
         "required": [
@@ -34894,7 +35380,9 @@
           "assembled_quantity",
           "available_quantity",
           "completed_at",
-          "requires_qc"
+          "requires_qc",
+          "source_type",
+          "source_id"
         ],
         "title": "ReadyForPackingRow",
         "type": "object"
@@ -35526,6 +36014,18 @@
             "title": "Output Quantity",
             "type": "string"
           },
+          "qc_inspection_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qc Inspection Id"
+          },
           "receipt_id": {
             "format": "uuid",
             "title": "Receipt Id",
@@ -35570,6 +36070,7 @@
           "input_consumed_quantity",
           "charges",
           "vendor_debit_amount",
+          "qc_inspection_id",
           "notes"
         ],
         "title": "ReceiptLineRead",
@@ -52781,7 +53282,7 @@
       },
       "src__modules__assembly__schemas__QcResultRequest": {
         "additionalProperties": false,
-        "description": "The inspection verdict on an assembly's held output.\n\nThe two quantities must account for everything on hold: releasing part of a\nheld lot and leaving the rest in limbo is how stock becomes permanently\nunusable without anybody deciding that it should be.",
+        "description": "The inspection verdict on an assembly's held output.\n\nThe two quantities must account for everything on hold: releasing part of a\nheld lot and leaving the rest in limbo is how stock becomes permanently\nunusable without anybody deciding that it should be.\n\nOnly for a hold no quality inspection covers. When the order names an open\ninspection the verdict belongs on that inspection and this is refused; when\nthat inspection is already decided, these figures must repeat its own, and\nthe order completes from it without moving stock again.",
         "properties": {
           "accepted_quantity": {
             "anyOf": [
@@ -52990,7 +53491,7 @@
       },
       "src__modules__job_work__schemas__QcResultRequest": {
         "additionalProperties": false,
-        "description": "The inspection verdict on a job work order's held output.\n\nStated per output item, always. An order that sent three castings out for\nthree different finishes holds three different item codes, and a single\naccepted/rejected pair could only be split between them by guessing - which\nwould release stock of one code and damage stock of another.\n\nThe verdict must account for everything on hold: releasing part of a held lot\nand leaving the rest in limbo is how stock becomes permanently unusable\nwithout anybody deciding that it should be.",
+        "description": "The inspection verdict on a job work order's held output.\n\nStated per output item, always. An order that sent three castings out for\nthree different finishes holds three different item codes, and a single\naccepted/rejected pair could only be split between them by guessing - which\nwould release stock of one code and damage stock of another.\n\nThe verdict must account for everything on hold: releasing part of a held lot\nand leaving the rest in limbo is how stock becomes permanently unusable\nwithout anybody deciding that it should be.\n\nOnly for held lots no quality inspection covers. While an inspection covers\na held lot the verdict belongs on that inspection and this is refused; once\nthose inspections are decided, these figures must repeat theirs, and the\nlots are released and the order completed without moving stock again.",
         "properties": {
           "items": {
             "items": {
@@ -55536,7 +56037,7 @@
         ]
       },
       "post": {
-        "description": "Explodes one level of the item's approved ASSEMBLY bill of materials, scales each component to the planned quantity with its scrap allowance and freezes the result onto the order. No stock is reserved or consumed by a draft.",
+        "description": "Explodes one level of the item's approved ASSEMBLY or PRODUCTION bill of materials, scales each component to the planned quantity with its scrap allowance and freezes the result onto the order. No stock is reserved or consumed by a draft.",
         "operationId": "create_order_api_v1_assembly_post",
         "requestBody": {
           "content": {
@@ -55646,6 +56147,383 @@
           }
         ],
         "summary": "Raise a draft assembly order",
+        "tags": [
+          "Assembly"
+        ]
+      }
+    },
+    "/api/v1/assembly/board/lines": {
+      "get": {
+        "description": "One row per assembly line with open orders - how many are not started, on the bench, awaiting inspection and late, and the quantity planned - aggregated in one grouped statement. Orders on no line are the row whose line is null.",
+        "operationId": "board_lines_api_v1_assembly_board_lines_get",
+        "parameters": [
+          {
+            "description": "Warehouse components are drawn from",
+            "in": "query",
+            "name": "warehouse_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Warehouse components are drawn from",
+              "title": "Warehouse Id"
+            }
+          },
+          {
+            "description": "1-based page number",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "1-based page number",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Rows per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Rows per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Include an exact total row count",
+            "in": "query",
+            "name": "with_total",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Include an exact total row count",
+              "title": "With Total",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_AssemblyLineLoad_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Open assembly work per line",
+        "tags": [
+          "Assembly"
+        ]
+      }
+    },
+    "/api/v1/assembly/board/orders": {
+      "get": {
+        "description": "Every open assembly order line by line, in schedule order, with its planned and actual start and end and a lateness flag worked out on the server: late once the planned end has passed while the order still owes finished stock, start overdue once the planned start has passed with the bench not begun.",
+        "operationId": "board_orders_api_v1_assembly_board_orders_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "assembly_line",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Assembly Line"
+            }
+          },
+          {
+            "description": "Only open orders that are on no assembly line",
+            "in": "query",
+            "name": "unassigned_line",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Only open orders that are on no assembly line",
+              "title": "Unassigned Line",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Warehouse components are drawn from",
+            "in": "query",
+            "name": "warehouse_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Warehouse components are drawn from",
+              "title": "Warehouse Id"
+            }
+          },
+          {
+            "description": "Only orders past their planned end",
+            "in": "query",
+            "name": "late_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Only orders past their planned end",
+              "title": "Late Only",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "1-based page number",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "1-based page number",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Rows per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Rows per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Include an exact total row count",
+            "in": "query",
+            "name": "with_total",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Include an exact total row count",
+              "title": "With Total",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_AssemblyBoardOrder_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "The assembly board: open orders, planned against actual",
         "tags": [
           "Assembly"
         ]
@@ -56322,6 +57200,125 @@
         ]
       }
     },
+    "/api/v1/assembly/{order_id}/availability": {
+      "get": {
+        "description": "Promisable stock at the position a release reserves - the component warehouse, no bin, no batch - read live and never cached, with what each line would still be short of. Returned whole rather than paginated: the set is bounded when the order is raised, and a release is decided on the whole kit.",
+        "operationId": "component_availability_api_v1_assembly__order_id__availability_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Order Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_list_AssemblyComponentAvailability__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Live stock for each component, against what a release would reserve",
+        "tags": [
+          "Assembly"
+        ]
+      }
+    },
     "/api/v1/assembly/{order_id}/cancel": {
       "post": {
         "description": "Only reachable before the components have been issued. Past that the parts are on the bench and the order is completed or closed instead, so the trail survives.",
@@ -56829,7 +57826,7 @@
     },
     "/api/v1/assembly/{order_id}/issue-components": {
       "post": {
-        "description": "Records what was physically kitted. No stock moves here - the components are still owned, still in their warehouse position and still reserved to this order. The ledger is written at completion, when it is known what they were turned into.",
+        "description": "Records what was physically kitted. No stock moves here - the components are still owned, still in their warehouse position and still reserved to this order. The ledger is written at completion, when it is known what they were turned into. From RELEASED this is the first issue; while the order is COMPONENTS_ISSUED or IN_PROGRESS it is a top-up that raises the issued totals and leaves the status alone. Totals never go down and never exceed the reserved requirement.",
         "operationId": "issue_components_api_v1_assembly__order_id__issue_components_post",
         "parameters": [
           {
@@ -57087,7 +58084,7 @@
     },
     "/api/v1/assembly/{order_id}/qc-result": {
       "post": {
-        "description": "Accepted quantity is released into the available pool; rejected quantity is moved to the damaged pool. The two must account for everything on hold.",
+        "description": "For a hold no quality inspection covers: accepted quantity is released into the available pool, rejected quantity is moved to the damaged pool, and the two must account for everything on hold. When the order names an inspection, that inspection is the one release path: an open one refuses this call and names it; a decided one completes the order from its own figures, which this request must repeat, and no stock moves a second time.",
         "operationId": "record_qc_result_api_v1_assembly__order_id__qc_result_post",
         "parameters": [
           {
@@ -90481,6 +91478,123 @@
           }
         ],
         "summary": "Raise a draft packing order",
+        "tags": [
+          "Packing"
+        ]
+      }
+    },
+    "/api/v1/packing/from-assembly": {
+      "post": {
+        "description": "The assembly hand-over: one transaction that locks the completed assembly, raises a draft packing order for its output - the assembled item, from the warehouse it was received into, for the assembled quantity unless a smaller one is named - and marks the assembly packed against it, so it leaves the ready-for-packing list. The customer and sales order come from the assembly's source when it was raised for a sales order; otherwise the customer must be named.",
+        "operationId": "create_order_from_assembly_api_v1_packing_from_assembly_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PackingFromAssemblyCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_PackingOrderDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Raise a packing order for a completed assembly",
         "tags": [
           "Packing"
         ]

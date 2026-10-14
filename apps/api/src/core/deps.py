@@ -26,6 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.core.actors import SYSTEM_ACTOR_ID
 from src.core.cache import cache_get, cache_set, make_key
 from src.core.clock import utcnow
 from src.core.config import settings
@@ -332,6 +333,16 @@ class TenantContext:
     is_superuser: bool = False
 
 
+def system_tenant(company_id: uuid.UUID) -> TenantContext:
+    """Scope for work with no principal - a scheduled sweep acting for one company.
+
+    The user id is the nil :data:`~src.core.actors.SYSTEM_ACTOR_ID`, which the
+    repository base class and the audit writer stamp as NULL (see
+    :mod:`src.core.actors`), so a service can be called from a sweep unchanged.
+    """
+    return TenantContext(company_id=company_id, user_id=SYSTEM_ACTOR_ID)
+
+
 def get_tenant_context(principal: CurrentUser) -> TenantContext:
     """Derive the query scope from the verified principal.
 
@@ -370,4 +381,5 @@ __all__ = [
     "require_any_permission",
     "require_permission",
     "require_superuser",
+    "system_tenant",
 ]

@@ -57,10 +57,19 @@ and why each lives here rather than in a caller:
 
 7. **QC holds the output instead of releasing it.** When the order requires
    inspection the receipt posts with ``stock_state=QC_HOLD``, the order reaches
-   ``QC_PENDING`` once it is fully received, and the quality module is asked for
-   an inspection through a guarded import. When quality is not deployed the hold
-   is still recorded on the receipt and is still queryable - the stock is held
-   either way, which is the half that matters.
+   ``QC_PENDING`` once it is fully received while a lot is still held, and the
+   quality module is asked for one inspection per output item of the lot through
+   a guarded import. When quality is not deployed the hold is still recorded on
+   the receipt and is still queryable - the stock is held either way, which is
+   the half that matters.
+
+8. **One hold, one release path.** Deciding those inspections is what releases
+   the held output, and quality calls :func:`record_quality_verdict` back in the
+   same transaction to release the lot - even while the rest of the order is
+   still at the vendor - and to complete the order once nothing is held, moving
+   nothing itself. ``record_qc_result`` releases stock only for lots no
+   inspection covers; for covered lots it refuses, or applies the inspections'
+   already-recorded figures, and never posts a second movement.
 
 Allocation and quality are reached through ports. The default implementations
 delegate to ``allocation.service`` and ``quality.service`` exactly as
@@ -117,7 +126,7 @@ taken, named, and is changeable in one place.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -137,7 +146,12 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.logging import get_logger
-from src.core.messages import date_before, inactive_record
+from src.core.messages import (
+    date_before,
+    held_for_inspection,
+    inactive_record,
+    verdict_differs_from_inspection,
+)
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
@@ -209,6 +223,13 @@ AUDIT_JOB_WORK_RECEIPT = "job_work_receipt"
 #: ``inventory_transactions.reference_type`` - the ledger outlives its source, so
 #: it holds a type and an id rather than a foreign key (database.md section 4.2).
 MOVEMENT_REFERENCE_JOB_WORK = "job_work_order"
+
+#: The reference a returned lot's inspection carries: the *receipt* it holds,
+#: which is the document the verdict releases. Inspections raised before this
+#: existed carry :data:`MOVEMENT_REFERENCE_JOB_WORK` with the receipt's id, and
+#: are read under both keys.
+QC_REFERENCE_RECEIPT = "job_work_receipt"
+QC_REFERENCE_KEYS: tuple[str, ...] = (QC_REFERENCE_RECEIPT, MOVEMENT_REFERENCE_JOB_WORK)
 
 # ASSUMPTION: a vendor may return up to 2% more output than the order expected
 # before the receipt is refused. Job work overages are real - a plating line runs
@@ -736,6 +757,48 @@ def resolve_quality_port() -> QualityPort | None:
 
     factory = getattr(quality_service, "create_in_process_inspection", None)
     return factory if callable(factory) else None
+
+
+class InspectionReaderPort(Protocol):
+    """The quality module's batched read of the inspections documents raised."""
+
+    async def __call__(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        references: Sequence[tuple[str, uuid.UUID]],
+    ) -> Sequence[Any]: ...
+
+
+def resolve_inspection_reader_port() -> InspectionReaderPort | None:
+    """The quality module's ``inspections_for_references``, if it is deployed.
+
+    Read to learn whether every inspection over a lot is settled before the lot
+    is released, and by the owner-side verdict endpoint before it releases
+    anything itself - one statement for every lot of an order.
+    """
+    try:
+        from src.modules.quality import service as quality_service
+    except ImportError:
+        return None
+
+    reader = getattr(quality_service, "inspections_for_references", None)
+    return reader if callable(reader) else None
+
+
+def held_output_by_item(lines: Iterable[tuple[uuid.UUID, Decimal]]) -> dict[uuid.UUID, Decimal]:
+    """Good output per output item in one returned lot, in the order first named.
+
+    The lot is inspected one *item* at a time: each item gets its own inspection
+    for exactly the quantity of it on hold, so deciding one moves that item's
+    stock and nothing else. Lines that returned the same item share one.
+    """
+    totals: dict[uuid.UUID, Decimal] = {}
+    for item_id, quantity in lines:
+        if quantity <= ZERO:
+            continue
+        totals[item_id] = to_quantity(totals.get(item_id, ZERO) + quantity)
+    return totals
 
 
 # -----------------------------------------------------------------------------
@@ -2165,27 +2228,35 @@ async def receive(
 
         inspection_created = False
         if held_for_qc and quality_port is not None:
-            # The lot is inspected as one, and the inspection names the item the
-            # bulk of it came back as. An order returning several output codes
-            # is rare; when it happens the first line with good output names the
-            # inspection and the rest are covered by the same hold, which the
-            # verdict then releases per item.
-            first_output_item = next(
-                row.order_line.expected_output_item_id
-                for row in planned
-                if row.plan.output_quantity > ZERO
+            # One inspection per output item, each for exactly that item's held
+            # quantity. One inspection naming the first item for the whole lot's
+            # total could not be decided: it would try to release more of that
+            # item than is held, or release another lot held at the same grain.
+            held = held_output_by_item(
+                (row.output_item_id, Decimal(row.output_quantity)) for row in receipt_lines
             )
-            inspection = await quality_port(
-                session,
-                tenant,
-                item_id=first_output_item,
-                quantity=receipt.total_output_quantity,
-                warehouse_id=order.return_warehouse_id,
-                reference_type=MOVEMENT_REFERENCE_JOB_WORK,
-                reference_id=receipt.id,
-                reference_code=receipt.code,
-            )
-            receipt.qc_inspection_id = getattr(inspection, "id", None)
+            # One call per output item of the lot - a handful at most, bounded by
+            # the order's line count - because an inspection is raised per item.
+            for item_id, quantity in held.items():
+                inspection = await quality_port(
+                    session,
+                    tenant,
+                    item_id=item_id,
+                    quantity=quantity,
+                    warehouse_id=order.return_warehouse_id,
+                    reference_type=QC_REFERENCE_RECEIPT,
+                    reference_id=receipt.id,
+                    reference_code=receipt.code,
+                )
+                inspection_id = getattr(inspection, "id", None)
+                for receipt_line in receipt_lines:
+                    if (
+                        receipt_line.output_item_id == item_id
+                        and Decimal(receipt_line.output_quantity) > ZERO
+                    ):
+                        receipt_line.qc_inspection_id = inspection_id
+                if receipt.qc_inspection_id is None:
+                    receipt.qc_inspection_id = inspection_id
             inspection_created = receipt.qc_inspection_id is not None
             await session.flush()
 
@@ -2198,7 +2269,17 @@ async def receive(
         )
         if JobWorkOrderStatus(order.status) is not target:
             await _transition(session, tenant, order, target, reason=payload.reason, repo=repo)
-        if fully_received and order.requires_qc:
+        # ASSUMPTION: held for inspection only while a lot is still on hold. Lots
+        # inspected and released while the order was still partly at the vendor
+        # need nothing more, and an order sent to QC_PENDING with nothing held
+        # could never leave it - no decision would ever be taken to release it.
+        # Such an order stays RECEIVED and is closed like one that never needed
+        # inspecting (docs/assumptions.md §E4-9).
+        if (
+            fully_received
+            and order.requires_qc
+            and await receipt_repo.count_unreleased_holds(order.id) > 0
+        ):
             await _transition(
                 session,
                 tenant,
@@ -2326,6 +2407,291 @@ def assert_verdict_covers_hold(
     )
 
 
+# -----------------------------------------------------------------------------
+# The quality verdict - called back by quality (one release path per hold)
+# -----------------------------------------------------------------------------
+
+
+class InspectionVerdict(Protocol):
+    """What job work reads off a decided inspection.
+
+    A protocol rather than quality's own type, so this module does not import
+    the module it reaches through a port.
+    """
+
+    @property
+    def inspection_id(self) -> uuid.UUID: ...
+    @property
+    def inspection_code(self) -> str: ...
+    @property
+    def reference_id(self) -> uuid.UUID | None: ...
+    @property
+    def is_settled(self) -> bool: ...
+    @property
+    def reason(self) -> str: ...
+
+
+def _inspection_settled(inspection: Any) -> bool:
+    """Decided, with nothing left in rework or hold - read without importing
+    quality's types, the way procurement reads an inspection's outcome."""
+
+    def quantity(name: str) -> Decimal:
+        return Decimal(getattr(inspection, name, 0) or 0)
+
+    decided = str(getattr(inspection, "result", "PENDING")) != "PENDING"
+    return decided and quantity("rework_quantity") + quantity("hold_quantity") <= ZERO
+
+
+async def _lot_inspections(
+    session: AsyncSession, tenant: TenantContext, receipt_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, list[Any]]:
+    """Every inspection over each lot, under both reference keys a lot has had.
+
+    One read for the whole set, however many lots the order came back in.
+    """
+    found: dict[uuid.UUID, list[Any]] = {receipt_id: [] for receipt_id in receipt_ids}
+    reader = resolve_inspection_reader_port()
+    if reader is None or not receipt_ids:
+        return found
+    references = [(key, receipt_id) for receipt_id in receipt_ids for key in QC_REFERENCE_KEYS]
+    for inspection in await reader(session, tenant, references):
+        if inspection.reference_id in found:
+            found[inspection.reference_id].append(inspection)
+    return found
+
+
+async def _release_lot(
+    session: AsyncSession,
+    tenant: TenantContext,
+    receipt: JobWorkReceipt,
+    inspections: Sequence[Any],
+    *,
+    reason: str,
+    receipt_repo: JobWorkReceiptRepository,
+) -> None:
+    """Lift one lot's hold: its inspections have already moved the stock."""
+    codes = ", ".join(str(row.code) for row in inspections)
+    receipt.qc_released_at = utcnow()
+    receipt_repo.touch(receipt)
+    await session.flush()
+    await record_audit(
+        session,
+        company_id=tenant.company_id,
+        action=AuditAction.QC_DECISION,
+        entity_type=AUDIT_JOB_WORK_RECEIPT,
+        entity_id=receipt.id,
+        entity_code=receipt.code,
+        summary=f"{receipt.code} released from inspection hold by {codes}",
+        user_id=tenant.user_id,
+        new_values={"qc_released_at": receipt.qc_released_at},
+        context={
+            "reason": reason,
+            "qc_inspection_codes": [str(row.code) for row in inspections],
+            # Quality moved the held stock when it decided; this only records it.
+            "stock_released_by": "qc_inspection",
+        },
+    )
+
+
+async def _complete_inspected_order(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: JobWorkOrder,
+    *,
+    reason: str,
+    repo: JobWorkOrderRepository,
+    receipt_repo: JobWorkReceiptRepository,
+) -> bool:
+    """QC_PENDING -> COMPLETED once no lot of the order is still held."""
+    if JobWorkOrderStatus(order.status) is not JobWorkOrderStatus.QC_PENDING:
+        return False
+    if await receipt_repo.count_unreleased_holds(order.id):
+        return False
+    await _transition(
+        session,
+        tenant,
+        order,
+        JobWorkOrderStatus.COMPLETED,
+        reason=reason[:255],
+        repo=repo,
+        action=AuditAction.QC_DECISION,
+    )
+    return True
+
+
+async def lock_for_quality_verdict(
+    session: AsyncSession, tenant: TenantContext, reference_id: uuid.UUID
+) -> None:
+    """Take the order's row lock before quality moves a lot's held output.
+
+    The inspection names the lot; the order is the serialisation point for every
+    lot of it - the same lock a receipt against it takes first.
+    """
+    receipt = await JobWorkReceiptRepository(session, tenant).get(reference_id)
+    if receipt is not None:
+        await JobWorkOrderRepository(session, tenant).lock_for_update(receipt.job_work_order_id)
+
+
+async def record_quality_verdict(
+    session: AsyncSession, tenant: TenantContext, verdict: InspectionVerdict
+) -> bool:
+    """Release a returned lot, and complete its order, from quality's verdict.
+
+    Quality has already moved the lot's held output. A lot is released once
+    every inspection over it - one per output item - is decided with nothing
+    left in rework or hold, whatever state the order is in: a lot back early is
+    released while the rest is still at the vendor (PARTIALLY_RECEIVED). An
+    order waiting in QC_PENDING completes once none of its lots is held.
+
+    Moves no stock. Idempotent - a lot already released is left alone - and
+    tolerant of an inspection that names no lot of this module (one raised by
+    hand quoting an order). Returns whether anything changed.
+    """
+    if verdict.reference_id is None:
+        return False
+    repo = JobWorkOrderRepository(session, tenant)
+    receipt_repo = JobWorkReceiptRepository(session, tenant)
+
+    async with transaction(session):
+        receipt = await receipt_repo.get(verdict.reference_id)
+        if receipt is None:
+            log.info(
+                "job_work.verdict_names_no_lot",
+                inspection_id=str(verdict.inspection_id),
+                reference_id=str(verdict.reference_id),
+            )
+            return False
+        order = await repo.lock_for_update(receipt.job_work_order_id)
+        if order is None:  # pragma: no cover - the foreign key guarantees the row
+            return False
+
+        changed = False
+        if receipt.qc_held_at is not None and receipt.qc_released_at is None:
+            inspections = (await _lot_inspections(session, tenant, [receipt.id]))[receipt.id]
+            if inspections and all(_inspection_settled(row) for row in inspections):
+                await _release_lot(
+                    session,
+                    tenant,
+                    receipt,
+                    inspections,
+                    reason=f"Inspection {verdict.inspection_code}: {verdict.reason}",
+                    receipt_repo=receipt_repo,
+                )
+                changed = True
+
+        if await _complete_inspected_order(
+            session,
+            tenant,
+            order,
+            reason=f"Inspection {verdict.inspection_code} decided; no returned lot is held",
+            repo=repo,
+            receipt_repo=receipt_repo,
+        ):
+            changed = True
+    return changed
+
+
+async def awaiting_quality_verdicts(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    after: uuid.UUID | None,
+    limit: int,
+) -> list[tuple[str, uuid.UUID]]:
+    """Held lots behind an inspection - one keyset page for the reconciliation
+    sweep. Each is offered under both reference keys a lot's inspection has had."""
+    receipt_ids = await JobWorkReceiptRepository(session, tenant).awaiting_quality_verdict(
+        after=after, limit=limit
+    )
+    return [(key, receipt_id) for receipt_id in receipt_ids for key in QC_REFERENCE_KEYS]
+
+
+async def _settle_from_inspections(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order_id: uuid.UUID,
+    covered: dict[uuid.UUID, list[Any]],
+    payload: QcResultRequest,
+) -> JobWorkOrder:
+    """The owner-side endpoint, for an order whose held lots inspections cover.
+
+    ASSUMPTION: an inspection is the one release path for the lot it covers.
+    While any of them is open the request is refused and pointed at it; once all
+    are decided the stock has already moved, so the lots are released from the
+    inspections' own figures - per item, and only if the request repeats them -
+    and nothing moves again (docs/assumptions.md §E4-3).
+    """
+    repo = JobWorkOrderRepository(session, tenant)
+    receipt_repo = JobWorkReceiptRepository(session, tenant)
+    order = await repo.get_or_404(order_id)
+    order_code = order.code
+
+    inspections = [row for rows in covered.values() for row in rows]
+    open_codes = [str(row.code) for row in inspections if not _inspection_settled(row)]
+    if open_codes:
+        raise BusinessRuleError(
+            held_for_inspection(order_code, ", ".join(open_codes)),
+            code=ErrorCode.INVALID_STATE_TRANSITION,
+            details={"qc_inspection_codes": open_codes},
+        )
+
+    accepted: dict[uuid.UUID, Decimal] = {}
+    refused: dict[uuid.UUID, Decimal] = {}
+    for row in inspections:
+        accepted[row.item_id] = to_quantity(
+            accepted.get(row.item_id, ZERO) + Decimal(row.accepted_quantity)
+        )
+        refused[row.item_id] = to_quantity(
+            refused.get(row.item_id, ZERO)
+            + Decimal(row.rejected_quantity)
+            + Decimal(row.scrap_quantity)
+        )
+    stated = {
+        item.output_item_id: (
+            to_quantity(item.accepted_quantity),
+            to_quantity(item.rejected_quantity),
+        )
+        for item in payload.items
+    }
+    recorded = {item_id: (accepted[item_id], refused[item_id]) for item_id in accepted}
+    codes = ", ".join(str(row.code) for row in inspections)
+    if stated != recorded:
+        raise BusinessRuleError(
+            verdict_differs_from_inspection(order_code, codes),
+            details={
+                "qc_inspection_codes": [str(row.code) for row in inspections],
+                "recorded": {
+                    str(item_id): {"accepted_quantity": str(a), "rejected_quantity": str(r)}
+                    for item_id, (a, r) in recorded.items()
+                },
+            },
+        )
+
+    async with transaction(session):
+        locked = await repo.lock_for_update(order_id)
+        if locked is None:  # pragma: no cover - read a moment ago
+            raise NotFoundError("Job work order", order_id)
+        for receipt in await receipt_repo.list_for_order(locked.id):
+            if receipt.id in covered and receipt.qc_released_at is None:
+                await _release_lot(
+                    session,
+                    tenant,
+                    receipt,
+                    covered[receipt.id],
+                    reason=payload.reason,
+                    receipt_repo=receipt_repo,
+                )
+        await _complete_inspected_order(
+            session,
+            tenant,
+            locked,
+            reason=payload.reason,
+            repo=repo,
+            receipt_repo=receipt_repo,
+        )
+    return locked
+
+
 async def record_qc_result(
     session: AsyncSession,
     tenant: TenantContext,
@@ -2334,16 +2700,38 @@ async def record_qc_result(
 ) -> JobWorkOrder:
     """Record the inspection verdict on held output and release the hold.
 
-    Accepted output moves ``QC_HOLD -> AVAILABLE`` and becomes promisable;
-    rejected output moves ``QC_HOLD -> DAMAGED`` and stays on the books,
-    counted, but out of the available pool. The verdict has to account for every
-    held unit of every held item - releasing part of a lot and leaving the rest
-    in limbo is how stock becomes permanently unusable without anybody deciding
-    that it should be.
+    For held lots no quality inspection covers - quality absent when they came
+    back - this is the release path. Accepted output moves ``QC_HOLD ->
+    AVAILABLE`` and becomes promisable; rejected output moves ``QC_HOLD ->
+    DAMAGED`` and stays on the books, counted, but out of the available pool.
+    The verdict has to account for every held unit of every held item -
+    releasing part of a lot and leaving the rest in limbo is how stock becomes
+    permanently unusable without anybody deciding that it should be.
+
+    When inspections cover the held lots, they are the one release path and this
+    defers to them (:func:`_settle_from_inspections`): it never moves the same
+    held stock a second time.
     """
     repo = JobWorkOrderRepository(session, tenant)
     receipt_repo = JobWorkReceiptRepository(session, tenant)
     receipt_line_repo = JobWorkReceiptLineRepository(session, tenant)
+
+    # Plain reads first, deliberately without the order's row lock: deferring to
+    # an inspection must not hold the order while quality locks the inspection
+    # and then the order, which is quality's lock order.
+    current = await repo.get_or_404(order_id)
+    held_ids = [
+        row.id
+        for row in await receipt_repo.list_for_order(current.id)
+        if row.qc_held_at is not None and row.qc_released_at is None
+    ]
+    covered = {
+        receipt_id: rows
+        for receipt_id, rows in (await _lot_inspections(session, tenant, held_ids)).items()
+        if rows
+    }
+    if covered:
+        return await _settle_from_inspections(session, tenant, order_id, covered, payload)
 
     async with transaction(session):
         order = await repo.lock_for_update(order_id)
@@ -2543,11 +2931,16 @@ __all__ = [
     "MOVEMENT_REFERENCE_JOB_WORK",
     "MRP_CONVERSION_REFUSED",
     "PENDING_AT_VENDOR_LIMIT",
+    "QC_REFERENCE_KEYS",
+    "QC_REFERENCE_RECEIPT",
     "AllocationPort",
     "AllocationService",
+    "InspectionReaderPort",
+    "InspectionVerdict",
     "LineReceiptPlan",
     "QualityPort",
     "approve_order",
+    "awaiting_quality_verdicts",
     "cancel_order",
     "challan_detail",
     "close_order",
@@ -2556,6 +2949,7 @@ __all__ = [
     "delete_draft_order",
     "estimate_charges",
     "get_order_detail",
+    "held_output_by_item",
     "input_equivalent",
     "issue_order",
     "job_work_charges_for_period",
@@ -2563,6 +2957,7 @@ __all__ = [
     "list_orders",
     "list_pending_at_vendor",
     "list_receipts",
+    "lock_for_quality_verdict",
     "loss_percentage",
     "order_detail",
     "pending_at_vendor",
@@ -2572,6 +2967,8 @@ __all__ = [
     "receive",
     "reconciliation",
     "record_qc_result",
+    "record_quality_verdict",
+    "resolve_inspection_reader_port",
     "resolve_quality_port",
     "update_order",
     "yield_ratio",

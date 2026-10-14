@@ -33,6 +33,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.repository import BaseRepository
+from src.core.actors import SYSTEM_ACTOR_ID
 from src.core.database import affected_rows
 from src.core.deps import TenantContext
 from src.core.logging import get_logger
@@ -68,11 +69,11 @@ MARK_ALL_BATCH = 2_000
 #: rather than silently obeyed.
 MAX_ROLE_RECIPIENTS = 500
 
-#: The nil UUID, used as the actor of a notification raised by a scheduled job
-#: rather than by a person. It is never written to a foreign key column:
-#: ``created_by_id`` stays NULL for system-raised alerts. See
-#: :meth:`NotificationRepository.for_company`.
-SYSTEM_ACTOR_ID = uuid.UUID(int=0)
+# The nil UUID, used as the actor of a notification raised by a scheduled job
+# rather than by a person, is ``src.core.actors.SYSTEM_ACTOR_ID`` - imported above
+# and re-exported so existing callers keep working. It is never written to a
+# foreign key column: ``created_by_id`` stays NULL for system-raised alerts. See
+# :meth:`NotificationRepository.for_company`.
 
 
 class NotificationRepository(BaseRepository[Notification]):

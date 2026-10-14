@@ -394,10 +394,11 @@ download. No endpoint holds a connection open for a calculation.
 /procurement          requisitions · close · convert to POs by category · RFQs · quotations
                       POs · vendor assignees · GRNs · returns · tracking
 /production           orders · components · work orders · issues · entries · cost
-/assembly             assembly orders · components · complete
+/assembly             assembly orders · components · availability · board · verdict
+                      ready-for-packing · complete · pack handover
 /job-work             orders · challans · issue · receive · pending-at-vendor
 /quality              templates · inspections · results · decide · reports
-/packing              packing orders · cartons · packing list
+/packing              packing orders · cartons · packing list · from-assembly
 /dispatch             dispatches · tracking events · tracking board · delayed
 /finance              ledgers · vendor invoices · match · payments · ageing · GST · valuation
 /reports              catalogue · dashboard · background report jobs · one route per

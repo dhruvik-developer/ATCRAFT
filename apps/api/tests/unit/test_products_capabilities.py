@@ -37,6 +37,20 @@ def test_defaults_reflect_the_usual_role_of_each_group() -> None:
     assert finished["can_manufacture"] is True
 
 
+def test_assembly_groups_start_with_the_defaults_of_what_they_are() -> None:
+    """docs/assumptions.md §E4-6: an assembly is a finished good built on the
+    bench, a sub-assembly is a semi-finished item - so each starts with exactly
+    that group's flags, and nothing else reads the group afterwards."""
+    assert default_capabilities(ItemGroup.ASSEMBLY) == default_capabilities(ItemGroup.FINISHED_GOOD)
+    assert default_capabilities(ItemGroup.SUB_ASSEMBLY) == default_capabilities(
+        ItemGroup.SEMI_FINISHED
+    )
+    sub_assembly = default_capabilities(ItemGroup.SUB_ASSEMBLY)
+    assert sub_assembly["can_manufacture"] is True
+    assert sub_assembly["can_be_assembly_component"] is True
+    assert sub_assembly["can_sell"] is False
+
+
 def test_a_raw_material_can_be_made_sellable_and_stays_sellable() -> None:
     # The scenario the whole design exists for: the same part is bought as raw
     # material, consumed in a BOM, and also sold over the counter as a spare.

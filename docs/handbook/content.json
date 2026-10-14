@@ -2660,6 +2660,31 @@
               "how": "The search box above the list"
             },
             {
+              "action": "Raise an assembly order",
+              "how": "New assembly order, top right",
+              "note": "Choose a manufacturable item - the search only offers those - optionally pick one of its approved assembly or production recipes, the quantity, the component and output warehouses, the bench, the plan, and a priority. A draft reserves and consumes nothing."
+            },
+            {
+              "action": "Amend or delete a draft",
+              "how": "Open the order, then Edit draft or Delete, with a reason for the deletion",
+              "note": "Only while it is a draft. The item and the recipe cannot be changed - that is a different order, not an edit. A deleted draft leaves no trail; anything further along is cancelled instead."
+            },
+            {
+              "action": "Approve the order",
+              "how": "Open the order, then Approve, with a reason",
+              "note": "Approval confirms the plan so the order can be scheduled and released."
+            },
+            {
+              "action": "Release to the bench",
+              "how": "Open the order, then Release, with a reason",
+              "note": "Takes a hard reservation for every component. The dialog shows what is still short before anything is promised - a short line refuses the whole release. Each reservation carries the order's priority and its planned start as the required date."
+            },
+            {
+              "action": "Start the build",
+              "how": "Open the order, then Start, with a reason",
+              "note": "Stamps when the bench actually began. Kitting and building are separate events, often hours apart, so issuing does not start the clock."
+            },
+            {
               "action": "Record the components handed to the bench",
               "how": "Open the order, then Issue components",
               "note": "No stock moves here. The parts are still owned and still reserved to this order; the ledger is written when the assembly is completed. Each figure is the running total handed over for that line, not an addition to it."
@@ -2667,7 +2692,22 @@
             {
               "action": "Complete the assembly",
               "how": "Open the order, then Complete",
-              "note": "Only offered while the order is in progress. This is the step that consumes the components and creates the finished stock."
+              "note": "Only offered while the order is in progress. This is the step that consumes the components and creates the finished stock. When the order needs inspection the output goes onto QC hold and an inspection is raised with it."
+            },
+            {
+              "action": "Record the inspection verdict",
+              "how": "Open the order, then Record QC verdict",
+              "note": "When an inspection holds the output, this opens that inspection's own sheet in Quality and the verdict is decided there - deciding it releases the stock and completes the order in one step. When no inspection covers the hold, the accepted and rejected quantities are recorded here and must account for everything held."
+            },
+            {
+              "action": "Close or cancel the order",
+              "how": "Open the order, then Close order or Cancel, with a reason",
+              "note": "Close once a completed order is done with. Cancel only before the components have been handed to the bench; its reservations are given back in the same step."
+            },
+            {
+              "action": "Read the board",
+              "how": "The Board tab on the register",
+              "note": "Open work grouped by assembly line, planned against actual, with a lateness badge where the plan has slipped - days past the planned end, or a start that never happened."
             },
             {
               "action": "Name the serials that went into the build",
@@ -2680,14 +2720,17 @@
             }
           ],
           "flow": [
-            "Open the order and check the component list: required, issued so far, and how much is on the bench.",
-            "Press Issue components and enter what was actually kitted to the bench, line by line, with a reason. Nothing moves in stock - this records the hand-over.",
-            "The build happens.",
+            "Raise the order: the item, the recipe when it is not the default, the quantity, the warehouses, the bench, the plan and the priority.",
+            "Approve it, then Release it to the bench - the release shows any shortage first and reserves every component.",
+            "Press Issue components and enter what was actually kitted to the bench, line by line, with a reason. Nothing moves in stock - this records the hand-over. Further hand-overs top the totals up.",
+            "Press Start when the build begins, so the plan and the reality can be compared on the board.",
             "Press Complete. Enter the assembled quantity and, if any failed, the rejected quantity.",
             "For every serial-tracked component, pick the exact serial numbers that went into these units.",
-            "Enter a reason and confirm. In one step the components are consumed, the finished units are received into the output store, and the serials are written against the order."
+            "Enter a reason and confirm. In one step the components are consumed and the finished units are received - into the output store, or onto QC hold with an inspection when the order needs one - and the serials are written against the order.",
+            "When the output is on hold, record the verdict: on the linked inspection's sheet, or on the order itself when no inspection covers it. Accepted output becomes saleable; the order completes.",
+            "Close the order when it is done with. A completed assembly can be packed from the Packing screen."
           ],
-          "permission": "Reading the register needs the right to view assembly orders. Issue components needs the right to manage assembly orders; Complete needs a separate right to complete an assembly, so the two are asked for independently and one does not stand in for the other. Searching for serial numbers inside the Complete dialog additionally needs the right to view inventory.",
+          "permission": "Reading the register needs the right to view assembly orders. Approve, release, issue, start, close, cancel, amend and delete all need the right to manage assembly orders; Complete needs a separate right to complete an assembly, and recording a verdict needs the right to decide inspections, so the three are asked for independently and one does not stand in for another. Searching for serial numbers inside the Complete dialog additionally needs the right to view inventory.",
           "rules": [
             "Components are committed when the order is released, handed over when they are issued, and only eaten when the assembly is completed. Nothing is written to the stock ledger until then, because only then is it known what was actually built.",
             "A line may be issued short of its requirement but never above it. Nothing beyond the requirement was ever reserved for this order, so issuing more would put unreserved stock on the bench that another document could still be promised.",
@@ -2697,10 +2740,12 @@
             "A serial identifies one physical unit, so exactly one serial is named per unit consumed. A serial another assembly has already swallowed is refused.",
             "Completing is one indivisible step. Either the components are consumed and the finished units created, or nothing happens at all - there is no path that eats a cylinder without producing a lock set.",
             "When the order is marked as needing inspection, the finished units are received onto QC hold rather than into the available pool, and an inspection is raised with them. The stock is held either way.",
+            "The verdict on held output has exactly one release path. When an inspection holds it, deciding that inspection in Quality releases the stock and completes the order in the same step; recording a different verdict over it is refused. Only a hold no inspection covers is settled on the order itself, and then the accepted and rejected quantities must account for everything held.",
             "A completed assembly cannot be reopened.",
-            "An assembly can only be cancelled before its components have been handed to the bench. Past that the parts are physically gone from the store and the order has to be completed or closed, so the trail survives."
+            "An assembly can only be cancelled before its components have been handed to the bench. Past that the parts are physically gone from the store and the order has to be completed or closed, so the trail survives.",
+            "A completed assembly whose output is packed nowhere yet is offered on the Packing screen. Packing it raises its packing order and marks it packed in one step, so it leaves the ready list the moment its order exists."
           ],
-          "notes": "This screen is thinner than the system behind it, and the deck should say so plainly. The only two things it can do are Issue components and Complete. There is no New assembly order button, and no control to approve, release, start, close or cancel an order, nor to record an inspection verdict on held output - all of those exist in the system and are reachable by other means, but not from this screen. In practice that means an assembly order has to arrive here already released. Also worth knowing: the item is shown as the first eight characters of its identifier with a link to the item master, not as its code, because the list does not carry the code."
+          "notes": "The item is shown as the first eight characters of its identifier with a link to the item master, not as its code, because the list does not carry the code."
         },
         {
           "route": "/job-work",
@@ -2974,6 +3019,7 @@
           "rules": [
             "Material on QC hold is in the building and on the books, but nothing can issue it, sell it or promise it to a customer. That is the entire point of the hold.",
             "A decision moves the stock in the same breath as it records the verdict, and the two commit together or not at all. Accepted quantity is released into free stock; rejected quantity moves to the damaged pool, where it is counted but unusable; scrapped quantity is written off and does not come back; rework and hold quantities deliberately stay in QC hold to be decided again later.",
+            "Deciding the inspection also settles the document that raised it, in the same step: the receipt line passes or fails and the purchase order moves on, the assembly order completes, the job-work lot is released - with no second movement and no second verdict for the same hold.",
             "The five quantities must add up to exactly the quantity inspected. Anything left over would be stock sitting in QC hold that no decision explains - which on the floor is unexplained material on a shelf.",
             "A critical characteristic that fails condemns the whole lot. None of it may be accepted or sent for rework; reject it or scrap it. The screen says so before anything is entered, and stops offering acceptance the moment a critical reading fails.",
             "Every characteristic marked as must-be-recorded needs a reading before a decision can be taken - unless a critical failure has already settled the answer, in which case no further measurement could change it and the rest of the sheet is not demanded.",
@@ -3006,6 +3052,11 @@
               "action": "Open an order",
               "how": "Click the row, or the Pack button at the end of it",
               "note": "The button reads View instead of Pack for an account that cannot change anything."
+            },
+            {
+              "action": "Pack a completed assembly",
+              "how": "The Ready from assembly panel above the list, then Pack on the row",
+              "note": "Lists completed assemblies whose output is packed nowhere yet. Packing one raises its packing order - the assembled item, from the warehouse it was received into - and marks the assembly packed against it in the same step, so it leaves the list the moment its order exists. The customer comes from the sales order when the assembly was raised for one; otherwise name it here. Nothing here is created automatically."
             },
             {
               "action": "Start packing",
@@ -3085,6 +3136,7 @@
             "A batch-tracked item must name its batch, and a serial-tracked item must name one serial per unit, before the box is closed. Once the tape is on, \"which carton held that unit\" has to be answerable.",
             "An order cannot be completed with an open carton on the bench, or with no cartons at all. It can be completed short only if you say so deliberately.",
             "An order that has been packed can no longer be cancelled - packing material has been consumed against it. It is closed instead. Cancelling is offered only before that point.",
+            "A completed assembly is packed from the Ready from assembly panel, not from the order list: raising its packing order and marking it packed happen in one step, so two packers cannot plan around the same output.",
             "A packed order can be claimed by one consignment only. A second, different consignment is refused, so two dispatchers cannot plan around the same boxes.",
             "Sealing needs the named packing material to be in stock at that warehouse. If none is, the form says so plainly, and no carton on that order can be sealed until some is."
           ],

@@ -45,6 +45,7 @@ from typing import Any, Protocol
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
+from src.core.actors import actor_id
 from src.core.clock import today, utcnow
 from src.core.constants import DEFAULT_CURRENCY
 from src.core.database import advisory_xact_lock, transaction
@@ -228,6 +229,7 @@ from src.modules.procurement.service_rules import (
     po_line_status_for,
     preferred_category_vendor,
     rank_offers,
+    receipt_line_qc_status,
     receipt_unit_cost,
     recommendation_reason,
     requisition_line_status_for,
@@ -496,7 +498,9 @@ async def _transition(
     machine.assert_transition(current, target)
     entity.status = target
     if hasattr(entity, "updated_by_id"):
-        entity.updated_by_id = tenant.user_id
+        # NULL for the system actor a reconciliation sweep carries - the nil
+        # placeholder is not a user (src.core.actors).
+        entity.updated_by_id = actor_id(tenant.user_id)
     await session.flush()
 
     await record_status_change(
@@ -4724,6 +4728,195 @@ async def _advance_order_after_receipt(
     )
 
 
+# =============================================================================
+# The incoming-inspection verdict - called back by quality
+# =============================================================================
+#
+# Quality decides the inspection a goods receipt raised and moves the held stock
+# itself. It then tells this module through ``quality.owners``, in the same
+# transaction, so the receipt line and the purchase order follow the verdict
+# without anything here moving stock a second time. Nothing in this module may
+# release QC_HOLD stock: the inspection is the one release path.
+
+
+class IncomingInspectionVerdict(Protocol):
+    """What procurement reads off a decided incoming inspection.
+
+    A protocol rather than quality's own type, so this module does not import
+    the module it reaches through a port.
+    """
+
+    @property
+    def inspection_id(self) -> uuid.UUID: ...
+    @property
+    def inspection_code(self) -> str: ...
+    @property
+    def reference_id(self) -> uuid.UUID | None: ...
+    @property
+    def accepted_quantity(self) -> Decimal: ...
+    @property
+    def refused_quantity(self) -> Decimal: ...
+    @property
+    def is_settled(self) -> bool: ...
+    @property
+    def reason(self) -> str: ...
+
+
+async def lock_for_incoming_inspection(
+    session: AsyncSession, tenant: TenantContext, reference_id: uuid.UUID
+) -> None:
+    """Take the purchase order's row lock before quality moves any stock.
+
+    Quality calls this right after locking the inspection, so a decision locks
+    inspection -> purchase order -> balances. Posting a second delivery takes
+    purchase order -> balances, the same order, so the two queue instead of
+    deadlocking. A reference that names no receipt (an inspection raised by hand)
+    locks nothing.
+    """
+    receipt = await GoodsReceiptRepository(session, tenant).get(reference_id)
+    if receipt is not None:
+        await PurchaseOrderRepository(session, tenant).lock_for_update(receipt.purchase_order_id)
+
+
+async def record_incoming_inspection_outcome(
+    session: AsyncSession, tenant: TenantContext, verdict: IncomingInspectionVerdict
+) -> bool:
+    """Write an incoming inspection's verdict back to its receipt line and order.
+
+    Once nothing of the lot is held any more, the line goes PASSED or FAILED
+    (:func:`~src.modules.procurement.service_rules.receipt_line_qc_status`).
+    When that leaves the purchase order with no line still PENDING, the order
+    moves QC_PENDING -> QC_COMPLETED -> GRN_COMPLETED through the state machine,
+    each hop audited. A purchase order still short of a delivery stays where it
+    is: when its last receipt posts, ``_advance_order_after_receipt`` counts the
+    lines still pending and finds none.
+
+    Moves no stock - quality already did. Idempotent: a line already decided is
+    left alone, so the reconciliation sweep can call this as often as it likes.
+    Returns whether anything changed.
+    """
+    if verdict.reference_id is None:
+        return False
+
+    order_repo = PurchaseOrderRepository(session, tenant)
+    line_repo = GoodsReceiptLineRepository(session, tenant)
+
+    async with transaction(session):
+        receipt = await GoodsReceiptRepository(session, tenant).get(verdict.reference_id)
+        if receipt is None or GoodsReceiptStatus(receipt.status) is not GoodsReceiptStatus.POSTED:
+            log.info(
+                "procurement.inspection_names_no_posted_receipt",
+                inspection_id=str(verdict.inspection_id),
+                reference_id=str(verdict.reference_id),
+            )
+            return False
+
+        # The order is the serialisation point: two inspections of one order
+        # decided at once must not both read the other's line as still pending.
+        order = await order_repo.lock_for_update(receipt.purchase_order_id)
+        if order is None:  # pragma: no cover - the foreign key guarantees the row
+            return False
+
+        changed = False
+        line = await line_repo.for_inspection(receipt.id, verdict.inspection_id)
+        new_status = receipt_line_qc_status(
+            settled=verdict.is_settled, refused_quantity=verdict.refused_quantity
+        )
+        if (
+            line is not None
+            and new_status is not None
+            and ReceiptLineQcStatus(line.qc_status) is ReceiptLineQcStatus.PENDING
+        ):
+            line.qc_status = new_status
+            line_repo.touch(line)
+            await session.flush()
+            await record_audit(
+                session,
+                company_id=tenant.company_id,
+                action=AuditAction.QC_DECISION,
+                entity_type=AUDIT_GOODS_RECEIPT,
+                entity_id=receipt.id,
+                entity_code=receipt.code,
+                summary=(
+                    f"Line {line.line_number} of {receipt.code} "
+                    f"{'passed' if new_status is ReceiptLineQcStatus.PASSED else 'failed'} "
+                    f"incoming inspection {verdict.inspection_code}"
+                ),
+                user_id=tenant.user_id,
+                old_values={"line_number": line.line_number, "qc_status": "PENDING"},
+                new_values={"line_number": line.line_number, "qc_status": str(new_status)},
+                context={
+                    "qc_inspection_id": verdict.inspection_id,
+                    "qc_inspection_code": verdict.inspection_code,
+                    "accepted_quantity": verdict.accepted_quantity,
+                    "refused_quantity": verdict.refused_quantity,
+                    "reason": verdict.reason,
+                },
+            )
+            changed = True
+
+        if await _complete_order_inspection(
+            session, tenant, order, reason=f"Inspection {verdict.inspection_code} decided"
+        ):
+            changed = True
+
+    return changed
+
+
+async def _complete_order_inspection(
+    session: AsyncSession, tenant: TenantContext, order: PurchaseOrder, *, reason: str
+) -> bool:
+    """Take a QC_PENDING order on to GRN_COMPLETED once no line awaits a verdict."""
+    if PurchaseOrderStatus(order.status) is not PurchaseOrderStatus.QC_PENDING:
+        return False
+    if await GoodsReceiptLineRepository(session, tenant).qc_pending_count(order.id):
+        return False
+
+    await _transition(
+        session,
+        tenant,
+        machine=PURCHASE_ORDER_LIFECYCLE,
+        entity=order,
+        entity_type=AUDIT_PURCHASE_ORDER,
+        entity_code=order.code,
+        target=PurchaseOrderStatus.QC_COMPLETED,
+        reason=f"{reason}; no received line awaits inspection",
+        status_enum=PurchaseOrderStatus,
+        action=AuditAction.QC_DECISION,
+    )
+    await _transition(
+        session,
+        tenant,
+        machine=PURCHASE_ORDER_LIFECYCLE,
+        entity=order,
+        entity_type=AUDIT_PURCHASE_ORDER,
+        entity_code=order.code,
+        target=PurchaseOrderStatus.GRN_COMPLETED,
+        reason="Every receipt posted and every held line inspected",
+        status_enum=PurchaseOrderStatus,
+    )
+    return True
+
+
+async def awaiting_incoming_inspections(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    after: uuid.UUID | None,
+    limit: int,
+) -> list[tuple[str, uuid.UUID]]:
+    """Receipts with a line still waiting on its inspection's verdict.
+
+    One keyset page for ``quality.owners.reconcile_owners``: the sweep reads the
+    verdicts these receipts' inspections already carry and replays them through
+    :func:`record_incoming_inspection_outcome`.
+    """
+    receipt_ids = await GoodsReceiptLineRepository(session, tenant).receipts_awaiting_inspection(
+        after=after, limit=limit
+    )
+    return [(MOVEMENT_REFERENCE_GRN, receipt_id) for receipt_id in receipt_ids]
+
+
 async def cancel_goods_receipt(
     session: AsyncSession, tenant: TenantContext, receipt_id: uuid.UUID, *, reason: str
 ) -> GoodsReceipt:
@@ -5248,7 +5441,9 @@ __all__ = [
     "AUDIT_QUOTATION",
     "AUDIT_REQUISITION",
     "AUDIT_RFQ",
+    "IncomingInspectionVerdict",
     "QualityPort",
+    "awaiting_incoming_inspections",
     "can_approve",
     "cancel_goods_receipt",
     "cancel_purchase_return",
@@ -5281,6 +5476,7 @@ __all__ = [
     "list_requisitions",
     "list_rfqs",
     "list_vendor_assignees",
+    "lock_for_incoming_inspection",
     "order_detail",
     "order_tracking",
     "pending_approvals",
@@ -5290,6 +5486,7 @@ __all__ = [
     "quotation_detail",
     "quotation_terms",
     "receipt_detail",
+    "record_incoming_inspection_outcome",
     "record_shipment",
     "requisition_detail",
     "resolve_quality_port",

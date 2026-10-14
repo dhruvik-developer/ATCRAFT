@@ -52,6 +52,32 @@ def date_before(later: str, earlier: str) -> str:
     return f"The {later} cannot be before the {earlier}."
 
 
+# --- quality ------------------------------------------------------------------
+
+
+def held_for_inspection(document: str, inspections: str) -> str:
+    """Refuse an owner-side verdict while the output is under a quality inspection.
+
+    Raised by assembly and job work alike: the inspection is the one release path
+    for a hold it covers, so the document's own verdict endpoint points at it
+    instead of releasing the same stock a second time.
+    """
+    return (
+        f"{document} is held for inspection {inspections}. Record the verdict on that "
+        "inspection in Quality: deciding it releases the stock and completes this order, "
+        "once."
+    )
+
+
+def verdict_differs_from_inspection(document: str, inspections: str) -> str:
+    """Refuse a verdict that disagrees with the one an inspection already recorded."""
+    return (
+        f"Inspection {inspections} already decided {document}'s held output, and the "
+        "stock has moved accordingly. A different verdict cannot be recorded over it; "
+        "repeat the inspection's own figures to complete the order from it."
+    )
+
+
 __all__ = [
     "CURRENT_PASSWORD_INCORRECT",
     "FIELDS_NEED_ATTENTION",
@@ -59,5 +85,7 @@ __all__ = [
     "NO_FIELDS_TO_UPDATE",
     "SESSION_ENDED_FOR_SECURITY",
     "date_before",
+    "held_for_inspection",
     "inactive_record",
+    "verdict_differs_from_inspection",
 ]
