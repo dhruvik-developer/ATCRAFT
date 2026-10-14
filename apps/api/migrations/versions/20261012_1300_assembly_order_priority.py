@@ -1,7 +1,7 @@
 """assembly order priority, carried onto its component reservations
 
 Revision ID: 4301062427b5
-Revises: 159ffb5b9cb4
+Revises: a91d8a14b2c7
 Created: 2026-10-12 13:00:00.000000+00:00
 
 An assembly order's release reserves every component HARD, and those
@@ -40,7 +40,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "4301062427b5"
-down_revision: str | None = "159ffb5b9cb4"
+down_revision: str | None = "a91d8a14b2c7"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

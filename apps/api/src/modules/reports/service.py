@@ -2,7 +2,7 @@
 
 Master rules section 25. Four decisions carry this module.
 
-**A report is a definition, not a handler.** Twenty-one reports sharing one runner
+**A report is a definition, not a handler.** Twenty-three reports sharing one runner
 means the rules that matter - the bounded period, the row ceiling, the cache
 policy, the audit entry - are applied consistently by construction. A new
 report is a :class:`ReportDefinition` and a

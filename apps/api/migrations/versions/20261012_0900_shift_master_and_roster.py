@@ -1,7 +1,7 @@
 """shift master, shift roster, and the shift references on production
 
 Revision ID: 0ac18597894f
-Revises: 159ffb5b9cb4
+Revises: 948902066228
 Created: 2026-10-12 09:00:00.000000+00:00
 
 A shift was free text typed onto a work order or a booking ("A", "a", "A "), with
@@ -67,7 +67,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0ac18597894f"
-down_revision: str | None = "159ffb5b9cb4"
+down_revision: str | None = "948902066228"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -1,7 +1,7 @@
 """Add issued sales invoices and receipt allocations
 
 Revision ID: b28b4dab11a4
-Revises: 159ffb5b9cb4
+Revises: 3b7a1c9e4f2a
 Created: 2026-10-11 16:12:05.510389+00:00
 
 Review: new tables take no existing-table lock. Nullable payment linkage and its
@@ -21,7 +21,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "b28b4dab11a4"
-down_revision: str | None = "159ffb5b9cb4"
+down_revision: str | None = "3b7a1c9e4f2a"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
