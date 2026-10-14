@@ -15,11 +15,11 @@
  * through a confirmation and a recorded reason for a 409.
  */
 
-import { screen, waitFor, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { act, screen, waitFor, within } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 
 import { P } from '@/lib/permissions'
-import { ok, page, renderScreen, type RouteRequest } from '@/test/harness'
+import { fail, ok, page, renderScreen, type RouteRequest } from '@/test/harness'
 
 import PackingPage from './packing-page'
 import type { PackingOrderRow, PackingStatus } from './packing-types'
@@ -395,5 +395,98 @@ describe('what a transition sends', () => {
       fetch.requestFor('POST', `/packing/${ORDER_ID}/complete`),
     )) as Record<string, unknown>
     expect(body.allow_short_pack).toBe(true)
+  })
+})
+
+describe('packing list status recovery', () => {
+  const statusPath = '/reports/jobs/packing-job'
+  const jobKey = ['reports', 'job', statusPath]
+  const accepted = ok({
+    job_id: 'packing-job',
+    status: 'queued',
+    status_url: `/api/v1${statusPath}`,
+  })
+  const complete = ok({
+    id: 'packing-job',
+    report_key: 'PACKING_LIST',
+    status: 'COMPLETED',
+    row_count: 1,
+    document_id: 'document',
+    download_url: '/api/v1/documents/document/download',
+  })
+
+  it.each([404, 403, 500, 'network'] as const)(
+    'shows and retries an initial %s status failure without queueing another PDF',
+    async (status) => {
+      let recovering = false
+      const h = await openOrder('PACKED', [P.PACKING_VIEW, P.REPORT_VIEW], {
+        [`GET /packing/${ORDER_ID}`]: ok(orderDetail('PACKED', { total_cartons: 1 })),
+        [`GET /packing/${ORDER_ID}/packing-list`]: accepted,
+        [`GET ${statusPath}`]: () => {
+          if (recovering) return complete
+          if (status === 'network') throw new Error('Connection lost')
+          return fail(status, 'STATUS_FAILED', 'The status could not be read')
+        },
+      })
+      await h.user.click(screen.getByRole('button', { name: /generate packing list/i }))
+      expect(await screen.findByText('Packing list could not be generated')).toBeVisible()
+      expect(screen.getByRole('button', { name: 'Retry status' })).toBeEnabled()
+      expect(screen.queryByRole('button', { name: /generate packing list/i })).toBeNull()
+
+      const polls = h.fetch.calls.filter((call) => call.path === statusPath).length
+      await act(async () => {
+        vi.useFakeTimers()
+        await vi.advanceTimersByTimeAsync(4500)
+        vi.useRealTimers()
+      })
+      expect(h.fetch.calls.filter((call) => call.path === statusPath)).toHaveLength(polls)
+
+      recovering = true
+      await h.user.click(screen.getByRole('button', { name: 'Retry status' }))
+      expect(await screen.findByText('Packing list is ready')).toBeVisible()
+      expect(screen.getByRole('button', { name: 'Download' })).toBeEnabled()
+      expect(h.fetch.calls.filter((call) => call.path.endsWith('/packing-list'))).toHaveLength(1)
+    },
+  )
+
+  it('recovers a failed poll after a QUEUED payload by reading the same job', async () => {
+    let state: 'queued' | 'error' | 'complete' = 'queued'
+    const h = await openOrder('PACKED', [P.PACKING_VIEW, P.REPORT_VIEW], {
+      [`GET /packing/${ORDER_ID}`]: ok(orderDetail('PACKED', { total_cartons: 1 })),
+      [`GET /packing/${ORDER_ID}/packing-list`]: accepted,
+      [`GET ${statusPath}`]: () =>
+        state === 'error'
+          ? fail(500, 'STATUS_FAILED', 'Status service unavailable')
+          : state === 'complete'
+            ? complete
+            : ok({ id: 'packing-job', status: 'QUEUED' }),
+    })
+    await h.user.click(screen.getByRole('button', { name: /generate packing list/i }))
+    await waitFor(() => expect(h.queryClient.getQueryState(jobKey)?.status).toBe('success'))
+    state = 'error'
+    await h.queryClient.invalidateQueries({ queryKey: jobKey })
+    expect(await screen.findByText('Status service unavailable')).toBeVisible()
+    state = 'complete'
+    await h.user.click(screen.getByRole('button', { name: 'Retry status' }))
+    expect(await screen.findByText('Packing list is ready')).toBeVisible()
+    expect(h.fetch.calls.filter((call) => call.path.endsWith('/packing-list'))).toHaveLength(1)
+  })
+
+  it('can dismiss a status error and does not treat a FAILED build as a retryable poll', async () => {
+    const h = await openOrder('PACKED', [P.PACKING_VIEW, P.REPORT_VIEW], {
+      [`GET /packing/${ORDER_ID}`]: ok(orderDetail('PACKED', { total_cartons: 1 })),
+      [`GET /packing/${ORDER_ID}/packing-list`]: accepted,
+      [`GET ${statusPath}`]: ok({
+        id: 'packing-job',
+        status: 'FAILED',
+        error_message: 'No carton contents',
+      }),
+    })
+    await h.user.click(screen.getByRole('button', { name: /generate packing list/i }))
+    expect(await screen.findByText('No carton contents')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Retry status' })).toBeNull()
+    await h.user.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(screen.getByRole('button', { name: /generate packing list/i })).toBeEnabled()
+    expect(h.fetch.calls.filter((call) => call.path.endsWith('/packing-list'))).toHaveLength(1)
   })
 })

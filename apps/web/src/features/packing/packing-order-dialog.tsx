@@ -31,7 +31,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Boxes,
-  Download,
   FileText,
   Lock,
   Package,
@@ -79,6 +78,8 @@ import {
 import { useAuth } from '@/features/auth/auth-context'
 import { BatchSelect, SerialPicker } from '@/features/dispatch/stock-pickers'
 import { useItemFacts, type DispatchRow } from '@/features/dispatch/dispatch-types'
+import { ReportJobPanel } from '@/features/reports/job-panel'
+import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
 import { api } from '@/lib/api-client'
 import {
   LOOKUP_LIST_LIMIT,
@@ -106,9 +107,6 @@ import {
   isCloseable,
   isCompletable,
   isHandOverable,
-  isJobComplete,
-  isJobFailed,
-  isJobInFlight,
   isPackable,
   isPackingCancellable,
   isStartable,
@@ -121,10 +119,7 @@ import {
   type PackingOrderDetail,
   type PackingOrderLine,
   type PackingOrderRow,
-  type ReportJob,
 } from './packing-types'
-
-const JOB_POLL_INTERVAL_MS = 2000
 
 /** One page of cartons. The API caps a page at 200. */
 const CARTON_PAGE = 200
@@ -912,20 +907,13 @@ function CartonCard({
 
 function PackingListAction({ order }: { order: PackingOrderDetail }) {
   const { can } = useAuth()
-  const [jobId, setJobId] = useState<string | null>(null)
-  const [failure, setFailure] = useState<string | null>(null)
-  const [documentId, setDocumentId] = useState<string | null>(null)
+  const job = useReportJob()
 
   const generate = useMutation({
     // A GET that returns 202 with a job id - the render is handed to the report
     // queue rather than held open on this connection.
-    mutationFn: () =>
-      api.get<{ job_id: string; status: string; status_url: string }>(
-        `/packing/${order.id}/packing-list`,
-      ),
-    onSuccess: (job) => {
-      setFailure(null)
-      setDocumentId(null)
+    mutationFn: () => api.get<AcceptedJobData>(`/packing/${order.id}/packing-list`),
+    onSuccess: (accepted) => {
       // The job's status lives in the report module and reading it is its own
       // permission. Without it the build still runs - there is just nothing
       // here that can watch it, so the button is not left spinning forever.
@@ -936,67 +924,20 @@ function PackingListAction({ order }: { order: PackingOrderDetail }) {
         )
         return
       }
-      setJobId(job.job_id)
-      toast.show('Packing list queued', 'It is building in the background - you can carry on.')
+      job.start(accepted)
     },
     // A failed queue is surfaced by the global mutation cache; only a failed
     // build - a polled query, which that cache does not see - is reported inline.
   })
 
-  const job = useQuery({
-    queryKey: packingKeys.packingListJob(jobId ?? ''),
-    // The job lives in the report module, which is where the status endpoint is.
-    queryFn: () => api.get<ReportJob>(`/reports/jobs/${jobId}`),
-    enabled: Boolean(jobId) && can(P.REPORT_VIEW),
-    staleTime: 0,
-    // Polls until the build reaches a terminal state, then stops dead.
-    refetchInterval: (query) =>
-      isJobInFlight(query.state.data?.status) ? JOB_POLL_INTERVAL_MS : false,
-  })
-
-  const jobData = job.data
-  useEffect(() => {
-    if (!jobData || isJobInFlight(jobData.status)) return
-    setJobId(null)
-
-    if (isJobFailed(jobData.status)) {
-      setFailure(jobData.error_message ?? 'The packing list could not be built.')
-      return
-    }
-    if (isJobComplete(jobData.status) && jobData.document_id) {
-      setDocumentId(jobData.document_id)
-      toast.success('Packing list ready', 'The document is ready to download.')
-    }
-  }, [jobData])
-
-  const download = useMutation({
-    mutationFn: (id: string) =>
-      api.download(`/documents/${id}/download`, `packing-list-${order.code}.pdf`),
-  })
-
-  const building = Boolean(jobId) || generate.isPending
-
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      {building ? (
-        <Button variant="outline" size="sm" loading disabled>
-          Generating...
-        </Button>
-      ) : documentId ? (
-        <Button
-          variant="outline"
-          size="sm"
-          loading={download.isPending}
-          onClick={() => download.mutate(documentId)}
-        >
-          <Download />
-          Download packing list
-        </Button>
-      ) : (
+    <div className="space-y-2">
+      {job.phase === 'idle' && (
         <Button
           variant="outline"
           size="sm"
           onClick={() => generate.mutate()}
+          loading={generate.isPending}
           disabled={order.total_cartons === 0}
         >
           <FileText />
@@ -1004,11 +945,7 @@ function PackingListAction({ order }: { order: PackingOrderDetail }) {
         </Button>
       )}
 
-      {failure && (
-        <span className="text-xs text-destructive" role="alert">
-          {failure}
-        </span>
-      )}
+      <ReportJobPanel controller={job} label="Packing list" />
     </div>
   )
 }
