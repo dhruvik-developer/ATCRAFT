@@ -85,11 +85,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 
 from src.common.codes import DocTypes, next_document_number
+from src.common.warehouse_scope import assert_warehouse_scope
 from src.core.clock import today, utcnow
 from src.core.database import advisory_xact_lock, set_lock_timeout, transaction
 from src.core.deps import TenantContext
 from src.core.errors import (
-    AuthorizationError,
     BusinessRuleError,
     DuplicateError,
     ErrorCode,
@@ -1176,28 +1176,6 @@ def find_shortfall(
         return StockShortfall("available", available_before)
 
     return None
-
-
-def assert_warehouse_scope(tenant: TenantContext, *warehouse_ids: uuid.UUID) -> None:
-    """Refuse a document that touches a warehouse this principal is not assigned to.
-
-    Section 39: a warehouse-restricted principal works in its own warehouses.
-    Permissions answer "may this person adjust stock at all"; they say nothing
-    about *where*, so ``inventory.adjust`` alone would let a storekeeper scoped
-    to the raw-material store write off finished goods they cannot even see.
-
-    An empty restriction list means unrestricted, which is the common case and
-    the reason this is written as an early return rather than a membership test.
-    """
-    if not tenant.allowed_warehouse_ids:
-        return
-    outside = [w for w in dict.fromkeys(warehouse_ids) if w not in tenant.allowed_warehouse_ids]
-    if outside:
-        raise AuthorizationError(
-            "This document involves a warehouse you are not assigned to.",
-            code=ErrorCode.SCOPE_DENIED,
-            details={"warehouse_ids": [str(w) for w in outside]},
-        )
 
 
 # ASSUMPTION: master-data policy gates the *start* of a movement into a

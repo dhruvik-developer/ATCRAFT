@@ -89,6 +89,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, aliased
 
 from src.common.repository import BaseRepository
+from src.common.warehouse_scope import warehouse_scope
 from src.core.constants import DEFAULT_CURRENCY
 from src.core.database import affected_rows
 from src.core.pagination import COUNT_CEILING, PageParams, SortParams
@@ -1688,11 +1689,7 @@ class InventoryValuationRepository(BaseRepository[InventoryBalance]):
 
         # A warehouse principal must not be able to value stock it cannot see
         # (section 39). The restriction is empty for an unrestricted user.
-        if self.tenant.allowed_warehouse_ids:
-            stmt = stmt.where(
-                InventoryBalance.warehouse_id.in_(list(self.tenant.allowed_warehouse_ids))
-            )
-        return stmt
+        return stmt.where(*warehouse_scope(self.tenant, InventoryBalance.warehouse_id))
 
     def valuation_page_stmt(self, filters: ValuationFilters) -> Select[Any]:
         """Highest value first: a valuation is read from the top."""
