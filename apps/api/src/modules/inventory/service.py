@@ -3708,9 +3708,14 @@ class TraceabilityService:
         return StockBatchRead.model_validate(batch)
 
     async def list_batches(
-        self, item_id: uuid.UUID | None, search: str | None, params: PageParams
+        self,
+        item_id: uuid.UUID | None,
+        search: str | None,
+        params: PageParams,
+        *,
+        batch_id: uuid.UUID | None = None,
     ) -> tuple[list[StockBatchRead], OffsetPagination]:
-        stmt = self.batches.build_list_stmt(item_id=item_id, search=search)
+        stmt = self.batches.build_list_stmt(item_id=item_id, search=search, batch_id=batch_id)
         rows, pagination = await paginate(self.session, stmt, params)
         return [StockBatchRead.model_validate(row) for row in rows], pagination
 

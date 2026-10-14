@@ -72756,6 +72756,25 @@
             }
           },
           {
+            "description": "Resolve a selected batch within the item and tenant",
+            "in": "query",
+            "name": "batch_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Resolve a selected batch within the item and tenant",
+              "title": "Batch Id"
+            }
+          },
+          {
             "description": "1-based page number",
             "in": "query",
             "name": "page",

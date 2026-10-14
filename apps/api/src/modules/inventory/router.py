@@ -343,9 +343,12 @@ async def list_batches(
     params: PageDep,
     item_id: Annotated[uuid.UUID | None, Query()] = None,
     search: Annotated[str | None, Query(max_length=64)] = None,
+    batch_id: Annotated[
+        uuid.UUID | None, Query(description="Resolve a selected batch within the item and tenant")
+    ] = None,
 ) -> PaginatedResponse[StockBatchRead]:
     items, pagination = await TraceabilityService(session, tenant).list_batches(
-        item_id, search, params
+        item_id, search, params, batch_id=batch_id
     )
     return PaginatedResponse[StockBatchRead](data=items, pagination=pagination)
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterator, Iterator
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -45,6 +45,7 @@ from src.modules.inventory.models import (
     InventoryCostLayerConsumption,
     InventoryTransaction,
     PhysicalCountStatus,
+    StockBatch,
     StockState,
     TransactionType,
     TransferStatus,
@@ -53,6 +54,7 @@ from src.modules.inventory.repository import (
     CostLayerRepository,
     InventoryRepository,
     LedgerRepository,
+    StockBatchRepository,
 )
 from src.modules.inventory.schemas import (
     AdjustmentFilters,
@@ -70,6 +72,54 @@ from tests import seed_support
 from tests.schema_support import prepare_metadata, report_database_setup_failure
 
 pytestmark = pytest.mark.integration
+
+
+async def test_batch_picker_search_pages_and_selected_lookup_keep_item_and_tenant_scope(
+    ctx,
+) -> None:
+    session, tenant, _ = ctx
+    item_id = await seed_item(session, tenant.company_id, code=_code("LOTS"))
+    other_item_id = await seed_item(session, tenant.company_id, code=_code("OTHER"))
+    repo = StockBatchRepository(session, tenant)
+    records = [
+        repo.add(
+            StockBatch(
+                item_id=item_id,
+                batch_number=f"OLDER-{number:03}",
+                received_on=date(2026, 1, 1) + timedelta(days=number),
+            )
+        )
+        for number in range(55)
+    ]
+    await session.flush()
+    oldest = records[0].id
+    service = inv.TraceabilityService(session, tenant)
+    first, first_page = await service.list_batches(
+        item_id, None, PageParams(limit=20, with_total=False)
+    )
+    third, third_page = await service.list_batches(
+        item_id, None, PageParams(page=3, limit=20, with_total=False)
+    )
+    assert len(first) == 20 and first_page.has_next
+    assert oldest not in {batch.id for batch in first}
+    assert oldest in {batch.id for batch in third} and not third_page.has_next
+
+    searched, _ = await service.list_batches(item_id, "OLDER-000", PageParams(limit=20))
+    assert [batch.id for batch in searched] == [oldest]
+    selected, _ = await service.list_batches(item_id, None, PageParams(limit=1), batch_id=oldest)
+    assert [batch.id for batch in selected] == [oldest]
+    wrong_item, _ = await service.list_batches(
+        other_item_id, None, PageParams(limit=1), batch_id=oldest
+    )
+    assert wrong_item == []
+    foreign = inv.TraceabilityService(
+        session, TenantContext(company_id=uuid.uuid4(), user_id=tenant.user_id)
+    )
+    wrong_tenant, _ = await foreign.list_batches(
+        item_id, None, PageParams(limit=1), batch_id=oldest
+    )
+    assert wrong_tenant == []
+
 
 # Foreign keys reach into modules that are built alongside this one, and
 # ``create_all`` resolves them against the metadata rather than the database.

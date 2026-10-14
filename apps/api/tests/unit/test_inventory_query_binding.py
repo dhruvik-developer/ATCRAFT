@@ -27,7 +27,7 @@ from src.core.config import settings
 from src.core.database import get_db
 from src.core.deps import Principal, get_current_principal
 from src.core.exception_handlers import register_exception_handlers
-from src.core.responses import CursorPagination
+from src.core.responses import CursorPagination, OffsetPagination
 from src.modules.inventory.schemas import LedgerFilters
 
 pytestmark = pytest.mark.unit
@@ -81,6 +81,7 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
         ("/inventory/transfers", {"date_from": "31/12/2024"}, "query.date_from"),
         ("/inventory/adjustments", {"date_to": "not-a-date"}, "query.date_to"),
         ("/inventory/physical-counts", {"date_from": "2024-13-45"}, "query.date_from"),
+        ("/inventory/batches", {"batch_id": "not-a-uuid"}, "query.batch_id"),
     ],
 )
 async def test_a_bad_filter_value_is_a_422_naming_the_field(
@@ -149,3 +150,35 @@ class TestLedgerWindowRule:
             occurred_from=datetime(2026, 1, 2, tzinfo=UTC), occurred_to=naive_upper
         )
         assert filters.occurred_to == naive_upper
+
+
+async def test_batch_selection_binds_server_search_paging_and_selected_id(
+    client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[tuple[Any, ...]] = []
+    item_id, batch_id = uuid.uuid4(), uuid.uuid4()
+
+    class Recorder:
+        def __init__(self, session: Any, tenant: Any) -> None:
+            pass
+
+        async def list_batches(
+            self, item_id: Any, search: Any, params: Any, *, batch_id: Any = None
+        ) -> tuple[list[Any], OffsetPagination]:
+            seen.append((item_id, search, params.page, params.limit, params.with_total, batch_id))
+            return [], OffsetPagination(page=params.page, limit=params.limit)
+
+    monkeypatch.setattr(inventory_router, "TraceabilityService", Recorder)
+    response = await client.get(
+        f"{PREFIX}/inventory/batches",
+        params={
+            "item_id": str(item_id),
+            "batch_id": str(batch_id),
+            "search": "OLDER",
+            "page": 3,
+            "limit": 20,
+            "with_total": "false",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert seen == [(item_id, "OLDER", 3, 20, False, batch_id)]

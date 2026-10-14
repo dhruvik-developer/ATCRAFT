@@ -19,22 +19,17 @@
  */
 
 import { useQuery } from '@tanstack/react-query'
-import { ScanBarcode } from 'lucide-react'
-import { useState } from 'react'
+import { Check, ChevronsUpDown, ScanBarcode, Search, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
+import { Button } from '@/components/ui/button'
 import { Label, Badge, Input, Skeleton } from '@/components/ui/primitives'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/overlays'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/overlays'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
-import { SELECT_NONE } from '@/lib/constants'
+import { PICKER_PAGE_SIZE } from '@/lib/constants'
 import { formatQuantity, humanise, toDecimal } from '@/lib/format'
-import { staleTimes } from '@/lib/query-client'
+import { queryKeys, staleTimes } from '@/lib/query-client'
 import { cn } from '@/lib/utils'
 
 import type { StockBatch, StockSerial } from './dispatch-types'
@@ -55,41 +50,169 @@ export function BatchSelect({
   value: string
   onChange: (value: string) => void
 }) {
-  const params = { item_id: itemId, limit: STOCK_PAGE, with_total: false }
+  const [open, setOpen] = useState(false)
+  const [term, setTerm] = useState('')
+  const [page, setPage] = useState(1)
+  const [picked, setPicked] = useState<StockBatch | null>(null)
+  const debounced = useDebouncedValue(term)
+
+  useEffect(() => {
+    setOpen(false)
+    setTerm('')
+    setPage(1)
+    setPicked(null)
+  }, [itemId])
+
+  const params = {
+    item_id: itemId,
+    ...(debounced ? { search: debounced } : {}),
+    page,
+    limit: PICKER_PAGE_SIZE,
+    with_total: false,
+  }
   const batches = useQuery({
-    queryKey: ['inventory', 'batches', params],
+    queryKey: queryKeys.inventory.batches(params),
     queryFn: () => api.getPage<StockBatch>('/inventory/batches', { params }),
-    enabled: Boolean(itemId),
+    enabled: open && Boolean(itemId),
     staleTime: staleTimes.transactional,
   })
 
   const rows = batches.data?.data ?? []
+  const fromPage = rows.find((batch) => batch.id === value)
+  const remembered = picked?.item_id === itemId && picked.id === value ? picked : null
+  const detail = useQuery({
+    queryKey: queryKeys.inventory.batch(itemId, value),
+    queryFn: () =>
+      api.getPage<StockBatch>('/inventory/batches', {
+        params: { item_id: itemId, batch_id: value, limit: 1, with_total: false },
+      }),
+    enabled: Boolean(itemId) && Boolean(value) && !fromPage && !remembered,
+    staleTime: staleTimes.transactional,
+  })
+  const selected = fromPage ?? remembered ?? detail.data?.data[0] ?? null
 
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id} required>
         Batch
       </Label>
-      <Select
-        value={value || SELECT_NONE}
-        onValueChange={(next) => onChange(next === SELECT_NONE ? '' : next)}
-      >
-        <SelectTrigger id={id}>
-          <SelectValue placeholder="Choose the batch" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={SELECT_NONE}>Not chosen</SelectItem>
-          {rows.map((batch) => (
-            <SelectItem key={batch.id} value={batch.id}>
-              {batch.batch_number}
-              {batch.status === 'ACTIVE' ? '' : ` (${humanise(batch.status)})`}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      {!batches.isLoading && rows.length === 0 && (
-        <p className="text-xs text-warning">
-          No batch of this item is on record. A batch-tracked item cannot move until one exists.
+      <div className="flex items-center gap-1">
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              id={id}
+              type="button"
+              variant="outline"
+              role="combobox"
+              aria-expanded={open}
+              aria-label="Batch"
+              disabled={!itemId}
+              className="flex-1 justify-between font-normal"
+            >
+              <span className="truncate">
+                {selected?.batch_number ??
+                  (value ? 'Selected batch (unavailable)' : 'Choose the batch')}
+              </span>
+              <ChevronsUpDown className="opacity-50" aria-hidden />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-[min(22rem,calc(100vw-2rem))] p-0">
+            <div className="relative border-b p-2">
+              <Search
+                className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <Input
+                autoFocus
+                value={term}
+                maxLength={64}
+                aria-label="Search batches"
+                placeholder="Search batch or supplier batch number"
+                className="pl-8"
+                onChange={(event) => {
+                  setTerm(event.target.value)
+                  setPage(1)
+                }}
+              />
+            </div>
+            <div className="max-h-64 overflow-y-auto p-1" role="listbox" aria-label="Batches">
+              {batches.isLoading && <Skeleton className="h-16 w-full" />}
+              {batches.error && (
+                <p role="alert" className="p-2 text-sm text-destructive">
+                  {batches.error.message}
+                </p>
+              )}
+              {!batches.isLoading && !batches.error && rows.length === 0 && (
+                <p className="p-3 text-center text-sm text-muted-foreground">
+                  {debounced
+                    ? 'No batch matches that search.'
+                    : 'No batch of this item is on record.'}
+                </p>
+              )}
+              {rows.map((batch) => (
+                <button
+                  key={batch.id}
+                  type="button"
+                  role="option"
+                  aria-selected={batch.id === value}
+                  onClick={() => {
+                    setPicked(batch)
+                    onChange(batch.id)
+                    setOpen(false)
+                  }}
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+                >
+                  <Check
+                    className={cn('h-4 w-4 shrink-0', batch.id !== value && 'invisible')}
+                    aria-hidden
+                  />
+                  <span className="truncate">
+                    {batch.batch_number}
+                    {batch.status === 'ACTIVE' ? '' : ` (${humanise(batch.status)})`}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center justify-between gap-2 border-t p-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                aria-label="Previous batch page"
+                disabled={page === 1 || batches.isFetching}
+                onClick={() => setPage((current) => current - 1)}
+              >
+                Previous
+              </Button>
+              <span className="text-xs text-muted-foreground">Page {page}</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                aria-label="Next batch page"
+                disabled={!batches.data?.pagination.has_next || batches.isFetching}
+                onClick={() => setPage((current) => current + 1)}
+              >
+                Next
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
+        {value && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Clear batch"
+            onClick={() => onChange('')}
+          >
+            <X />
+          </Button>
+        )}
+      </div>
+      {detail.error && (
+        <p role="alert" className="text-xs text-destructive">
+          {detail.error.message}
         </p>
       )}
     </div>
