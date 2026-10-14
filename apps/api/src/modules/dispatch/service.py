@@ -123,9 +123,11 @@ from src.modules.dispatch.schemas import (
     DispatchSummary,
     DispatchUpdate,
     InTransitRequest,
+    SalesOrderLineReference,
     TrackingBoardRow,
     TrackingEventIn,
     TrackingEventRead,
+    duplicate_sales_order_line_ids,
 )
 from src.modules.inventory.models import SerialStatus, StockState, TransactionType
 from src.modules.inventory.service import MovementRequest, post_movements
@@ -693,6 +695,16 @@ async def _record_event(
     return event
 
 
+def _assert_unique_sales_order_lines(lines: Sequence[SalesOrderLineReference]) -> None:
+    duplicates = duplicate_sales_order_line_ids(lines)
+    if duplicates:
+        raise BusinessRuleError(
+            "The same sales-order line cannot appear twice on a consignment; "
+            "combine its quantities.",
+            details={"sales_order_line_ids": [str(line_id) for line_id in duplicates]},
+        )
+
+
 async def _validate_lines(
     session: AsyncSession,
     tenant: TenantContext,
@@ -714,6 +726,8 @@ async def _validate_lines(
             f"A consignment may carry at most {MAX_LINES_PER_DISPATCH} lines.",
             details={"line_count": len(lines)},
         )
+
+    _assert_unique_sales_order_lines(lines)
 
     items = await ItemLookupRepository(session, tenant).load([line.item_id for line in lines])
     batches = await BatchLookupRepository(session, tenant).load(
@@ -1334,6 +1348,7 @@ async def mark_ready(
                 f"{dispatch.code} has no lines; there is nothing to dispatch.",
                 details={"dispatch_id": str(dispatch.id)},
             )
+
         await _transition(
             session, tenant, dispatch, DispatchStatus.READY_FOR_DISPATCH, reason=reason, repo=repo
         )
@@ -1421,6 +1436,9 @@ async def dispatch_consignment(
                 details={"dispatch_id": str(dispatch.id)},
             )
 
+        # Old drafts may predate request validation. Refuse before consuming any
+        # reservation or posting stock, while the consignment is locked.
+        _assert_unique_sales_order_lines(lines)
         items = await ItemLookupRepository(session, tenant).load([line.item_id for line in lines])
 
         # Lock the order lines this consignment draws on. Ordered by primary key

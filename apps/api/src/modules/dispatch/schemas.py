@@ -20,9 +20,11 @@ Conventions applied throughout, each for a reason:
 from __future__ import annotations
 
 import uuid
+from collections import Counter
+from collections.abc import Sequence
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -54,6 +56,19 @@ MAX_DELAY_SCAN = 500
 #: read. A courier feed can produce dozens of scans; a pathological one must not
 #: be able to return an unbounded page.
 MAX_TRACKING_EVENTS_PAGE = 200
+
+
+class SalesOrderLineReference(Protocol):
+    @property
+    def sales_order_line_id(self) -> uuid.UUID | None: ...
+
+
+def duplicate_sales_order_line_ids(
+    lines: Sequence[SalesOrderLineReference],
+) -> list[uuid.UUID]:
+    """Repeated demand links would consume twice but overwrite fulfilment once."""
+    counts = Counter(line.sales_order_line_id for line in lines if line.sales_order_line_id)
+    return sorted((line_id for line_id, count in counts.items() if count > 1), key=str)
 
 
 # -----------------------------------------------------------------------------
@@ -168,6 +183,8 @@ class DispatchCreate(TransportDetails):
             and self.expected_delivery_date < self.dispatch_date
         ):
             raise ValueError("The expected delivery date cannot precede the dispatch date.")
+        if duplicate_sales_order_line_ids(self.lines):
+            raise ValueError("The same sales-order line cannot appear twice on a consignment.")
         return self
 
 
@@ -191,6 +208,12 @@ class DispatchUpdate(TransportDetails):
     lines: list[DispatchLineIn] | None = Field(
         default=None, min_length=1, max_length=MAX_LINES_PER_DISPATCH
     )
+
+    @model_validator(mode="after")
+    def _distinct_sales_order_lines(self) -> DispatchUpdate:
+        if self.lines is not None and duplicate_sales_order_line_ids(self.lines):
+            raise ValueError("The same sales-order line cannot appear twice on a consignment.")
+        return self
 
 
 # -----------------------------------------------------------------------------
