@@ -41,6 +41,9 @@ from src.modules.finance import service
 from src.modules.finance.models import (
     LedgerEntry,
     MatchStatus,
+    PartyType,
+    PaymentMethod,
+    PaymentType,
     SystemAccount,
     VendorInvoice,
     VendorInvoiceStatus,
@@ -48,7 +51,10 @@ from src.modules.finance.models import (
 )
 from src.modules.finance.repository import LedgerAccountRepository, LedgerEntryRepository
 from src.modules.finance.schemas import (
+    AllocationRequest,
     InvoiceApproval,
+    PaymentAllocationIn,
+    PaymentCreate,
     VendorInvoiceCreate,
     VendorInvoiceFilters,
     VendorInvoiceLineIn,
@@ -545,6 +551,77 @@ class TestCancelReversesAndRollsBack:
         assert line is not None
         assert line.invoiced_amount == Decimal("0.0000")
         assert line.debit_posted_amount == Decimal("0.0000")
+
+
+class TestRecoveryReducesWhatIsOwed:
+    """The recovery already reduced the payable in the ledger, so every
+    what-is-owed read is net of it (docs/assumptions.md §B3-2).
+
+    The default shop bills 1073.00 in charges (1266.14 with GST) and recovers
+    250.00 of excess-loss debit, so the net payable is 1016.14. Before this
+    fix the summary, the outstanding list and the allocation bound all read
+    the gross 1266.14, and the payment dialog's prefill guided the operator
+    to overpay the vendor by exactly the recovery.
+    """
+
+    async def test_outstanding_is_net_of_the_recovery(self, ctx) -> None:
+        session, tenant, principal = ctx
+        shop = await seed_shop(session, tenant.company_id)
+        invoice = await approved_jw_invoice(session, tenant, principal, shop)
+
+        assert service.invoice_summary(invoice).outstanding_amount == Decimal("1016.14")
+
+        rows, _ = await service.list_outstanding(
+            session, tenant, params=PageParams(limit=50), vendor_id=shop.vendor_id
+        )
+        assert [row.invoice_id for row in rows] == [invoice.id]
+        assert rows[0].outstanding_amount == Decimal("1016.14")
+
+    async def test_allocation_is_capped_at_the_net_payable(self, ctx) -> None:
+        session, tenant, principal = ctx
+        shop = await seed_shop(session, tenant.company_id)
+        invoice = await approved_jw_invoice(session, tenant, principal, shop)
+        invoice_id = invoice.id
+
+        payment = await service.create_payment(
+            session,
+            tenant,
+            PaymentCreate(
+                payment_type=PaymentType.PAYMENT,
+                party_type=PartyType.VENDOR,
+                party_id=shop.vendor_id,
+                payment_date=date(2026, 5, 14),
+                amount=Decimal("2000"),
+                payment_method=PaymentMethod.BANK_TRANSFER,
+            ),
+        )
+        await service.approve_payment(session, tenant, principal, payment.id)
+
+        with pytest.raises(BusinessRuleError, match=r"owes 1016\.14"):
+            await service.allocate_payment(
+                session,
+                tenant,
+                payment.id,
+                AllocationRequest(
+                    allocations=[
+                        PaymentAllocationIn(vendor_invoice_id=invoice_id, amount=Decimal("1266.14"))
+                    ]
+                ),
+            )
+
+        await service.allocate_payment(
+            session,
+            tenant,
+            payment.id,
+            AllocationRequest(
+                allocations=[
+                    PaymentAllocationIn(vendor_invoice_id=invoice_id, amount=Decimal("1016.14"))
+                ]
+            ),
+        )
+        await session.refresh(invoice)
+        assert invoice.paid_amount == Decimal("1016.1400")
+        assert VendorInvoiceStatus(invoice.status) is VendorInvoiceStatus.PAID
 
 
 async def _account_names(

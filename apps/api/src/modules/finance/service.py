@@ -1109,19 +1109,27 @@ def _job_work_price_figures(line: MatchLineInput) -> tuple[Decimal | None, Decim
 
 
 def invoice_status_after_payment(
-    current: VendorInvoiceStatus, *, total_amount: Decimal, paid_amount: Decimal
+    current: VendorInvoiceStatus,
+    *,
+    total_amount: Decimal,
+    paid_amount: Decimal,
+    recovered_amount: Decimal = ZERO,
 ) -> VendorInvoiceStatus:
     """Where an invoice sits once its paid total changes.
 
     Derived from the money rather than set independently, so an invoice can
-    never claim to be PAID while it still owes something. A disputed invoice
-    keeps its status: settling part of a disputed bill does not end the dispute.
+    never claim to be PAID while it still owes something. "What is owed" is
+    net of the excess-loss recovery posted beside a job-work invoice: the
+    recovery already reduced the payable in the ledger, so paying the gross
+    total would overpay the vendor by exactly the recovery
+    (docs/assumptions.md §B3-2). A disputed invoice keeps its status:
+    settling part of a disputed bill does not end the dispute.
     """
     if current in (VendorInvoiceStatus.DISPUTED, VendorInvoiceStatus.CANCELLED):
         return current
     paid = to_money(paid_amount)
-    total = to_money(total_amount)
-    if paid >= total and total > ZERO:
+    net = to_money(to_money(total_amount) - to_money(recovered_amount))
+    if paid >= net and net > ZERO:
         return VendorInvoiceStatus.PAID
     if paid > ZERO:
         return VendorInvoiceStatus.PARTIALLY_PAID
@@ -1757,6 +1765,10 @@ def invoice_summary(invoice: VendorInvoice) -> VendorInvoiceSummary:
 
     Derived here rather than in the browser so the payables list, the ageing
     report and the allocation path cannot disagree about what is still owed.
+    The figure is net of the excess-loss recovery posted beside a job-work
+    invoice (``total - recovered - paid``): the recovery already reduced the
+    payable in the ledger, and showing the gross would guide the next payment
+    to overpay the vendor by exactly the recovery (docs/assumptions.md §B3-2).
     """
     return VendorInvoiceSummary(
         id=invoice.id,
@@ -1772,7 +1784,9 @@ def invoice_summary(invoice: VendorInvoice) -> VendorInvoiceSummary:
         tax_amount=invoice.tax_amount,
         total_amount=invoice.total_amount,
         paid_amount=invoice.paid_amount,
-        outstanding_amount=to_money(invoice.total_amount - invoice.paid_amount),
+        outstanding_amount=to_money(
+            invoice.total_amount - invoice.recovered_amount - invoice.paid_amount
+        ),
         purchase_order_id=invoice.purchase_order_id,
         goods_receipt_id=invoice.goods_receipt_id,
         invoice_type=VendorInvoiceType(invoice.invoice_type),
@@ -3173,6 +3187,7 @@ async def resolve_dispute(
             VendorInvoiceStatus.APPROVED,
             total_amount=invoice.total_amount,
             paid_amount=invoice.paid_amount,
+            recovered_amount=invoice.recovered_amount,
         )
         await _transition_invoice(session, tenant, invoice, settled, reason=reason)
         invoice.dispute_reason = None
@@ -3856,7 +3871,10 @@ async def allocate_payment(
             # amount and a replace removes it outright, so in both cases it is
             # about to stop counting against the invoice's outstanding.
             already = existing_amounts.get(invoice_id, ZERO)
-            outstanding = to_money(invoice.total_amount - invoice.paid_amount) + already
+            outstanding = (
+                to_money(invoice.total_amount - invoice.recovered_amount - invoice.paid_amount)
+                + already
+            )
             if amount > outstanding:
                 raise BusinessRuleError(
                     f"{invoice.code} owes {outstanding}; {amount} cannot be allocated to it.",
@@ -4012,6 +4030,7 @@ async def _apply_allocation_plan(
             VendorInvoiceStatus(invoice.status),
             total_amount=invoice.total_amount,
             paid_amount=invoice.paid_amount,
+            recovered_amount=invoice.recovered_amount,
         )
         await _transition_invoice(
             session,

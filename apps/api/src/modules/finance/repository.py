@@ -808,8 +808,15 @@ class LedgerEntryRepository(BaseRepository[LedgerEntry]):
 
 
 def _outstanding() -> Any:
-    """What an invoice still owes. Written once so no query invents its own."""
-    return VendorInvoice.total_amount - VendorInvoice.paid_amount
+    """What an invoice still owes, net of any excess-loss recovery.
+
+    Written once so no query invents its own. The recovery posted beside a
+    job-work invoice already reduced the payable in the ledger, so the gross
+    figure would overstate the debt by exactly the recovery - on the
+    outstanding list, in the payables ageing, and in the open-invoice filter
+    (docs/assumptions.md §B3-2).
+    """
+    return VendorInvoice.total_amount - VendorInvoice.recovered_amount - VendorInvoice.paid_amount
 
 
 def _bucket_columns(due_column: Any, amount_column: Any, as_of: date) -> list[Any]:

@@ -1502,7 +1502,7 @@ floor, `conversion_delivery_date` takes the vendor's lead time as a third input.
 
 ## §B3-2. The excess-loss recovery posts beside the bill, and over-billing is a hard block
 
-**Assumed.** At approval, the still-unposted vendor debit on the invoiced receipt lines posts as Dr AP against the vendor / Cr job-work expense under `job_work_recovery`, in the same transaction as the bill. The vendor's net payable is the invoice minus the recoveries. Billing beyond a receipt line's unbilled charges is refused outright - no override reason can approve it - and is re-checked under a row lock at approval, when the money actually moves.
+**Assumed.** At approval, the still-unposted vendor debit on the invoiced receipt lines posts as Dr AP against the vendor / Cr job-work expense under `job_work_recovery`, in the same transaction as the bill. The vendor's net payable is the invoice minus the recoveries. Every what-is-owed read is net of them - the invoice summary's outstanding figure, the outstanding list, the payables ageing, the payment-allocation bound and the payment-driven status - because the recovery already reduced the payable in the ledger, and a gross figure would guide the next payment to overpay the vendor by exactly the recovery. Billing beyond a receipt line's unbilled charges is refused outright - no override reason can approve it - and is re-checked under a row lock at approval, when the money actually moves.
 
 **Why.** The debit is money the vendor owes back for company material lost beyond allowance; netting it at payment time without posting it would leave the payable overstated and the recovery untraceable. An overridable over-bill would bill the same charges twice with a sentence attached.
 

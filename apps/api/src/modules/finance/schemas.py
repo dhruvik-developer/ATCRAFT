@@ -431,6 +431,9 @@ class VendorInvoiceSummary(BaseModel):
     tax_amount: Decimal
     total_amount: Decimal
     paid_amount: Decimal
+    #: What is still owed: ``total_amount - recovered_amount - paid_amount``.
+    #: Net of the excess-loss recovery posted beside a job-work invoice, which
+    #: already reduced the payable in the ledger. docs/assumptions.md §B3-2.
     outstanding_amount: Decimal
     purchase_order_id: uuid.UUID | None
     goods_receipt_id: uuid.UUID | None
