@@ -307,6 +307,7 @@ export function useItemFacts(itemId: string, enabled: boolean) {
 /** One row of `GET /inventory/batches` (`StockBatchRead`), as the pickers read it. */
 export interface StockBatch {
   id: string
+  item_id: string
   batch_number: string
   status: string
   expires_on: string | null

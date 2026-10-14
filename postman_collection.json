@@ -6676,6 +6676,12 @@
                   "value": ""
                 },
                 {
+                  "description": "Resolve a selected batch within the item and tenant",
+                  "disabled": true,
+                  "key": "batch_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
                   "description": "1-based page number",
                   "disabled": true,
                   "key": "page",

@@ -40633,6 +40633,8 @@ export interface operations {
             query?: {
                 item_id?: string | null;
                 search?: string | null;
+                /** @description Resolve a selected batch within the item and tenant */
+                batch_id?: string | null;
                 /** @description 1-based page number */
                 page?: number;
                 /** @description Rows per page */

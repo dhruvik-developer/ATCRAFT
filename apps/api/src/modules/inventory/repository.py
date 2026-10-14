@@ -1148,11 +1148,13 @@ class StockBatchRepository(BaseRepository[StockBatch]):
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
     def build_list_stmt(
-        self, *, item_id: uuid.UUID | None, search: str | None
+        self, *, item_id: uuid.UUID | None, search: str | None, batch_id: uuid.UUID | None = None
     ) -> Select[tuple[StockBatch]]:
         stmt = self._scoped()
         if item_id is not None:
             stmt = stmt.where(StockBatch.item_id == item_id)
+        if batch_id is not None:
+            stmt = stmt.where(StockBatch.id == batch_id)
         stmt = self._apply_search(stmt, search)
         return stmt.order_by(StockBatch.received_on.desc(), StockBatch.id.desc())
 
