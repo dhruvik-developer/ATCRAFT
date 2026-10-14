@@ -507,6 +507,11 @@ class VendorPortalService:
         rows, allocations, codes, page = await self.repo.payment_page(params)
         by_payment: dict[uuid.UUID, list[VendorPortalPaymentAllocation]] = {}
         for allocation in allocations:
+            # Excluded by the query above; the guard keeps the type narrow and
+            # the portal safe if a sales-invoice allocation ever shares one of
+            # these payments.
+            if allocation.vendor_invoice_id is None:
+                continue
             code, number = codes.get(allocation.vendor_invoice_id, (None, None))
             by_payment.setdefault(allocation.payment_id, []).append(
                 VendorPortalPaymentAllocation(

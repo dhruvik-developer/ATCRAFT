@@ -371,6 +371,10 @@ class VendorPortalRepository:
                     .where(
                         PaymentAllocation.company_id == self.tenant.company_id,
                         PaymentAllocation.payment_id.in_([row.id for row in rows]),
+                        # The portal shows the vendor's bills. Receipts from
+                        # customers allocate to sales invoices on the same table;
+                        # those rows are never this vendor's bills.
+                        PaymentAllocation.vendor_invoice_id.is_not(None),
                     )
                     .order_by(PaymentAllocation.created_at, PaymentAllocation.id)
                 )
