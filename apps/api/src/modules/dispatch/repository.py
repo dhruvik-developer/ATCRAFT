@@ -557,6 +557,18 @@ class DispatchTrackingEventRepository(BaseRepository[DispatchTrackingEvent]):
 class DispatchRepository(BaseRepository[Dispatch]):
     model = Dispatch
     searchable_fields = ("code", "tracking_id", "lr_number", "vehicle_number", "courier_name")
+
+    def _scoped(self, *, include_deleted: bool = False) -> Select[tuple[Dispatch]]:
+        """Tenant scope plus the dealer-portal restriction.
+
+        A dealer principal reads only its own dealer's consignments - the same
+        defence in depth as the sales-order scope (docs/assumptions.md §C3-1).
+        """
+        stmt = super()._scoped(include_deleted=include_deleted)
+        if self.tenant.customer_id is not None:
+            stmt = stmt.where(Dispatch.customer_id == self.tenant.customer_id)
+        return stmt
+
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "code": Dispatch.code,
         "status": Dispatch.status,

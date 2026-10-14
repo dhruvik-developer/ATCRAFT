@@ -172,6 +172,7 @@ class MeResponse(BaseModel):
     roles: list[str] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)
     vendor_id: uuid.UUID | None = None
+    customer_id: uuid.UUID | None = None
     branch_id: uuid.UUID | None = None
     plant_id: uuid.UUID | None = None
     department_id: uuid.UUID | None = None

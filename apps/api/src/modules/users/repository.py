@@ -25,7 +25,8 @@ Five choices are worth reading twice:
   a grid, and ``raiseload=True`` makes touching an unloaded one an error rather
   than another query per row.
 * **Cross-module reads are read-only.** ``branches``, ``plants``,
-  ``departments``, ``vendors``, ``item_categories`` and ``vendor_categories``
+  ``departments``, ``vendors``, ``customers``, ``item_categories`` and
+  ``vendor_categories``
   are owned by other modules; this file only probes them within the tenant -
   existence, and which categories a vendor is qualified for - and never writes
   to them.
@@ -47,8 +48,10 @@ from src.core.models import Base
 from src.core.pagination import SortParams
 
 # Read-only references to master tables owned by other modules. A user is placed
-# in an organisation and may be bound to a vendor; this module never writes to
-# either, it only refuses an id that does not belong to the tenant.
+# in an organisation and may be bound to a vendor or a dealer customer; this
+# module never writes to either, it only refuses an id that does not belong to
+# the tenant.
+from src.modules.customers.models import Customer
 from src.modules.organization.models import Branch, Department, Plant
 from src.modules.products.models import ItemCategory
 from src.modules.users.models import Role, User, UserSession, user_roles
@@ -65,6 +68,7 @@ USER_SUMMARY_COLUMNS: tuple[InstrumentedAttribute[Any], ...] = (
     User.is_superuser,
     User.must_change_password,
     User.vendor_id,
+    User.customer_id,
     User.branch_id,
     User.plant_id,
     User.department_id,
@@ -82,6 +86,7 @@ ROLE_SUMMARY_COLUMNS: tuple[InstrumentedAttribute[Any], ...] = (
     Role.description,
     Role.is_system,
     Role.is_vendor_role,
+    Role.is_dealer_role,
     Role.is_active,
     Role.created_at,
 )
@@ -103,7 +108,15 @@ class UserRepository(BaseRepository[User]):
     }
 
     def _scoped(self, *, include_deleted: bool = False) -> Select[tuple[User]]:
-        """Tenant filter plus the vendor-portal restriction.
+        """Tenant filter plus the portal restrictions.
+
+        A principal with ``vendor_id`` set is a supplier's own staff signing in
+        to the portal. Without this clause they read the entire internal
+        directory - every employee's name, email, employee code, roles,
+        ``is_superuser`` and last sign-in - because the base scope filters on
+        company alone, and a vendor's staff belong to the same company row as
+        the buyer's. The dealer binding (``customer_id``) is restricted the
+        same way (docs/assumptions.md §C3-1).
 
         A principal with ``vendor_id`` set is a supplier's own staff signing in
         to the portal. Without this clause they read the entire internal
@@ -121,6 +134,8 @@ class UserRepository(BaseRepository[User]):
         stmt = super()._scoped(include_deleted=include_deleted)
         if self.tenant.vendor_id is not None:
             stmt = stmt.where(User.vendor_id == self.tenant.vendor_id)
+        if self.tenant.customer_id is not None:
+            stmt = stmt.where(User.customer_id == self.tenant.customer_id)
         return stmt
 
     # --- reads --------------------------------------------------------------
@@ -140,6 +155,14 @@ class UserRepository(BaseRepository[User]):
             )
         if filters.vendor_id is not None:
             stmt = stmt.where(User.vendor_id == filters.vendor_id)
+        if filters.is_dealer_user is not None:
+            stmt = stmt.where(
+                User.customer_id.is_not(None)
+                if filters.is_dealer_user
+                else User.customer_id.is_(None)
+            )
+        if filters.customer_id is not None:
+            stmt = stmt.where(User.customer_id == filters.customer_id)
         if filters.branch_id is not None:
             stmt = stmt.where(User.branch_id == filters.branch_id)
         if filters.plant_id is not None:
@@ -398,6 +421,19 @@ class UserRepository(BaseRepository[User]):
     async def vendor_exists(self, vendor_id: uuid.UUID) -> bool:
         return await self._reference_exists(Vendor, vendor_id)
 
+    async def dealer_customer(self, customer_id: uuid.UUID) -> Customer | None:
+        """The bound customer, tenant-scoped. The kind check lives in the service.
+
+        Returned whole rather than as a boolean because the service needs the
+        code and the type for the refusal message; one read serves both.
+        """
+        stmt = select(Customer).where(
+            Customer.company_id == self.tenant.company_id,
+            Customer.id == customer_id,
+            Customer.deleted_at.is_(None),
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     async def live_category_ids(self, category_ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
         """Which of these item categories exist, live, in the caller's tenant."""
         if not category_ids:
@@ -428,6 +464,7 @@ class RoleRepository(BaseRepository[Role]):
         "name": Role.name,
         "is_system": Role.is_system,
         "is_vendor_role": Role.is_vendor_role,
+        "is_dealer_role": Role.is_dealer_role,
         "is_active": Role.is_active,
         "created_at": Role.created_at,
         "updated_at": Role.updated_at,
@@ -441,6 +478,8 @@ class RoleRepository(BaseRepository[Role]):
             stmt = stmt.where(Role.is_system == filters.is_system)
         if filters.is_vendor_role is not None:
             stmt = stmt.where(Role.is_vendor_role == filters.is_vendor_role)
+        if filters.is_dealer_role is not None:
+            stmt = stmt.where(Role.is_dealer_role == filters.is_dealer_role)
         if filters.is_active is not None:
             stmt = stmt.where(Role.is_active == filters.is_active)
         if filters.grants_permission is not None:

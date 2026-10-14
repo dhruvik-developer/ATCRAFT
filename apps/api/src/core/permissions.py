@@ -158,6 +158,12 @@ class Permission(StrEnum):
     VENDOR_PORTAL_INVOICE = "vendor_portal.invoice"
     VENDOR_PORTAL_QUALITY = "vendor_portal.quality"
 
+    # --- dealer portal ------------------------------------------------------
+    DEALER_PORTAL_BROWSE = "dealer_portal.browse"
+    DEALER_PORTAL_ORDER = "dealer_portal.order"
+    DEALER_PORTAL_ACCOUNT = "dealer_portal.account"
+    DEALER_PORTAL_RETURN = "dealer_portal.return"
+
     # --- production ---------------------------------------------------------
     PRODUCTION_ORDER_VIEW = "production_order.view"
     PRODUCTION_ORDER_CREATE = "production_order.create"
@@ -250,6 +256,7 @@ PERMISSION_GROUPS: dict[str, tuple[str, ...]] = {
         "purchase_return",
     ),
     "Vendor Portal": ("vendor_portal",),
+    "Dealer Portal": ("dealer_portal",),
     "Production": (
         "production_order",
         "work_order",
@@ -542,6 +549,13 @@ _ACCOUNTS = frozenset(
 # permission string alone (section 16/39).
 _VENDOR_BASE = frozenset({Permission.VENDOR_PORTAL_ACCESS, Permission.NOTIFICATION_VIEW})
 
+# Dealer-portal roles. A dealer principal is additionally constrained to its own
+# customer_id - enforced server-side, never by the permission string alone
+# (docs/assumptions.md §C3-1). None of the rights ends in ``.view``, so the
+# AUDITOR bundle (``VIEW_ONLY``) does not absorb them - the same reason the
+# vendor rights avoid that suffix.
+_DEALER_BASE = frozenset({Permission.DEALER_PORTAL_BROWSE, Permission.NOTIFICATION_VIEW})
+
 ROLE_PRESETS: dict[str, dict[str, object]] = {
     "SUPER_ADMIN": {
         "name": "Super Administrator",
@@ -742,16 +756,49 @@ ROLE_PRESETS: dict[str, dict[str, object]] = {
         "is_vendor_role": True,
         "permissions": _VENDOR_BASE | {Permission.VENDOR_PORTAL_INVOICE},
     },
+    # --- dealer portal ------------------------------------------------------
+    "DEALER_OWNER": {
+        "name": "Dealer Owner",
+        "description": "Portal access scoped to the account dealer.",
+        "is_system": True,
+        "is_dealer_role": True,
+        "permissions": _DEALER_BASE
+        | {
+            Permission.DEALER_PORTAL_ORDER,
+            Permission.DEALER_PORTAL_ACCOUNT,
+            Permission.DEALER_PORTAL_RETURN,
+        },
+    },
+    "DEALER_BUYER": {
+        "name": "Dealer Buyer",
+        "description": "Portal access scoped to the account dealer.",
+        "is_system": True,
+        "is_dealer_role": True,
+        "permissions": _DEALER_BASE
+        | {Permission.DEALER_PORTAL_ORDER, Permission.DEALER_PORTAL_RETURN},
+    },
+    "DEALER_ACCOUNTS": {
+        "name": "Dealer Accounts",
+        "description": "Portal access scoped to the account dealer.",
+        "is_system": True,
+        "is_dealer_role": True,
+        "permissions": _DEALER_BASE | {Permission.DEALER_PORTAL_ACCOUNT},
+    },
 }
 
 VENDOR_ROLE_CODES: frozenset[str] = frozenset(
     code for code, spec in ROLE_PRESETS.items() if spec.get("is_vendor_role")
 )
 
+DEALER_ROLE_CODES: frozenset[str] = frozenset(
+    code for code, spec in ROLE_PRESETS.items() if spec.get("is_dealer_role")
+)
+
 ALL_PERMISSIONS: tuple[Permission, ...] = tuple(Permission)
 
 __all__ = [
     "ALL_PERMISSIONS",
+    "DEALER_ROLE_CODES",
     "PERMISSION_GROUPS",
     "ROLE_PRESETS",
     "VENDOR_ROLE_CODES",

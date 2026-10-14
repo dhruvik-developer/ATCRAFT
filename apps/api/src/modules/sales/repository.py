@@ -73,6 +73,10 @@ class SellableItem:
     standard_cost: Decimal
     can_sell: bool
     is_active: bool
+    #: Classification for dealer-scheme matching. NULL means "no category",
+    #: which matches only ALL-scoped offers (docs/assumptions.md §C3-3).
+    category_id: uuid.UUID | None = None
+    brand_id: uuid.UUID | None = None
 
     @property
     def order_uom_id(self) -> uuid.UUID:
@@ -110,6 +114,8 @@ class ItemLookupRepository(BaseRepository[Item]):
             Item.standard_cost,
             Item.can_sell,
             Item.is_active,
+            Item.category_id,
+            Item.brand_id,
         ).where(
             Item.company_id == self.tenant.company_id,
             Item.deleted_at.is_(None),
@@ -129,6 +135,8 @@ class ItemLookupRepository(BaseRepository[Item]):
                 standard_cost=Decimal(row.standard_cost),
                 can_sell=row.can_sell,
                 is_active=row.is_active,
+                category_id=row.category_id,
+                brand_id=row.brand_id,
             )
             for row in rows
         }
@@ -398,6 +406,20 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
     model = SalesOrder
     entity_label = SALES_ORDER_ENTITY
     searchable_fields = ("code", "customer_po_number")
+
+    def _scoped(self, *, include_deleted: bool = False) -> Select[tuple[SalesOrder]]:
+        """Tenant scope plus the dealer-portal restriction.
+
+        A dealer principal reads only its own dealer's orders. The route
+        allow-list already keeps dealers off the staff routes, but scoping here
+        protects against any future route that forgets the ownership check
+        (docs/assumptions.md §C3-1).
+        """
+        stmt = super()._scoped(include_deleted=include_deleted)
+        if self.tenant.customer_id is not None:
+            stmt = stmt.where(SalesOrder.customer_id == self.tenant.customer_id)
+        return stmt
+
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "code": SalesOrder.code,
         "order_date": SalesOrder.order_date,
@@ -429,6 +451,8 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
         stmt = self._scoped()
         if filters.customer_id is not None:
             stmt = stmt.where(SalesOrder.customer_id == filters.customer_id)
+        if filters.source is not None:
+            stmt = stmt.where(SalesOrder.source == filters.source)
         if filters.warehouse_id is not None:
             stmt = stmt.where(SalesOrder.warehouse_id == filters.warehouse_id)
         if filters.branch_id is not None:

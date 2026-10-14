@@ -74,6 +74,9 @@ def test_a_system_role_is_one_whose_permissions_the_client_does_not_own() -> Non
 
     assert system == [
         "ADMIN",
+        "DEALER_ACCOUNTS",
+        "DEALER_BUYER",
+        "DEALER_OWNER",
         "SUPER_ADMIN",
         "VENDOR_ACCOUNT_MANAGER",
         "VENDOR_DISPATCH_MANAGER",
@@ -97,6 +100,22 @@ def test_vendor_system_presets_have_only_their_portal_rights() -> None:
         "VENDOR_DISPATCH_MANAGER": base | {Permission.VENDOR_PORTAL_SHIP},
         "VENDOR_QC_CONTACT": base | {Permission.VENDOR_PORTAL_QUALITY},
         "VENDOR_ACCOUNT_MANAGER": base | {Permission.VENDOR_PORTAL_INVOICE},
+    }
+    for code, permissions in expected.items():
+        assert ROLE_PRESETS[code]["permissions"] == permissions
+
+
+def test_dealer_system_presets_have_only_their_portal_rights() -> None:
+    base = {Permission.DEALER_PORTAL_BROWSE, Permission.NOTIFICATION_VIEW}
+    expected = {
+        "DEALER_OWNER": base
+        | {
+            Permission.DEALER_PORTAL_ORDER,
+            Permission.DEALER_PORTAL_ACCOUNT,
+            Permission.DEALER_PORTAL_RETURN,
+        },
+        "DEALER_BUYER": base | {Permission.DEALER_PORTAL_ORDER, Permission.DEALER_PORTAL_RETURN},
+        "DEALER_ACCOUNTS": base | {Permission.DEALER_PORTAL_ACCOUNT},
     }
     for code, permissions in expected.items():
         assert ROLE_PRESETS[code]["permissions"] == permissions
