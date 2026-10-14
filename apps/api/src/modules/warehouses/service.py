@@ -475,7 +475,16 @@ class WarehouseService:
                 )
 
             # A bin cannot outlive its building: retiring the warehouse retires
-            # its locations in the same transaction.
+            # its locations in the same transaction - so none of them may still
+            # be an item's default bin (docs/assumptions.md §E8-6). Locked
+            # first, so an item cannot be pointed at one of them meanwhile.
+            await self.locations.lock_for_warehouse_retirement(warehouse.id)
+            if await self.locations.has_item_defaults(warehouse_id=warehouse.id):
+                raise referenced_in_use(
+                    f"Warehouse {warehouse.code} has bins that are items' default bins. "
+                    "Give those items other default bins first.",
+                    warehouse_code=warehouse.code,
+                )
             retired_locations = await self.locations.soft_delete_for_warehouse(warehouse.id)
             warehouse.is_active = False
             await self.repo.soft_delete(warehouse)
@@ -631,6 +640,12 @@ class StorageLocationService:
     async def get_location(self, location_id: uuid.UUID) -> StorageLocationRead:
         return StorageLocationRead.model_validate(await self.repo.get_or_404(location_id))
 
+    async def _locked_for_retirement(self, location_id: uuid.UUID) -> StorageLocation:
+        location = await self.repo.lock_for_retirement(location_id)
+        if location is None:
+            raise NotFoundError("Storage location", location_id)
+        return location
+
     # --- writes -------------------------------------------------------------
 
     async def create_location(
@@ -720,9 +735,20 @@ class StorageLocationService:
         target = MasterLifecycleState.ACTIVE if active else MasterLifecycleState.INACTIVE
 
         async with transaction(self.session):
-            location = await self.repo.get_or_404(location_id)
+            location = await self._locked_for_retirement(location_id)
             current = lifecycle_state(location)
             LOCATION_LIFECYCLE.assert_transition(current, target)
+
+            # ASSUMPTION: a bin some item names as its default bin cannot be
+            # switched off - the cost-centre default rule, for the same reason:
+            # every picker would pre-fill a bin the engine then refuses to put
+            # stock into. docs/assumptions.md §E8-6.
+            if not active and await self.repo.has_item_defaults(location_id=location.id):
+                raise referenced_in_use(
+                    f"Location {location.code} is the default bin of at least one item. "
+                    "Give those items another default bin first.",
+                    location_code=location.code,
+                )
 
             location.is_active = active
             self.repo.touch(location)
@@ -744,9 +770,16 @@ class StorageLocationService:
 
     async def delete_location(self, location_id: uuid.UUID, *, reason: str) -> None:
         async with transaction(self.session):
-            location = await self.repo.get_or_404(location_id)
+            location = await self._locked_for_retirement(location_id)
             current = lifecycle_state(location)
             LOCATION_LIFECYCLE.assert_transition(current, MasterLifecycleState.ARCHIVED)
+
+            if await self.repo.has_item_defaults(location_id=location.id):
+                raise referenced_in_use(
+                    f"Location {location.code} is the default bin of at least one item. "
+                    "Give those items another default bin first.",
+                    location_code=location.code,
+                )
 
             if await self.repo.has_live_children(location.id):
                 raise referenced_in_use(

@@ -57,7 +57,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `products` | `item_categories`, `units_of_measure`, `uom_conversions`, `item_attributes`, `manufacturers`, `brands`, `items`, `item_variants`, `item_prices`, `item_vendor_links` |
 | `vendors` | `vendors`, `vendor_contacts`, `vendor_categories`, `transporters` |
 | `customers` | `customers`, `customer_addresses`, `customer_contacts` |
-| `inventory` | `inventory_transactions`, `inventory_balances`, `inventory_cost_layers`, `inventory_cost_consumptions`, `stock_batches`, `stock_serials`, `stock_transfers`, `stock_transfer_lines`, `stock_adjustments`, `stock_adjustment_lines`, `physical_counts`, `physical_count_lines` |
+| `inventory` | `inventory_transactions`, `inventory_balances`, `inventory_cost_layers`, `inventory_cost_consumptions`, `stock_batches`, `stock_serials`, `stock_transfers`, `stock_transfer_lines`, `stock_adjustments`, `stock_adjustment_lines`, `physical_counts`, `physical_count_lines`, `bin_moves`, `bin_move_lines`, `scrap_disposals`, `scrap_disposal_lines`, `internal_issues`, `internal_issue_lines` |
 | `allocation` | `stock_reservations`, `reallocation_requests` |
 | `bom` | `boms`, `bom_lines`, `bom_operations` |
 | `routing` | `work_centers`, `machines`, `routings`, `routing_operations` |
@@ -247,7 +247,11 @@ Other required columns: `code`, `name`, `category_id`, `base_uom_id`,
 `manufacturer_id`, `manufacturer_part_number`, `production_type`
 (`MAKE | BUY | MAKE_OR_BUY | JOB_WORK`), `lead_time_days`, `reorder_level`,
 `reorder_quantity`, `min_order_quantity`, `safety_stock`, `shelf_life_days`,
-`is_batch_tracked`, `is_serial_tracked`, `default_warehouse_id`, `is_active`.
+`is_batch_tracked`, `is_serial_tracked`, `default_warehouse_id`,
+`default_location_id`, `is_active`. The optional default bin must be live,
+active, tenant-owned and in the item's default warehouse. Assignment takes
+`FOR SHARE` on the bin; retirement takes the conflicting `FOR NO KEY UPDATE`
+lock and refuses while a live item names it.
 
 There is deliberately **no `valuation_method` column**. Stock is valued **FIFO**,
 for every item, by `inventory.service` against `inventory_cost_layers` — see
@@ -304,7 +308,7 @@ Transaction-type vocabulary (§83), each with a fixed sign:
 
 - MATERIAL_ISSUE    JOB_WORK_ISSUE      DISPATCH          PURCHASE_RETURN
   ASSEMBLY_CONSUME  TRANSFER_OUT        ADJUSTMENT_DECREASE
-  SCRAP             QC_HOLD
+  SCRAP             QC_HOLD            SCRAP_DISPOSAL
 ```
 
 Reservation and allocation changes do **not** move on-hand quantity; they change
@@ -431,6 +435,54 @@ async def available_to_promise(session, tenant, *, item_id, warehouse_id=None) -
 reallocation without an approved `ReallocationRequest`.
 
 ---
+
+### 4.6 Putaway, scrap and internal consumption
+
+All three documents and their lines are tenant-owned, numbered, audited and
+warehouse-scoped. Each line identifies an item, quantity, optional batch and
+bin. Lists are paginated. Posted quantities and costs are immutable.
+
+`bin_moves` pairs `TRANSFER_OUT` with `TRANSFER_IN` in the same warehouse and
+transaction. The source and destination bins must differ; NULL is the unbinned
+position. `carries_cost_of` carries the exact FIFO draws between positions.
+There is no transit quantity. Creation posts the move and requires
+`inventory.transfer`.
+
+`scrap_disposals` records `SALE`, `WRITE_OFF` or `RECYCLE`, the optional buyer or
+reference and realised amount. Creation posts `SCRAP_DISPOSAL`: a negative
+movement from SCRAP to outside ownership, with no on-hand effect. A write-off
+realises zero. `inventory.scrap_dispose` is required. Existing scrap remains
+disposable after the item's `can_scrap` flag is switched off; every new movement
+*into* SCRAP requires that flag, including QC and job-work losses. QC rejection
+uses DAMAGED when material must remain identifiable.
+
+`inventory_cost_layers.pool` separates `ON_HAND` and `SCRAP` FIFO queues at the
+same grain. Scrapping preserves the original receipt costs in the scrap queue;
+disposal consumes that queue, independently of later on-hand receipts.
+`stock_value` and average cost describe the on-hand queue. The legacy backfill
+uses recorded scrap costs, with standard cost only for uncovered history, and
+verifies that the queue covers the current scrap quantity. Ordinary valuation
+and layer reconciliation exclude the scrap queue.
+
+`internal_issues` names a department and/or cost centre and posts
+`MATERIAL_ISSUE` with `reference_type="internal_issue"`. Its machine is DRAFT to
+POSTED below the approval threshold, otherwise DRAFT to PENDING_APPROVAL to
+POSTED. Draft or pending issues may be cancelled; rejection ends CANCELLED
+with its reason. `INTERNAL_ISSUE_APPROVAL_VALUE` is 25,000 in company currency;
+the actual FIFO posting rechecks it atomically. A separate approver is required,
+with the existing superuser exception. Rights are `internal_issue.create` and
+`internal_issue.approve`. CONSUMABLES is a warehouse classification, not an
+inventory permission or a posting restriction.
+
+`SCRAP_REGISTER` reads bounded ledger movements into and out of scrap, at their
+recorded costs. `CONSUMPTION_BY_DEPARTMENT` groups only POSTED internal issues by
+department, cost centre and item over a bounded period. Both respect tenant and
+warehouse scope and participate in the report snapshot CHECK vocabulary.
+
+Incoming QC currently addresses the unbinned warehouse position. A GRN line
+held for inspection therefore refuses a bin; put accepted stock away afterwards
+with a bin move. Serial identities are added in E8b; these new documents refuse
+serial-tracked stock until they can identify the units they move.
 
 ## 5. BOM engine
 

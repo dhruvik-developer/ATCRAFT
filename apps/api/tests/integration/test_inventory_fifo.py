@@ -52,6 +52,7 @@ from src.modules.inventory.models import (
     LAYER_ORIGIN_RECONCILIATION,
     AdjustmentReason,
     AdjustmentStatus,
+    CostLayerPool,
     InventoryBalance,
     InventoryCostLayer,
     InventoryTransaction,
@@ -228,7 +229,10 @@ async def _assert_layers_reconcile(
     Quantity first, then value. A position whose layers do not add up to its
     on-hand is one where the next issue is costed out of thin air, and a
     position whose layers do not add up to its ``stock_value`` is one where the
-    balance sheet and the cost of goods issued disagree.
+    balance sheet and the cost of goods issued disagree. Only the on-hand
+    queue is asserted here: stock moved into scrap opens layers in the
+    position's SCRAP queue (``CostLayerPool.SCRAP``), which stands against
+    ``scrap_quantity`` and carries no book value.
     """
     quantity, value = (
         await session.execute(
@@ -238,7 +242,10 @@ async def _assert_layers_reconcile(
                     func.sum(InventoryCostLayer.remaining_quantity * InventoryCostLayer.unit_cost),
                     0,
                 ),
-            ).where(InventoryCostLayer.balance_id == balance.id)
+            ).where(
+                InventoryCostLayer.balance_id == balance.id,
+                InventoryCostLayer.pool == CostLayerPool.ON_HAND,
+            )
         )
     ).one()
     assert Decimal(quantity) == Decimal(balance.on_hand_quantity), (
@@ -323,6 +330,15 @@ class TestLayerInvariant:
         assert balance is not None
         assert balance.stock_value == Decimal("500.0000")
         await _assert_layers_reconcile(session, tenant, balance)
+        scrap_covered = (
+            await session.execute(
+                select(func.coalesce(func.sum(InventoryCostLayer.remaining_quantity), 0)).where(
+                    InventoryCostLayer.balance_id == balance.id,
+                    InventoryCostLayer.pool == CostLayerPool.SCRAP,
+                )
+            )
+        ).scalar_one()
+        assert Decimal(scrap_covered) == Decimal(balance.scrap_quantity) == Decimal("10.0000")
 
 
 class TestLayerGrain:

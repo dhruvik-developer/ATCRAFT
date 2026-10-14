@@ -68,6 +68,14 @@ the balance sheet is.
 
 Outbound movements are still never priced by the caller. A supplied cost is used
 only for an arrival, or for a unit no layer can account for.
+
+**Scrap keeps a queue of its own** (``CostLayerPool.SCRAP``). A movement into
+the scrap pool charges its cost exactly as before - the write-off happens when
+stock is scrapped - and also opens scrap layers at the costs it charged. Those
+layers carry no book value and are in no valuation; they exist so the one
+movement that takes stock out of scrap, ``SCRAP_DISPOSAL``, is valued from
+what the scrap really cost, oldest first, rather than from whatever usable
+stock happens to stand beside it (docs/assumptions.md §E8-2).
 """
 
 from __future__ import annotations
@@ -75,9 +83,9 @@ from __future__ import annotations
 import uuid
 from collections.abc import Awaitable, Callable, Collection, Sequence
 from dataclasses import dataclass, field, fields, replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any
+from typing import Any, TypeVar
 
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import DBAPIError
@@ -95,6 +103,7 @@ from src.core.errors import (
     ErrorCode,
     InsufficientStockError,
     NotFoundError,
+    PermissionDeniedError,
     StockLockTimeoutError,
     ValidationError,
 )
@@ -117,6 +126,13 @@ from src.modules.inventory.models import (
     TRANSACTION_SIGNS,
     AdjustmentReason,
     AdjustmentStatus,
+    BinMove,
+    BinMoveLine,
+    BinMoveStatus,
+    CostLayerPool,
+    InternalIssue,
+    InternalIssueLine,
+    InternalIssueStatus,
     InventoryBalance,
     InventoryCostLayer,
     InventoryCostLayerConsumption,
@@ -124,6 +140,9 @@ from src.modules.inventory.models import (
     PhysicalCount,
     PhysicalCountLine,
     PhysicalCountStatus,
+    ScrapDisposal,
+    ScrapDisposalLine,
+    ScrapDisposalStatus,
     SerialStatus,
     StockAdjustment,
     StockAdjustmentLine,
@@ -138,14 +157,20 @@ from src.modules.inventory.models import (
 )
 from src.modules.inventory.repository import (
     BalanceGrain,
+    BinMoveLineRepository,
+    BinMoveRepository,
     CostConsumptionRepository,
     CostLayerRepository,
+    InternalIssueLineRepository,
+    InternalIssueRepository,
     InventoryRepository,
     ItemFacts,
     LedgerRepository,
     LocationFacts,
     PhysicalCountLineRepository,
     PhysicalCountRepository,
+    ScrapDisposalLineRepository,
+    ScrapDisposalRepository,
     StockAdjustmentLineRepository,
     StockAdjustmentRepository,
     StockBatchRepository,
@@ -159,6 +184,14 @@ from src.modules.inventory.schemas import (
     AvailabilityRead,
     BalanceFilters,
     BalanceReadWithCost,
+    BinMoveCreate,
+    BinMoveFilters,
+    BinMoveLineReadWithCost,
+    BinMoveReadWithCost,
+    InternalIssueCreate,
+    InternalIssueFilters,
+    InternalIssueLineReadWithCost,
+    InternalIssueReadWithCost,
     ItemStockSummaryWithCost,
     LedgerEntryRead,
     LedgerFilters,
@@ -167,9 +200,14 @@ from src.modules.inventory.schemas import (
     PhysicalCountFilters,
     PhysicalCountLineRead,
     PhysicalCountRead,
+    ScrapDisposalCreate,
+    ScrapDisposalFilters,
+    ScrapDisposalLineReadWithCost,
+    ScrapDisposalReadWithCost,
     StockAdjustmentCreate,
     StockAdjustmentLineRead,
     StockAdjustmentRead,
+    StockAdjustmentUpdate,
     StockBatchCreate,
     StockBatchRead,
     StockSerialCreate,
@@ -181,7 +219,7 @@ from src.modules.inventory.schemas import (
     TransferFilters,
     WarehouseStockRowWithCost,
 )
-from src.modules.organization.service import require_cost_centre
+from src.modules.organization.service import require_cost_centre, require_department
 
 log = get_logger(__name__)
 
@@ -199,6 +237,14 @@ LOCK_TIMEOUT_MS = 5_000
 # through the service.
 ADJUSTMENT_APPROVAL_VALUE_THRESHOLD = Decimal("25000.00")
 
+# ASSUMPTION: an internal issue worth more than this - measured on the FIFO
+# cost it will really consume - is approved by a second person before it posts.
+# The same figure as the adjustment threshold, for the same reason: stock
+# leaving the books with no production order or customer behind it is exactly
+# the movement that needs a second pair of eyes, and the master rules name a
+# threshold without fixing it (docs/assumptions.md §E8-3, open question 2).
+INTERNAL_ISSUE_APPROVAL_VALUE = Decimal("25000.00")
+
 # ASSUMPTION: a count sheet larger than this is refused. A person cannot work
 # through 20,000 lines in one session, and building the sheet would hold a
 # transaction open long enough to matter. Narrow the scope by location or item
@@ -212,6 +258,10 @@ AUDIT_ENTITY_ADJUSTMENT = "stock_adjustment"
 AUDIT_ENTITY_COUNT = "physical_count"
 AUDIT_ENTITY_BATCH = "stock_batch"
 AUDIT_ENTITY_SERIAL = "stock_serial"
+#: Also the ledger ``reference_type`` of the movements each document posts.
+AUDIT_ENTITY_BIN_MOVE = "bin_move"
+AUDIT_ENTITY_SCRAP_DISPOSAL = "scrap_disposal"
+AUDIT_ENTITY_INTERNAL_ISSUE = "internal_issue"
 
 #: PostgreSQL SQLSTATE for "could not obtain lock" - what lock_timeout raises.
 _LOCK_NOT_AVAILABLE = "55P03"
@@ -398,7 +448,32 @@ _DEFAULT_TRANSITION: dict[TransactionType, _Transition] = {
     TransactionType.SCRAP: _Transition(StockState.AVAILABLE, StockState.SCRAP, "target"),
     # Holding stock does not move it - see the module docstring.
     TransactionType.QC_HOLD: _Transition(StockState.AVAILABLE, StockState.QC_HOLD, "target"),
+    # The one way out of scrap - see TransactionType.SCRAP_DISPOSAL.
+    TransactionType.SCRAP_DISPOSAL: _Transition(StockState.SCRAP, None, "source"),
 }
+
+#: Types whose caller-supplied ``stock_state`` names the pool the quantity
+#: *lands* in. For every other type it names the pool it was taken *from*.
+#: Derived from the transition table, so anything reading stored ledger rows -
+#: the scrap register - asks the same question the engine answered when it
+#: posted them, and a new type cannot be classified twice.
+TARGET_QUALIFIED_TYPES: frozenset[TransactionType] = frozenset(
+    transaction_type
+    for transaction_type, transition in _DEFAULT_TRANSITION.items()
+    if transition.qualifies == "target"
+)
+#: Types that land in scrap when the caller names no pool.
+SCRAP_LANDING_TYPES: frozenset[TransactionType] = frozenset(
+    transaction_type
+    for transaction_type, transition in _DEFAULT_TRANSITION.items()
+    if transition.target is StockState.SCRAP
+)
+#: Types that draw on scrap when the caller names no pool.
+SCRAP_DRAWING_TYPES: frozenset[TransactionType] = frozenset(
+    transaction_type
+    for transaction_type, transition in _DEFAULT_TRANSITION.items()
+    if transition.source is StockState.SCRAP
+)
 
 
 def signed_quantity(transaction_type: TransactionType, quantity: Decimal) -> Decimal:
@@ -810,6 +885,8 @@ class Valuation:
     draws: tuple[LayerDraw, ...] = ()
     #: Quantity no layer could account for - see :func:`consume_layers`.
     uncovered_quantity: Decimal = Decimal("0")
+    #: What one unit of ``uncovered_quantity`` was priced at.
+    uncovered_unit_cost: Decimal = Decimal("0")
 
 
 def value_movement(
@@ -867,6 +944,7 @@ def value_movement(
         value_after = value_before + movement_value
         draws: tuple[LayerDraw, ...] = ()
         uncovered = Decimal("0")
+        uncovered_unit_cost = Decimal("0")
     elif on_hand_delta < 0:
         consumption = consume_layers(
             layers,
@@ -881,6 +959,7 @@ def value_movement(
         opened = ()
         draws = consumption.draws
         uncovered = consumption.uncovered_quantity
+        uncovered_unit_cost = consumption.uncovered_unit_cost
         movement_value = consumption.value
         # Only what actually came out of a layer leaves the position's value.
         # Subtracting the uncovered part as well would drive stock_value
@@ -890,6 +969,7 @@ def value_movement(
         opened = ()
         draws = ()
         uncovered = Decimal("0")
+        uncovered_unit_cost = Decimal("0")
         value_after = value_before
         movement_value = magnitude * outbound_unit_cost(
             position_basis=basis,
@@ -909,6 +989,7 @@ def value_movement(
         opened=opened,
         draws=draws,
         uncovered_quantity=uncovered,
+        uncovered_unit_cost=uncovered_unit_cost,
     )
 
 
@@ -941,6 +1022,43 @@ def _layers_to_open(
     if total < quantity:
         supplied.append(LayerCost(quantity=quantity - total, unit_cost=unit_cost))
     return tuple(supplied)
+
+
+def draws_on_scrap(movement: MovementRequest) -> bool:
+    """Does this movement take its quantity out of the scrap pool?
+
+    Asked of the *resolved* source, like every other pool question in this
+    module: a caller can name the source explicitly, and the type alone does
+    not say where the quantity came from.
+    """
+    source, _ = resolve_pools(movement.transaction_type, movement.stock_state, movement.from_state)
+    return source is StockState.SCRAP
+
+
+def scrap_layers_for(valuation: Valuation, magnitude: Decimal) -> tuple[LayerCost, ...]:
+    """The scrap cost layers a movement into scrap opens: what its ledger row charged.
+
+    A movement that took the stock out of on-hand charged exactly the layers it
+    drew, plus - in a position short of layers - the uncovered remainder at the
+    price that was charged for it. One that moved no on-hand at all (scrap
+    written off at a job-work vendor, out of a pool that has no layers) charged
+    one price for the whole quantity. Either way the scrap queue opens at the
+    costs the ledger row states, in the order they were drawn, so the queue a
+    disposal is valued from and the ledger cannot disagree. Pure.
+    """
+    drawn = tuple(
+        LayerCost(quantity=draw.quantity, unit_cost=draw.unit_cost) for draw in valuation.draws
+    )
+    if valuation.uncovered_quantity > 0:
+        drawn += (
+            LayerCost(
+                quantity=valuation.uncovered_quantity,
+                unit_cost=valuation.uncovered_unit_cost,
+            ),
+        )
+    if drawn:
+        return drawn
+    return (LayerCost(quantity=to_quantity(magnitude), unit_cost=valuation.unit_cost),)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1281,9 +1399,33 @@ def validate_movement(
     # ``JOB_WORK_RECEIPT``, which is a +1 type, but it draws on the job-work
     # pool of this very position. Gating it on the sign made a policy flag able
     # to trap that pool - the same defect one line down, in a different bucket.
-    source_state, _ = resolve_pools(
+    source_state, target_state = resolve_pools(
         movement.transaction_type, movement.stock_state, movement.from_state
     )
+    # ASSUMPTION: ``items.can_scrap`` gates every movement that *lands* stock in
+    # the scrap pool - a SCRAP transaction, a QC scrap verdict, a job-work
+    # vendor's scrap - and nothing else (docs/assumptions.md §E8-5). It is a
+    # rule about where stock may go, so refusing it strands nothing: the
+    # quantity stays in the pool it was in, and the QC sheet offers DAMAGED
+    # instead. Disposing of scrap the item already holds stays open - the same
+    # "a flag never traps stock it was flipped over" rule as every other flag.
+    if target_state is StockState.SCRAP and not item.can_scrap:
+        raise BusinessRuleError(
+            f"Item {item.code} cannot be scrapped; its item master does not allow it. "
+            "Hold the quantity as damaged instead.",
+            details={"item_id": str(item.id), "item_code": item.code},
+        )
+    # Scrap leaves stock one way only. A movement that drew on the scrap pool and
+    # landed somewhere else would bring written-off stock back into a usable
+    # pool without the write-up and reason that changes the balance sheet -
+    # ``state_change_type`` refuses the same thing for ``change_stock_state``;
+    # this closes it for a hand-built request as well.
+    if source_state is StockState.SCRAP and target_state is not None:
+        raise BusinessRuleError(
+            "Scrap leaves stock only through a scrap disposal. Bringing it back into "
+            "stock is a write-up with a reason - post a stock adjustment instead.",
+            details={"item_code": item.code, "to_state": str(target_state)},
+        )
     # A policy rule gates a movement that brings stock into a position. The
     # arrival of goods that are already in transit is not such a movement: the
     # decision was taken, and checked, at dispatch.
@@ -1591,6 +1733,85 @@ COUNT_FLOW: StateMachine[PhysicalCountStatus] = StateMachine(
     terminal=frozenset({PhysicalCountStatus.CONFIRMED, PhysicalCountStatus.CANCELLED}),
 )
 
+#: A bin move is raised and posted in one request, so it has one edge. The
+#: machine exists anyway because a status column changes through a machine
+#: everywhere in this system; the transition is audited like any other.
+BIN_MOVE_FLOW: StateMachine[BinMoveStatus] = StateMachine(
+    entity="Bin move",
+    initial=BinMoveStatus.DRAFT,
+    transitions=(
+        Transition(
+            BinMoveStatus.DRAFT,
+            BinMoveStatus.POSTED,
+            permission=Permission.INVENTORY_TRANSFER,
+            label="Post",
+            is_irreversible=True,
+        ),
+    ),
+    terminal=frozenset({BinMoveStatus.POSTED}),
+)
+
+#: The same single edge as a bin move, for the same reason.
+SCRAP_DISPOSAL_FLOW: StateMachine[ScrapDisposalStatus] = StateMachine(
+    entity="Scrap disposal",
+    initial=ScrapDisposalStatus.DRAFT,
+    transitions=(
+        Transition(
+            ScrapDisposalStatus.DRAFT,
+            ScrapDisposalStatus.POSTED,
+            permission=Permission.INVENTORY_SCRAP_DISPOSE,
+            label="Post",
+            is_irreversible=True,
+        ),
+    ),
+    terminal=frozenset({ScrapDisposalStatus.POSTED}),
+)
+
+#: DRAFT -> POSTED below the approval value; DRAFT -> PENDING_APPROVAL ->
+#: POSTED above it, approving and posting being one step. CANCELLED from either
+#: open status - by whoever raises issues (Cancel) or by an approver refusing a
+#: pending one (Reject), both recorded with their reason. The approver's edge
+#: carries ``internal_issue.approve``; the route is what enforces it.
+INTERNAL_ISSUE_FLOW: StateMachine[InternalIssueStatus] = StateMachine(
+    entity="Internal issue",
+    initial=InternalIssueStatus.DRAFT,
+    transitions=(
+        Transition(
+            InternalIssueStatus.DRAFT,
+            InternalIssueStatus.POSTED,
+            permission=Permission.INTERNAL_ISSUE_CREATE,
+            label="Post",
+            is_irreversible=True,
+        ),
+        Transition(
+            InternalIssueStatus.DRAFT,
+            InternalIssueStatus.PENDING_APPROVAL,
+            permission=Permission.INTERNAL_ISSUE_CREATE,
+            label="Submit for approval",
+        ),
+        Transition(
+            InternalIssueStatus.PENDING_APPROVAL,
+            InternalIssueStatus.POSTED,
+            permission=Permission.INTERNAL_ISSUE_APPROVE,
+            label="Approve and post",
+            is_irreversible=True,
+        ),
+        Transition(
+            InternalIssueStatus.DRAFT,
+            InternalIssueStatus.CANCELLED,
+            permission=Permission.INTERNAL_ISSUE_CREATE,
+            label="Cancel",
+        ),
+        Transition(
+            InternalIssueStatus.PENDING_APPROVAL,
+            InternalIssueStatus.CANCELLED,
+            permission=Permission.INTERNAL_ISSUE_CREATE,
+            label="Cancel",
+        ),
+    ),
+    terminal=frozenset({InternalIssueStatus.POSTED, InternalIssueStatus.CANCELLED}),
+)
+
 
 # -----------------------------------------------------------------------------
 # Serial lifecycle
@@ -1722,6 +1943,7 @@ SERIAL_MOVEMENT_TARGETS: dict[TransactionType, SerialStatus | None] = {
     TransactionType.QC_RELEASE: None,
     TransactionType.TRANSFER_OUT: None,
     TransactionType.TRANSFER_IN: None,
+    TransactionType.SCRAP_DISPOSAL: None,
 }
 
 
@@ -2062,7 +2284,9 @@ class _LayerReconciliation:
     ``direction`` says which way it disagreed and therefore which repair ran -
     :data:`LAYER_RECONCILIATION_SHORTFALL` or :data:`LAYER_RECONCILIATION_EXCESS`.
     ``value`` is signed: what the repair added to the position's value, or took
-    out of it.
+    out of it. ``pool`` says which of the position's two queues was repaired; a
+    scrap-queue repair changes no book value, only the cost a later disposal
+    will be measured at.
     """
 
     direction: str
@@ -2072,6 +2296,7 @@ class _LayerReconciliation:
     quantity: Decimal
     unit_cost: Decimal
     value: Decimal
+    pool: CostLayerPool = CostLayerPool.ON_HAND
 
 
 class MovementEngine:
@@ -2208,8 +2433,34 @@ class MovementEngine:
             # every path through this engine, including the callers that
             # pre-lock the balances themselves, so two postings touching an
             # overlapping set queue instead of deadlocking.
-            layers = await self.lock_layers(locked.values())
-            reconciled = self._reconcile_layers(movements, locked, layers, master)
+            #
+            # A position keeps two queues (``CostLayerPool``): the on-hand queue
+            # every valuation rests on, and the scrap queue only a scrap
+            # disposal draws. They are locked in one acquisition and split
+            # here, before anything is costed against either.
+            locked_layers = await self.lock_layers(locked.values())
+            layers = {
+                balance_id: [layer for layer in rows if layer.pool is CostLayerPool.ON_HAND]
+                for balance_id, rows in locked_layers.items()
+            }
+            scrap_layers = {
+                balance_id: [layer for layer in rows if layer.pool is CostLayerPool.SCRAP]
+                for balance_id, rows in locked_layers.items()
+            }
+            reconciled = self._reconcile_layers(
+                [movement.grain for movement in movements], locked, layers, master
+            )
+            # The scrap queue is repaired only where a movement is about to draw
+            # on it. Scrap landing on a position whose queue is short is simply
+            # appended behind the gap, and the gap is closed - at the front of
+            # the queue, where untracked scrap belongs - by the first disposal.
+            reconciled += self._reconcile_layers(
+                [movement.grain for movement in movements if draws_on_scrap(movement)],
+                locked,
+                scrap_layers,
+                master,
+                pool=CostLayerPool.SCRAP,
+            )
 
             serial_ids_locked = await self._lock_serials(movements)
             master = replace(
@@ -2231,7 +2482,9 @@ class MovementEngine:
                     if movement.carries_cost_of is not None
                     else movement.cost_layers
                 )
-                step = self._apply(movement, locked, layers, master, carried=carried)
+                step = self._apply(
+                    movement, locked, layers, master, carried=carried, scrap_layers=scrap_layers
+                )
                 applied.append(step)
                 transactions.append(step.transaction)
                 if step.serial_change is not None:
@@ -2299,12 +2552,22 @@ class MovementEngine:
 
     def _reconcile_layers(
         self,
-        movements: list[MovementRequest],
+        grains: Sequence[BalanceGrain],
         locked: dict[BalanceGrain, InventoryBalance],
         layers: dict[uuid.UUID, list[InventoryCostLayer]],
         master: _MasterData,
+        *,
+        pool: CostLayerPool = CostLayerPool.ON_HAND,
     ) -> list[_LayerReconciliation]:
         """Make a position's cost layers add up to its on-hand quantity again.
+
+        ``pool`` picks the queue: the on-hand queue against ``on_hand_quantity``
+        (everything below), or the scrap queue against ``scrap_quantity``. The
+        scrap queue is repaired by exactly the same rules for exactly the same
+        reasons - scrap that predates the queue, or that a missed movement left
+        uncovered - with one difference that makes it cheaper: it carries no
+        book value, so a repair there changes the cost a later disposal is
+        measured at and nothing on the balance sheet.
 
         ASSUMPTION: a position whose cost layers disagree with its
         ``on_hand_quantity`` is repaired in **either** direction, visibly, at the
@@ -2356,26 +2619,40 @@ class MovementEngine:
         the balance naming the direction, the quantity and the value moved.
         """
         repairs: list[_LayerReconciliation] = []
-        for grain in dict.fromkeys(movement.grain for movement in movements):
+        for grain in dict.fromkeys(grains):
             balance = locked[grain]
             open_layers = layers.setdefault(balance.id, [])
-            on_hand = Decimal(balance.on_hand_quantity)
+            held = Decimal(
+                balance.on_hand_quantity
+                if pool is CostLayerPool.ON_HAND
+                else balance.scrap_quantity
+            )
             covered = sum(
                 (Decimal(layer.remaining_quantity) for layer in open_layers), Decimal("0")
             )
-            if covered == on_hand:
+            if covered == held:
                 continue
 
             item = master.items[grain.item_id]
-            if covered > on_hand:
+            if covered > held:
                 repairs.append(
                     self._trim_excess_layers(
-                        grain, balance, open_layers, item, to_quantity(covered - on_hand)
+                        grain,
+                        balance,
+                        open_layers,
+                        item,
+                        to_quantity(covered - held),
+                        pool=pool,
                     )
                 )
                 continue
 
-            shortfall = to_quantity(on_hand - covered)
+            shortfall = to_quantity(held - covered)
+            # ASSUMPTION: an uncovered scrap quantity is priced like an
+            # uncovered on-hand one - the position's recorded cost, else the
+            # item's standard cost. The migration that opened the scrap queue
+            # priced existing scrap from the movements that scrapped it; this is
+            # only the floor beneath it. docs/assumptions.md §E8-2.
             unit_cost = _first_positive(Decimal(balance.average_cost), item.standard_cost)
             received_at = self._reconciliation_timestamp(balance, open_layers)
             layer = InventoryCostLayer(
@@ -2389,6 +2666,7 @@ class MovementEngine:
                 original_quantity=shortfall,
                 remaining_quantity=shortfall,
                 unit_cost=unit_cost,
+                pool=pool,
                 origin=LAYER_ORIGIN_RECONCILIATION,
             )
             self.cost_layers.add(layer)
@@ -2398,6 +2676,7 @@ class MovementEngine:
                 "inventory.fifo_layer_reconciliation",
                 item_code=item.code,
                 warehouse_id=str(grain.warehouse_id),
+                pool=str(pool),
                 quantity=str(shortfall),
                 unit_cost=str(unit_cost),
             )
@@ -2410,6 +2689,7 @@ class MovementEngine:
                     unit_cost=unit_cost,
                     value=to_stock_value(shortfall * unit_cost),
                     balance_id=balance.id,
+                    pool=pool,
                 )
             )
         return repairs
@@ -2421,6 +2701,8 @@ class MovementEngine:
         open_layers: list[InventoryCostLayer],
         item: ItemFacts,
         excess: Decimal,
+        *,
+        pool: CostLayerPool = CostLayerPool.ON_HAND,
     ) -> _LayerReconciliation:
         """Consume the quantity the layers claim over the position's on-hand.
 
@@ -2462,7 +2744,9 @@ class MovementEngine:
             "inventory.fifo_layers_exceed_on_hand",
             item_code=item.code,
             warehouse_id=str(grain.warehouse_id),
+            pool=str(pool),
             on_hand=str(Decimal(balance.on_hand_quantity)),
+            scrap=str(Decimal(balance.scrap_quantity)),
             excess_quantity=str(excess),
             value_removed=str(to_stock_value(removed)),
         )
@@ -2474,6 +2758,7 @@ class MovementEngine:
             unit_cost=unit_cost,
             value=-to_stock_value(removed),
             balance_id=balance.id,
+            pool=pool,
         )
 
     @staticmethod
@@ -2734,6 +3019,7 @@ class MovementEngine:
         master: _MasterData,
         *,
         carried: Sequence[LayerCost] = (),
+        scrap_layers: dict[uuid.UUID, list[InventoryCostLayer]] | None = None,
     ) -> _Applied:
         # Validated before any lock was taken, so both lookups are present.
         item = master.items[movement.item_id]
@@ -2787,30 +3073,55 @@ class MovementEngine:
 
         # The cost layers of this position, already locked and re-read, in FIFO
         # order. ``_reconcile_layers`` has run, so in a healthy position their
-        # remaining quantities add up to ``on_hand_quantity`` exactly.
+        # remaining quantities add up to ``on_hand_quantity`` exactly - and the
+        # scrap queue to ``scrap_quantity``, wherever this batch draws on it.
         open_layers = layers.setdefault(balance.id, [])
-        valuation = value_movement(
-            on_hand_after=after["on_hand_quantity"],
-            magnitude=magnitude,
-            on_hand_delta=after["on_hand_quantity"] - before["on_hand_quantity"],
-            layers=[
-                LayerView(
-                    remaining=Decimal(layer.remaining_quantity),
-                    unit_cost=Decimal(layer.unit_cost),
-                )
-                for layer in open_layers
-            ],
-            average_before=Decimal(balance.average_cost),
-            movement_unit_cost=movement.unit_cost,
-            fallback_cost=item.standard_cost,
-            carried=carried,
-        )
+        scrap_queue = (scrap_layers if scrap_layers is not None else {}).setdefault(balance.id, [])
+        # A movement out of scrap is costed against the scrap queue, and it is
+        # the only kind that is: ``validate_movement`` refuses one that lands
+        # anywhere but outside the position. Scrap carries no book value, so the
+        # position's own value and average are left exactly as they were.
+        from_scrap = source_state is StockState.SCRAP
+        if from_scrap:
+            valuation = value_movement(
+                on_hand_after=after["scrap_quantity"],
+                magnitude=magnitude,
+                on_hand_delta=-magnitude,
+                layers=[
+                    LayerView(
+                        remaining=Decimal(layer.remaining_quantity),
+                        unit_cost=Decimal(layer.unit_cost),
+                    )
+                    for layer in scrap_queue
+                ],
+                average_before=Decimal(balance.average_cost),
+                movement_unit_cost=movement.unit_cost,
+                fallback_cost=item.standard_cost,
+            )
+        else:
+            valuation = value_movement(
+                on_hand_after=after["on_hand_quantity"],
+                magnitude=magnitude,
+                on_hand_delta=after["on_hand_quantity"] - before["on_hand_quantity"],
+                layers=[
+                    LayerView(
+                        remaining=Decimal(layer.remaining_quantity),
+                        unit_cost=Decimal(layer.unit_cost),
+                    )
+                    for layer in open_layers
+                ],
+                average_before=Decimal(balance.average_cost),
+                movement_unit_cost=movement.unit_cost,
+                fallback_cost=item.standard_cost,
+                carried=carried,
+            )
 
         occurred_at = movement.occurred_at or utcnow()
         for name in columns:
             setattr(balance, name, to_quantity(after[name]))
-        balance.average_cost = valuation.average_cost
-        balance.stock_value = valuation.stock_value
+        if not from_scrap:
+            balance.average_cost = valuation.average_cost
+            balance.stock_value = valuation.stock_value
         balance.last_movement_at = occurred_at
         balance.updated_by_id = self.tenant.user_id
 
@@ -2849,9 +3160,24 @@ class MovementEngine:
             valuation,
             transaction_row,
             balance=balance,
-            open_layers=open_layers,
+            open_layers=scrap_queue if from_scrap else open_layers,
             occurred_at=occurred_at,
+            pool=CostLayerPool.SCRAP if from_scrap else CostLayerPool.ON_HAND,
         )
+        if landing_state is StockState.SCRAP:
+            # Scrap remembers what it cost. Opened at exactly the costs this
+            # ledger row charged, so a later disposal is valued from what the
+            # scrap really cost rather than from whatever usable stock happens
+            # to stand beside it - and the scrap register's "in" and "out"
+            # columns are measured with the same ruler.
+            self._write_layers(
+                replace(valuation, opened=scrap_layers_for(valuation, magnitude), draws=()),
+                transaction_row,
+                balance=balance,
+                open_layers=scrap_queue,
+                occurred_at=occurred_at,
+                pool=CostLayerPool.SCRAP,
+            )
         if valuation.uncovered_quantity > 0:
             # Reachable only when ``_reconcile_layers`` could not close the gap -
             # it repairs a position whose layers are *short*, and this is what
@@ -2886,11 +3212,13 @@ class MovementEngine:
         balance: InventoryBalance,
         open_layers: list[InventoryCostLayer],
         occurred_at: datetime,
+        pool: CostLayerPool = CostLayerPool.ON_HAND,
     ) -> None:
         """Open the layers this movement received, and draw down the ones it spent.
 
-        ``open_layers`` is the position's live FIFO queue for the rest of this
-        batch, so it is kept in the same state the database will be in: newly
+        ``open_layers`` is the live FIFO queue of ``pool`` at the position for
+        the rest of this batch, so it is kept in the same state the database
+        will be in: newly
         opened layers are appended and the list re-sorted on the FIFO key, and
         an exhausted layer is dropped from it - **not** deleted. The row stays,
         with ``remaining_quantity`` at zero: the consumption rows point at it,
@@ -2962,6 +3290,7 @@ class MovementEngine:
                 received_at=occurred_at,
                 original_quantity=cost.quantity,
                 remaining_quantity=cost.quantity,
+                pool=pool,
                 unit_cost=cost.unit_cost,
                 source_transaction_id=transaction_row.id,
             )
@@ -3206,15 +3535,16 @@ class MovementEngine:
         leaving one direction to a log line would be exactly the silence
         :meth:`_reconcile_layers` exists to avoid.
         """
+        queue = "scrap cost layers" if entry.pool is CostLayerPool.SCRAP else "FIFO cost layers"
         if entry.direction == LAYER_RECONCILIATION_EXCESS:
             summary = (
-                f"Consumed {entry.quantity} {entry.item_code} of FIFO cost layers worth "
+                f"Consumed {entry.quantity} {entry.item_code} of {queue} worth "
                 f"{-entry.value} - the layers accounted for stock the position does not hold"
             )
         else:
             summary = (
-                f"Opened a reconciliation cost layer of {entry.quantity} {entry.item_code} "
-                f"at {entry.unit_cost} - the position held stock its FIFO layers did not cover"
+                f"Opened a reconciliation layer of {entry.quantity} {entry.item_code} "
+                f"at {entry.unit_cost} - the position held stock its {queue} did not cover"
             )
         await record_audit(
             self.session,
@@ -3234,8 +3564,11 @@ class MovementEngine:
                 "quantity": entry.quantity,
                 "unit_cost": entry.unit_cost,
                 # Signed: what the repair added to the position's value, or took
-                # out of it. The figure a reconciliation report adds up.
+                # out of it. The figure a reconciliation report adds up - for
+                # the on-hand queue only; a scrap-queue repair moves no book
+                # value, and ``pool`` says which one this was.
                 "value_change": entry.value,
+                "pool": str(entry.pool),
                 "origin": LAYER_ORIGIN_RECONCILIATION,
             },
             flush=False,
@@ -3552,6 +3885,9 @@ class InventoryQueryService:
         batch_numbers = await self.balances.batch_numbers(
             [row.batch_id for row in rows if row.batch_id]
         )
+        locations = await self.balances.location_facts(
+            [row.location_id for row in rows if row.location_id]
+        )
 
         results: list[BalanceReadWithCost] = []
         for row in rows:
@@ -3563,6 +3899,8 @@ class InventoryQueryService:
             read.reorder_level = item.reorder_level if item else None
             read.warehouse_code = warehouse.code if warehouse else None
             read.batch_number = batch_numbers.get(row.batch_id) if row.batch_id else None
+            location = locations.get(row.location_id) if row.location_id else None
+            read.location_code = location.code if location else None
             results.append(read)
         return results, pagination
 
@@ -3623,6 +3961,10 @@ class InventoryQueryService:
             total_available=totals["available_quantity"],
             total_in_transit=totals["in_transit_quantity"],
             total_job_work=totals["job_work_quantity"],
+            total_scrap=totals["scrap_quantity"],
+            # Scrap is the company's until it is disposed of, but it is not
+            # stock anybody can use or plan with, so it is reported beside the
+            # owned total rather than inside it.
             total_owned_quantity=(
                 totals["on_hand_quantity"]
                 + totals["in_transit_quantity"]
@@ -3641,6 +3983,7 @@ class InventoryQueryService:
                     qc_hold_quantity=row.qc_hold_quantity,
                     damaged_quantity=row.damaged_quantity,
                     job_work_quantity=row.job_work_quantity,
+                    scrap_quantity=row.scrap_quantity,
                     stock_value=row.stock_value,
                 )
                 for row in rows
@@ -4387,6 +4730,20 @@ class StockTransferService:
 # -----------------------------------------------------------------------------
 
 
+#: The adjustment header fields an audit row compares, on create and on edit.
+_ADJUSTMENT_AUDITED_FIELDS = [
+    "code",
+    "warehouse_id",
+    "adjustment_date",
+    "cost_centre_id",
+    "reason_code",
+    "reason",
+    "total_value",
+    "requires_approval",
+    "line_count",
+]
+
+
 class StockAdjustmentService:
     """Write-ups and write-downs, with the approval control section 42 requires."""
 
@@ -4427,7 +4784,9 @@ class StockAdjustmentService:
 
     # --- writes -------------------------------------------------------------
 
-    async def create(self, payload: StockAdjustmentCreate) -> StockAdjustmentRead:
+    async def create(
+        self, payload: StockAdjustmentCreate, *, can_enter_cost: bool = True
+    ) -> StockAdjustmentRead:
         """Draft the document and work out whether it needs an approval.
 
         Line costs are read from the position's **FIFO cost layers** - the ones
@@ -4441,31 +4800,18 @@ class StockAdjustmentService:
         posted the layer price. See :class:`FifoCostPreview` for the worked
         example, and :meth:`post` for the re-check that catches a preview which
         has gone stale between the draft and the posting.
+
+        ``can_enter_cost`` is the caller's ``item.cost_view`` or
+        ``inventory.valuation_view``: only someone who may see what stock costs
+        may state the cost a write-up is booked at. Everyone else's write-up is
+        priced by the server's own precedence - see :func:`inbound_unit_cost`.
         """
+        self._assert_cost_entry_allowed(payload, can_enter_cost)
         async with transaction(self.session):
             assert_warehouse_scope(self.tenant, payload.warehouse_id)
-            warehouses = await self.inventory.warehouse_facts([payload.warehouse_id])
-            warehouse = warehouses.get(payload.warehouse_id)
-            if warehouse is None:
-                raise NotFoundError("Warehouse", payload.warehouse_id)
-
-            items = await self.inventory.item_facts([line.item_id for line in payload.lines])
-            missing = [line.item_id for line in payload.lines if line.item_id not in items]
-            if missing:
-                raise NotFoundError("Item", missing[0])
+            items = await self._check_header(payload)
             if payload.cost_centre_id is not None:
                 await require_cost_centre(self.session, self.tenant, payload.cost_centre_id)
-
-            grains = [
-                BalanceGrain(
-                    item_id=line.item_id,
-                    warehouse_id=payload.warehouse_id,
-                    location_id=line.location_id,
-                    batch_id=line.batch_id,
-                )
-                for line in payload.lines
-            ]
-            preview = await FifoCostPreview.load(self.inventory, self.layers, grains)
 
             code = await next_document_number(
                 self.session, self.tenant.company_id, DocTypes.STOCK_ADJUSTMENT
@@ -4484,34 +4830,7 @@ class StockAdjustmentService:
             self.repo.add(adjustment)
             await self.session.flush()
 
-            total_value = Decimal("0")
-            for number, (line, grain) in enumerate(
-                zip(payload.lines, grains, strict=True), start=1
-            ):
-                quantity = to_quantity(line.quantity)
-                cost = preview.line_cost(
-                    grain,
-                    quantity,
-                    supplied=line.unit_cost,
-                    fallback_cost=items[line.item_id].standard_cost,
-                )
-                total_value += cost.total_cost
-                self.line_repo.add(
-                    StockAdjustmentLine(
-                        adjustment_id=adjustment.id,
-                        line_number=number,
-                        item_id=line.item_id,
-                        location_id=line.location_id,
-                        batch_id=line.batch_id,
-                        quantity=quantity,
-                        unit_cost=cost.unit_cost,
-                        total_cost=cost.total_cost,
-                        system_quantity=preview.on_hand(grain),
-                        notes=line.notes,
-                    )
-                )
-
-            self._set_value(adjustment, total_value)
+            await self._write_lines(adjustment, payload, items)
             await self.session.flush()
 
             await record_audit(
@@ -4526,22 +4845,156 @@ class StockAdjustmentService:
                     f"({adjustment.reason_code}, value {adjustment.total_value})"
                 ),
                 user_id=self.tenant.user_id,
-                new_values=snapshot(
-                    adjustment,
-                    [
-                        "code",
-                        "warehouse_id",
-                        "cost_centre_id",
-                        "reason_code",
-                        "reason",
-                        "total_value",
-                        "requires_approval",
-                        "line_count",
-                    ],
-                ),
+                new_values=snapshot(adjustment, _ADJUSTMENT_AUDITED_FIELDS),
             )
 
         return await self.get_adjustment(adjustment.id)
+
+    async def update(
+        self,
+        adjustment_id: uuid.UUID,
+        payload: StockAdjustmentUpdate,
+        *,
+        can_enter_cost: bool = True,
+    ) -> StockAdjustmentRead:
+        """Replace a draft's header and lines, re-priced exactly as :meth:`create` prices them.
+
+        Only a draft: once submitted the document is what an approver is looking
+        at, and once approved it is what they signed. The lines are replaced
+        rather than patched one by one - a draft has no history of its own to
+        keep, and re-pricing the whole document against the layers as they
+        stand now is what keeps its value, and so its approval decision, honest.
+        """
+        self._assert_cost_entry_allowed(payload, can_enter_cost)
+        async with transaction(self.session):
+            await self._locked(adjustment_id)
+            adjustment = await self.repo.get_with_lines(adjustment_id)
+            if adjustment is None:  # pragma: no cover - the lock already found it
+                raise NotFoundError("Stock adjustment", adjustment_id)
+            if adjustment.status is not AdjustmentStatus.DRAFT:
+                raise BusinessRuleError(
+                    "Only a draft adjustment can be edited.",
+                    details={"status": str(adjustment.status)},
+                )
+            assert_warehouse_scope(self.tenant, adjustment.warehouse_id, payload.warehouse_id)
+            items = await self._check_header(payload)
+            # A re-save of the centre the draft already names allocates nothing
+            # new, and keeps working after the centre is deactivated.
+            if (
+                payload.cost_centre_id is not None
+                and payload.cost_centre_id != adjustment.cost_centre_id
+            ):
+                await require_cost_centre(self.session, self.tenant, payload.cost_centre_id)
+
+            before = snapshot(adjustment, _ADJUSTMENT_AUDITED_FIELDS)
+            # Old lines out first, and flushed: the replacements reuse their line
+            # numbers, and the unique constraint is checked per statement.
+            adjustment.lines.clear()
+            await self.session.flush()
+
+            adjustment.warehouse_id = payload.warehouse_id
+            adjustment.adjustment_date = payload.adjustment_date or adjustment.adjustment_date
+            adjustment.cost_centre_id = payload.cost_centre_id
+            adjustment.reason_code = payload.reason_code
+            adjustment.reason = payload.reason
+            adjustment.notes = payload.notes
+            adjustment.line_count = len(payload.lines)
+            self.repo.touch(adjustment)
+            await self._write_lines(adjustment, payload, items)
+            await self.session.flush()
+
+            await record_audit(
+                self.session,
+                company_id=self.tenant.company_id,
+                action=AuditAction.UPDATE,
+                entity_type=AUDIT_ENTITY_ADJUSTMENT,
+                entity_id=adjustment.id,
+                entity_code=adjustment.code,
+                summary=f"Updated draft stock adjustment {adjustment.code}",
+                user_id=self.tenant.user_id,
+                old_values=before,
+                new_values=snapshot(adjustment, _ADJUSTMENT_AUDITED_FIELDS),
+            )
+        return await self.get_adjustment(adjustment_id)
+
+    @staticmethod
+    def _assert_cost_entry_allowed(payload: StockAdjustmentCreate, can_enter_cost: bool) -> None:
+        """Refuse a stated unit cost from someone who may not see costs.
+
+        Refused rather than silently dropped: a figure the operator typed and
+        the server then ignored would be a document that does not say what its
+        author meant.
+        """
+        if can_enter_cost:
+            return
+        if any(line.unit_cost is not None for line in payload.lines):
+            raise PermissionDeniedError(
+                f"{Permission.ITEM_COST_VIEW} or {Permission.INVENTORY_VALUATION_VIEW}"
+            )
+
+    async def _check_header(self, payload: StockAdjustmentCreate) -> dict[uuid.UUID, ItemFacts]:
+        """The warehouse and every item the draft names exist in this tenant."""
+        warehouses = await self.inventory.warehouse_facts([payload.warehouse_id])
+        if payload.warehouse_id not in warehouses:
+            raise NotFoundError("Warehouse", payload.warehouse_id)
+        items = await self.inventory.item_facts([line.item_id for line in payload.lines])
+        missing = [line.item_id for line in payload.lines if line.item_id not in items]
+        if missing:
+            raise NotFoundError("Item", missing[0])
+        return items
+
+    async def _write_lines(
+        self,
+        adjustment: StockAdjustment,
+        payload: StockAdjustmentCreate,
+        items: dict[uuid.UUID, ItemFacts],
+    ) -> None:
+        """Stage the draft's lines, each priced off the layers it will consume.
+
+        The collection is declared loaded with exactly these lines, so a read in
+        the same session sees them without a lazy load - ``lines`` is
+        ``lazy="raise"``.
+        """
+        grains = [
+            BalanceGrain(
+                item_id=line.item_id,
+                warehouse_id=payload.warehouse_id,
+                location_id=line.location_id,
+                batch_id=line.batch_id,
+            )
+            for line in payload.lines
+        ]
+        preview = await FifoCostPreview.load(self.inventory, self.layers, grains)
+
+        total_value = Decimal("0")
+        lines: list[StockAdjustmentLine] = []
+        for number, (line, grain) in enumerate(zip(payload.lines, grains, strict=True), start=1):
+            quantity = to_quantity(line.quantity)
+            cost = preview.line_cost(
+                grain,
+                quantity,
+                supplied=line.unit_cost,
+                fallback_cost=items[line.item_id].standard_cost,
+            )
+            total_value += cost.total_cost
+            lines.append(
+                self.line_repo.add(
+                    StockAdjustmentLine(
+                        adjustment_id=adjustment.id,
+                        line_number=number,
+                        item_id=line.item_id,
+                        location_id=line.location_id,
+                        batch_id=line.batch_id,
+                        quantity=quantity,
+                        unit_cost=cost.unit_cost,
+                        total_cost=cost.total_cost,
+                        system_quantity=preview.on_hand(grain),
+                        notes=line.notes,
+                    )
+                )
+            )
+        set_committed_value(adjustment, "lines", lines)
+        self._set_value(adjustment, total_value)
 
     async def submit(self, adjustment_id: uuid.UUID) -> StockAdjustmentRead:
         """Send the document for approval, re-priced against the layers as they are now.
@@ -4597,7 +5050,8 @@ class StockAdjustmentService:
             )
         return await self.get_adjustment(adjustment_id)
 
-    async def reject(self, adjustment_id: uuid.UUID, note: str | None) -> StockAdjustmentRead:
+    async def reject(self, adjustment_id: uuid.UUID, note: str) -> StockAdjustmentRead:
+        """Refuse a pending adjustment. The reason is required - ``RejectionRequest``."""
         async with transaction(self.session):
             adjustment = await self._locked(adjustment_id)
             ADJUSTMENT_FLOW.assert_transition(adjustment.status, AdjustmentStatus.REJECTED)
@@ -5406,24 +5860,1007 @@ class PhysicalCountService:
         return read
 
 
+# -----------------------------------------------------------------------------
+# Bin move, scrap disposal and internal issue
+# -----------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class _LinePosition:
+    """What one document line names, for the checks every new document shares.
+
+    ``locations`` pairs each bin the line names with whether stock is *put
+    into* it - the one direction the retired-bin rule applies to, as everywhere
+    else in this module.
+    """
+
+    line_number: int
+    item_id: uuid.UUID
+    batch_id: uuid.UUID | None
+    locations: tuple[tuple[uuid.UUID | None, bool], ...]
+
+
+async def _assert_document_lines(
+    inventory: InventoryRepository,
+    *,
+    document: str,
+    warehouse: WarehouseFacts,
+    positions: Sequence[_LinePosition],
+) -> dict[uuid.UUID, ItemFacts]:
+    """Hold a document's lines to the master-data rules, against the line that breaks one.
+
+    Three queries for the whole document - items, batches, bins - never one per
+    line. The engine re-checks all of it under its locks when the document
+    posts; this is the answer an operator gets while still looking at the line:
+
+    * the item exists in this tenant;
+    * ASSUMPTION: a serial-tracked item is refused outright, because none of
+      these documents has anywhere to name the units it moves - the same
+      refusal a stock transfer makes (docs/assumptions.md section 25);
+    * a batch-tracked item names its batch, and the batch is this item's - a
+      batch-less line would draw on a batch-less position that holds nothing;
+    * every bin is a live bin of this tenant, in this warehouse, and a bin
+      that takes stock in is active.
+    """
+    items = await inventory.item_facts([position.item_id for position in positions])
+    batches = await inventory.batch_owners(
+        [position.batch_id for position in positions if position.batch_id is not None]
+    )
+    locations = await inventory.location_facts(
+        [
+            location_id
+            for position in positions
+            for location_id, _ in position.locations
+            if location_id is not None
+        ]
+    )
+    for position in positions:
+        number = position.line_number
+        item = items.get(position.item_id)
+        if item is None:
+            raise NotFoundError("Item", position.item_id)
+        if item.is_serial_tracked:
+            raise BusinessRuleError(
+                f"Line {number}: {item.code} is serial tracked and cannot be moved by {document}: "
+                "there is no contract for naming the units on this path.",
+                code=ErrorCode.SERIAL_REQUIRED,
+                details={"line_number": number, "item_code": item.code},
+            )
+        if position.batch_id is None:
+            if item.is_batch_tracked:
+                raise BusinessRuleError(
+                    f"Line {number}: {item.code} is batch tracked, so the batch must be named.",
+                    code=ErrorCode.BATCH_REQUIRED,
+                    details={"line_number": number, "item_code": item.code},
+                )
+        else:
+            owner = batches.get(position.batch_id)
+            if owner is None:
+                raise NotFoundError("Stock batch", position.batch_id)
+            if owner[0] != position.item_id:
+                raise BusinessRuleError(
+                    f"Line {number}: batch {owner[1]} belongs to a different item.",
+                    details={"line_number": number, "batch_id": str(position.batch_id)},
+                )
+        for location_id, receiving in position.locations:
+            if location_id is None:
+                continue
+            location = locations.get(location_id)
+            if location is None:
+                raise NotFoundError("Storage location", location_id)
+            if location.warehouse_id != warehouse.id:
+                raise BusinessRuleError(
+                    f"Line {number}: storage location {location.code} is not in "
+                    f"warehouse {warehouse.code}.",
+                    details={
+                        "line_number": number,
+                        "location_id": str(location_id),
+                        "location_code": location.code,
+                        "warehouse_code": warehouse.code,
+                    },
+                )
+            if receiving and not location.is_active:
+                raise BusinessRuleError(
+                    f"Line {number}: "
+                    + inactive_record("Storage location", location.code, "cannot receive stock"),
+                    details={
+                        "line_number": number,
+                        "location_id": str(location_id),
+                        "location_code": location.code,
+                    },
+                )
+    return items
+
+
+async def _document_warehouse(
+    inventory: InventoryRepository, warehouse_id: uuid.UUID, *, receiving: bool
+) -> WarehouseFacts:
+    warehouses = await inventory.warehouse_facts([warehouse_id])
+    warehouse = warehouses.get(warehouse_id)
+    if warehouse is None:
+        raise NotFoundError("Warehouse", warehouse_id)
+    if receiving and not warehouse.is_active:
+        raise BusinessRuleError(
+            inactive_record("Warehouse", warehouse.code, "cannot receive stock"),
+            details={"warehouse_code": warehouse.code},
+        )
+    return warehouse
+
+
+def _business_time(on: date) -> datetime:
+    """A document date as the business time of the movements it posts.
+
+    The time of day is the posting's own, the same choice a stock adjustment
+    makes, so a document keyed late is dated when it happened and movements
+    posted together keep the order they were posted in.
+    """
+    return datetime.combine(on, utcnow().timetz())
+
+
+class BinMoveService:
+    """Putaway and re-slotting: stock moved between bins of one warehouse.
+
+    Posted the moment it is raised. Each line is a ``TRANSFER_OUT`` at the
+    source bin and a ``TRANSFER_IN`` at the destination, in one engine batch, so
+    both positions are locked together and the inbound leg re-opens exactly the
+    FIFO layers the outbound leg consumed (docs/assumptions.md §E8-1).
+    """
+
+    def __init__(self, session: AsyncSession, tenant: TenantContext) -> None:
+        self.session = session
+        self.tenant = tenant
+        self.repo = BinMoveRepository(session, tenant)
+        self.line_repo = BinMoveLineRepository(session, tenant)
+        self.inventory = InventoryRepository(session, tenant)
+        self.engine = MovementEngine(session, tenant)
+
+    async def list_moves(
+        self, filters: BinMoveFilters, params: PageParams, sort: SortParams
+    ) -> tuple[list[BinMoveReadWithCost], OffsetPagination]:
+        rows, pagination = await paginate(
+            self.session, self.repo.build_list_stmt(filters, sort), params
+        )
+        warehouses = await self.inventory.warehouse_facts([row.warehouse_id for row in rows])
+        return [self._to_read(row, warehouses) for row in rows], pagination
+
+    async def get_move(self, bin_move_id: uuid.UUID) -> BinMoveReadWithCost:
+        move = await self.repo.get_with_lines(bin_move_id)
+        if move is None:
+            raise NotFoundError("Bin move", bin_move_id)
+        warehouses = await self.inventory.warehouse_facts([move.warehouse_id])
+        items = await self.inventory.item_facts([line.item_id for line in move.lines])
+        read = self._to_read(move, warehouses)
+        read.lines = [
+            _with_item(BinMoveLineReadWithCost.model_validate(line), items.get(line.item_id))
+            for line in move.lines
+        ]
+        await _label_operation_positions(self.inventory, read)
+        return read
+
+    async def create(self, payload: BinMoveCreate) -> BinMoveReadWithCost:
+        async with transaction(self.session):
+            assert_warehouse_scope(self.tenant, payload.warehouse_id)
+            # Receiving: the destination bin takes stock in.
+            warehouse = await _document_warehouse(
+                self.inventory, payload.warehouse_id, receiving=True
+            )
+            await _assert_document_lines(
+                self.inventory,
+                document="a bin move",
+                warehouse=warehouse,
+                positions=[
+                    _LinePosition(
+                        line_number=number,
+                        item_id=line.item_id,
+                        batch_id=line.batch_id,
+                        locations=((line.from_location_id, False), (line.to_location_id, True)),
+                    )
+                    for number, line in enumerate(payload.lines, start=1)
+                ],
+            )
+
+            code = await next_document_number(
+                self.session, self.tenant.company_id, DocTypes.BIN_MOVE
+            )
+            move = BinMove(
+                code=code,
+                status=BinMoveStatus.DRAFT,
+                warehouse_id=payload.warehouse_id,
+                move_date=payload.move_date or today(),
+                reason=payload.reason,
+                notes=payload.notes,
+                line_count=len(payload.lines),
+                total_quantity=to_quantity(sum(line.quantity for line in payload.lines)),
+            )
+            self.repo.add(move)
+            await self.session.flush()
+            lines = [
+                self.line_repo.add(
+                    BinMoveLine(
+                        bin_move_id=move.id,
+                        line_number=number,
+                        item_id=line.item_id,
+                        batch_id=line.batch_id,
+                        from_location_id=line.from_location_id,
+                        to_location_id=line.to_location_id,
+                        quantity=to_quantity(line.quantity),
+                    )
+                )
+                for number, line in enumerate(payload.lines, start=1)
+            ]
+            await self.session.flush()
+            await record_audit(
+                self.session,
+                company_id=self.tenant.company_id,
+                action=AuditAction.CREATE,
+                entity_type=AUDIT_ENTITY_BIN_MOVE,
+                entity_id=move.id,
+                entity_code=move.code,
+                summary=f"Raised bin move {move.code}",
+                user_id=self.tenant.user_id,
+                new_values=snapshot(
+                    move, ["code", "warehouse_id", "move_date", "reason", "line_count"]
+                ),
+            )
+
+            # ASSUMPTION: a bin move is a TRANSFER_OUT / TRANSFER_IN pair within
+            # one warehouse, posted in one batch with the inbound leg carrying
+            # the outbound leg's layers - no transit pool and no new movement
+            # type. docs/assumptions.md §E8-1.
+            occurred_at = _business_time(move.move_date)
+            movements: list[MovementRequest] = []
+            for line in lines:
+                common: dict[str, Any] = {
+                    "item_id": line.item_id,
+                    "warehouse_id": move.warehouse_id,
+                    "batch_id": line.batch_id,
+                    "quantity": Decimal(line.quantity),
+                    "reference_type": AUDIT_ENTITY_BIN_MOVE,
+                    "reference_id": move.id,
+                    "reference_code": move.code,
+                    "reason": move.reason,
+                    "occurred_at": occurred_at,
+                }
+                outbound = len(movements)
+                movements.append(
+                    MovementRequest(
+                        location_id=line.from_location_id,
+                        transaction_type=TransactionType.TRANSFER_OUT,
+                        **common,
+                    )
+                )
+                movements.append(
+                    MovementRequest(
+                        location_id=line.to_location_id,
+                        transaction_type=TransactionType.TRANSFER_IN,
+                        carries_cost_of=outbound,
+                        **common,
+                    )
+                )
+            posted = await self.engine.post(movements)
+
+            total_value = Decimal("0")
+            # Every other row is an outbound leg, and it is what the stock cost.
+            for line, outbound_txn in zip(lines, posted[::2], strict=True):
+                line.unit_cost = to_unit_price(outbound_txn.unit_cost)
+                line.total_cost = to_money(abs(Decimal(outbound_txn.total_cost)))
+                total_value += line.total_cost
+            move.total_value = to_money(total_value)
+
+            BIN_MOVE_FLOW.assert_transition(move.status, BinMoveStatus.POSTED)
+            move.status = BinMoveStatus.POSTED
+            move.posted_at = utcnow()
+            self.repo.touch(move)
+            await self.session.flush()
+            await record_status_change(
+                self.session,
+                company_id=self.tenant.company_id,
+                entity_type=AUDIT_ENTITY_BIN_MOVE,
+                entity_id=move.id,
+                entity_code=move.code,
+                from_status=str(BinMoveStatus.DRAFT),
+                to_status=str(BinMoveStatus.POSTED),
+                user_id=self.tenant.user_id,
+                reason=move.reason,
+            )
+            move_id = move.id
+        return await self.get_move(move_id)
+
+    @staticmethod
+    def _to_read(move: BinMove, warehouses: dict[uuid.UUID, WarehouseFacts]) -> BinMoveReadWithCost:
+        _declare_lines_empty_if_unloaded(move)
+        read = BinMoveReadWithCost.model_validate(move)
+        warehouse = warehouses.get(move.warehouse_id)
+        read.warehouse_code = warehouse.code if warehouse else None
+        return read
+
+
+class ScrapDisposalService:
+    """Stock out of the SCRAP pool for good: sold, recycled or written off.
+
+    Posted the moment it is raised, one ``SCRAP_DISPOSAL`` per line. Each is
+    valued from the scrap cost layers it consumes - what the scrap cost when it
+    was scrapped - which is the figure ``realised_amount`` is weighed against.
+    Scrap carries no book value, so a disposal changes no stock value: the
+    write-off happened when the stock was scrapped.
+    """
+
+    def __init__(self, session: AsyncSession, tenant: TenantContext) -> None:
+        self.session = session
+        self.tenant = tenant
+        self.repo = ScrapDisposalRepository(session, tenant)
+        self.line_repo = ScrapDisposalLineRepository(session, tenant)
+        self.inventory = InventoryRepository(session, tenant)
+        self.engine = MovementEngine(session, tenant)
+
+    async def list_disposals(
+        self, filters: ScrapDisposalFilters, params: PageParams, sort: SortParams
+    ) -> tuple[list[ScrapDisposalReadWithCost], OffsetPagination]:
+        rows, pagination = await paginate(
+            self.session, self.repo.build_list_stmt(filters, sort), params
+        )
+        warehouses = await self.inventory.warehouse_facts([row.warehouse_id for row in rows])
+        return [self._to_read(row, warehouses) for row in rows], pagination
+
+    async def get_disposal(self, disposal_id: uuid.UUID) -> ScrapDisposalReadWithCost:
+        disposal = await self.repo.get_with_lines(disposal_id)
+        if disposal is None:
+            raise NotFoundError("Scrap disposal", disposal_id)
+        warehouses = await self.inventory.warehouse_facts([disposal.warehouse_id])
+        items = await self.inventory.item_facts([line.item_id for line in disposal.lines])
+        read = self._to_read(disposal, warehouses)
+        read.lines = [
+            _with_item(ScrapDisposalLineReadWithCost.model_validate(line), items.get(line.item_id))
+            for line in disposal.lines
+        ]
+        await _label_operation_positions(self.inventory, read)
+        return read
+
+    async def create(self, payload: ScrapDisposalCreate) -> ScrapDisposalReadWithCost:
+        async with transaction(self.session):
+            assert_warehouse_scope(self.tenant, payload.warehouse_id)
+            # Not receiving: scrap may leave a warehouse that has been retired.
+            warehouse = await _document_warehouse(
+                self.inventory, payload.warehouse_id, receiving=False
+            )
+            await _assert_document_lines(
+                self.inventory,
+                document="a scrap disposal",
+                warehouse=warehouse,
+                positions=[
+                    _LinePosition(
+                        line_number=number,
+                        item_id=line.item_id,
+                        batch_id=line.batch_id,
+                        locations=((line.location_id, False),),
+                    )
+                    for number, line in enumerate(payload.lines, start=1)
+                ],
+            )
+
+            code = await next_document_number(
+                self.session, self.tenant.company_id, DocTypes.SCRAP_DISPOSAL
+            )
+            disposal = ScrapDisposal(
+                code=code,
+                status=ScrapDisposalStatus.DRAFT,
+                warehouse_id=payload.warehouse_id,
+                disposal_date=payload.disposal_date or today(),
+                disposal_kind=payload.disposal_kind,
+                buyer_reference=payload.buyer_reference,
+                realised_amount=to_money(payload.realised_amount),
+                reason=payload.reason,
+                notes=payload.notes,
+                line_count=len(payload.lines),
+                total_quantity=to_quantity(sum(line.quantity for line in payload.lines)),
+            )
+            self.repo.add(disposal)
+            await self.session.flush()
+            lines = [
+                self.line_repo.add(
+                    ScrapDisposalLine(
+                        scrap_disposal_id=disposal.id,
+                        line_number=number,
+                        item_id=line.item_id,
+                        batch_id=line.batch_id,
+                        location_id=line.location_id,
+                        quantity=to_quantity(line.quantity),
+                    )
+                )
+                for number, line in enumerate(payload.lines, start=1)
+            ]
+            await self.session.flush()
+            await record_audit(
+                self.session,
+                company_id=self.tenant.company_id,
+                action=AuditAction.CREATE,
+                entity_type=AUDIT_ENTITY_SCRAP_DISPOSAL,
+                entity_id=disposal.id,
+                entity_code=disposal.code,
+                summary=(
+                    f"Raised scrap disposal {disposal.code} ({disposal.disposal_kind}, "
+                    f"realised {disposal.realised_amount})"
+                ),
+                user_id=self.tenant.user_id,
+                new_values=snapshot(
+                    disposal,
+                    [
+                        "code",
+                        "warehouse_id",
+                        "disposal_date",
+                        "disposal_kind",
+                        "buyer_reference",
+                        "realised_amount",
+                        "reason",
+                        "line_count",
+                    ],
+                ),
+            )
+
+            occurred_at = _business_time(disposal.disposal_date)
+            posted = await self.engine.post(
+                [
+                    MovementRequest(
+                        item_id=line.item_id,
+                        warehouse_id=disposal.warehouse_id,
+                        location_id=line.location_id,
+                        batch_id=line.batch_id,
+                        quantity=Decimal(line.quantity),
+                        transaction_type=TransactionType.SCRAP_DISPOSAL,
+                        # Named although it is the type's default source, so the
+                        # ledger row reads "scrap" in its stock-state column.
+                        stock_state=StockState.SCRAP,
+                        reference_type=AUDIT_ENTITY_SCRAP_DISPOSAL,
+                        reference_id=disposal.id,
+                        reference_code=disposal.code,
+                        reason=f"{disposal.disposal_kind}: {disposal.reason}"[:255],
+                        occurred_at=occurred_at,
+                    )
+                    for line in lines
+                ]
+            )
+
+            total_value = Decimal("0")
+            for line, txn in zip(lines, posted, strict=True):
+                line.unit_cost = to_unit_price(txn.unit_cost)
+                line.total_cost = to_money(abs(Decimal(txn.total_cost)))
+                total_value += line.total_cost
+            disposal.total_value = to_money(total_value)
+
+            SCRAP_DISPOSAL_FLOW.assert_transition(disposal.status, ScrapDisposalStatus.POSTED)
+            disposal.status = ScrapDisposalStatus.POSTED
+            disposal.posted_at = utcnow()
+            self.repo.touch(disposal)
+            await self.session.flush()
+            await record_status_change(
+                self.session,
+                company_id=self.tenant.company_id,
+                entity_type=AUDIT_ENTITY_SCRAP_DISPOSAL,
+                entity_id=disposal.id,
+                entity_code=disposal.code,
+                from_status=str(ScrapDisposalStatus.DRAFT),
+                to_status=str(ScrapDisposalStatus.POSTED),
+                user_id=self.tenant.user_id,
+                reason=disposal.reason,
+            )
+            disposal_id = disposal.id
+        return await self.get_disposal(disposal_id)
+
+    @staticmethod
+    def _to_read(
+        disposal: ScrapDisposal, warehouses: dict[uuid.UUID, WarehouseFacts]
+    ) -> ScrapDisposalReadWithCost:
+        _declare_lines_empty_if_unloaded(disposal)
+        read = ScrapDisposalReadWithCost.model_validate(disposal)
+        warehouse = warehouses.get(disposal.warehouse_id)
+        read.warehouse_code = warehouse.code if warehouse else None
+        return read
+
+
+class InternalIssueService:
+    """Stock issued to a department or cost centre for its own consumption.
+
+    The approval control is the stock adjustment's, measured the same way: a
+    draft is priced off the FIFO layers it will consume, and one worth more than
+    :data:`INTERNAL_ISSUE_APPROVAL_VALUE` cannot take the DRAFT -> POSTED edge.
+    It is submitted, and a second person approves it - approving is what posts
+    it. A draft that looked small and turns out, at posting, to cost more than
+    the threshold is refused and nothing reaches the ledger.
+    """
+
+    def __init__(self, session: AsyncSession, tenant: TenantContext) -> None:
+        self.session = session
+        self.tenant = tenant
+        self.repo = InternalIssueRepository(session, tenant)
+        self.line_repo = InternalIssueLineRepository(session, tenant)
+        self.inventory = InventoryRepository(session, tenant)
+        self.layers = CostLayerRepository(session, tenant)
+        self.engine = MovementEngine(session, tenant)
+
+    # --- reads --------------------------------------------------------------
+
+    async def list_issues(
+        self, filters: InternalIssueFilters, params: PageParams, sort: SortParams
+    ) -> tuple[list[InternalIssueReadWithCost], OffsetPagination]:
+        rows, pagination = await paginate(
+            self.session, self.repo.build_list_stmt(filters, sort), params
+        )
+        warehouses = await self.inventory.warehouse_facts([row.warehouse_id for row in rows])
+        return [self._to_read(row, warehouses) for row in rows], pagination
+
+    async def get_issue(self, issue_id: uuid.UUID) -> InternalIssueReadWithCost:
+        issue = await self.repo.get_with_lines(issue_id)
+        if issue is None:
+            raise NotFoundError("Internal issue", issue_id)
+        warehouses = await self.inventory.warehouse_facts([issue.warehouse_id])
+        items = await self.inventory.item_facts([line.item_id for line in issue.lines])
+        read = self._to_read(issue, warehouses)
+        read.lines = [
+            _with_item(InternalIssueLineReadWithCost.model_validate(line), items.get(line.item_id))
+            for line in issue.lines
+        ]
+        await _label_operation_positions(self.inventory, read)
+        return read
+
+    # --- writes -------------------------------------------------------------
+
+    async def create(self, payload: InternalIssueCreate) -> InternalIssueReadWithCost:
+        async with transaction(self.session):
+            assert_warehouse_scope(self.tenant, payload.warehouse_id)
+            # Not receiving: stock leaves the warehouse.
+            warehouse = await _document_warehouse(
+                self.inventory, payload.warehouse_id, receiving=False
+            )
+            items = await _assert_document_lines(
+                self.inventory,
+                document="an internal issue",
+                warehouse=warehouse,
+                positions=[
+                    _LinePosition(
+                        line_number=number,
+                        item_id=line.item_id,
+                        batch_id=line.batch_id,
+                        locations=((line.location_id, False),),
+                    )
+                    for number, line in enumerate(payload.lines, start=1)
+                ],
+            )
+            if payload.department_id is not None:
+                await require_department(self.session, self.tenant, payload.department_id)
+            if payload.cost_centre_id is not None:
+                await require_cost_centre(self.session, self.tenant, payload.cost_centre_id)
+
+            code = await next_document_number(
+                self.session, self.tenant.company_id, DocTypes.INTERNAL_ISSUE
+            )
+            issue = InternalIssue(
+                code=code,
+                status=InternalIssueStatus.DRAFT,
+                warehouse_id=payload.warehouse_id,
+                issue_date=payload.issue_date or today(),
+                department_id=payload.department_id,
+                cost_centre_id=payload.cost_centre_id,
+                reason=payload.reason,
+                notes=payload.notes,
+                line_count=len(payload.lines),
+                total_quantity=to_quantity(sum(line.quantity for line in payload.lines)),
+            )
+            self.repo.add(issue)
+            await self.session.flush()
+
+            grains = [
+                BalanceGrain(
+                    item_id=line.item_id,
+                    warehouse_id=payload.warehouse_id,
+                    location_id=line.location_id,
+                    batch_id=line.batch_id,
+                )
+                for line in payload.lines
+            ]
+            preview = await FifoCostPreview.load(self.inventory, self.layers, grains)
+            total_value = Decimal("0")
+            for number, (line, grain) in enumerate(
+                zip(payload.lines, grains, strict=True), start=1
+            ):
+                # Negative: an issue draws on the queue, oldest layer first.
+                cost = preview.line_cost(
+                    grain,
+                    -to_quantity(line.quantity),
+                    supplied=None,
+                    fallback_cost=items[line.item_id].standard_cost,
+                )
+                total_value += cost.total_cost
+                self.line_repo.add(
+                    InternalIssueLine(
+                        internal_issue_id=issue.id,
+                        line_number=number,
+                        item_id=line.item_id,
+                        batch_id=line.batch_id,
+                        location_id=line.location_id,
+                        quantity=to_quantity(line.quantity),
+                        unit_cost=cost.unit_cost,
+                        total_cost=cost.total_cost,
+                        notes=line.notes,
+                    )
+                )
+            self._set_value(issue, total_value)
+            await self.session.flush()
+
+            await record_audit(
+                self.session,
+                company_id=self.tenant.company_id,
+                action=AuditAction.CREATE,
+                entity_type=AUDIT_ENTITY_INTERNAL_ISSUE,
+                entity_id=issue.id,
+                entity_code=issue.code,
+                summary=f"Drafted internal issue {issue.code} (value {issue.total_value})",
+                user_id=self.tenant.user_id,
+                new_values=snapshot(
+                    issue,
+                    [
+                        "code",
+                        "warehouse_id",
+                        "issue_date",
+                        "department_id",
+                        "cost_centre_id",
+                        "reason",
+                        "total_value",
+                        "requires_approval",
+                        "line_count",
+                    ],
+                ),
+            )
+            issue_id = issue.id
+        return await self.get_issue(issue_id)
+
+    async def submit(self, issue_id: uuid.UUID) -> InternalIssueReadWithCost:
+        """Send a draft for approval, re-priced against the layers as they are now.
+
+        Re-priced for the reason :meth:`StockAdjustmentService.submit` gives: a
+        draft whose real cost has risen past the threshold since it was keyed
+        would otherwise be refused by :meth:`post` for needing an approval and
+        refused here for not needing one.
+        """
+        async with transaction(self.session):
+            await self._locked(issue_id)
+            issue = await self._with_lines(issue_id)
+            INTERNAL_ISSUE_FLOW.assert_transition(
+                issue.status, InternalIssueStatus.PENDING_APPROVAL
+            )
+            assert_warehouse_scope(self.tenant, issue.warehouse_id)
+            await self._reprice(issue)
+            if not issue.requires_approval:
+                raise BusinessRuleError(
+                    f"Internal issue {issue.code} is below the approval value and can be "
+                    "posted directly.",
+                    details={
+                        "total_value": str(issue.total_value),
+                        "threshold": str(INTERNAL_ISSUE_APPROVAL_VALUE),
+                    },
+                )
+            issue.status = InternalIssueStatus.PENDING_APPROVAL
+            self.repo.touch(issue)
+            await self.session.flush()
+            await self._record_transition(
+                issue, InternalIssueStatus.DRAFT, InternalIssueStatus.PENDING_APPROVAL, None
+            )
+        return await self.get_issue(issue_id)
+
+    async def post(self, issue_id: uuid.UUID) -> InternalIssueReadWithCost:
+        """Post a draft that is under the approval value.
+
+        The threshold is checked twice, the second time against what the ledger
+        actually charged - :meth:`StockAdjustmentService.post` explains why the
+        second check is the one that makes the control real.
+        """
+        async with transaction(self.session):
+            await self._locked(issue_id)
+            issue = await self._with_lines(issue_id)
+            INTERNAL_ISSUE_FLOW.assert_transition(issue.status, InternalIssueStatus.POSTED)
+            if issue.status is not InternalIssueStatus.DRAFT:
+                # PENDING_APPROVAL -> POSTED is the approver's edge, not this one.
+                raise BusinessRuleError(
+                    f"Internal issue {issue.code} is waiting for approval; approving it posts it.",
+                    code=ErrorCode.APPROVAL_REQUIRED,
+                    status_code=422,
+                )
+            assert_warehouse_scope(self.tenant, issue.warehouse_id)
+            if issue.requires_approval:
+                raise self._approval_required(issue)
+            await self._post_lines(issue)
+            if issue.total_value > INTERNAL_ISSUE_APPROVAL_VALUE:
+                raise self._approval_required(issue)
+            await self._finish_posting(issue, InternalIssueStatus.DRAFT, AuditAction.STATUS_CHANGE)
+        return await self.get_issue(issue_id)
+
+    async def approve(self, issue_id: uuid.UUID) -> InternalIssueReadWithCost:
+        """Approve a pending issue, which posts it.
+
+        Posted at whatever the layers now charge: a person looked at it and
+        signed it, and refusing it here would make an approved document
+        unpostable because somebody else moved stock. The restated value is
+        recorded either way.
+        """
+        async with transaction(self.session):
+            await self._locked(issue_id)
+            issue = await self._with_lines(issue_id)
+            INTERNAL_ISSUE_FLOW.assert_transition(issue.status, InternalIssueStatus.POSTED)
+            if issue.status is not InternalIssueStatus.PENDING_APPROVAL:
+                raise BusinessRuleError(
+                    f"Internal issue {issue.code} is not waiting for approval.",
+                    details={"status": str(issue.status)},
+                )
+            assert_warehouse_scope(self.tenant, issue.warehouse_id)
+            self._assert_separate_approver(issue)
+            await self._post_lines(issue)
+            issue.approved_by_id = self.tenant.user_id
+            issue.approved_at = utcnow()
+            await self._finish_posting(
+                issue, InternalIssueStatus.PENDING_APPROVAL, AuditAction.APPROVE
+            )
+        return await self.get_issue(issue_id)
+
+    async def reject(self, issue_id: uuid.UUID, reason: str) -> InternalIssueReadWithCost:
+        """An approver refuses a pending issue. It ends cancelled, with the reason."""
+        async with transaction(self.session):
+            issue = await self._locked(issue_id)
+            self._assert_separate_approver(issue)
+            if issue.status is not InternalIssueStatus.PENDING_APPROVAL:
+                raise BusinessRuleError(
+                    f"Internal issue {issue.code} is not waiting for approval.",
+                    details={"status": str(issue.status)},
+                )
+            INTERNAL_ISSUE_FLOW.assert_transition(issue.status, InternalIssueStatus.CANCELLED)
+            issue.status = InternalIssueStatus.CANCELLED
+            issue.decision_note = reason
+            self.repo.touch(issue)
+            await self.session.flush()
+            await self._record_transition(
+                issue,
+                InternalIssueStatus.PENDING_APPROVAL,
+                InternalIssueStatus.CANCELLED,
+                reason,
+                action=AuditAction.REJECT,
+            )
+        return await self.get_issue(issue_id)
+
+    async def cancel(self, issue_id: uuid.UUID, reason: str) -> InternalIssueReadWithCost:
+        async with transaction(self.session):
+            issue = await self._locked(issue_id)
+            INTERNAL_ISSUE_FLOW.assert_transition(issue.status, InternalIssueStatus.CANCELLED)
+            previous = issue.status
+            issue.status = InternalIssueStatus.CANCELLED
+            issue.decision_note = reason
+            self.repo.touch(issue)
+            await self.session.flush()
+            await self._record_transition(
+                issue, previous, InternalIssueStatus.CANCELLED, reason, action=AuditAction.CANCEL
+            )
+        return await self.get_issue(issue_id)
+
+    # --- helpers ------------------------------------------------------------
+
+    async def _locked(self, issue_id: uuid.UUID) -> InternalIssue:
+        """Serialisation point for every state change on this document.
+
+        Without it two approvals both read PENDING_APPROVAL and both post the
+        issue to the ledger; the balance locks only make the two postings
+        sequential.
+        """
+        issue: InternalIssue = await _lock_document(
+            self.session, self.repo.lock_for_update, "Internal issue", issue_id
+        )
+        return issue
+
+    async def _with_lines(self, issue_id: uuid.UUID) -> InternalIssue:
+        issue = await self.repo.get_with_lines(issue_id)
+        if issue is None:  # pragma: no cover - the lock already found it
+            raise NotFoundError("Internal issue", issue_id)
+        return issue
+
+    def _assert_separate_approver(self, issue: InternalIssue) -> None:
+        # ASSUMPTION: the person who raised an issue may not approve it, unless
+        # they are a platform administrator - the project-wide segregation of
+        # duties (docs/assumptions.md section 2), as stock adjustments apply it.
+        if self.tenant.is_superuser:
+            return
+        if issue.created_by_id == self.tenant.user_id:
+            raise BusinessRuleError(
+                "An internal issue must be approved or rejected by someone other than the "
+                "person who raised it.",
+                details={"internal_issue_code": issue.code},
+            )
+
+    @staticmethod
+    def _approval_required(issue: InternalIssue) -> BusinessRuleError:
+        return BusinessRuleError(
+            f"Internal issue {issue.code} is worth {issue.total_value} against the cost "
+            "layers it consumes and must be approved before it can post.",
+            code=ErrorCode.APPROVAL_REQUIRED,
+            status_code=422,
+            details={
+                "total_value": str(issue.total_value),
+                "threshold": str(INTERNAL_ISSUE_APPROVAL_VALUE),
+            },
+        )
+
+    @staticmethod
+    def _set_value(issue: InternalIssue, total: Decimal) -> None:
+        """The value and the approval flag, always set together."""
+        issue.total_value = to_money(total)
+        issue.requires_approval = issue.total_value > INTERNAL_ISSUE_APPROVAL_VALUE
+
+    async def _reprice(self, issue: InternalIssue) -> None:
+        lines = sorted(issue.lines, key=lambda line: line.line_number)
+        grains = [
+            BalanceGrain(
+                item_id=line.item_id,
+                warehouse_id=issue.warehouse_id,
+                location_id=line.location_id,
+                batch_id=line.batch_id,
+            )
+            for line in lines
+        ]
+        items = await self.inventory.item_facts([line.item_id for line in lines])
+        preview = await FifoCostPreview.load(self.inventory, self.layers, grains)
+        total = Decimal("0")
+        for line, grain in zip(lines, grains, strict=True):
+            item = items.get(line.item_id)
+            cost = preview.line_cost(
+                grain,
+                -Decimal(line.quantity),
+                supplied=None,
+                fallback_cost=item.standard_cost if item else Decimal("0"),
+            )
+            line.unit_cost = cost.unit_cost
+            line.total_cost = cost.total_cost
+            self.line_repo.touch(line)
+            total += cost.total_cost
+        self._set_value(issue, total)
+        self.repo.touch(issue)
+
+    async def _post_lines(self, issue: InternalIssue) -> None:
+        """Post one MATERIAL_ISSUE per line and restate the document from the ledger."""
+        occurred_at = _business_time(issue.issue_date)
+        posted = await self.engine.post(
+            [
+                MovementRequest(
+                    item_id=line.item_id,
+                    warehouse_id=issue.warehouse_id,
+                    location_id=line.location_id,
+                    batch_id=line.batch_id,
+                    quantity=Decimal(line.quantity),
+                    transaction_type=TransactionType.MATERIAL_ISSUE,
+                    reference_type=AUDIT_ENTITY_INTERNAL_ISSUE,
+                    reference_id=issue.id,
+                    reference_code=issue.code,
+                    reason=f"Internal issue: {issue.reason}"[:255],
+                    occurred_at=occurred_at,
+                )
+                for line in issue.lines
+            ]
+        )
+        total = Decimal("0")
+        for line, txn in zip(issue.lines, posted, strict=True):
+            line.unit_cost = to_unit_price(txn.unit_cost)
+            line.total_cost = to_money(abs(Decimal(txn.total_cost)))
+            self.line_repo.touch(line)
+            total += line.total_cost
+        self._set_value(issue, total)
+
+    async def _finish_posting(
+        self, issue: InternalIssue, previous: InternalIssueStatus, action: AuditAction
+    ) -> None:
+        issue.status = InternalIssueStatus.POSTED
+        issue.posted_at = utcnow()
+        self.repo.touch(issue)
+        await self.session.flush()
+        await self._record_transition(
+            issue, previous, InternalIssueStatus.POSTED, None, action=action
+        )
+
+    async def _record_transition(
+        self,
+        issue: InternalIssue,
+        previous: InternalIssueStatus,
+        target: InternalIssueStatus,
+        reason: str | None,
+        *,
+        action: AuditAction = AuditAction.STATUS_CHANGE,
+    ) -> None:
+        await record_status_change(
+            self.session,
+            company_id=self.tenant.company_id,
+            entity_type=AUDIT_ENTITY_INTERNAL_ISSUE,
+            entity_id=issue.id,
+            entity_code=issue.code,
+            from_status=str(previous),
+            to_status=str(target),
+            user_id=self.tenant.user_id,
+            action=action,
+            reason=reason,
+        )
+
+    @staticmethod
+    def _to_read(
+        issue: InternalIssue, warehouses: dict[uuid.UUID, WarehouseFacts]
+    ) -> InternalIssueReadWithCost:
+        _declare_lines_empty_if_unloaded(issue)
+        read = InternalIssueReadWithCost.model_validate(issue)
+        warehouse = warehouses.get(issue.warehouse_id)
+        read.warehouse_code = warehouse.code if warehouse else None
+        return read
+
+
+_LineReadT = TypeVar(
+    "_LineReadT",
+    BinMoveLineReadWithCost,
+    ScrapDisposalLineReadWithCost,
+    InternalIssueLineReadWithCost,
+)
+
+
+async def _label_operation_positions(
+    inventory: InventoryRepository,
+    read: BinMoveReadWithCost | ScrapDisposalReadWithCost | InternalIssueReadWithCost,
+) -> None:
+    location_ids: set[uuid.UUID] = set()
+    batch_ids = {line.batch_id for line in read.lines if line.batch_id is not None}
+    for line in read.lines:
+        positions = (
+            (line.from_location_id, line.to_location_id)
+            if isinstance(line, BinMoveLineReadWithCost)
+            else (line.location_id,)
+        )
+        location_ids.update(value for value in positions if value is not None)
+    locations, batches = await inventory.document_position_labels(location_ids, batch_ids)
+    for line in read.lines:
+        line.batch_code = batches.get(line.batch_id) if line.batch_id else None
+        if isinstance(line, BinMoveLineReadWithCost):
+            line.from_location_code = (
+                locations.get(line.from_location_id) if line.from_location_id else None
+            )
+            line.to_location_code = (
+                locations.get(line.to_location_id) if line.to_location_id else None
+            )
+        else:
+            line.location_code = locations.get(line.location_id) if line.location_id else None
+
+
+def _with_item(read: _LineReadT, item: ItemFacts | None) -> _LineReadT:
+    read.item_code = item.code if item else None
+    read.item_name = item.name if item else None
+    return read
+
+
 __all__ = [
     "ADJUSTMENT_APPROVAL_VALUE_THRESHOLD",
     "ADJUSTMENT_FLOW",
+    "BIN_MOVE_FLOW",
     "COUNT_FLOW",
+    "INTERNAL_ISSUE_APPROVAL_VALUE",
+    "INTERNAL_ISSUE_FLOW",
     "LOCK_TIMEOUT_MS",
     "MAX_COUNT_LINES",
+    "SCRAP_DISPOSAL_FLOW",
+    "SCRAP_DRAWING_TYPES",
+    "SCRAP_LANDING_TYPES",
     "SERIAL_FLOW",
     "SERIAL_IN_WAREHOUSE_STATUSES",
     "SERIAL_MOVEMENT_TARGETS",
     "SERIAL_RELOCATING_TYPES",
+    "TARGET_QUALIFIED_TYPES",
     "TRANSFER_FLOW",
     "BalanceEffect",
+    "BinMoveService",
     "FifoCostPreview",
+    "InternalIssueService",
     "InventoryQueryService",
     "LineCost",
     "MovementEngine",
     "MovementRequest",
     "PhysicalCountService",
+    "ScrapDisposalService",
     "StockAdjustmentService",
     "StockShortfall",
     "StockTransferService",
@@ -5431,6 +6868,7 @@ __all__ = [
     "Valuation",
     "assert_warehouse_scope",
     "change_stock_state",
+    "draws_on_scrap",
     "find_shortfall",
     "get_available",
     "get_balance",
@@ -5438,6 +6876,7 @@ __all__ = [
     "movement_relocates_unit",
     "post_movement",
     "post_movements",
+    "scrap_layers_for",
     "serial_transition",
     "signed_quantity",
     "state_change_type",

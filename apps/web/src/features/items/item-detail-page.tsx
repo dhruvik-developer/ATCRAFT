@@ -337,6 +337,13 @@ function StockPanel({ itemId, uomCode }: { itemId: string; uomCode: string }) {
         cell: ({ row }) => formatQuantity(row.original.job_work_quantity),
       },
       {
+        id: 'scrap',
+        header: 'Scrap',
+        enableSorting: false,
+        meta: { align: 'right' },
+        cell: ({ row }) => formatQuantity(row.original.scrap_quantity),
+      },
+      {
         id: 'available',
         header: 'Available',
         enableSorting: false,

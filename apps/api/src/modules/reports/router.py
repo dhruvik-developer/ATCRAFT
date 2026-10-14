@@ -51,6 +51,7 @@ from src.core.responses import (
 from src.modules.reports import service
 from src.modules.reports.models import ReportKey
 from src.modules.reports.schemas import (
+    ConsumptionByDepartmentRow,
     CostCentreExpenseRow,
     CourierTrackingRow,
     DashboardRead,
@@ -72,6 +73,7 @@ from src.modules.reports.schemas import (
     ReportJobRead,
     ReportPeriod,
     SalesOrderStatusRow,
+    ScrapRegisterRow,
     StockAvailabilityRow,
     VendorDispatchHistoryRow,
     VendorPerformanceRow,
@@ -737,6 +739,53 @@ async def cost_centre_expense(
 ) -> PaginatedResponse[CostCentreExpenseRow] | AcceptedJobResponse:
     return await _run(
         session, tenant, principal, response, ReportKey.COST_CENTRE_EXPENSE, period, filters, page
+    )
+
+
+@router.get(
+    "/scrap-register",
+    response_model=None,
+    responses=REPORT_RESPONSES,
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def scrap_register(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[ScrapRegisterRow] | AcceptedJobResponse:
+    return await _run(
+        session, tenant, principal, response, ReportKey.SCRAP_REGISTER, period, filters, page
+    )
+
+
+@router.get(
+    "/consumption-by-department",
+    response_model=None,
+    responses=REPORT_RESPONSES,
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def consumption_by_department(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[ConsumptionByDepartmentRow] | AcceptedJobResponse:
+    return await _run(
+        session,
+        tenant,
+        principal,
+        response,
+        ReportKey.CONSUMPTION_BY_DEPARTMENT,
+        period,
+        filters,
+        page,
     )
 
 

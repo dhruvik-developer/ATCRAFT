@@ -16,6 +16,7 @@ import { DataTable } from '@/components/data-table'
 import { PageHeader } from '@/components/shared'
 import { Checkbox, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { LocationPicker } from './location-picker'
 import { useListQuery } from '@/hooks/use-list-query'
 import { formatMoney, formatQuantity, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
@@ -59,6 +60,7 @@ export default function InventoryBalancesPage() {
   const canSeeValuation = can(P.INVENTORY_VALUATION_VIEW)
 
   const warehouseId = searchParams.get('warehouse_id') ?? ''
+  const locationId = searchParams.get('location_id') ?? ''
   const belowReorder = searchParams.get('below_reorder') === 'true'
   const onlyInStock = searchParams.get('only_in_stock') === 'true'
 
@@ -67,6 +69,7 @@ export default function InventoryBalancesPage() {
     queryKey: queryKeys.inventory.balances,
     filters: {
       ...(warehouseId ? { warehouse_id: warehouseId } : {}),
+      ...(locationId ? { location_id: locationId } : {}),
       ...(belowReorder ? { below_reorder: true } : {}),
       ...(onlyInStock ? { only_in_stock: true } : {}),
     },
@@ -121,6 +124,19 @@ export default function InventoryBalancesPage() {
         accessorKey: 'warehouse_code',
         header: 'Warehouse',
         cell: ({ row }) => row.original.warehouse_code ?? '-',
+      },
+      {
+        accessorKey: 'location_code',
+        header: 'Bin',
+        enableSorting: false,
+        cell: ({ row }) => row.original.location_code ?? '-',
+      },
+      {
+        id: 'scrap_quantity',
+        header: 'Scrap',
+        enableSorting: false,
+        meta: { align: 'right' },
+        cell: ({ row }) => formatQuantity(row.original.scrap_quantity),
       },
       {
         id: 'batch',
@@ -258,7 +274,16 @@ export default function InventoryBalancesPage() {
               includeAll
               className="w-full sm:w-auto"
               value={warehouseId}
-              onChange={(next) => list.setParam('warehouse_id', next || undefined)}
+              onChange={(next) => {
+                list.setParams({ warehouse_id: next || undefined, location_id: undefined })
+              }}
+            />
+            <LocationPicker
+              id="balances-bin"
+              label="Bin filter"
+              warehouseId={warehouseId}
+              value={locationId || null}
+              onChange={(value) => list.setParam('location_id', value || undefined)}
             />
 
             <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-background px-3">

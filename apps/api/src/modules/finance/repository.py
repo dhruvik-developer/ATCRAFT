@@ -122,7 +122,7 @@ from src.modules.finance.schemas import (
     ValuationFilters,
     VendorInvoiceFilters,
 )
-from src.modules.inventory.models import InventoryBalance, InventoryCostLayer
+from src.modules.inventory.models import CostLayerPool, InventoryBalance, InventoryCostLayer
 from src.modules.organization.models import Company, FinancialYear
 from src.modules.procurement.models import (
     GoodsReceipt,
@@ -1619,7 +1619,9 @@ class InventoryValuationRepository(BaseRepository[InventoryBalance]):
         quantity = func.sum(InventoryBalance.on_hand_quantity)
         # The independent half of the reconciliation: what this position's open
         # FIFO layers actually add up to, read from the layer rows and not from
-        # anything the balance says about itself.
+        # anything the balance says about itself. The on-hand queue only: the
+        # scrap queue remembers what scrapped stock cost and carries no book
+        # value (CostLayerPool), so it is no part of what the stock is worth.
         layer_value = (
             select(
                 func.coalesce(
@@ -1631,6 +1633,7 @@ class InventoryValuationRepository(BaseRepository[InventoryBalance]):
                 InventoryCostLayer.company_id == InventoryBalance.company_id,
                 InventoryCostLayer.balance_id == InventoryBalance.id,
                 InventoryCostLayer.remaining_quantity > ZERO,
+                InventoryCostLayer.pool == CostLayerPool.ON_HAND,
             )
             .correlate(InventoryBalance)
             .scalar_subquery()

@@ -26,6 +26,7 @@ export const WAREHOUSE_TYPES = [
   'QC_HOLD',
   'JOB_WORK',
   'IN_TRANSIT',
+  'CONSUMABLES',
 ] as const
 export type WarehouseType = (typeof WAREHOUSE_TYPES)[number]
 

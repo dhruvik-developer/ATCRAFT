@@ -233,6 +233,7 @@ async def seed_item(
         standard_cost=Decimal("10"),
         production_type=ProductionType.BUY,
         can_purchase=True,
+        can_scrap=True,
         is_batch_tracked=batch_tracked,
     )
     return item.id
@@ -410,6 +411,41 @@ async def audit_actions(
 
 
 class TestDecisionMovesStock:
+    async def test_item_without_scrap_capability_can_be_damaged_but_not_scrapped(self, ctx):
+        from src.modules.products.models import Item
+
+        session, tenant = ctx
+        lot = await seed_lot(session, tenant)
+        item = await session.get(Item, lot.item_id)
+        item.can_scrap = False
+        await session.flush()
+        inspection = await raise_incoming(session, tenant, lot)
+        inspection_id = inspection.id
+        with pytest.raises(BusinessRuleError, match="cannot be scrapped"):
+            await service.decide_inspection(
+                session,
+                tenant,
+                inspection_id,
+                DecideRequest(
+                    scrap_quantity=Decimal("100"),
+                    reason="Destructive test loss",
+                    rejection_reason="Destroyed during the test",
+                ),
+            )
+        held = await balance(session, tenant, lot.item_id, lot.warehouse_id)
+        assert held.qc_hold_quantity == 100 and held.scrap_quantity == 0
+        outcome = await service.decide_inspection(
+            session,
+            tenant,
+            inspection_id,
+            DecideRequest(
+                rejected_quantity=Decimal("100"),
+                reason="Keep damaged material identifiable",
+                rejection_reason="Failed inspection",
+            ),
+        )
+        assert outcome.damaged_quantity == 100
+
     async def test_accepting_releases_the_lot_from_qc_hold(
         self, ctx: tuple[AsyncSession, TenantContext]
     ) -> None:

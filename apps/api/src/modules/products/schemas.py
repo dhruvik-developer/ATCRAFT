@@ -393,6 +393,7 @@ class ItemCreate(CapabilityFlags):
     is_batch_tracked: bool = False
     is_serial_tracked: bool = False
     default_warehouse_id: uuid.UUID | None = None
+    default_location_id: uuid.UUID | None = None
     is_active: bool = True
 
     @field_validator("code")
@@ -446,6 +447,7 @@ class ItemUpdate(CapabilityFlags):
     is_batch_tracked: bool | None = None
     is_serial_tracked: bool | None = None
     default_warehouse_id: uuid.UUID | None = None
+    default_location_id: uuid.UUID | None = None
 
     @field_validator("manufacturer_part_number")
     @classmethod
@@ -531,6 +533,7 @@ class ItemDetail(_Base):
     is_batch_tracked: bool
     is_serial_tracked: bool
     default_warehouse_id: uuid.UUID | None
+    default_location_id: uuid.UUID | None
     is_active: bool
     lifecycle_state: ItemLifecycleState
 

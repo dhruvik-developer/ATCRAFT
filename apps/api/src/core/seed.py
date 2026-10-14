@@ -145,6 +145,7 @@ WAREHOUSES: tuple[dict[str, str], ...] = (
     {"code": "WH-JW", "name": "Job Work (at vendor)", "warehouse_type": "JOB_WORK"},
     {"code": "WH-SCR", "name": "Scrap Yard", "warehouse_type": "SCRAP"},
     {"code": "WH-RET", "name": "Sales Return Store", "warehouse_type": "RETURN"},
+    {"code": "WH-CNS", "name": "Consumables Store", "warehouse_type": "CONSUMABLES"},
 )
 
 ITEM_CATEGORIES: tuple[tuple[str, str, str | None], ...] = (

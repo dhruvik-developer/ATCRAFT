@@ -64,6 +64,7 @@ export interface InventoryBalanceRow {
   warehouse_id: string
   warehouse_code: string | null
   location_id: string | null
+  location_code: string | null
   batch_id: string | null
   batch_number: string | null
 
@@ -159,6 +160,7 @@ export const OUTFLOW_TRANSACTION_TYPES = [
   'TRANSFER_OUT',
   'ADJUSTMENT_DECREASE',
   'SCRAP',
+  'SCRAP_DISPOSAL',
   'QC_HOLD',
 ] as const
 
@@ -386,6 +388,7 @@ export interface StockAdjustmentRow {
   code: string
   status: AdjustmentStatus
   warehouse_id: string
+  cost_centre_id: string | null
   warehouse_code: string | null
   adjustment_date: string
   reason_code: AdjustmentReasonCode

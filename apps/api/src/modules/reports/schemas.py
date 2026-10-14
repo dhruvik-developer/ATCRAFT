@@ -434,6 +434,49 @@ class CostCentreExpenseRow(ReportRowBase):
     net_amount: Decimal
 
 
+class ScrapRegisterRow(ReportRowBase):
+    """One movement into or out of the scrap pool.
+
+    Exactly one of the two quantities is non-zero. ``source_type`` is the
+    document that moved it (``qc_inspection``, ``job_work_order``,
+    ``scrap_disposal``, ...) and ``source_code`` its number; the disposal
+    columns are filled on the way out only.
+    """
+
+    transaction_id: uuid.UUID
+    occurred_at: datetime
+    item_id: uuid.UUID
+    item_code: str
+    item_name: str
+    warehouse_code: str
+    transaction_type: str
+    source_type: str
+    source_code: str | None
+    disposal_kind: str | None
+    buyer_reference: str | None
+    scrap_in_quantity: Decimal
+    scrap_out_quantity: Decimal
+    unit_cost: Decimal
+    total_cost: Decimal
+
+
+class ConsumptionByDepartmentRow(ReportRowBase):
+    """What one department and/or cost centre consumed of one item over the period."""
+
+    department_id: uuid.UUID | None
+    department_code: str | None
+    department_name: str | None
+    cost_centre_id: uuid.UUID | None
+    cost_centre_code: str | None
+    cost_centre_name: str | None
+    item_id: uuid.UUID
+    item_code: str
+    item_name: str
+    issue_count: int
+    quantity: Decimal
+    total_cost: Decimal
+
+
 # -----------------------------------------------------------------------------
 # Dashboard and jobs
 # -----------------------------------------------------------------------------

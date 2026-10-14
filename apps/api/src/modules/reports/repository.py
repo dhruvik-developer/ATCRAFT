@@ -47,10 +47,25 @@ from src.modules.dispatch.models import (
     DispatchTrackingEvent,
 )
 from src.modules.finance.models import COST_CENTRE_ACCOUNT_TYPES, LedgerAccount, LedgerEntry
-from src.modules.inventory.models import InventoryBalance, InventoryTransaction, TransactionType
+from src.modules.inventory.models import (
+    InternalIssue,
+    InternalIssueLine,
+    InternalIssueStatus,
+    InventoryBalance,
+    InventoryTransaction,
+    ScrapDisposal,
+    StockState,
+    TransactionType,
+)
+from src.modules.inventory.repository import warehouse_scope
+from src.modules.inventory.service import (
+    SCRAP_DRAWING_TYPES,
+    SCRAP_LANDING_TYPES,
+    TARGET_QUALIFIED_TYPES,
+)
 from src.modules.job_work.models import JobWorkOrder, JobWorkOrderLine, JobWorkOrderStatus
 from src.modules.mrp.models import MrpRequirement, MrpRun, MrpRunStatus
-from src.modules.organization.models import CostCentre
+from src.modules.organization.models import CostCentre, Department
 from src.modules.procurement.models import (
     GoodsReceipt,
     GoodsReceiptLine,
@@ -1311,6 +1326,214 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
         if filters.search:
             pattern = f"%{filters.search.strip()}%"
             stmt = stmt.where(or_(CostCentre.code.ilike(pattern), CostCentre.name.ilike(pattern)))
+        return stmt
+
+    def scrap_register(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
+        """Every movement into and out of the scrap pool in the period, at its cost.
+
+        Read from the ledger, so it covers scrap from every source - a QC scrap
+        verdict, a job-work vendor's scrap, a direct scrap - and every disposal.
+        Whether a stored row entered or left scrap is decided from its three
+        pool columns exactly as the engine decided it when it posted the row:
+        ``stock_state`` names the landing pool for the target-qualified types
+        and the source pool for the rest (``TARGET_QUALIFIED_TYPES``), and
+        ``source_state`` names an explicit source. "In" is valued at what left
+        on-hand; "out" at the scrap cost layers the disposal consumed - the same
+        costs, carried, so the two columns are measured with one ruler.
+        """
+        start, end = period_bounds(period)
+        target_qualified = sorted(str(value) for value in TARGET_QUALIFIED_TYPES)
+        landing = sorted(str(value) for value in SCRAP_LANDING_TYPES)
+        drawing = sorted(str(value) for value in SCRAP_DRAWING_TYPES)
+        scrap = str(StockState.SCRAP)
+        unspecified = str(StockState.AVAILABLE)
+
+        entering = or_(
+            and_(
+                InventoryTransaction.transaction_type.in_(target_qualified),
+                InventoryTransaction.stock_state == scrap,
+            ),
+            and_(
+                InventoryTransaction.transaction_type.in_(landing),
+                InventoryTransaction.stock_state == unspecified,
+            ),
+        )
+        leaving = or_(
+            InventoryTransaction.source_state == scrap,
+            and_(
+                InventoryTransaction.transaction_type.not_in(target_qualified),
+                InventoryTransaction.stock_state == scrap,
+            ),
+            and_(
+                InventoryTransaction.transaction_type.in_(drawing),
+                InventoryTransaction.stock_state == unspecified,
+                InventoryTransaction.source_state.is_(None),
+            ),
+        )
+        magnitude = func.abs(InventoryTransaction.quantity)
+        stmt = (
+            select(
+                InventoryTransaction.id.label("transaction_id"),
+                InventoryTransaction.occurred_at,
+                Item.id.label("item_id"),
+                Item.code.label("item_code"),
+                Item.name.label("item_name"),
+                Warehouse.code.label("warehouse_code"),
+                InventoryTransaction.transaction_type,
+                InventoryTransaction.reference_type.label("source_type"),
+                InventoryTransaction.reference_code.label("source_code"),
+                ScrapDisposal.disposal_kind,
+                ScrapDisposal.buyer_reference,
+                case((entering, magnitude), else_=0).label("scrap_in_quantity"),
+                case((leaving, magnitude), else_=0).label("scrap_out_quantity"),
+                InventoryTransaction.unit_cost,
+                func.abs(InventoryTransaction.total_cost).label("total_cost"),
+            )
+            .select_from(InventoryTransaction)
+            .join(
+                Item,
+                and_(
+                    Item.id == InventoryTransaction.item_id,
+                    Item.company_id == InventoryTransaction.company_id,
+                ),
+            )
+            .join(
+                Warehouse,
+                and_(
+                    Warehouse.id == InventoryTransaction.warehouse_id,
+                    Warehouse.company_id == InventoryTransaction.company_id,
+                ),
+            )
+            .outerjoin(
+                ScrapDisposal,
+                and_(
+                    ScrapDisposal.id == InventoryTransaction.reference_id,
+                    ScrapDisposal.company_id == InventoryTransaction.company_id,
+                    InventoryTransaction.reference_type == "scrap_disposal",
+                ),
+            )
+            .where(
+                InventoryTransaction.company_id == self._company,
+                InventoryTransaction.occurred_at >= start,
+                InventoryTransaction.occurred_at < end,
+                or_(entering, leaving),
+                *warehouse_scope(self.tenant, InventoryTransaction.warehouse_id),
+            )
+            # Ledger rows of one posting share created_at and can share
+            # occurred_at; the UUIDv7 id recovers the order they were written.
+            .order_by(InventoryTransaction.occurred_at, InventoryTransaction.id)
+        )
+        if filters.item_id:
+            stmt = stmt.where(InventoryTransaction.item_id == filters.item_id)
+        if filters.warehouse_id:
+            stmt = stmt.where(InventoryTransaction.warehouse_id == filters.warehouse_id)
+        if filters.search:
+            pattern = f"%{filters.search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    Item.code.ilike(pattern),
+                    Item.name.ilike(pattern),
+                    InventoryTransaction.reference_code.ilike(pattern),
+                )
+            )
+        return stmt
+
+    def consumption_by_department(
+        self, period: ReportPeriod, filters: ReportFilters
+    ) -> Select[Any]:
+        """Posted internal issues, per department, cost centre and item, over a period.
+
+        Grouped on the document's own department and cost centre - an issue may
+        name either or both - and dated by its issue date, which is also the
+        business date of the movements it posted. Valued at what the ledger
+        charged: the lines are restated from the ledger when the issue posts.
+        """
+        groups = (
+            Department.id,
+            Department.code,
+            Department.name,
+            CostCentre.id,
+            CostCentre.code,
+            CostCentre.name,
+            Item.id,
+            Item.code,
+            Item.name,
+        )
+        stmt = (
+            select(
+                Department.id.label("department_id"),
+                Department.code.label("department_code"),
+                Department.name.label("department_name"),
+                CostCentre.id.label("cost_centre_id"),
+                CostCentre.code.label("cost_centre_code"),
+                CostCentre.name.label("cost_centre_name"),
+                Item.id.label("item_id"),
+                Item.code.label("item_code"),
+                Item.name.label("item_name"),
+                func.count(func.distinct(InternalIssue.id)).label("issue_count"),
+                func.sum(InternalIssueLine.quantity).label("quantity"),
+                func.sum(InternalIssueLine.total_cost).label("total_cost"),
+            )
+            .select_from(InternalIssue)
+            .join(
+                InternalIssueLine,
+                and_(
+                    InternalIssueLine.internal_issue_id == InternalIssue.id,
+                    InternalIssueLine.company_id == InternalIssue.company_id,
+                ),
+            )
+            .join(
+                Item,
+                and_(
+                    Item.id == InternalIssueLine.item_id,
+                    Item.company_id == InternalIssueLine.company_id,
+                ),
+            )
+            .outerjoin(
+                Department,
+                and_(
+                    Department.id == InternalIssue.department_id,
+                    Department.company_id == InternalIssue.company_id,
+                ),
+            )
+            .outerjoin(
+                CostCentre,
+                and_(
+                    CostCentre.id == InternalIssue.cost_centre_id,
+                    CostCentre.company_id == InternalIssue.company_id,
+                ),
+            )
+            .where(
+                InternalIssue.company_id == self._company,
+                InternalIssue.status == InternalIssueStatus.POSTED,
+                InternalIssue.issue_date >= period.date_from,
+                InternalIssue.issue_date <= period.date_to,
+                *warehouse_scope(self.tenant, InternalIssue.warehouse_id),
+            )
+            .group_by(*groups)
+            .order_by(
+                Department.code.asc().nulls_last(),
+                CostCentre.code.asc().nulls_last(),
+                Item.code,
+                Item.id,
+            )
+        )
+        if filters.item_id:
+            stmt = stmt.where(InternalIssueLine.item_id == filters.item_id)
+        if filters.warehouse_id:
+            stmt = stmt.where(InternalIssue.warehouse_id == filters.warehouse_id)
+        if filters.search:
+            pattern = f"%{filters.search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    Item.code.ilike(pattern),
+                    Item.name.ilike(pattern),
+                    Department.code.ilike(pattern),
+                    Department.name.ilike(pattern),
+                    CostCentre.code.ilike(pattern),
+                    CostCentre.name.ilike(pattern),
+                )
+            )
         return stmt
 
     # --- dashboard ----------------------------------------------------------

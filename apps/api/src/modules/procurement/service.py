@@ -4230,6 +4230,24 @@ async def create_goods_receipt(
             # decision can leave that state.
             if to_quantity(payload_line.accepted_quantity) <= 0:
                 requires_qc = False
+            # ASSUMPTION: goods held for incoming inspection are received at
+            # warehouse level, never into a bin. The inspection - and the
+            # decision that releases, damages or scraps the lot - has no bin
+            # of its own and moves stock at the unbinned position, so a lot held
+            # in a bin could never be decided ('Only 0 of X is in QC hold').
+            # Released stock is put away into its bin afterwards with a bin move
+            # (docs/assumptions.md §E8-7).
+            if requires_qc and payload_line.location_id is not None:
+                raise BusinessRuleError(
+                    f"Line {payload_line.line_number}: {item.code} is held for incoming "
+                    "inspection, so it is received at warehouse level. Put it away into a "
+                    "bin with a bin move once it is released.",
+                    details={
+                        "line_number": payload_line.line_number,
+                        "item_code": item.code,
+                        "location_id": str(payload_line.location_id),
+                    },
+                )
             taxable = to_money(
                 Decimal(order_line.quantity) * Decimal(order_line.unit_price)
                 - Decimal(order_line.discount)

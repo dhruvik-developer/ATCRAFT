@@ -1392,6 +1392,132 @@ floor, `conversion_delivery_date` takes the vendor's lead time as a third input.
 
 ---
 
+## §E8-1. Putaway posts immediately inside one warehouse
+
+**Assumed.** Saving a bin move posts paired TRANSFER_OUT and TRANSFER_IN
+movements, carrying the exact FIFO layers in one transaction. It creates no
+in-transit stock. NULL means unbinned stock, and source and destination must
+differ. A posted move is corrected by another move. Warehouse transfers retain
+their existing lifecycle.
+
+**Why.** The engine already accepts a same-warehouse relocation as a transfer
+pair without a transit pool, so a new BIN_MOVE type would duplicate that path.
+
+**Where.** `src/modules/inventory/service.py` - `BinMoveService.create`.
+
+**Impact if wrong.** A dedicated BIN_MOVE_OUT/IN pair belongs in the transaction
+vocabulary, with the sign table and every test that enumerates types.
+
+## §E8-2. Scrap keeps its historical cost in a separate FIFO queue
+
+**Assumed.** Scrap is outside on-hand but remains company-owned until disposed
+of. It keeps the receipt costs consumed when it was scrapped, independently of
+later receipts. Legacy scrap is reconstructed at its recorded blended scrap
+cost, falling back to standard cost only where history is uncovered; exact
+historical FIFO order cannot be recovered where it was never stored. The
+migration verifies that the reconstructed queue covers every scrap position. A
+disposal consumes the oldest scrap costs and does not change on-hand valuation.
+
+**Why.** Scrap was written off the on-hand books when it was scrapped. Repricing
+it from a later receipt would invent a cost the ledger never charged.
+
+**Where.** `src/modules/inventory/service.py` - scrap layer draw and
+`ScrapDisposalService`; migration `20261012_1703_backfill_scrap_cost_layers`.
+
+**Impact if wrong.** If scrap should be valued at current standard cost, the
+SCRAP queue and the backfill both go.
+
+## §E8-3. Internal issues use the existing stock-adjustment approval value
+
+**Assumed.** The named INTERNAL_ISSUE_APPROVAL_VALUE is 25,000 in company
+currency, measured against FIFO cost rather than sale price or net variance. A
+larger issue needs submission and a separate approver, with the existing
+superuser exception. Posting rechecks the actual cost and rolls back entirely
+if approval is needed. A low-value draft posts directly.
+
+**Why.** Stores issues are the same class of uncontrolled stock leaving the
+warehouse as a write-off, so they share that threshold until the business names
+another.
+
+**Where.** `src/modules/inventory/service.py` - `INTERNAL_ISSUE_APPROVAL_VALUE`,
+`InternalIssueService`.
+
+**Impact if wrong.** Change the constant. Confirm the amount before production
+use.
+
+## §E8-4. Disposal proceeds describe the disposal
+
+**Assumed.** WRITE_OFF realises zero; money received belongs to SALE or RECYCLE.
+Buyer or reference is optional. These documents record stock and disposal
+evidence; receivable, GST invoice and general-ledger automation are not inferred
+from an optional buyer string. Disposal proceeds are visible with the document,
+while FIFO unit and total costs require the existing cost-view rights.
+
+**Why.** A disposal is an inventory fact. Turning an optional buyer string into
+an invoice would post money nobody asked to recognise.
+
+**Where.** `src/modules/inventory/schemas.py` - `ScrapDisposalCreate`;
+`src/modules/inventory/service.py` - `ScrapDisposalService`.
+
+**Impact if wrong.** A sale of scrap that must raise a receivable needs a finance
+document of its own, fed by the disposal rather than inferred from it.
+
+## §E8-5. The scrap capability controls entry, not clearing existing scrap
+
+**Assumed.** Every resolved target SCRAP requires can_scrap, including
+inspection and vendor losses. An existing scrap position can still be disposed
+of after the capability is disabled. Damaged stock is the QC alternative when
+material cannot be scrapped. SCRAP_DISPOSAL leaves the scrap pool; it does not
+transfer scrap back into useful stock. Serial-tracked operation documents wait
+for E8b's identity support.
+
+**Why.** Turning the capability off must stop new scrap. It must not trap stock
+that is already scrap, because nothing else can address that pool.
+
+**Where.** `src/modules/inventory/service.py` - `validate_movement`; quality and
+job-work paths that resolve a SCRAP target.
+
+**Impact if wrong.** If disposal should also be refused, the disposal check
+reads can_scrap. If scrap may return to available stock, that is a different
+movement, not a disposal.
+
+## §E8-6. An item default bin belongs to its default warehouse
+
+**Assumed.** The optional default bin must be live, active and tenant-owned in
+the default warehouse. Pickers prefill it only for that warehouse. Clearing it
+is respected. A live item's default bin cannot be deactivated or retired,
+including by retiring its warehouse; reassign or clear the default first.
+Unchanged saved assignments do not become new assignments during an unrelated
+item edit.
+
+**Why.** A default bin in another warehouse would prefill a position the receipt
+cannot use. Retiring a bin that items still name would leave every picker
+pointing at a location that cannot take stock.
+
+**Where.** `src/modules/products/service.py` - default-bin validation;
+`apps/web/src/features/inventory/location-picker.tsx`.
+
+**Impact if wrong.** If the default bin may sit in any warehouse, drop the
+same-warehouse check and prefill whenever the picker is in that bin's warehouse.
+
+## §E8-7. Incoming inspection receives at the unbinned position
+
+**Assumed.** The current inspection record has no bin, so its decision releases,
+damages or scraps warehouse-level stock. A GRN line requiring QC therefore
+cannot receive into a bin; otherwise the decision could never find its held
+quantity. The receipt dialog explains this. Accepted material is put away using
+a bin move.
+
+**Why.** A QC decision addresses the position the receipt wrote. A binned hold
+with an unbinned decision would leave the held quantity where nothing can
+release it.
+
+**Where.** `apps/web/src/features/procurement/grn-receive-dialog.tsx`; goods
+receipt posting when `requires_qc` is set.
+
+**Impact if wrong.** If inspection records gain locations later, the receipt and
+the decision must carry the same position together.
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant

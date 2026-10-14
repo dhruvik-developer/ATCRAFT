@@ -131,6 +131,7 @@ PLANT_REFERENCE_PROBES: tuple[ReferenceProbe, ...] = (
 DEPARTMENT_REFERENCE_PROBES: tuple[ReferenceProbe, ...] = (
     ReferenceProbe("work_centers", "department_id", "work centres", soft_deleted=True),
     ReferenceProbe("purchase_requisitions", "department_id", "purchase requisitions"),
+    ReferenceProbe("internal_issues", "department_id", "internal issues"),
 )
 
 #: Tables above organisation where a cost centre is a *default* rather than a
@@ -150,6 +151,7 @@ COST_CENTRE_REFERENCE_PROBES: tuple[ReferenceProbe, ...] = (
     ReferenceProbe("production_orders", "cost_centre_id", "production orders"),
     ReferenceProbe("job_work_orders", "cost_centre_id", "job-work orders"),
     ReferenceProbe("stock_adjustments", "cost_centre_id", "stock adjustments"),
+    ReferenceProbe("internal_issues", "cost_centre_id", "internal issues"),
     ReferenceProbe("vendor_invoices", "cost_centre_id", "vendor invoices"),
     ReferenceProbe("vendor_invoice_lines", "cost_centre_id", "vendor invoice lines"),
 )

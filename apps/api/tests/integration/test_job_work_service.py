@@ -230,6 +230,7 @@ async def seed_item(
         base_uom_id=uom_id,
         standard_cost=Decimal(standard_cost),
         can_job_work=can_job_work,
+        can_scrap=True,
         is_batch_tracked=batch_tracked,
     )
     session.add(item)
@@ -709,6 +710,37 @@ async def test_approved_excess_loss_posts_scrap_and_debits_the_vendor(ctx, job: 
 
     raw = await balance(session, tenant, job.raw_item_id, job.warehouse_id)
     assert raw is not None and Decimal(raw.scrap_quantity) == Decimal("10.0000")
+
+
+async def test_job_work_scrap_refusal_rolls_back_the_whole_receipt(ctx, job: PvdJob):
+    session, tenant = ctx
+    order, _ = await issued_order(ctx, job, loss_percentage="2")
+    order_id = order.id
+    item = await session.get(Item, job.raw_item_id)
+    item.can_scrap = False
+    await session.flush()
+    with pytest.raises(BusinessRuleError, match="cannot be scrapped"):
+        await service.receive(
+            session,
+            tenant,
+            principal_for(tenant),
+            order_id,
+            ReceiveRequest(
+                reason="Return with process loss",
+                approve_excess_loss=True,
+                lines=[ReceiptLineIn(line_number=1, output_quantity=Decimal("90"), is_final=True)],
+            ),
+        )
+    raw = await balance(session, tenant, job.raw_item_id, job.warehouse_id)
+    assert raw.job_work_quantity == 100 and raw.scrap_quantity == 0
+    receipt_count = (
+        await session.execute(
+            select(func.count())
+            .select_from(JobWorkReceipt)
+            .where(JobWorkReceipt.job_work_order_id == order_id)
+        )
+    ).scalar_one()
+    assert receipt_count == 0
 
 
 async def test_the_excess_flag_from_a_storekeeper_is_refused_and_posts_nothing(

@@ -210,6 +210,7 @@ export interface ItemDetail extends Record<CapabilityKey, boolean> {
   is_batch_tracked: boolean
   is_serial_tracked: boolean
   default_warehouse_id: string | null
+  default_location_id: string | null
   is_active: boolean
   lifecycle_state: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED'
 
@@ -299,6 +300,7 @@ export interface ItemWarehouseStockRow {
   qc_hold_quantity: DecimalString
   damaged_quantity: DecimalString
   job_work_quantity: DecimalString
+  scrap_quantity: DecimalString
   stock_value: DecimalString
 }
 
@@ -320,6 +322,7 @@ export interface ItemStockSummary {
   total_available: DecimalString
   total_in_transit: DecimalString
   total_job_work: DecimalString
+  total_scrap: DecimalString
   /** On hand plus everything owned but elsewhere - in transit, at a job worker. */
   total_owned_quantity: DecimalString
   total_value: DecimalString
