@@ -13,7 +13,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.modules.dealer_portal.models import AvailabilityBand, OfferScopeKind
-from src.modules.sales.models import SalesOrderStatus
+from src.modules.sales.models import SalesOrderLineStatus, SalesOrderStatus
 
 Reason = Field(min_length=3, max_length=500)
 
@@ -259,6 +259,49 @@ class DealerOrderFilters(BaseModel):
     open_only: bool = False
 
 
+class DealerOrderLineRead(BaseModel):
+    id: uuid.UUID
+    line_number: int
+    item_id: uuid.UUID
+    item_code: str
+    item_name: str
+    item_variant_id: uuid.UUID | None
+    quantity: Decimal
+    unit_price: Decimal
+    discount_percentage: Decimal
+    offer_id: uuid.UUID | None
+    tax_amount: Decimal
+    line_total: Decimal
+    allocated_quantity: Decimal
+    dispatched_quantity: Decimal
+    invoiced_quantity: Decimal
+    #: Derived from the quantities, never stored - a line cannot claim
+    #: ALLOCATED while its reserved quantity is short.
+    allocation_status: SalesOrderLineStatus
+
+
+class DealerOrderSummary(BaseModel):
+    id: uuid.UUID
+    code: str
+    status: SalesOrderStatus
+    order_date: date
+    required_date: date
+    currency: str
+    total_amount: Decimal
+    source: str
+    line_count: int
+    created_at: datetime
+
+
+class DealerOrderDetail(DealerOrderSummary):
+    customer_po_number: str | None
+    subtotal: Decimal
+    discount_amount: Decimal
+    tax_amount: Decimal
+    notes: str | None
+    lines: list[DealerOrderLineRead]
+
+
 class DealerTrackingEvent(BaseModel):
     event_status: str
     event_time: datetime
@@ -329,7 +372,10 @@ __all__ = [
     "DealerCreditPosition",
     "DealerDispatchSummary",
     "DealerOfferSnippet",
+    "DealerOrderDetail",
     "DealerOrderFilters",
+    "DealerOrderLineRead",
+    "DealerOrderSummary",
     "DealerOutstanding",
     "DealerOverdueInvoice",
     "DealerPortalMe",

@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, delete, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
+from src.core.pagination import OffsetPagination, PageParams
 from src.modules.customers.models import Customer, CustomerAddress, CustomerContact
 from src.modules.dealer_portal.models import (
     SELLABLE_WAREHOUSE_TYPES,
@@ -82,6 +84,47 @@ class DealerCartLineRepository(BaseRepository[DealerCartLine]):
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
+    async def get_in_cart(self, cart_id: uuid.UUID, line_id: uuid.UUID) -> DealerCartLine | None:
+        """One line of one cart. A foreign cart's lines are "not found"."""
+        stmt = self._scoped().where(DealerCartLine.id == line_id, DealerCartLine.cart_id == cart_id)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def find_grain(
+        self, cart_id: uuid.UUID, item_id: uuid.UUID, variant_id: uuid.UUID | None
+    ) -> DealerCartLine | None:
+        """The cart's line for an item/variant grain, if one is already there."""
+        stmt = self._scoped().where(
+            DealerCartLine.cart_id == cart_id,
+            DealerCartLine.item_id == item_id,
+            DealerCartLine.item_variant_id.is_(None)
+            if variant_id is None
+            else DealerCartLine.item_variant_id == variant_id,
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def count_for_cart(self, cart_id: uuid.UUID) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(DealerCartLine)
+            .where(
+                DealerCartLine.company_id == self.tenant.company_id,
+                DealerCartLine.cart_id == cart_id,
+            )
+        )
+        return int((await self.session.execute(stmt)).scalar_one() or 0)
+
+    async def delete_for_cart(self, cart_id: uuid.UUID) -> int:
+        """Empty a cart. Returns the removed line count, for the audit row."""
+        from src.core.database import affected_rows
+
+        result = await self.session.execute(
+            delete(DealerCartLine).where(
+                DealerCartLine.company_id == self.tenant.company_id,
+                DealerCartLine.cart_id == cart_id,
+            )
+        )
+        return affected_rows(result)
+
     async def quantities_for_user(self) -> dict[tuple[uuid.UUID, uuid.UUID | None], Decimal]:
         """Item and variant to the quantity sitting in this user's cart. One query."""
         stmt = (
@@ -111,6 +154,26 @@ class DealerWishlistRepository(BaseRepository[DealerWishlistItem]):
     async def for_user(self) -> list[DealerWishlistItem]:
         return list((await self.session.execute(self._user_stmt())).scalars().all())
 
+    async def get_for_user(self, entry_id: uuid.UUID) -> DealerWishlistItem | None:
+        """One of this user's saved rows. Another user's row is "not found"."""
+        stmt = self._scoped().where(
+            DealerWishlistItem.id == entry_id,
+            DealerWishlistItem.user_id == self.tenant.user_id,
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def find_grain(
+        self, item_id: uuid.UUID, variant_id: uuid.UUID | None
+    ) -> DealerWishlistItem | None:
+        stmt = self._scoped().where(
+            DealerWishlistItem.user_id == self.tenant.user_id,
+            DealerWishlistItem.item_id == item_id,
+            DealerWishlistItem.item_variant_id.is_(None)
+            if variant_id is None
+            else DealerWishlistItem.item_variant_id == variant_id,
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     async def ids_for_user(self) -> set[tuple[uuid.UUID, uuid.UUID | None]]:
         stmt = select(DealerWishlistItem.item_id, DealerWishlistItem.item_variant_id).where(
             DealerWishlistItem.company_id == self.tenant.company_id,
@@ -124,6 +187,129 @@ class CatalogueRepository(BaseRepository[Item]):
 
     model = Item
     entity_label = "Item"
+
+    async def category(self, category_id: uuid.UUID) -> ItemCategory | None:
+        stmt = select(ItemCategory).where(
+            ItemCategory.company_id == self.tenant.company_id,
+            ItemCategory.id == category_id,
+            ItemCategory.deleted_at.is_(None),
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def category_subtree_ids(self, path_prefix: str) -> list[uuid.UUID]:
+        """Ids of a category and everything filed under it, in one predicate.
+
+        The materialised path makes the subtree one LIKE - the same device the
+        products module's own ``list_subtree`` uses.
+        """
+        stmt = select(ItemCategory.id).where(
+            ItemCategory.company_id == self.tenant.company_id,
+            ItemCategory.deleted_at.is_(None),
+            ItemCategory.path.like(f"{path_prefix}%"),
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def page_items(
+        self,
+        params: PageParams,
+        *,
+        search: str | None,
+        category_ids: Sequence[uuid.UUID] | None,
+        brand_id: uuid.UUID | None,
+        in_stock_only: bool,
+        on_offer_only: bool,
+        price_type: str,
+        customer_id: uuid.UUID,
+        on_date: date,
+        sort_by: str,
+    ) -> tuple[list[Item], OffsetPagination]:
+        """Sellable items for the catalogue, filtered and paged in SQL.
+
+        ``on_offer_only`` is a coarse prefilter: an item passes when any active
+        scheme could apply to it on ``on_date``. CATEGORY-scoped schemes are
+        not resolved to the subtree here - the exact match runs per row in
+        Python, so a page can come back short and the count is the coarse one
+        (docs/assumptions.md §C3-9).
+        """
+        stmt = catalogue_item_stmt().where(Item.company_id == self.tenant.company_id)
+        if search:
+            pattern = f"%{search.strip()}%"
+            stmt = stmt.where(or_(Item.code.ilike(pattern), Item.name.ilike(pattern)))
+        if category_ids is not None:
+            ids = list(dict.fromkeys(category_ids))
+            # An empty id list is a false predicate, never the absence of a
+            # filter: nothing can be filed under categories that do not exist.
+            stmt = stmt.where(Item.category_id.in_(ids) if ids else Item.id.is_(None))
+        if brand_id is not None:
+            stmt = stmt.where(Item.brand_id == brand_id)
+        if in_stock_only:
+            stocked = (
+                select(InventoryBalance.item_id)
+                .join(
+                    Warehouse,
+                    (Warehouse.id == InventoryBalance.warehouse_id)
+                    & (Warehouse.company_id == InventoryBalance.company_id),
+                )
+                .where(
+                    InventoryBalance.item_id == Item.id,
+                    InventoryBalance.company_id == self.tenant.company_id,
+                    InventoryBalance.available_quantity > 0,
+                    Warehouse.deleted_at.is_(None),
+                    Warehouse.is_active.is_(True),
+                    Warehouse.warehouse_type.in_(SELLABLE_WAREHOUSE_TYPES),
+                )
+                .exists()
+            )
+            stmt = stmt.where(stocked)
+        if on_offer_only:
+            stmt = stmt.where(self._offer_may_apply(price_type, customer_id, on_date).exists())
+        order_column = Item.name if sort_by == "name" else Item.code
+        return await self.list_page(params, stmt=stmt, order_by=(order_column.asc(), Item.id.asc()))
+
+    def _offer_may_apply(
+        self, price_type: str, customer_id: uuid.UUID, on_date: date
+    ) -> Select[tuple[uuid.UUID]]:
+        """Ids of offers that could discount some line, correlated to the item."""
+        return select(DealerOffer.id).where(
+            DealerOffer.company_id == self.tenant.company_id,
+            DealerOffer.deleted_at.is_(None),
+            DealerOffer.is_active.is_(True),
+            or_(DealerOffer.valid_from.is_(None), DealerOffer.valid_from <= on_date),
+            or_(DealerOffer.valid_to.is_(None), DealerOffer.valid_to >= on_date),
+            or_(
+                DealerOffer.audience_price_type.is_(None),
+                DealerOffer.audience_price_type == price_type,
+            ),
+            or_(DealerOffer.customer_id.is_(None), DealerOffer.customer_id == customer_id),
+            or_(
+                DealerOffer.scope_kind == "ALL",
+                (DealerOffer.scope_kind == "ITEM") & (DealerOffer.item_id == Item.id),
+                (DealerOffer.scope_kind == "BRAND") & (DealerOffer.brand_id == Item.brand_id),
+                DealerOffer.scope_kind == "CATEGORY",
+            ),
+        )
+
+    async def order_line_counts(self, order_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, int]:
+        """Live line count per sales order, in one grouped read.
+
+        A read-only probe into a table the sales module owns: the portal's
+        order list shows a count, and counting per row would be the N+1
+        section 32 forbids.
+        """
+        from src.modules.sales.models import SalesOrderLine
+
+        ids = list(dict.fromkeys(order_ids))
+        if not ids:
+            return {}
+        stmt = (
+            select(SalesOrderLine.sales_order_id, func.count().label("lines"))
+            .where(
+                SalesOrderLine.company_id == self.tenant.company_id,
+                SalesOrderLine.sales_order_id.in_(ids),
+            )
+            .group_by(SalesOrderLine.sales_order_id)
+        )
+        return {row.sales_order_id: int(row.lines) for row in (await self.session.execute(stmt))}
 
     async def categories_with_sellable(self) -> list[ItemCategory]:
         sellable = (

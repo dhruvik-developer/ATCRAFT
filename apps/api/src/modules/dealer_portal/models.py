@@ -48,6 +48,16 @@ CATALOGUE_PRICE_QUANTITY = Decimal("1")
 #: How many images an item detail returns. ASSUMPTION: docs/assumptions.md §C3-8.
 CATALOGUE_MAX_IMAGES = 8
 
+#: The tracking feed is a bounded newest-first read, not a cursor: a
+#: consignment's history is short and the dealer always sees the whole of it.
+#: ASSUMPTION: docs/assumptions.md §C3-7.
+TRACKING_EVENT_LIMIT = 200
+
+#: A cart is a working draft, not a bulk import: at most this many grains per
+#: cart. Well under the sales-order line bound, so a full cart always fits the
+#: checkout payload. ASSUMPTION: docs/assumptions.md §C3-9.
+MAX_CART_LINES = 50
+
 
 class OfferScopeKind(StrEnum):
     """What an offer applies to. The matching id column is required; the others are null."""
@@ -237,7 +247,9 @@ __all__ = [
     "AVAILABILITY_IN_STOCK_AT",
     "CATALOGUE_MAX_IMAGES",
     "CATALOGUE_PRICE_QUANTITY",
+    "MAX_CART_LINES",
     "SELLABLE_WAREHOUSE_TYPES",
+    "TRACKING_EVENT_LIMIT",
     "AvailabilityBand",
     "DealerCart",
     "DealerCartLine",

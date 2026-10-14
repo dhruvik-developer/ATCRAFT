@@ -581,6 +581,20 @@ class DispatchRepository(BaseRepository[Dispatch]):
     async def get_by_code(self, code: str) -> Dispatch | None:
         return await self.get_by_field("code", code)
 
+    async def list_for_sales_order(self, sales_order_id: uuid.UUID) -> list[Dispatch]:
+        """One order's consignments, oldest first.
+
+        The dealer scope in :meth:`_scoped` already restricts a dealer
+        principal to its own customer, so a foreign order's consignments are
+        "not found" here the same way the order itself is.
+        """
+        stmt = (
+            self._scoped()
+            .where(Dispatch.sales_order_id == sales_order_id)
+            .order_by(Dispatch.dispatch_date, Dispatch.created_at, Dispatch.id)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
     async def lock_for_update(self, dispatch_id: uuid.UUID) -> Dispatch | None:
         """Take the header's row lock before changing its state or its lines.
 
