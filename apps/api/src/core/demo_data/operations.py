@@ -118,6 +118,7 @@ from src.modules.packing.models import Carton, CartonType, PackingOrder, Packing
 from src.modules.packing.schemas import (
     CartonContentIn,
     CartonCreate,
+    PackingFromAssemblyCreate,
     PackingOrderCreate,
     PackingOrderLineIn,
     SealCartonRequest,
@@ -2977,3 +2978,289 @@ async def seed(ctx: DemoContext) -> None:
     # --- out of the door ----------------------------------------------------
     packed = await _seed_packing(ctx, look, serials)
     await _seed_dispatches(ctx, look, packed, serials)
+
+    # --- the assembly line, last ------------------------------------------
+    # After everything else on purpose: these orders draw on whatever bar and
+    # screws the floor left, so they can only ever cost themselves a skip.
+    await _seed_assembly_line(ctx, look)
+
+
+# =============================================================================
+# The assembly line (WP E4)
+# =============================================================================
+# Four more rose-plate orders, each there to put something on a screen the
+# assembly, quality and packing modules gained:
+#
+# * DM-ASM-ROSEQC    inspected and decided on the quality screen - the order
+#                    completes from that verdict without anybody touching the
+#                    assembly screen - then handed to packing for a dealer's
+#                    spares order through the assembly hand-over;
+# * DM-ASM-ROSEHOLD  completed onto QC hold with its inspection still open, so
+#                    "Record QC verdict" has an inspection to open;
+# * DM-ASM-ROSELATE  approved against a plan that has already slipped - the
+#                    board's lateness badge;
+# * DM-ASM-ROSENEXT  released for next week on the second bench at a higher
+#                    priority, its kit reserved at that priority and date.
+
+
+@dataclass(frozen=True, slots=True)
+class _AssemblySpec:
+    tag: tuple[str, str]
+    quantity: str
+    line: str
+    priority: int
+    #: Planned start and end, as days from the anchor (negative is the past).
+    start: int
+    end: int
+    requires_qc: bool
+    #: How far the order is driven: APPROVED, RELEASED, QC_PENDING (inspection
+    #: left open) or COMPLETED (inspection decided on the quality side).
+    target: AssemblyOrderStatus
+    sentence: str
+    accepted: str | None = None
+    rejected: str | None = None
+    #: The customer a packing order is raised for, through the hand-over.
+    pack_for: tuple[str, str] | None = None
+
+
+ASSEMBLY_LINE: tuple[_AssemblySpec, ...] = (
+    _AssemblySpec(
+        tag=("ASM", "ROSEQC"),
+        quantity="40",
+        line="Rose bench",
+        priority=40,
+        start=-6,
+        end=-5,
+        requires_qc=True,
+        target=AssemblyOrderStatus.COMPLETED,
+        sentence="Spare rose plates for the dealer's service stock; finish checked plate by plate.",
+        accepted="38",
+        rejected="2",
+        pack_for=("DLR", "METRO"),
+    ),
+    _AssemblySpec(
+        tag=("ASM", "ROSEHOLD"),
+        quantity="20",
+        line="Rose bench",
+        priority=60,
+        start=-2,
+        end=-1,
+        requires_qc=True,
+        target=AssemblyOrderStatus.QC_PENDING,
+        sentence="Satin batch off the bench, waiting on the finish inspection.",
+    ),
+    _AssemblySpec(
+        tag=("ASM", "ROSELATE"),
+        quantity="30",
+        line="Rose bench",
+        priority=80,
+        start=-3,
+        end=-1,
+        requires_qc=False,
+        target=AssemblyOrderStatus.APPROVED,
+        sentence="Approved but never kitted - the bar arrived late.",
+    ),
+    _AssemblySpec(
+        tag=("ASM", "ROSENEXT"),
+        quantity="25",
+        line="Second bench",
+        priority=10,
+        start=5,
+        end=6,
+        requires_qc=False,
+        target=AssemblyOrderStatus.RELEASED,
+        sentence="Rush tray for next week's handle run; kit reserved ahead of the rest.",
+    ),
+)
+
+_ASSEMBLY_STEPS: tuple[AssemblyOrderStatus, ...] = (
+    AssemblyOrderStatus.DRAFT,
+    AssemblyOrderStatus.APPROVED,
+    AssemblyOrderStatus.RELEASED,
+    AssemblyOrderStatus.COMPONENTS_ISSUED,
+    AssemblyOrderStatus.IN_PROGRESS,
+    AssemblyOrderStatus.QC_PENDING,
+    AssemblyOrderStatus.COMPLETED,
+)
+
+
+def _short_of(order: AssemblyOrder, target: AssemblyOrderStatus) -> bool:
+    """Whether the order still has to move to reach ``target``."""
+    status = AssemblyOrderStatus(order.status)
+    if status not in _ASSEMBLY_STEPS:
+        return False
+    return _ASSEMBLY_STEPS.index(status) < _ASSEMBLY_STEPS.index(target)
+
+
+async def _seed_assembly_line(ctx: DemoContext, look: _Lookup) -> None:
+    rose = await look.item("SF", "ROSE-SS")
+    warehouse_id = await look.warehouse("WH-ASM")
+    if rose is None or warehouse_id is None:
+        _skip(ctx, "no assembly line orders: no rose plate item or no assembly store")
+        return
+
+    for spec in ASSEMBLY_LINE:
+        tag = ctx.code(*spec.tag)
+        existing = await _find_tagged(ctx, AssemblyOrder, tag)
+        if existing is not None:
+            order = existing
+            _seen(ctx, "assembly_order", tag, order.id, created=False)
+        else:
+            try:
+                order, _ = await assembly_service.create_order(
+                    ctx.session,
+                    ctx.tenant,
+                    AssemblyOrderCreate(
+                        item_id=rose.id,
+                        planned_quantity=Decimal(spec.quantity),
+                        warehouse_id=warehouse_id,
+                        output_warehouse_id=warehouse_id,
+                        assembly_line=spec.line,
+                        planned_start=_at(_anchor() + timedelta(days=spec.start), 6),
+                        planned_end=_at(_anchor() + timedelta(days=spec.end), 14),
+                        priority=spec.priority,
+                        requires_qc=spec.requires_qc,
+                        notes=_tagged(tag, spec.sentence),
+                    ),
+                )
+            except (BusinessRuleError, NotFoundError, ValidationError) as exc:
+                _skip(ctx, f"{tag} not raised: {exc}")
+                continue
+            _seen(ctx, "assembly_order", tag, order.id, created=True)
+
+        # Plain values: a caught failure below rolls a savepoint back and expires
+        # the ORM row, which async code cannot refresh (CLAUDE.md).
+        order_id, order_code = order.id, order.code
+        try:
+            await _drive_assembly(ctx, order, spec)
+            await _decide_assembly(ctx, order_id, spec)
+            await _hand_to_packing(ctx, look, order_id, spec)
+        except AppError as exc:
+            _skip(ctx, f"{tag} ({order_code}) did not reach {spec.target}: {exc}")
+
+
+async def _drive_assembly(ctx: DemoContext, order: AssemblyOrder, spec: _AssemblySpec) -> None:
+    """Approve, kit, release, issue, start and complete - as far as the spec asks."""
+    order_id = order.id
+    reached = order
+
+    if _short_of(reached, spec.target) and (
+        AssemblyOrderStatus(reached.status) is AssemblyOrderStatus.DRAFT
+    ):
+        reached = await assembly_service.approve_order(
+            ctx.session, ctx.tenant, order_id, reason="Signed off against the bench plan"
+        )
+        ctx.note(STAGE, created=1)
+
+    if _short_of(reached, spec.target) and (
+        AssemblyOrderStatus(reached.status) is AssemblyOrderStatus.APPROVED
+    ):
+        components = list(
+            (
+                await ctx.session.execute(
+                    select(AssemblyOrderComponent)
+                    .where(
+                        AssemblyOrderComponent.company_id == ctx.company_id,
+                        AssemblyOrderComponent.assembly_order_id == order_id,
+                    )
+                    .order_by(AssemblyOrderComponent.line_number)
+                )
+            ).scalars()
+        )
+        if not await _stage_assembly_kit(ctx, reached, components):
+            return
+        reached, _ = await assembly_service.release_order(
+            ctx.session, ctx.tenant, order_id, reason="Released to the bench"
+        )
+        ctx.note(STAGE, created=1)
+
+    if _short_of(reached, spec.target) and (
+        AssemblyOrderStatus(reached.status) is AssemblyOrderStatus.RELEASED
+    ):
+        reached, _ = await assembly_service.issue_components(
+            ctx.session, ctx.tenant, order_id, IssueComponentsRequest(reason="Kit on the bench")
+        )
+        ctx.note(STAGE, created=1)
+
+    if _short_of(reached, spec.target) and (
+        AssemblyOrderStatus(reached.status) is AssemblyOrderStatus.COMPONENTS_ISSUED
+    ):
+        reached = await assembly_service.start_assembly(
+            ctx.session, ctx.tenant, order_id, reason="Tray started"
+        )
+        ctx.note(STAGE, created=1)
+
+    if _short_of(reached, spec.target) and (
+        AssemblyOrderStatus(reached.status) is AssemblyOrderStatus.IN_PROGRESS
+    ):
+        # Completed onto QC hold: the order requires inspection, so the plates
+        # are counted but nobody can be promised one until quality decides.
+        await assembly_service.complete_assembly(
+            ctx.session,
+            ctx.tenant,
+            order_id,
+            AssemblyCompleteRequest(
+                assembled_quantity=Decimal(spec.quantity), reason="Tray finished"
+            ),
+        )
+        ctx.note(STAGE, created=1)
+
+
+async def _decide_assembly(ctx: DemoContext, order_id: uuid.UUID, spec: _AssemblySpec) -> None:
+    """Decide the completion's inspection on the quality side - the one path.
+
+    Nothing here touches the assembly order: quality's decision moves the held
+    plates and calls the order back, which is the whole point of the package.
+    """
+    if spec.target is not AssemblyOrderStatus.COMPLETED or spec.accepted is None:
+        return
+    order = await ctx.session.get(AssemblyOrder, order_id)
+    if order is None or order.qc_inspection_id is None:
+        return
+    inspection = await ctx.session.get(QcInspection, order.qc_inspection_id)
+    if inspection is None or InspectionStatus(inspection.status) not in OPEN_STATUSES:
+        return
+    rejected = Decimal(spec.rejected or "0")
+    await quality_service.decide_inspection(
+        ctx.session,
+        ctx.tenant,
+        inspection.id,
+        DecideRequest(
+            accepted_quantity=Decimal(spec.accepted),
+            rejected_quantity=rejected,
+            reason="Finish checked plate by plate under the inspection lamp",
+            rejection_reason="Polishing marks on the face" if rejected > ZERO else None,
+        ),
+    )
+    ctx.note(STAGE, created=1)
+
+
+async def _hand_to_packing(
+    ctx: DemoContext, look: _Lookup, order_id: uuid.UUID, spec: _AssemblySpec
+) -> None:
+    """Raise the dealer's packing order from the completed assembly."""
+    if spec.pack_for is None:
+        return
+    order = await ctx.session.get(AssemblyOrder, order_id)
+    if (
+        order is None
+        or AssemblyOrderStatus(order.status) is not AssemblyOrderStatus.COMPLETED
+        or order.packing_order_id is not None
+    ):
+        return
+    customer_id = await look.customer(*spec.pack_for)
+    if customer_id is None:
+        _skip(ctx, f"{order.code} not packed: no {ctx.code(*spec.pack_for)} customer")
+        return
+    tag = ctx.code(*spec.tag)
+    await packing_service.create_order_from_assembly(
+        ctx.session,
+        ctx.tenant,
+        PackingFromAssemblyCreate(
+            assembly_order_id=order_id,
+            customer_id=customer_id,
+            planned_date=_days_after(1),
+            notes=_tagged(tag, "Spare rose plates packed straight off the assembly bench."),
+        ),
+    )
+    ctx.note(STAGE, created=1)

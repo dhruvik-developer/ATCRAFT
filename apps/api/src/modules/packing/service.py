@@ -74,12 +74,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
-from src.core.clock import utcnow
+from src.core.clock import today, utcnow
 from src.core.database import transaction
 from src.core.deps import TenantContext
 from src.core.errors import (
@@ -136,6 +136,7 @@ from src.modules.packing.schemas import (
     CartonLabelLine,
     CompleteRequest,
     PackingCompletionResult,
+    PackingFromAssemblyCreate,
     PackingMaterialRow,
     PackingOrderCreate,
     PackingOrderDetail,
@@ -1047,13 +1048,22 @@ async def list_ready_for_dispatch(
 
 
 async def create_order(
-    session: AsyncSession, tenant: TenantContext, payload: PackingOrderCreate
+    session: AsyncSession,
+    tenant: TenantContext,
+    payload: PackingOrderCreate,
+    *,
+    audit_context: Mapping[str, Any] | None = None,
 ) -> tuple[PackingOrder, list[PackingOrderLine]]:
     """Raise a DRAFT packing order with the lines it has to fill.
 
     Nothing is boxed and nothing is consumed: a draft is a plan for a bench, and
     opening cartons against it before anybody has started would consume packing
     material for work that may never happen.
+
+    The one creation path: the HTTP create, the hand-over from assembly
+    (:func:`create_order_from_assembly`) and any later source all land here, so
+    validation and the audit row cannot diverge between them. ``audit_context``
+    is how a caller records where the order came from on that same row.
     """
     repo = PackingOrderRepository(session, tenant)
 
@@ -1133,6 +1143,188 @@ async def create_order(
                 "customer_code": customer.code,
                 "line_count": len(lines),
             },
+            context=dict(audit_context) if audit_context else None,
+        )
+
+    return order, lines
+
+
+# -----------------------------------------------------------------------------
+# Hand-over from assembly
+# -----------------------------------------------------------------------------
+
+
+class AssemblyHandoverPort(Protocol):
+    """The two assembly calls a hand-over makes, in one transaction.
+
+    ``packing_facts`` locks the completed assembly and says what it produced;
+    ``mark_packed`` records the packing order that took it. Typed loosely on the
+    way back because the facts are assembly's own dataclass, read by attribute.
+    """
+
+    async def packing_facts(
+        self, session: AsyncSession, tenant: TenantContext, assembly_order_id: uuid.UUID
+    ) -> Any: ...
+
+    async def mark_packed(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        assembly_order_id: uuid.UUID,
+        *,
+        packing_order_id: uuid.UUID,
+        reason: str,
+    ) -> Any: ...
+
+
+class AssemblyHandover:
+    """Default port: the assembly module, imported when first used."""
+
+    async def packing_facts(
+        self, session: AsyncSession, tenant: TenantContext, assembly_order_id: uuid.UUID
+    ) -> Any:
+        from src.modules.assembly.service import packing_handover_facts
+
+        return await packing_handover_facts(session, tenant, assembly_order_id)
+
+    async def mark_packed(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        assembly_order_id: uuid.UUID,
+        *,
+        packing_order_id: uuid.UUID,
+        reason: str,
+    ) -> Any:
+        from src.modules.assembly.service import mark_packed
+
+        return await mark_packed(
+            session, tenant, assembly_order_id, packing_order_id=packing_order_id, reason=reason
+        )
+
+
+def resolve_assembly_port() -> AssemblyHandoverPort | None:
+    """The assembly module's hand-over calls, if it is deployed."""
+    try:
+        from src.modules.assembly import service as assembly_service
+    except ImportError:
+        return None
+    if not callable(getattr(assembly_service, "packing_handover_facts", None)):
+        return None
+    return AssemblyHandover()
+
+
+#: The assembly source that names the sales order a hand-over is packed for -
+#: ``assembly.models.AssemblySourceType.SALES_ORDER``, spelled here so packing
+#: does not import another module's enum for one comparison.
+ASSEMBLY_SOURCE_SALES_ORDER = "SALES_ORDER"
+
+
+async def create_order_from_assembly(
+    session: AsyncSession,
+    tenant: TenantContext,
+    payload: PackingFromAssemblyCreate,
+    *,
+    assembly: AssemblyHandoverPort | None = None,
+) -> tuple[PackingOrder, list[PackingOrderLine]]:
+    """Raise a packing order for a completed assembly and claim the assembly.
+
+    One transaction: the assembly is locked and checked (completed, produced
+    good output, not claimed by another packing order), the packing order is
+    raised through :func:`create_order` - the one creation path - and the
+    assembly is marked packed against it. A second packer reaching for the same
+    assembly waits on its row lock and is then refused before anything is
+    created; nothing can leave a packing order without its claim, or a claim
+    without its packing order.
+
+    ASSUMPTION: the packing order packs the assembled item from the warehouse
+    the output was received into, for the assembled quantity unless a smaller
+    one is asked for. Its customer and sales order come from the assembly's
+    source when it was raised for a sales order; otherwise the customer must be
+    named. The sales-order *line* is not guessed (docs/assumptions.md §E4-8).
+    """
+    port = assembly if assembly is not None else resolve_assembly_port()
+    if port is None:
+        raise BusinessRuleError(
+            "Assembly is not available in this deployment, so nothing can be packed from it."
+        )
+
+    async with transaction(session):
+        facts = await port.packing_facts(session, tenant, payload.assembly_order_id)
+
+        source_order_id: uuid.UUID | None = (
+            facts.source_id if str(facts.source_type) == ASSEMBLY_SOURCE_SALES_ORDER else None
+        )
+        if (
+            source_order_id is not None
+            and payload.sales_order_id is not None
+            and payload.sales_order_id != source_order_id
+        ):
+            raise BusinessRuleError(
+                f"{facts.code} was assembled for a different sales order than the one named.",
+                details={
+                    "assembly_order_id": str(facts.assembly_order_id),
+                    "source_sales_order_id": str(source_order_id),
+                },
+            )
+        sales_order_id = payload.sales_order_id or source_order_id
+
+        customer_id = payload.customer_id
+        if customer_id is None and sales_order_id is not None:
+            header = await SalesOrderLookupRepository(session, tenant).get_header(sales_order_id)
+            if header is None:
+                raise NotFoundError("Sales order", sales_order_id)
+            customer_id = header[1]
+        if customer_id is None:
+            raise ValidationError(
+                f"{facts.code} was not assembled for a sales order; name the customer the "
+                "packing order is for.",
+                details={"fields": {"customer_id": ["Required for this assembly."]}},
+            )
+
+        assembled = to_quantity(Decimal(facts.assembled_quantity))
+        quantity = to_quantity(payload.quantity) if payload.quantity is not None else assembled
+        if quantity > assembled:
+            raise BusinessRuleError(
+                f"{facts.code} assembled {assembled}; a packing order cannot take {quantity}.",
+                details={"assembled_quantity": str(assembled), "requested": str(quantity)},
+            )
+
+        items = await ItemLookupRepository(session, tenant).load([facts.item_id])
+        item = items.get(facts.item_id)
+        if item is None:
+            raise NotFoundError("Item", facts.item_id)
+
+        order, lines = await create_order(
+            session,
+            tenant,
+            PackingOrderCreate(
+                customer_id=customer_id,
+                warehouse_id=facts.output_warehouse_id,
+                planned_date=payload.planned_date or today(),
+                sales_order_id=sales_order_id,
+                notes=payload.notes or f"Packed from assembly order {facts.code}",
+                lines=[
+                    PackingOrderLineIn(
+                        item_id=facts.item_id,
+                        quantity_to_pack=quantity,
+                        uom_id=item.base_uom_id,
+                    )
+                ],
+            ),
+            audit_context={
+                "source": "assembly_order",
+                "assembly_order_id": facts.assembly_order_id,
+                "assembly_order_code": facts.code,
+            },
+        )
+
+        await port.mark_packed(
+            session,
+            tenant,
+            facts.assembly_order_id,
+            packing_order_id=order.id,
+            reason=f"Packing order {order.code} raised from {facts.code}",
         )
 
     return order, lines
@@ -2164,6 +2356,7 @@ async def packing_list_data(
 
 
 __all__ = [
+    "ASSEMBLY_SOURCE_SALES_ORDER",
     "AUDIT_CARTON",
     "AUDIT_PACKING_ORDER",
     "BARCODE_ALPHABET",
@@ -2171,6 +2364,8 @@ __all__ = [
     "PACKING_LIST_QUEUE",
     "PACKING_LIST_TASK_NAME",
     "PACKING_ORDER_LIFECYCLE",
+    "AssemblyHandover",
+    "AssemblyHandoverPort",
     "LineFacts",
     "PlannedContent",
     "add_carton",
@@ -2184,6 +2379,7 @@ __all__ = [
     "close_order",
     "complete_packing",
     "create_order",
+    "create_order_from_assembly",
     "delete_draft_order",
     "find_cartons_holding_serial",
     "get_carton_detail",
@@ -2204,6 +2400,7 @@ __all__ = [
     "recompute_packed_quantities",
     "remove_carton",
     "replace_carton_contents",
+    "resolve_assembly_port",
     "seal_carton",
     "start_packing",
     "update_order",

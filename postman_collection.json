@@ -490,7 +490,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"assembly_line\": \"\",\n  \"notes\": \"\",\n  \"output_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_end\": \"2026-01-01T00:00:00Z\",\n  \"planned_quantity\": 0,\n  \"planned_start\": \"2026-01-01T00:00:00Z\",\n  \"requires_qc\": false,\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"assembly_line\": \"\",\n  \"notes\": \"\",\n  \"output_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_end\": \"2026-01-01T00:00:00Z\",\n  \"planned_quantity\": 0,\n  \"planned_start\": \"2026-01-01T00:00:00Z\",\n  \"priority\": 0,\n  \"requires_qc\": false,\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Only a DRAFT is editable. Changing the planned quantity re-explodes the component set from the same structure rather than rescaling the stored numbers.",
             "header": [
@@ -533,7 +533,7 @@
               },
               "raw": "{\n  \"accepted_quantity\": 0,\n  \"reason\": \"\",\n  \"qc_inspection_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"rejected_quantity\": 0\n}"
             },
-            "description": "Accepted quantity is released into the available pool; rejected quantity is moved to the damaged pool. The two must account for everything on hold.",
+            "description": "For a hold no quality inspection covers: accepted quantity is released into the available pool, rejected quantity is moved to the damaged pool, and the two must account for everything on hold. When the order names an inspection, that inspection is the one release path: an open one refuses this call and names it; a decided one completes the order from its own figures, which this request must repeat, and no stock moves a second time.",
             "header": [
               {
                 "key": "Content-Type",
@@ -993,6 +993,34 @@
           }
         },
         {
+          "name": "Live stock for each component, against what a release would reserve",
+          "request": {
+            "description": "Promisable stock at the position a release reserves - the component warehouse, no bin, no batch - read live and never cached, with what each line would still be short of. Returned whole rather than paginated: the set is bounded when the order is raised, and a release is decided on the whole kit.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assembly",
+                ":order_id",
+                "availability"
+              ],
+              "raw": "{{base_url}}/api/v1/assembly/{order_id}/availability",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Mark assembly as begun",
           "request": {
             "body": {
@@ -1035,6 +1063,53 @@
           }
         },
         {
+          "name": "Open assembly work per line",
+          "request": {
+            "description": "One row per assembly line with open orders - how many are not started, on the bench, awaiting inspection and late, and the quantity planned - aggregated in one grouped statement. Orders on no line are the row whose line is null.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assembly",
+                "board",
+                "lines"
+              ],
+              "query": [
+                {
+                  "description": "Warehouse components are drawn from",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/assembly/board/lines?"
+            }
+          }
+        },
+        {
           "name": "Raise a draft assembly order",
           "request": {
             "body": {
@@ -1044,9 +1119,9 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_quantity\": 0,\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"assembly_line\": \"\",\n  \"bom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"output_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_end\": \"2026-01-01T00:00:00Z\",\n  \"planned_start\": \"2026-01-01T00:00:00Z\",\n  \"requires_qc\": false,\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\"\n}"
+              "raw": "{\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_quantity\": 0,\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"assembly_line\": \"\",\n  \"bom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"output_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_end\": \"2026-01-01T00:00:00Z\",\n  \"planned_start\": \"2026-01-01T00:00:00Z\",\n  \"priority\": 100,\n  \"requires_qc\": false,\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\"\n}"
             },
-            "description": "Explodes one level of the item's approved ASSEMBLY bill of materials, scales each component to the planned quantity with its scrap allowance and freezes the result onto the order. No stock is reserved or consumed by a draft.",
+            "description": "Explodes one level of the item's approved ASSEMBLY or PRODUCTION bill of materials, scales each component to the planned quantity with its scrap allowance and freezes the result onto the order. No stock is reserved or consumed by a draft.",
             "header": [
               {
                 "key": "Content-Type",
@@ -1079,7 +1154,7 @@
               },
               "raw": "{\n  \"reason\": \"\",\n  \"lines\": [\n    {\n      \"issued_quantity\": {},\n      \"line_number\": {}\n    }\n  ]\n}"
             },
-            "description": "Records what was physically kitted. No stock moves here - the components are still owned, still in their warehouse position and still reserved to this order. The ledger is written at completion, when it is known what they were turned into.",
+            "description": "Records what was physically kitted. No stock moves here - the components are still owned, still in their warehouse position and still reserved to this order. The ledger is written at completion, when it is known what they were turned into. From RELEASED this is the first issue; while the order is COMPONENTS_ISSUED or IN_PROGRESS it is a top-up that raises the issued totals and leaves the status alone. Totals never go down and never exceed the reserved requirement.",
             "header": [
               {
                 "key": "Content-Type",
@@ -1148,6 +1223,71 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "The assembly board: open orders, planned against actual",
+          "request": {
+            "description": "Every open assembly order line by line, in schedule order, with its planned and actual start and end and a lateness flag worked out on the server: late once the planned end has passed while the order still owes finished stock, start overdue once the planned start has passed with the bench not begun.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "assembly",
+                "board",
+                "orders"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "assembly_line",
+                  "value": ""
+                },
+                {
+                  "description": "Only open orders that are on no assembly line",
+                  "disabled": true,
+                  "key": "unassigned_line",
+                  "value": "False"
+                },
+                {
+                  "description": "Warehouse components are drawn from",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "Only orders past their planned end",
+                  "disabled": true,
+                  "key": "late_only",
+                  "value": "False"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/assembly/board/orders?"
             }
           }
         },
@@ -10952,6 +11092,40 @@
                 "packing"
               ],
               "raw": "{{base_url}}/api/v1/packing"
+            }
+          }
+        },
+        {
+          "name": "Raise a packing order for a completed assembly",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"assembly_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"customer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"planned_date\": \"2026-01-01\",\n  \"quantity\": 0,\n  \"sales_order_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "The assembly hand-over: one transaction that locks the completed assembly, raises a draft packing order for its output - the assembled item, from the warehouse it was received into, for the assembled quantity unless a smaller one is named - and marks the assembly packed against it, so it leaves the ready-for-packing list. The customer and sales order come from the assembly's source when it was raised for a sales order; otherwise the customer must be named.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "packing",
+                "from-assembly"
+              ],
+              "raw": "{{base_url}}/api/v1/packing/from-assembly"
             }
           }
         },

@@ -92,6 +92,30 @@ class PackingOrderCreate(BaseModel):
     lines: list[PackingOrderLineIn] = Field(min_length=1, max_length=MAX_LINES_PER_ORDER)
 
 
+class PackingFromAssemblyCreate(BaseModel):
+    """Raise a draft packing order for a completed assembly's output.
+
+    Everything the assembly already knows is taken from it: the item, the
+    quantity it produced and the warehouse that output sits in. The customer
+    and sales order come from the assembly's source when it was raised for a
+    sales order; otherwise the customer has to be named here.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    assembly_order_id: uuid.UUID
+    #: Required unless the assembly was raised for a sales order, whose customer
+    #: is then used. When given for such an assembly it must be that customer.
+    customer_id: uuid.UUID | None = None
+    #: Defaults to the assembly's source sales order, when it has one.
+    sales_order_id: uuid.UUID | None = None
+    #: Defaults to today.
+    planned_date: date | None = None
+    #: Defaults to everything the assembly produced; may be less, never more.
+    quantity: PositiveQuantity | None = None
+    notes: Notes | None = None
+
+
 class PackingOrderUpdate(BaseModel):
     """Amend a draft.
 
@@ -488,6 +512,7 @@ __all__ = [
     "CompleteRequest",
     "DispatchHandoverRequest",
     "PackingCompletionResult",
+    "PackingFromAssemblyCreate",
     "PackingListJobAccepted",
     "PackingMaterialRow",
     "PackingOrderCreate",

@@ -1392,6 +1392,213 @@ floor, `conversion_delivery_date` takes the vendor's lead time as a third input.
 
 ---
 
+## §E4-1. Stranded QC owners are repaired by a sweep, not by a migration
+
+**Assumed.** Purchase orders, receipt lines, assembly orders and job-work lots
+that a quality decision stranded before the owner callback existed are brought
+up to date by the idempotent maintenance sweep
+`maintenance.reconcile_quality_owners` - run once when beat starts and then
+daily - acting as the system actor with full audit rows, rather than by a data
+migration.
+
+**Why.** Pure SQL in a migration cannot write the audit rows and status-change
+history a repair owes; the sweep replays each decided inspection through the
+same owner handlers a live decision calls, in its own transaction per
+inspection, so one refusal is logged and retried next sweep instead of undoing
+every other repair.
+
+**Where.** `src/modules/quality/owners.py` - `reconcile_owners`;
+`src/modules/quality/service.py` - `reconcile_quality_owners`;
+`src/workers/tasks/maintenance.py` - `reconcile_quality_owners`;
+`src/workers/celery_app.py` - beat schedule and the start-up hook.
+
+**Impact if wrong.** If repairs must be one-shot rather than eventual, the
+sweep still converges on the first beat start after deploy; removing it needs a
+migration that writes audit rows by hand.
+
+---
+
+## §E4-2. A receipt line passes only when all of it was accepted
+
+**Assumed.** A goods receipt line goes PASSED only when everything the
+inspection covered was accepted, and FAILED when any of it was refused
+(rejected or scrapped) - however small the refused share. While anything is
+still held for rework or a further decision the line stays PENDING, and so does
+the purchase order.
+
+**Why.** A line that owes the vendor a return must not read as a clean pass on
+the receipt; the refused share is what the return and the debit are worked
+from.
+
+**Where.** `src/modules/procurement/service_rules.py` -
+`receipt_line_qc_status`; `src/modules/procurement/service.py` -
+`record_incoming_inspection_outcome`.
+
+**Impact if wrong.** If a tolerance applies (a 2% fallout still passes), the
+rule takes a threshold per item group instead of zero.
+
+---
+
+## §E4-3. The owner-side verdict never moves stock, and never contradicts the inspection
+
+**Assumed.** `POST /assembly/{id}/qc-result` and `POST /job-work/{id}/qc-result`
+serve only holds no quality inspection covers. When the hold names an
+inspection, that inspection is the one release path: while it is open the call
+is refused and pointed at it, and once it is decided the order completes from
+the inspection's own figures - which the request must repeat - with no second
+movement. Quality already moved the stock when it decided.
+
+**Why.** Two release paths for one hold was the defect: whichever ran second
+either failed for want of held stock or released another lot held at the same
+grain, and the document stayed stranded either way.
+
+**Where.** `src/modules/assembly/service.py` - `record_qc_result`,
+`_settle_from_inspection`; `src/modules/job_work/service.py` -
+`record_qc_result`, `_settle_from_inspections`.
+
+**Impact if wrong.** If an owner must be able to overrule a decided inspection,
+that is a new inspection decision (rework/hold), not a second verdict on the
+old one.
+
+---
+
+## §E4-4. An assembly order is built from an ASSEMBLY or a PRODUCTION structure
+
+**Assumed.** The order's recipe is an approved ASSEMBLY or PRODUCTION bill of
+materials - a lock set whose recipe engineering filed as a production BOM is
+still put together on the assembly bench. A PHANTOM is never built, and an
+ALTERNATE is reached only by naming it as a production structure's
+alternative, so neither is offered; omitting the BOM builds from the item's
+default approved structure of those two types.
+
+**Why.** Refusing a production-typed recipe would push the planner into a
+production order for what is assembly work, while building a phantom would
+explode stock that was never meant to be stocked.
+
+**Where.** `src/modules/assembly/service.py` - `ASSEMBLABLE_BOM_TYPES`,
+`_resolve_bom`.
+
+**Impact if wrong.** If alternates must be choosable directly, the select takes
+them with the default-resolution falling back to the assembly/production
+default.
+
+---
+
+## §E4-5. A component top-up states new totals and may only raise them
+
+**Assumed.** `issue_components` from RELEASED is the first issue; while the
+order is COMPONENTS_ISSUED or IN_PROGRESS it is a top-up that states each
+line's new running total - like the first issue does, never a delta - bounded
+by the reserved requirement. Totals may only go up, and a top-up that would
+change nothing is refused rather than recorded as an empty hand-over.
+
+**Why.** Parts already on the bench are not handed back through this path, and
+an empty hand-over would write audit history for nothing moved; assigning (not
+adding) keeps a retry that repeats the bench state idempotent.
+
+**Where.** `src/modules/assembly/service.py` - `plan_issue`, `issue_components`.
+
+**Impact if wrong.** If the bench must return parts to the store, that is a
+separate return movement, not a negative issue.
+
+---
+
+## §E4-6. A sub-assembly starts as semi-finished, an assembly as a finished good
+
+**Assumed.** The SUB_ASSEMBLY item group seeds the semi-finished capability
+defaults (built in-house, consumed by a higher assembly or a production
+order) and ASSEMBLY seeds the finished-good defaults (made on the bench and
+sold). Like every group they only seed defaults at creation; no rule branches
+on the value.
+
+**Why.** A sub-assembly is exactly what a semi-finished item is, and an
+assembly (a lock set) is exactly a finished good that happens to be built on
+the bench rather than on the production floor.
+
+**Where.** `src/modules/products/service.py` - `default_capabilities`;
+`src/modules/products/models.py` - `ItemGroup`.
+
+**Impact if wrong.** If either group needs different flags, the mapping is one
+branch; existing items keep the flags they were created with.
+
+---
+
+## §E4-7. A component reservation is wanted by the planned start, as a UTC date
+
+**Assumed.** Every component reservation taken at release carries the order's
+priority and its planned start as the required date, read as a UTC business
+date; an order with no planned start reserves with no date, as it always did.
+
+**Why.** Reallocation weighs an assembly's claim on a part against sales and
+production demand, and without the order's urgency and date on the reservation
+an urgent lock-set build is indistinguishable from a speculative one.
+
+**Where.** `src/modules/assembly/service.py` - `reservation_required_date`,
+`release_order`.
+
+**Impact if wrong.** If dates must follow the planner's timezone rather than
+UTC, the conversion moves to the site timezone with the same fallback.
+
+---
+
+## §E4-8. A packing order from an assembly packs its output, for its customer
+
+**Assumed.** `POST /packing/from-assembly` packs the assembled item from the
+warehouse the output was received into, for the assembled quantity unless a
+smaller one is named (never more). Customer and sales order come from the
+assembly's source when it was raised for a sales order - a named customer must
+then be that customer, and a named sales order that order - otherwise the
+customer must be named. The sales-order *line* is not guessed.
+
+**Why.** Guessing the line would attach the packing to the wrong promise when
+an order has several; the packer names it on the packing order itself, where
+the choice is visible.
+
+**Where.** `src/modules/packing/service.py` - `create_order_from_assembly`.
+
+**Impact if wrong.** If one assembly always covers exactly one sales-order
+line, the handover can carry it once the source records the line.
+
+---
+
+## §E4-9. A job-work order waits on inspection only while a lot is held
+
+**Assumed.** A fully received order moves to QC_PENDING only when at least one
+returned lot is still on QC hold; lots inspected and released while the order
+was still partly at the vendor need nothing more. An order sent nowhere held -
+or held with nothing left to decide - stays RECEIVED and is closed like one
+that never needed inspecting, because no decision would ever release a hold
+that does not exist.
+
+**Why.** QC_PENDING has exactly one way out - the inspection verdict - so
+entering it with nothing held strands the order with real stock no verdict can
+release.
+
+**Where.** `src/modules/job_work/service.py` - `receive`.
+
+**Impact if wrong.** If every QC order must show a verdict even when nothing
+was held, the direct verdict endpoint records a zero hold instead of refusing.
+
+---
+
+## §E4-10. The board calls an order late once its plan has slipped
+
+**Assumed.** An open order is late once its planned end has passed while it
+still owes finished stock - QC_PENDING included, because held output is not
+yet usable - and its start is overdue once the planned start has passed with
+the bench not begun. An order with no plan is never late. Days late are whole
+days past the planned end.
+
+**Why.** The board is read at a glance on the floor; a held order shown as on
+plan would hide the exact backlog quality is sitting on.
+
+**Where.** `src/modules/assembly/service.py` - `lateness`; `src/modules/assembly/models.py` - `NOT_STARTED_STATUSES`.
+
+**Impact if wrong.** If held output counts as delivered for lateness, QC_PENDING
+leaves the late set while keeping its badge.
+
+---
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant

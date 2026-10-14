@@ -438,7 +438,8 @@ async def test_scrap_on_a_bom_line_inflates_the_kitting_requirement(ctx) -> None
     assert Decimal(screw_kit.required_quantity) == Decimal("420.0000")
 
 
-async def test_a_production_bom_cannot_be_used_for_an_assembly_order(ctx) -> None:
+async def test_a_phantom_bom_cannot_be_used_for_an_assembly_order(ctx) -> None:
+    """A phantom is never built, so no bench can assemble from one."""
     session, tenant = ctx
     uom_id = await seed_uom(session, tenant.company_id)
     warehouse_id = await seed_warehouse(session, tenant.company_id)
@@ -450,10 +451,10 @@ async def test_a_production_bom_cannot_be_used_for_an_assembly_order(ctx) -> Non
         parent_item_id=parent,
         uom_id=uom_id,
         components={child: Decimal("1")},
-        bom_type=BomType.PRODUCTION,
+        bom_type=BomType.PHANTOM,
     )
 
-    with pytest.raises(BusinessRuleError, match="ASSEMBLY"):
+    with pytest.raises(BusinessRuleError, match="ASSEMBLY or PRODUCTION"):
         await service.create_order(
             session,
             tenant,
@@ -461,6 +462,35 @@ async def test_a_production_bom_cannot_be_used_for_an_assembly_order(ctx) -> Non
                 item_id=parent, planned_quantity=Decimal("1"), warehouse_id=warehouse_id
             ),
         )
+
+
+async def test_a_production_bom_can_be_assembled_on_the_bench(ctx) -> None:
+    """A lock set filed as a production structure is still bench work
+    (docs/assumptions.md §E4-4)."""
+    session, tenant = ctx
+    uom_id = await seed_uom(session, tenant.company_id)
+    warehouse_id = await seed_warehouse(session, tenant.company_id)
+    parent = await seed_item(session, tenant.company_id, uom_id, code=_code("PART"))
+    child = await seed_item(session, tenant.company_id, uom_id, code=_code("CHILD"))
+    bom = await seed_assembly_bom(
+        session,
+        tenant,
+        parent_item_id=parent,
+        uom_id=uom_id,
+        components={child: Decimal("2")},
+        bom_type=BomType.PRODUCTION,
+    )
+
+    order, components = await service.create_order(
+        session,
+        tenant,
+        AssemblyOrderCreate(
+            item_id=parent, planned_quantity=Decimal("3"), warehouse_id=warehouse_id
+        ),
+    )
+
+    assert order.bom_id == bom.id
+    assert [Decimal(row.required_quantity) for row in components] == [Decimal("6.0000")]
 
 
 async def test_changing_the_planned_quantity_re_explodes_the_component_set(ctx) -> None:
@@ -1023,8 +1053,16 @@ async def test_an_order_requiring_qc_receives_its_output_onto_hold(ctx) -> None:
     assert reloaded.qc_held_at is not None
 
 
-async def test_an_inspection_verdict_releases_the_good_and_damages_the_rest(ctx) -> None:
+async def test_an_inspection_verdict_releases_the_good_and_damages_the_rest(
+    ctx, monkeypatch
+) -> None:
+    """The owner-side verdict, for a hold no inspection covers.
+
+    Quality's absence is *simulated* by forcing the port to resolve to nothing
+    (CLAUDE.md): with an inspection raised, this path defers to it instead.
+    """
     session, tenant = ctx
+    monkeypatch.setattr(service, "resolve_quality_port", lambda: None)
     setup = await lock_set_setup(session, tenant)
     order = await raise_order(session, tenant, setup, planned="10", requires_qc=True)
     await take_to_in_progress(session, tenant, order)
@@ -1058,8 +1096,11 @@ async def test_an_inspection_verdict_releases_the_good_and_damages_the_rest(ctx)
     assert Decimal(balance.available_quantity) == Decimal("8.0000")
 
 
-async def test_a_verdict_that_does_not_account_for_the_whole_hold_is_refused(ctx) -> None:
+async def test_a_verdict_that_does_not_account_for_the_whole_hold_is_refused(
+    ctx, monkeypatch
+) -> None:
     session, tenant = ctx
+    monkeypatch.setattr(service, "resolve_quality_port", lambda: None)
     setup = await lock_set_setup(session, tenant)
     order = await raise_order(session, tenant, setup, planned="10", requires_qc=True)
     await take_to_in_progress(session, tenant, order)

@@ -35,6 +35,7 @@ from src.modules.procurement.models import (
     PurchaseReturnStatus,
     PurchaseSourceType,
     QuotationStatus,
+    ReceiptLineQcStatus,
     RequisitionLineStatus,
     RequisitionStatus,
     RfqStatus,
@@ -1795,6 +1796,32 @@ def resolve_return_pool(
     )
 
 
+# =============================================================================
+# The incoming-inspection verdict on a receipt line
+# =============================================================================
+
+
+def receipt_line_qc_status(
+    *, settled: bool, refused_quantity: Decimal
+) -> ReceiptLineQcStatus | None:
+    """The QC status an inspection's verdict leaves on its receipt line.
+
+    ``None`` while anything is still on hold for rework or a further decision:
+    the line stays PENDING, and so does the purchase order, until the last of
+    the lot has been dispositioned.
+
+    ASSUMPTION: a line FAILS incoming inspection when any of its lot was refused
+    - rejected or scrapped - and PASSES only when all of it was accepted. A line
+    that owes the vendor a return must not read as a clean pass on the receipt,
+    however small the refused share (docs/assumptions.md §E4-2).
+    """
+    if not settled:
+        return None
+    if refused_quantity > ZERO:
+        return ReceiptLineQcStatus.FAILED
+    return ReceiptLineQcStatus.PASSED
+
+
 __all__ = [
     "DEFAULT_SCORE_WEIGHTS",
     "GOODS_RECEIPT_LIFECYCLE",
@@ -1849,6 +1876,7 @@ __all__ = [
     "po_line_status_for",
     "preferred_category_vendor",
     "rank_offers",
+    "receipt_line_qc_status",
     "receipt_unit_cost",
     "recommend_action",
     "recommendation_reason",

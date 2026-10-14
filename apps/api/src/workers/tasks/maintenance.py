@@ -1,9 +1,9 @@
 """Scheduled housekeeping (master rules sections 25, 33, 35, 43).
 
-Four beat jobs live here, and they are the four the schedule in
-``src.workers.celery_app`` already names. Each is an *adapter*: the rules belong
-to the module that owns the data, and this file finds the tenants and hands each
-one to that module's service.
+Five beat jobs live here, and they are the five the schedule in
+``src.workers.celery_app`` names. Each is an *adapter*: the rules belong to the
+module that owns the data, and this file finds the tenants and hands each one to
+that module's service.
 
 ``maintenance.refresh_summary_views``
     Rebuilds ``inventory_summary`` so dashboards read a pre-aggregated position
@@ -20,6 +20,13 @@ one to that module's service.
 ``maintenance.purge_temp_files``
     Clears the scratch directory and the lapsed report snapshots that point at
     artefacts nobody will fetch again.
+
+``maintenance.reconcile_quality_owners``
+    Re-tells every document still waiting on a quality verdict the verdict its
+    inspection already carries - the purchase orders, receipt lines, assembly
+    orders and job-work lots a decision stranded before quality called its
+    owners back (``quality.owners``). Run once when beat starts and then daily;
+    it does nothing when nothing is waiting.
 
 Three properties every task here holds.
 
@@ -56,11 +63,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.database import affected_rows, session_scope, transaction
-from src.core.deps import TenantContext
+from src.core.deps import TenantContext, system_tenant
 from src.core.logging import get_logger
 from src.modules.allocation import service as allocation_service
 from src.modules.allocation.models import OPEN_RESERVATION_STATUSES, StockReservation
-from src.modules.notifications.repository import SYSTEM_ACTOR_ID
+from src.modules.quality import service as quality_service
 from src.modules.reports import service as reports_service
 from src.modules.users.models import UserSession
 from src.workers.celery_app import async_task
@@ -96,11 +103,12 @@ TEMP_SUBDIRECTORY = "temp"
 def _system_tenant(company_id: uuid.UUID) -> TenantContext:
     """Scope for a sweep that has no principal.
 
-    The nil actor id is a placeholder for stamping only. The services called from
-    here pass ``user_id=None`` to the audit writer explicitly, so it never
-    reaches ``created_by_id`` and cannot violate the foreign key to ``users``.
+    The nil actor id is a placeholder, never a user. The repository base class
+    and the audit writer stamp it as NULL and label the audit row "System"
+    (``src.core.actors``), so it cannot violate the foreign key to ``users``
+    whichever service a sweep calls.
     """
-    return TenantContext(company_id=company_id, user_id=SYSTEM_ACTOR_ID)
+    return system_tenant(company_id)
 
 
 # -----------------------------------------------------------------------------
@@ -353,6 +361,65 @@ async def purge_temp_files(request_id: str | None = None, **_: Any) -> dict[str,
     }
 
 
+# -----------------------------------------------------------------------------
+# Quality owners
+# -----------------------------------------------------------------------------
+
+
+@async_task(name="maintenance.reconcile_quality_owners", queue="default")
+async def reconcile_quality_owners(request_id: str | None = None, **_: Any) -> dict[str, Any]:
+    """Repair documents a quality decision left waiting on its verdict.
+
+    The rules - which documents wait, and what a verdict does to each - belong to
+    ``quality.owners`` and the owners it calls; this finds the companies and
+    runs that sweep for each as the system actor, so every repair is audited
+    and status-changed exactly as a person's decision would have been.
+    Idempotent: a document already brought up to date is left alone, and a
+    company with nothing waiting costs three indexed reads.
+    """
+    async with session_scope() as session:
+        companies = await quality_service.companies_with_decided_inspections(session)
+
+    examined = applied = repaired = failed = companies_failed = 0
+    for company_id in companies:
+        try:
+            async with session_scope() as session:
+                result = await quality_service.reconcile_quality_owners(
+                    session, _system_tenant(company_id)
+                )
+        except Exception as exc:
+            companies_failed += 1
+            log.error(
+                "maintenance.quality_owner_reconcile_failed",
+                company_id=str(company_id),
+                error=str(exc),
+                exc_info=exc,
+            )
+            continue
+        examined += result.documents_examined
+        applied += result.verdicts_applied
+        repaired += result.owners_repaired
+        failed += result.failed
+
+    log.info(
+        "maintenance.quality_owners_reconciled",
+        companies=len(companies),
+        documents_examined=examined,
+        verdicts_applied=applied,
+        owners_repaired=repaired,
+        failed=failed,
+        companies_failed=companies_failed,
+    )
+    return {
+        "companies": len(companies),
+        "documents_examined": examined,
+        "verdicts_applied": applied,
+        "owners_repaired": repaired,
+        "failed": failed,
+        "companies_failed": companies_failed,
+    }
+
+
 __all__ = [
     "MAX_PURGE_BATCHES",
     "PURGE_BATCH",
@@ -360,6 +427,7 @@ __all__ = [
     "TEMP_FILE_MAX_AGE_HOURS",
     "purge_expired_sessions",
     "purge_temp_files",
+    "reconcile_quality_owners",
     "refresh_summary_views",
     "release_stale_reservations",
 ]

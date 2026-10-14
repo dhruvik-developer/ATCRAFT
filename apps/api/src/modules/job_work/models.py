@@ -690,7 +690,9 @@ class JobWorkReceipt(TenantEntity):
     #: would destroy the evidence of how long the stock sat there.
     qc_released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     #: The ``qc_inspections`` row raised for this lot, when quality is deployed.
-    #: Bare UUID, no foreign key - see the module docstring.
+    #: A lot that returned several output items raises one inspection per item;
+    #: this names the first, and each receipt line names its own. Bare UUID, no
+    #: foreign key - see the module docstring.
     qc_inspection_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
 
     reason: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -830,6 +832,12 @@ class JobWorkReceiptLine(TenantEntity):
     vendor_debit_amount: Mapped[Decimal] = mapped_column(
         Money, nullable=False, default=Decimal("0"), server_default="0"
     )
+
+    #: The inspection holding this line's good output, when the order requires
+    #: one. A lot returns one inspection per *output item*, so every line of the
+    #: lot that returned the same item names the same inspection. Bare UUID, no
+    #: foreign key - the same reasoning as the receipt's own column.
+    qc_inspection_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
 
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 

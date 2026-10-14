@@ -324,14 +324,21 @@ def default_capabilities(item_group: ItemGroup) -> dict[str, bool]:
             can_be_assembly_component=True,
             can_job_work=True,
         )
-    elif item_group is ItemGroup.SEMI_FINISHED:
+    elif item_group in (ItemGroup.SEMI_FINISHED, ItemGroup.SUB_ASSEMBLY):
+        # ASSUMPTION: a sub-assembly starts with the semi-finished defaults - it is
+        # built in-house and consumed by a higher assembly or a production order,
+        # which is exactly what a semi-finished item is (docs/assumptions.md
+        # §E4-6).
         base.update(
             can_manufacture=True,
             can_be_bom_component=True,
             can_be_assembly_component=True,
             can_job_work=True,
         )
-    elif item_group is ItemGroup.FINISHED_GOOD:
+    elif item_group in (ItemGroup.FINISHED_GOOD, ItemGroup.ASSEMBLY):
+        # ASSUMPTION: an assembly is a finished good that happens to be built on
+        # the assembly bench - made and sold - so it starts with the finished-good
+        # defaults (docs/assumptions.md §E4-6).
         base.update(can_manufacture=True, can_sell=True, can_be_assembly_component=True)
     elif item_group in (ItemGroup.CONSUMABLE, ItemGroup.PACKING_MATERIAL):
         base.update(can_purchase=True, can_be_bom_component=True)

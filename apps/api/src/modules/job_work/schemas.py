@@ -384,6 +384,11 @@ class QcResultRequest(BaseModel):
     The verdict must account for everything on hold: releasing part of a held lot
     and leaving the rest in limbo is how stock becomes permanently unusable
     without anybody deciding that it should be.
+
+    Only for held lots no quality inspection covers. While an inspection covers
+    a held lot the verdict belongs on that inspection and this is refused; once
+    those inspections are decided, these figures must repeat theirs, and the
+    lots are released and the order completed without moving stock again.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -454,6 +459,9 @@ class ReceiptLineRead(BaseModel):
     input_consumed_quantity: Decimal
     charges: Decimal
     vendor_debit_amount: Decimal
+    #: The inspection holding this line's good output - one per output item of
+    #: the lot - or ``None`` when nothing was held or quality raised none.
+    qc_inspection_id: uuid.UUID | None
     notes: str | None
 
 

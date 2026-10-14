@@ -18,7 +18,7 @@ from collections.abc import Callable, Coroutine
 from typing import Any, TypeVar
 
 from celery import Celery, Task
-from celery.signals import setup_logging, task_failure, task_postrun, task_prerun
+from celery.signals import beat_init, setup_logging, task_failure, task_postrun, task_prerun
 
 from src.core.config import settings
 from src.core.logging import (
@@ -30,6 +30,11 @@ from src.core.logging import (
 from src.core.observability import celery_task_duration, celery_tasks_total
 
 log = get_logger("worker")
+
+#: The quality owner reconciliation sweep, by name and by beat entry. Named once
+#: because the schedule and the start-up hook below both need it.
+RECONCILE_QUALITY_OWNERS_TASK = "maintenance.reconcile_quality_owners"
+RECONCILE_QUALITY_OWNERS_ENTRY = "reconcile-quality-owners"
 
 celery_app = Celery(
     "atcraft",
@@ -106,6 +111,14 @@ celery_app.conf.update(
             "schedule": 60.0,
             "options": {"queue": "notifications", "expires": 55},
         },
+        # Documents a quality decision stranded before quality called its owners
+        # back. Also sent once when beat starts (see _reconcile_on_beat_start),
+        # so a deploy repairs them without waiting a day.
+        RECONCILE_QUALITY_OWNERS_ENTRY: {
+            "task": RECONCILE_QUALITY_OWNERS_TASK,
+            "schedule": 86400.0,
+            "options": {"queue": "default", "expires": 3600},
+        },
     },
 )
 
@@ -170,6 +183,22 @@ def async_task(*task_args: Any, **task_kwargs: Any) -> Callable[..., Any]:
 def _configure_worker_logging(**_: Any) -> None:
     """Use the application's structured logging, not Celery's own format."""
     configure_logging()
+
+
+@beat_init.connect
+def _reconcile_on_beat_start(**_: Any) -> None:
+    """Run the quality owner sweep once when beat starts, not only a day later.
+
+    A deploy is when the sweep matters most: it is what repairs the documents a
+    quality decision stranded before the owner callback existed. Beat starting
+    is the one moment every deploy has in common, and the task is idempotent, so
+    a beat restart that sends it again costs a few indexed reads. Failing to
+    reach the broker is logged and never stops beat from starting.
+    """
+    try:
+        celery_app.send_task(RECONCILE_QUALITY_OWNERS_TASK, queue="default", expires=3600)
+    except Exception as exc:  # pragma: no cover - broker unreachable at start-up
+        log.warning("beat.reconcile_on_start_not_sent", error=str(exc))
 
 
 @task_prerun.connect
@@ -252,4 +281,11 @@ def _on_task_failure(
     )
 
 
-__all__ = ["MAIL_TASKS", "AsyncTask", "async_task", "celery_app"]
+__all__ = [
+    "MAIL_TASKS",
+    "RECONCILE_QUALITY_OWNERS_ENTRY",
+    "RECONCILE_QUALITY_OWNERS_TASK",
+    "AsyncTask",
+    "async_task",
+    "celery_app",
+]

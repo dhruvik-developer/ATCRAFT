@@ -1746,6 +1746,54 @@ class GoodsReceiptLineRepository(BaseRepository[GoodsReceiptLine]):
         )
         return int((await self.session.execute(stmt)).scalar_one())
 
+    async def for_inspection(
+        self, receipt_id: uuid.UUID, inspection_id: uuid.UUID
+    ) -> GoodsReceiptLine | None:
+        """The receipt line an incoming inspection was raised for.
+
+        Matched on both ids: an inspection names the receipt it came from, and
+        the line names the inspection that holds it, so a manual inspection
+        that merely quotes a receipt finds no line and changes nothing.
+        """
+        stmt = self._scoped().where(
+            GoodsReceiptLine.goods_receipt_id == receipt_id,
+            GoodsReceiptLine.qc_inspection_id == inspection_id,
+        )
+        return (await self.session.execute(stmt)).scalars().first()
+
+    async def receipts_awaiting_inspection(
+        self, *, after: uuid.UUID | None, limit: int
+    ) -> list[uuid.UUID]:
+        """Posted receipts with a line still PENDING an inspection it was given.
+
+        One keyset page in receipt-id order, for the quality owner sweep. Served
+        by ``ix_goods_receipt_lines_qc_pending``, the partial index on exactly
+        the PENDING lines. A line with no inspection is not listed: nothing
+        quality decided can settle it.
+        """
+        stmt = (
+            select(GoodsReceiptLine.goods_receipt_id)
+            .join(
+                GoodsReceipt,
+                and_(
+                    GoodsReceipt.id == GoodsReceiptLine.goods_receipt_id,
+                    GoodsReceipt.company_id == GoodsReceiptLine.company_id,
+                ),
+            )
+            .where(
+                GoodsReceiptLine.company_id == self.tenant.company_id,
+                GoodsReceiptLine.qc_status == ReceiptLineQcStatus.PENDING,
+                GoodsReceiptLine.qc_inspection_id.is_not(None),
+                GoodsReceipt.status == GoodsReceiptStatus.POSTED,
+            )
+            .group_by(GoodsReceiptLine.goods_receipt_id)
+            .order_by(GoodsReceiptLine.goods_receipt_id)
+            .limit(limit)
+        )
+        if after is not None:
+            stmt = stmt.where(GoodsReceiptLine.goods_receipt_id > after)
+        return list((await self.session.execute(stmt)).scalars().all())
+
 
 class GoodsReceiptRepository(BaseRepository[GoodsReceipt]):
     model = GoodsReceipt

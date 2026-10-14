@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.modules.assembly.models import (
     ASSEMBLY_LINE_LENGTH,
+    DEFAULT_ASSEMBLY_PRIORITY,
     AssemblyOrderStatus,
     AssemblySourceType,
 )
@@ -37,6 +38,8 @@ NonNegativeQuantity = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_plac
 Reason = Annotated[str, Field(min_length=3, max_length=255)]
 AssemblyLine = Annotated[str, Field(min_length=1, max_length=ASSEMBLY_LINE_LENGTH)]
 Notes = Annotated[str, Field(max_length=2000)]
+#: Lower is more urgent - the production order's bounds, on the allocation scale.
+Priority = Annotated[int, Field(ge=0, le=9999)]
 
 #: Upper bound on a single ``ready-for-packing`` handover read. The service-level
 #: contract other modules call returns a plain list, so it needs a ceiling of its
@@ -55,8 +58,9 @@ class AssemblyOrderCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     item_id: uuid.UUID
-    #: Omit to use the item's default approved ``ASSEMBLY`` structure. Naming one
-    #: explicitly is how an alternate recipe is built.
+    #: Omit to use the item's default approved structure, which must be an
+    #: ``ASSEMBLY`` or ``PRODUCTION`` one. Naming one explicitly picks between
+    #: several approved structures of those two types.
     bom_id: uuid.UUID | None = None
     planned_quantity: PositiveQuantity
 
@@ -68,6 +72,9 @@ class AssemblyOrderCreate(BaseModel):
     assembly_line: AssemblyLine | None = None
     planned_start: datetime | None = None
     planned_end: datetime | None = None
+    #: Carried onto every component reservation at release, with the planned
+    #: start as the reservation's required date.
+    priority: Priority = DEFAULT_ASSEMBLY_PRIORITY
 
     #: Whether the finished assembly must be inspected before it becomes
     #: saleable. Completion holds the output rather than releasing it.
@@ -110,6 +117,7 @@ class AssemblyOrderUpdate(BaseModel):
     assembly_line: AssemblyLine | None = None
     planned_start: datetime | None = None
     planned_end: datetime | None = None
+    priority: Priority | None = None
     requires_qc: bool | None = None
     notes: Notes | None = None
 
@@ -148,6 +156,7 @@ class AssemblyOrderSummary(BaseModel):
     planned_end: datetime | None
     actual_start: datetime | None
     actual_end: datetime | None
+    priority: int
     status: AssemblyOrderStatus
     requires_qc: bool
     qc_held_at: datetime | None
@@ -199,11 +208,12 @@ class ReasonRequest(BaseModel):
 
 
 class ComponentIssueIn(BaseModel):
-    """Override how much of one component is handed to the line.
+    """How much of one component has been handed to the line, in total.
 
     Omitting a line issues its full ``required_quantity``, which is the normal
-    case. An explicit quantity exists for the kitting reality of topping a line
-    up beyond the recipe, or of issuing short because the rest arrives later.
+    case. An explicit quantity exists for issuing short because the rest
+    arrives later; a later top-up states the line's new total, which may not be
+    below what is already on the bench nor above the reserved requirement.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -213,6 +223,13 @@ class ComponentIssueIn(BaseModel):
 
 
 class IssueComponentsRequest(BaseModel):
+    """Hand components to the bench - first from RELEASED, or as a top-up.
+
+    The first issue moves the order to COMPONENTS_ISSUED. A top-up while the
+    order is COMPONENTS_ISSUED or IN_PROGRESS raises the issued totals and
+    leaves the status where it is.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     reason: Reason
@@ -283,6 +300,11 @@ class QcResultRequest(BaseModel):
     The two quantities must account for everything on hold: releasing part of a
     held lot and leaving the rest in limbo is how stock becomes permanently
     unusable without anybody deciding that it should be.
+
+    Only for a hold no quality inspection covers. When the order names an open
+    inspection the verdict belongs on that inspection and this is refused; when
+    that inspection is already decided, these figures must repeat its own, and
+    the order completes from it without moving stock again.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -341,11 +363,103 @@ class ReadyForPackingRow(BaseModel):
     available_quantity: Decimal
     completed_at: datetime | None
     requires_qc: bool
+    #: The demand the assembly was raised for. A ``SALES_ORDER`` source names the
+    #: sales order whose customer a packing order raised from this row is for.
+    source_type: AssemblySourceType
+    source_id: uuid.UUID | None
+
+
+class AssemblyComponentAvailability(BaseModel):
+    """One component's stock position, read live for a release decision.
+
+    ``available_quantity`` is promisable stock at the position a component
+    reservation holds - the order's component warehouse, no bin, no batch - and
+    is never cached (section 34). ``shortage_quantity`` is what releasing would
+    still lack: zero once the line is reserved.
+    """
+
+    line_number: int
+    item_id: uuid.UUID
+    required_quantity: Decimal
+    issued_quantity: Decimal
+    is_reserved: bool
+    available_quantity: Decimal
+    shortage_quantity: Decimal
+
+
+class AssemblyBoardOrder(BaseModel):
+    """One open assembly order on the board: plan against reality.
+
+    ``is_late`` means the planned end has passed while the order still owes
+    finished stock; ``start_overdue`` means the planned start has passed and the
+    bench has not begun. Both are worked out on the server at read time.
+    """
+
+    id: uuid.UUID
+    code: str
+    item_id: uuid.UUID
+    status: AssemblyOrderStatus
+    assembly_line: str | None
+    warehouse_id: uuid.UUID
+    output_warehouse_id: uuid.UUID
+    priority: int
+    planned_quantity: Decimal
+    assembled_quantity: Decimal
+    rejected_quantity: Decimal
+    planned_start: datetime | None
+    planned_end: datetime | None
+    actual_start: datetime | None
+    actual_end: datetime | None
+    requires_qc: bool
+    is_late: bool
+    start_overdue: bool
+    #: Whole days past the planned end; zero when not late.
+    days_late: int
+
+
+class AssemblyLineLoad(BaseModel):
+    """What one assembly line (or bench) has open, aggregated in the database.
+
+    ``assembly_line`` is ``None`` for open orders nobody has put on a line yet.
+    """
+
+    assembly_line: str | None
+    open_orders: int
+    not_started_orders: int
+    in_progress_orders: int
+    qc_pending_orders: int
+    late_orders: int
+    planned_quantity: Decimal
+    earliest_planned_start: datetime | None
+    latest_planned_end: datetime | None
+
+
+class AssemblyBoardFilters(BaseModel):
+    """Board filters. ``unassigned_line`` and ``assembly_line`` exclude each other."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    assembly_line: str | None = None
+    #: Only open orders that are on no line.
+    unassigned_line: bool = False
+    warehouse_id: uuid.UUID | None = None
+    #: Only orders whose planned end has passed.
+    late_only: bool = False
+
+    @model_validator(mode="after")
+    def _one_line_selector(self) -> AssemblyBoardFilters:
+        if self.unassigned_line and self.assembly_line is not None:
+            raise ValueError("Ask for one assembly line or for the unassigned orders, not both.")
+        return self
 
 
 __all__ = [
     "READY_FOR_PACKING_MAX",
+    "AssemblyBoardFilters",
+    "AssemblyBoardOrder",
+    "AssemblyComponentAvailability",
     "AssemblyComponentRead",
+    "AssemblyLineLoad",
     "AssemblyOrderCreate",
     "AssemblyOrderDetail",
     "AssemblyOrderFilters",

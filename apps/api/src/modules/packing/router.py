@@ -4,8 +4,9 @@ Handlers bind parameters, call one service function and wrap the result in the
 standard envelope. No rule, query or audit write lives here (master rules
 section 74).
 
-Route ordering note: ``/ready-for-dispatch``, ``/packing-materials`` and
-``/trace/serial/{serial_id}`` are declared before ``/{order_id}``. FastAPI
+Route ordering note: ``/ready-for-dispatch``, ``/packing-materials``,
+``/from-assembly`` and ``/trace/serial/{serial_id}`` are declared before
+``/{order_id}``. FastAPI
 matches in declaration order, and a literal segment declared after a path
 parameter of the same shape would be captured by it and rejected as a malformed
 UUID.
@@ -38,6 +39,7 @@ from src.modules.packing.schemas import (
     CompleteRequest,
     DispatchHandoverRequest,
     PackingCompletionResult,
+    PackingFromAssemblyCreate,
     PackingMaterialRow,
     PackingOrderCreate,
     PackingOrderDetail,
@@ -203,6 +205,31 @@ async def create_order(
     order, lines = await service.create_order(session, tenant, payload)
     return ApiResponse[PackingOrderDetail].ok(
         service.order_detail(order, lines), message=f"Packing order {order.code} created"
+    )
+
+
+@router.post(
+    "/from-assembly",
+    response_model=ApiResponse[PackingOrderDetail],
+    status_code=status.HTTP_201_CREATED,
+    summary="Raise a packing order for a completed assembly",
+    description=(
+        "The assembly hand-over: one transaction that locks the completed assembly, raises "
+        "a draft packing order for its output - the assembled item, from the warehouse it "
+        "was received into, for the assembled quantity unless a smaller one is named - and "
+        "marks the assembly packed against it, so it leaves the ready-for-packing list. The "
+        "customer and sales order come from the assembly's source when it was raised for a "
+        "sales order; otherwise the customer must be named."
+    ),
+    dependencies=[require_permission(Permission.PACKING_MANAGE)],
+)
+async def create_order_from_assembly(
+    session: DbSession, tenant: Tenant, payload: PackingFromAssemblyCreate
+) -> ApiResponse[PackingOrderDetail]:
+    order, lines = await service.create_order_from_assembly(session, tenant, payload)
+    return ApiResponse[PackingOrderDetail].ok(
+        service.order_detail(order, lines),
+        message=f"Packing order {order.code} created from the assembly",
     )
 
 

@@ -365,6 +365,46 @@ class JobWorkReceiptRepository(BaseRepository[JobWorkReceipt]):
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
+    async def count_unreleased_holds(self, order_id: uuid.UUID) -> int:
+        """Lots of this order whose output is still on QC hold.
+
+        Zero is what lets the order complete: an order whose every held lot has
+        been released has nothing left for an inspection to decide.
+        """
+        stmt = (
+            select(func.count())
+            .select_from(JobWorkReceipt)
+            .where(
+                JobWorkReceipt.company_id == self.tenant.company_id,
+                JobWorkReceipt.job_work_order_id == order_id,
+                JobWorkReceipt.qc_held_at.is_not(None),
+                JobWorkReceipt.qc_released_at.is_(None),
+            )
+        )
+        return int((await self.session.execute(stmt)).scalar_one())
+
+    async def awaiting_quality_verdict(
+        self, *, after: uuid.UUID | None, limit: int
+    ) -> list[uuid.UUID]:
+        """Held, unreleased lots an inspection was raised for - one keyset page in
+        id order for the quality owner sweep, through the partial index on
+        exactly the held-and-unreleased lots. A lot held with no inspection is
+        not listed: no decision can release it."""
+        stmt = (
+            select(JobWorkReceipt.id)
+            .where(
+                JobWorkReceipt.company_id == self.tenant.company_id,
+                JobWorkReceipt.qc_held_at.is_not(None),
+                JobWorkReceipt.qc_released_at.is_(None),
+                JobWorkReceipt.qc_inspection_id.is_not(None),
+            )
+            .order_by(JobWorkReceipt.id)
+            .limit(limit)
+        )
+        if after is not None:
+            stmt = stmt.where(JobWorkReceipt.id > after)
+        return list((await self.session.execute(stmt)).scalars().all())
+
     def charges_stmt(
         self, *, date_from: date, date_to: date, vendor_ids: Sequence[uuid.UUID] | None
     ) -> Select[Any]:
