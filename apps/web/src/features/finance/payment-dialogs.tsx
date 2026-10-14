@@ -76,6 +76,7 @@ import {
   MAX_REASON_LENGTH,
   MIN_REASON_LENGTH,
   MONEY_MOVEMENT_METHODS,
+  PAYMENT_METHODS,
   paymentKeys,
   PAYMENT_COMMANDS,
   PAYMENT_METHOD_LABELS,
@@ -185,7 +186,10 @@ const paymentFormSchema = z
       .string()
       .trim()
       .regex(/^([A-Za-z]{3})?$/, 'A three-letter code, or blank for the company currency'),
-    payment_method: enumOf(MONEY_MOVEMENT_METHODS),
+    payment_method: enumOf(PAYMENT_METHODS).refine(
+      (method): boolean => method !== 'ADJUSTMENT',
+      'Choose an actual payment method; noncash adjustments cannot use this form.',
+    ),
     reference_number: z.string().trim().max(64, 'At most 64 characters'),
     bank_name: z.string().trim().max(120, 'At most 120 characters'),
     instrument_date: z.string(),
@@ -577,7 +581,7 @@ export function PaymentFormDialog({
                       render={({ field }) => (
                         <Select value={field.value} onValueChange={field.onChange}>
                           <SelectTrigger id="payment-method" className="mt-1.5">
-                            <SelectValue />
+                            <SelectValue placeholder="Choose an actual payment method" />
                           </SelectTrigger>
                           <SelectContent>
                             {MONEY_MOVEMENT_METHODS.map((entry) => (
@@ -589,6 +593,13 @@ export function PaymentFormDialog({
                         </Select>
                       )}
                     />
+                    {payment?.payment_method === 'ADJUSTMENT' && (
+                      <p className="mt-1.5 text-xs text-warning">
+                        This legacy draft uses a noncash adjustment. Choose an actual payment method
+                        before saving, or cancel the draft.
+                      </p>
+                    )}
+                    <FieldError message={errors.payment_method?.message} />
                   </div>
 
                   <div>

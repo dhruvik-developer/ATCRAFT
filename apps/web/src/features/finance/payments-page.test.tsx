@@ -903,6 +903,36 @@ describe('the lifecycle commands', () => {
 })
 
 describe('amending a draft', () => {
+  it('requires an explicit real method before repairing a legacy adjustment draft', async () => {
+    const legacy = detail({ payment_method: 'ADJUSTMENT' })
+    const { user, fetch } = renderScreen(
+      <PaymentFormDialog open onOpenChange={() => {}} paymentId={PAYMENT_ID} />,
+      {
+        permissions: [P.PAYMENT_VIEW, P.PAYMENT_RECORD],
+        routes: {
+          [`GET ${DETAIL_PATH}`]: ok(legacy),
+          [`PATCH ${DETAIL_PATH}`]: ok(detail({ payment_method: 'BANK_TRANSFER' })),
+        },
+      },
+    )
+    const dialog = await screen.findByRole('dialog')
+    await within(dialog).findByDisplayValue('125000.50')
+    expect(within(dialog).getByText(/This legacy draft uses a noncash adjustment/)).toBeVisible()
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+    expect(
+      await within(dialog).findByText(/noncash adjustments cannot use this form/),
+    ).toBeVisible()
+    expect(fetch.calls.some((call) => call.method === 'PATCH')).toBe(false)
+    await user.click(within(dialog).getByRole('combobox', { name: 'Method' }))
+    expect(screen.queryByRole('option', { name: 'Adjustment' })).toBeNull()
+    await user.click(await screen.findByRole('option', { name: 'Bank transfer' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+    await expect.poll(() => fetch.calls.some((call) => call.method === 'PATCH')).toBe(true)
+    expect(fetch.requestFor('PATCH', DETAIL_PATH)).toMatchObject({
+      payment_method: 'BANK_TRANSFER',
+    })
+  })
+
   it('sends only the fields that are still free to change', async () => {
     // `PaymentUpdate` has no party, no direction and no currency: changing the
     // party of a payment is a different payment. The form still carries all
