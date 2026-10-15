@@ -10,7 +10,7 @@
 # Patch releases and their multi-platform index digests are deliberate release
 # inputs. Dependabot proposes reviewed digest updates, so the same source
 # revision cannot silently rebuild from different base bytes.
-FROM python:3.11.16-slim-bookworm@sha256:528257d48c1da0dcecc2e725d1ae34498d60c965f1241e39cd6a85a8859bdf84 AS base
+FROM python:3.14.8-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83 AS base
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
