@@ -351,6 +351,7 @@ class _Step:
         move: str = "0",
         process_cost: str = "0",
         machine_id: uuid.UUID | None = None,
+        is_outsourced: bool = False,
     ) -> None:
         self.id = uuid.uuid4()
         self.sequence = sequence
@@ -363,6 +364,7 @@ class _Step:
         self.queue_time_minutes = Decimal(queue)
         self.move_time_minutes = Decimal(move)
         self.process_cost = Decimal(process_cost)
+        self.is_outsourced = is_outsourced
 
 
 def test_run_time_is_extended_by_the_order_quantity_but_setup_is_not():
@@ -411,6 +413,15 @@ def test_the_routing_operation_and_its_machine_are_carried_onto_the_work_order()
     assert plans[0].routing_operation_id == step.id
     assert plans[0].machine_id == machine
     assert plans[0].work_center_id == step.work_center_id
+
+
+def test_outsourced_routing_operation_is_snapshotted_to_the_work_order_plan():
+    plans = plan_work_orders(
+        [_Step(10, is_outsourced=True)],
+        planned_quantity=Decimal("10"),
+        start_at=datetime(2026, 4, 1, tzinfo=UTC),
+    )
+    assert plans[0].is_outsourced is True
 
 
 def test_a_job_with_no_routing_gets_no_work_orders():

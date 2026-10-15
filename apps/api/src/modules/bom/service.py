@@ -1146,6 +1146,7 @@ async def bom_cost(
         output_quantity=result.output_quantity,
         material_cost=result.material_cost,
         operation_cost=result.operation_cost,
+        subcontract_operation_cost=result.subcontract_operation_cost,
         total_cost=result.total_cost,
         unit_cost=result.unit_cost,
         components=[

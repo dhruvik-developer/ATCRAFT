@@ -672,9 +672,9 @@ const operationCostColumns: ColumnDef<ProductionCostOperationLine, unknown>[] = 
   },
   {
     id: 'status',
-    header: 'Status',
+    header: 'Cost type',
     enableSorting: false,
-    cell: ({ row }) => humanise(row.original.status),
+    cell: ({ row }) => (row.original.is_outsourced ? 'Subcontract' : humanise(row.original.status)),
   },
   {
     id: 'charged-minutes',
@@ -800,17 +800,53 @@ function CostingPanel({ order }: { order: ProductionOrderDetail }) {
           value={formatMoney(data.operation_cost)}
           hint="Machine and labour time booked"
         />
+        <StatTile
+          label="Subcontract cost"
+          value={formatMoney(data.subcontract_cost)}
+          hint="Accrued job-work receipt charges"
+        />
         <StatTile label="Total cost" value={formatMoney(data.total_cost)} />
         <StatTile
-          label="Cost per unit"
+          label="Actual cost / good unit"
           // Null until something has been produced to divide by - which is not
           // the same as costing nothing.
           value={
-            data.cost_per_unit === null ? 'Nothing produced yet' : formatMoney(data.cost_per_unit)
+            data.actual_unit_cost === null
+              ? 'Nothing produced yet'
+              : formatMoney(data.actual_unit_cost)
           }
           hint={`Over ${formatQuantity(data.produced_quantity)} of ${formatQuantity(data.planned_quantity)} planned`}
         />
+        <StatTile
+          label="Standard cost / unit"
+          value={
+            data.standard_unit_cost === null
+              ? 'No release snapshot'
+              : formatMoney(data.standard_unit_cost)
+          }
+        />
+        <StatTile
+          label="Total variance"
+          value={
+            data.total_variance === null ? 'No standard snapshot' : formatMoney(data.total_variance)
+          }
+          hint="Actual total less standard cost for good output"
+        />
       </div>
+
+      {data.total_variance !== null && (
+        <div className="grid gap-4 sm:grid-cols-3">
+          <StatTile label="Material variance" value={formatMoney(data.material_variance ?? '0')} />
+          <StatTile
+            label="Operation variance"
+            value={formatMoney(data.operation_variance ?? '0')}
+          />
+          <StatTile
+            label="Subcontract variance"
+            value={formatMoney(data.subcontract_variance ?? '0')}
+          />
+        </div>
+      )}
 
       <p className="text-xs text-muted-foreground">
         Calculated by the API from the issues and bookings posted against this order. The screen

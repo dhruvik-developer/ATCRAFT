@@ -2925,6 +2925,37 @@ reversible while retaining purchase history and the audit trail.
 
 **Where:** `products.service.link_vendor`; the item detail Vendors tab.
 
+## §E7-1. Production close records variance without revaluing stock
+
+**Assumed.** The approved BOM roll-up is snapshotted per unit when a production
+order is released. Its component roll-up is the material standard; direct
+outsourced BOM operations are the subcontract standard; the remaining
+operation standard is internal operation cost. Outsourced routing work orders
+are retained for execution and traceability but do not add internal labour,
+machine or process cost. Actual subcontract cost is the sum of accrued
+job-work receipt charges for job-work orders sourced by the production order;
+unreceived estimates and vendor-debit recoveries are excluded.
+
+At closure, actual unit cost is total actual cost divided by good output.
+Material, operation and subcontract variances compare each actual category
+with its release-time standard multiplied by good output. The total variance
+is actual total less standard unit cost times good output; any currency
+rounding remainder is assigned to operation variance so the three displayed
+categories reconcile exactly. Older orders without a release snapshot retain
+NULL standard and variance values rather than receiving a guessed backfill.
+
+**No finished-stock layer revaluation is made at closure.** Production receipts
+were valued when posted and FIFO layers may already have been consumed by
+downstream work; changing those layers retrospectively would rewrite the cost
+of later issues. The inventory engine has no production cost-adjustment
+mechanism that safely redistributes such a change. The order records actual
+cost and variance only. No GL posting is made: inventory accounts are not
+defined in this system.
+
+**Where:** `production.release_order`, `production.close_order`,
+`job_work.service.production_order_charges`, and the E7a production costing
+screen.
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant

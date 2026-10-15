@@ -53,6 +53,7 @@ def _operation(
     process_cost: str = "0",
     cost_per_hour: str = "600",
     setup_cost: str = "0",
+    is_outsourced: bool = False,
     started: datetime | None = None,
     ended: datetime | None = None,
 ) -> OperationCostInput:
@@ -69,6 +70,7 @@ def _operation(
         actual_end_at=ended,
         cost_per_hour=Decimal(cost_per_hour),
         work_centre_setup_cost=Decimal(setup_cost),
+        is_outsourced=is_outsourced,
     )
 
 
@@ -195,6 +197,24 @@ def test_an_operation_that_never_ran_carries_no_flat_charges_either():
     assert line.charged_minutes == Decimal("0")
     assert line.setup_cost == Decimal("0")
     assert line.process_cost == Decimal("0")
+    assert line.total_cost == Decimal("0.00")
+
+
+def test_outsourced_work_order_time_is_not_double_counted_as_internal_operation_cost():
+    line = operation_cost_line(
+        _operation(
+            is_outsourced=True,
+            started=datetime(2026, 4, 1, 8, 0, tzinfo=UTC),
+            ended=datetime(2026, 4, 1, 10, 0, tzinfo=UTC),
+            cost_per_hour="600",
+            setup_cost="250",
+            process_cost="75",
+        )
+    )
+    assert line.is_outsourced is True
+    assert line.time_cost == Decimal("0.00")
+    assert line.setup_cost == Decimal("0.00")
+    assert line.process_cost == Decimal("0.00")
     assert line.total_cost == Decimal("0.00")
 
 
@@ -359,6 +379,50 @@ def test_operations_costed_from_planned_time_are_counted_and_reported():
     ]
     cost = summarise_cost(order=order, materials=[], operations=operations, is_final=True)
     assert cost.uncosted_operation_count == 1
+
+
+def test_total_and_variance_include_subcontract_and_reconcile_to_standard():
+    order = _order(planned="100", produced="80")
+    order.standard_unit_cost = Decimal("100.0000")
+    order.standard_material_unit_cost = Decimal("60.0000")
+    order.standard_operation_unit_cost = Decimal("30.0000")
+    order.standard_subcontract_unit_cost = Decimal("10.0000")
+    component = _component()
+    materials = [
+        material_cost_line(
+            component,
+            IssuedComponentTotals(
+                component_id=component.id,
+                issued_quantity=Decimal("100"),
+                returned_quantity=Decimal("0"),
+                net_quantity=Decimal("100"),
+                net_cost=Decimal("5000.00"),
+            ),
+        )
+    ]
+    operations = [operation_cost_line(_operation(setup="0", run="0", process_cost="2000"))]
+
+    cost = summarise_cost(
+        order=order,
+        materials=materials,
+        operations=operations,
+        subcontract_cost=Decimal("900"),
+        is_final=True,
+    )
+
+    assert cost.material_cost == Decimal("5000.00")
+    assert cost.operation_cost == Decimal("2000.00")
+    assert cost.subcontract_cost == Decimal("900.00")
+    assert cost.total_cost == Decimal("7900.00")
+    assert cost.actual_unit_cost == Decimal("98.75")
+    assert cost.material_variance == Decimal("200.00")
+    assert cost.operation_variance == Decimal("-400.00")
+    assert cost.subcontract_variance == Decimal("100.00")
+    assert cost.total_variance == Decimal("-100.00")
+    assert (
+        cost.material_variance + cost.operation_variance + cost.subcontract_variance
+        == cost.total_variance
+    )
 
 
 # -----------------------------------------------------------------------------

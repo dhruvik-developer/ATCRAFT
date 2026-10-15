@@ -698,7 +698,9 @@ Every transition writes an audit row via `record_status_change`.
 |---|---|
 | GRN posted | `inventory.post_movements` (`PURCHASE_RECEIPT`), advance PO status, create incoming QC inspection when the item requires it |
 | Material issue | `allocation.consume` the reservation, then `post_movements` (`MATERIAL_ISSUE`) |
+| Production order released | Snapshot the approved BOM roll-up unit standard and its material, operation and direct-outsourced operation parts on `production_orders`; snapshot `routing_operations.is_outsourced` on each `work_orders` row |
 | Production completion | `post_movements` (`PRODUCTION_RECEIPT`) for output - into QC hold with an in-process inspection when the order holds output for QC - `ASSEMBLY_CONSUME`/`MATERIAL_ISSUE` for components; refused while any booked output is still held |
+| Production order closed | Freeze FIFO issue cost, internal work-order cost, accrued job-work receipt charges, good-unit actual cost and standard variances on the order in the same transaction as the CLOSED transition |
 | Job-work issue | `post_movements` (`JOB_WORK_ISSUE`) moving stock to `stock_state=JOB_WORK` — still company-owned |
 | QC rejection | `change_stock_state` to `DAMAGED`/`SCRAP`, raise return/rework |
 | QC verdict decided | `quality.owners.notify_owner` in the same transaction, after the stock moves: the owning document completes itself from the verdict and moves nothing again |
@@ -720,6 +722,21 @@ Every transition writes an audit row via `record_status_change`.
 | Dealer checkout | One DRAFT `sales_orders` row with `source = DEALER_PORTAL`, server prices and scheme `offer_id`s per line, cart cleared, one `dealer_checkout` audit row, and `notify` the assigned salesperson else `sales_order.approve` holders - all in one transaction, or nothing (§C3-6) |
 | Any write naming a cost centre | `organization.service.require_cost_centre` / `require_cost_centres` (tenant, live, active) before the row is written |
 | Any status change | `audit.record_status_change` in the same transaction |
+
+Production obtains subcontract actuals only through
+`job_work.service.production_order_charges(session, tenant, production_order_id)`.
+It returns receipt-accrued `job_work_orders.total_charges` for the tenant's
+orders whose source is that production order; estimates and vendor-debit
+recoveries are not manufacturing charges. The query is aggregated in
+`job_work.repository`, not performed by production against another module's
+tables.
+
+The release-time standard fields on `production_orders` are nullable because
+existing orders have no reliable historical standard snapshot. Cost and
+variance columns remain nullable until closure, and variance values may be
+negative. `actual_subcontract_cost` is based on good output actually received
+from job-work suppliers; `actual_unit_cost` divides the full actual cost by
+good production output, and is NULL when no good output exists.
 
 ### QC verdict to owner (`quality.owners`)
 

@@ -13136,6 +13136,8 @@ export interface components {
             operation_cost: string;
             /** Output Quantity */
             output_quantity: string;
+            /** Subcontract Operation Cost */
+            subcontract_operation_cost: string;
             /** Total Cost */
             total_cost: string;
             /** Unit Cost */
@@ -23253,6 +23255,8 @@ export interface components {
             cost_per_hour: string;
             /** Is Actual Time */
             is_actual_time: boolean;
+            /** Is Outsourced */
+            is_outsourced: boolean;
             /** Operation Code */
             operation_code: string;
             /** Process Cost */
@@ -23286,6 +23290,8 @@ export interface components {
          *     work-centre rate is revised.
          */
         ProductionCostRead: {
+            /** Actual Unit Cost */
+            actual_unit_cost?: string | null;
             /** Code */
             code: string;
             /** Cost Per Unit */
@@ -23294,10 +23300,14 @@ export interface components {
             is_final: boolean;
             /** Material Cost */
             material_cost: string;
+            /** Material Variance */
+            material_variance?: string | null;
             /** Materials */
             materials?: components["schemas"]["ProductionCostMaterialLine"][];
             /** Operation Cost */
             operation_cost: string;
+            /** Operation Variance */
+            operation_variance?: string | null;
             /** Operations */
             operations?: components["schemas"]["ProductionCostOperationLine"][];
             /** Planned Quantity */
@@ -23309,9 +23319,17 @@ export interface components {
              * Format: uuid
              */
             production_order_id: string;
+            /** Standard Unit Cost */
+            standard_unit_cost?: string | null;
             status: components["schemas"]["ProductionOrderStatus"];
+            /** Subcontract Cost */
+            subcontract_cost: string;
+            /** Subcontract Variance */
+            subcontract_variance?: string | null;
             /** Total Cost */
             total_cost: string;
+            /** Total Variance */
+            total_variance?: string | null;
             /**
              * Uncosted Operation Count
              * @default 0
@@ -23476,6 +23494,10 @@ export interface components {
             actual_end_date: string | null;
             /** Actual Start Date */
             actual_start_date: string | null;
+            /** Actual Subcontract Cost */
+            actual_subcontract_cost: string | null;
+            /** Actual Unit Cost */
+            actual_unit_cost: string | null;
             /** Approved At */
             approved_at: string | null;
             /** Approved By Id */
@@ -23508,8 +23530,12 @@ export interface components {
              * Format: uuid
              */
             item_id: string;
+            /** Material Variance */
+            material_variance: string | null;
             /** Notes */
             notes: string | null;
+            /** Operation Variance */
+            operation_variance: string | null;
             /**
              * Planned End Date
              * Format: date
@@ -23539,13 +23565,25 @@ export interface components {
             /** Source Id */
             source_id: string | null;
             source_type: components["schemas"]["ProductionSourceType"];
+            /** Standard Material Unit Cost */
+            standard_material_unit_cost: string | null;
+            /** Standard Operation Unit Cost */
+            standard_operation_unit_cost: string | null;
+            /** Standard Subcontract Unit Cost */
+            standard_subcontract_unit_cost: string | null;
+            /** Standard Unit Cost */
+            standard_unit_cost: string | null;
             status: components["schemas"]["ProductionOrderStatus"];
+            /** Subcontract Variance */
+            subcontract_variance: string | null;
             /** Total Cost */
             total_cost: string;
             /** Total Material Cost */
             total_material_cost: string;
             /** Total Operation Cost */
             total_operation_cost: string;
+            /** Total Variance */
+            total_variance: string | null;
             /**
              * Updated At
              * Format: date-time
@@ -23567,6 +23605,10 @@ export interface components {
             actual_end_date: string | null;
             /** Actual Start Date */
             actual_start_date: string | null;
+            /** Actual Subcontract Cost */
+            actual_subcontract_cost: string | null;
+            /** Actual Unit Cost */
+            actual_unit_cost: string | null;
             /** Approved At */
             approved_at: string | null;
             /** Approved By Id */
@@ -23594,8 +23636,12 @@ export interface components {
              * Format: uuid
              */
             item_id: string;
+            /** Material Variance */
+            material_variance: string | null;
             /** Notes */
             notes: string | null;
+            /** Operation Variance */
+            operation_variance: string | null;
             /**
              * Planned End Date
              * Format: date
@@ -23625,13 +23671,25 @@ export interface components {
             /** Source Id */
             source_id: string | null;
             source_type: components["schemas"]["ProductionSourceType"];
+            /** Standard Material Unit Cost */
+            standard_material_unit_cost: string | null;
+            /** Standard Operation Unit Cost */
+            standard_operation_unit_cost: string | null;
+            /** Standard Subcontract Unit Cost */
+            standard_subcontract_unit_cost: string | null;
+            /** Standard Unit Cost */
+            standard_unit_cost: string | null;
             status: components["schemas"]["ProductionOrderStatus"];
+            /** Subcontract Variance */
+            subcontract_variance: string | null;
             /** Total Cost */
             total_cost: string;
             /** Total Material Cost */
             total_material_cost: string;
             /** Total Operation Cost */
             total_operation_cost: string;
+            /** Total Variance */
+            total_variance: string | null;
             /**
              * Updated At
              * Format: date-time
@@ -32352,6 +32410,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Is Outsourced */
+            is_outsourced: boolean;
             /** Machine Id */
             machine_id: string | null;
             /** Notes */

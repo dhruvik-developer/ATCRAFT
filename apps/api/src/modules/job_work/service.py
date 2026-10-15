@@ -1303,6 +1303,19 @@ async def job_work_charges_for_period(
     )
 
 
+async def production_order_charges(
+    session: AsyncSession, tenant: TenantContext, production_order_id: uuid.UUID
+) -> Decimal:
+    """Accrued job-work receipt charges for a production order.
+
+    This narrow read seam keeps production from reaching into job-work tables.
+    Unreceived estimated charges are not actual cost and are not included.
+    """
+    return await JobWorkOrderRepository(session, tenant).charges_for_production_order(
+        production_order_id
+    )
+
+
 async def list_charges_page(
     session: AsyncSession,
     tenant: TenantContext,
@@ -3037,6 +3050,7 @@ __all__ = [
     "order_detail",
     "pending_at_vendor",
     "plan_line_receipt",
+    "production_order_charges",
     "receipt_charge",
     "receipt_detail",
     "receive",

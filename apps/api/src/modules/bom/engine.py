@@ -206,6 +206,15 @@ def operation_cost_per_run(operations: Sequence[BomOperation], output_quantity: 
     return to_money(total)
 
 
+def subcontract_operation_cost_per_run(
+    operations: Sequence[BomOperation], output_quantity: Decimal
+) -> Decimal:
+    """The outsourced portion of a run's operation cost, already in its total."""
+    return operation_cost_per_run(
+        [operation for operation in operations if operation.is_outsourced], output_quantity
+    )
+
+
 # -----------------------------------------------------------------------------
 # Results
 # -----------------------------------------------------------------------------
@@ -291,6 +300,8 @@ class BomCost:
     output_quantity: Decimal
     material_cost: Decimal
     operation_cost: Decimal
+    #: Direct outsourced operations for this BOM run, included in operation_cost.
+    subcontract_operation_cost: Decimal
     total_cost: Decimal
     unit_cost: Decimal
     components: tuple[BomCostComponent, ...]
@@ -1032,6 +1043,7 @@ def _build_cost_result(
 
     material = to_money(sum((extended for _, _, extended in priced), Decimal(0)))
     operation = operation_cost_per_run(operations, output)
+    subcontract_operation = subcontract_operation_cost_per_run(operations, output)
     total = to_money(material + operation)
     with localcontext() as ctx:
         ctx.prec = EXPLOSION_PRECISION
@@ -1045,6 +1057,7 @@ def _build_cost_result(
         output_quantity=output,
         material_cost=material,
         operation_cost=operation,
+        subcontract_operation_cost=subcontract_operation,
         total_cost=total,
         unit_cost=to_money(unit),
         components=tuple(sorted(components, key=lambda c: c.item_code)),
@@ -1077,5 +1090,6 @@ __all__ = [
     "is_explodable",
     "line_requirement",
     "operation_cost_per_run",
+    "subcontract_operation_cost_per_run",
     "where_used",
 ]

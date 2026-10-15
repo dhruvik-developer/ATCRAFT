@@ -164,6 +164,16 @@ class ProductionOrderRead(ProductionOrderSummary):
     closure_note: str | None
     total_material_cost: Decimal
     total_operation_cost: Decimal
+    standard_unit_cost: Decimal | None
+    standard_material_unit_cost: Decimal | None
+    standard_operation_unit_cost: Decimal | None
+    standard_subcontract_unit_cost: Decimal | None
+    actual_subcontract_cost: Decimal | None
+    actual_unit_cost: Decimal | None
+    material_variance: Decimal | None
+    operation_variance: Decimal | None
+    subcontract_variance: Decimal | None
+    total_variance: Decimal | None
     total_cost: Decimal
     notes: str | None
     version: int
@@ -195,6 +205,7 @@ class WorkOrderRead(BaseModel):
     planned_setup_minutes: Decimal
     planned_run_minutes: Decimal
     process_cost: Decimal
+    is_outsourced: bool
     #: The rates the job is costed at, frozen when it was released.
     work_center_cost_per_hour: Decimal
     work_center_setup_cost: Decimal
@@ -723,6 +734,7 @@ class ProductionCostOperationLine(BaseModel):
     operation_code: str
     work_center_id: uuid.UUID
     status: WorkOrderStatus
+    is_outsourced: bool
     #: Charged minutes: elapsed actual time where it was clocked, planned
     #: setup + run otherwise.
     charged_minutes: Decimal
@@ -750,10 +762,17 @@ class ProductionCostRead(BaseModel):
     produced_quantity: Decimal
     material_cost: Decimal
     operation_cost: Decimal
+    subcontract_cost: Decimal
     total_cost: Decimal
     #: ``None`` when nothing has been produced yet: dividing by zero output
     #: would report an infinite unit cost rather than "not known yet".
     cost_per_unit: Decimal | None
+    standard_unit_cost: Decimal | None = None
+    actual_unit_cost: Decimal | None = None
+    material_variance: Decimal | None = None
+    operation_variance: Decimal | None = None
+    subcontract_variance: Decimal | None = None
+    total_variance: Decimal | None = None
     materials: list[ProductionCostMaterialLine] = Field(default_factory=list)
     operations: list[ProductionCostOperationLine] = Field(default_factory=list)
     #: Work orders costed from planned time because nobody clocked them.

@@ -282,9 +282,16 @@ export interface ProductionCost {
   status: ProductionStatus
   material_cost: DecimalString
   operation_cost: DecimalString
+  subcontract_cost: DecimalString
   total_cost: DecimalString
   /** Null until something has actually been produced to divide by. */
   cost_per_unit: DecimalString | null
+  standard_unit_cost: DecimalString | null
+  actual_unit_cost: DecimalString | null
+  material_variance: DecimalString | null
+  operation_variance: DecimalString | null
+  subcontract_variance: DecimalString | null
+  total_variance: DecimalString | null
   planned_quantity: DecimalString
   produced_quantity: DecimalString
   /** True once the order is closed and the costing is settled. */
@@ -313,6 +320,7 @@ export interface ProductionCostOperationLine {
   sequence: number
   operation_code: string
   status: WorkOrderStatus
+  is_outsourced: boolean
   /** True when the minutes came off the clock rather than off the plan. */
   is_actual_time: boolean
   charged_minutes: DecimalString

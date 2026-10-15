@@ -8746,6 +8746,11 @@
             "title": "Output Quantity",
             "type": "string"
           },
+          "subcontract_operation_cost": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Subcontract Operation Cost",
+            "type": "string"
+          },
           "total_cost": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Total Cost",
@@ -8765,6 +8770,7 @@
           "output_quantity",
           "material_cost",
           "operation_cost",
+          "subcontract_operation_cost",
           "total_cost",
           "unit_cost",
           "components",
@@ -35382,6 +35388,10 @@
             "title": "Is Actual Time",
             "type": "boolean"
           },
+          "is_outsourced": {
+            "title": "Is Outsourced",
+            "type": "boolean"
+          },
           "operation_code": {
             "title": "Operation Code",
             "type": "string"
@@ -35430,6 +35440,7 @@
           "operation_code",
           "work_center_id",
           "status",
+          "is_outsourced",
           "charged_minutes",
           "is_actual_time",
           "cost_per_hour",
@@ -35444,6 +35455,18 @@
       "ProductionCostRead": {
         "description": "Actual cost of one job.\n\nRecomputed live for an open order and read back from the stored columns\nonce the order is closed - a closed job's cost must not move when a\nwork-centre rate is revised.",
         "properties": {
+          "actual_unit_cost": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Unit Cost"
+          },
           "code": {
             "title": "Code",
             "type": "string"
@@ -35469,6 +35492,18 @@
             "title": "Material Cost",
             "type": "string"
           },
+          "material_variance": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Material Variance"
+          },
           "materials": {
             "items": {
               "$ref": "#/components/schemas/ProductionCostMaterialLine"
@@ -35480,6 +35515,18 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Operation Cost",
             "type": "string"
+          },
+          "operation_variance": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Variance"
           },
           "operations": {
             "items": {
@@ -35503,13 +35550,54 @@
             "title": "Production Order Id",
             "type": "string"
           },
+          "standard_unit_cost": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Unit Cost"
+          },
           "status": {
             "$ref": "#/components/schemas/ProductionOrderStatus"
+          },
+          "subcontract_cost": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Subcontract Cost",
+            "type": "string"
+          },
+          "subcontract_variance": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subcontract Variance"
           },
           "total_cost": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Total Cost",
             "type": "string"
+          },
+          "total_variance": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Variance"
           },
           "uncosted_operation_count": {
             "default": 0,
@@ -35526,6 +35614,7 @@
           "produced_quantity",
           "material_cost",
           "operation_cost",
+          "subcontract_cost",
           "total_cost",
           "cost_per_unit"
         ],
@@ -36046,6 +36135,30 @@
             ],
             "title": "Actual Start Date"
           },
+          "actual_subcontract_cost": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Subcontract Cost"
+          },
+          "actual_unit_cost": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Unit Cost"
+          },
           "approved_at": {
             "anyOf": [
               {
@@ -36129,6 +36242,18 @@
             "title": "Item Id",
             "type": "string"
           },
+          "material_variance": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Material Variance"
+          },
           "notes": {
             "anyOf": [
               {
@@ -36139,6 +36264,18 @@
               }
             ],
             "title": "Notes"
+          },
+          "operation_variance": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Variance"
           },
           "planned_end_date": {
             "format": "date",
@@ -36217,8 +36354,68 @@
           "source_type": {
             "$ref": "#/components/schemas/ProductionSourceType"
           },
+          "standard_material_unit_cost": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Material Unit Cost"
+          },
+          "standard_operation_unit_cost": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Operation Unit Cost"
+          },
+          "standard_subcontract_unit_cost": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Subcontract Unit Cost"
+          },
+          "standard_unit_cost": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Unit Cost"
+          },
           "status": {
             "$ref": "#/components/schemas/ProductionOrderStatus"
+          },
+          "subcontract_variance": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subcontract Variance"
           },
           "total_cost": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -36234,6 +36431,18 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Total Operation Cost",
             "type": "string"
+          },
+          "total_variance": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Variance"
           },
           "updated_at": {
             "format": "date-time",
@@ -36285,6 +36494,16 @@
           "closure_note",
           "total_material_cost",
           "total_operation_cost",
+          "standard_unit_cost",
+          "standard_material_unit_cost",
+          "standard_operation_unit_cost",
+          "standard_subcontract_unit_cost",
+          "actual_subcontract_cost",
+          "actual_unit_cost",
+          "material_variance",
+          "operation_variance",
+          "subcontract_variance",
+          "total_variance",
           "total_cost",
           "notes",
           "version",
@@ -36318,6 +36537,30 @@
               }
             ],
             "title": "Actual Start Date"
+          },
+          "actual_subcontract_cost": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Subcontract Cost"
+          },
+          "actual_unit_cost": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Unit Cost"
           },
           "approved_at": {
             "anyOf": [
@@ -36397,6 +36640,18 @@
             "title": "Item Id",
             "type": "string"
           },
+          "material_variance": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Material Variance"
+          },
           "notes": {
             "anyOf": [
               {
@@ -36407,6 +36662,18 @@
               }
             ],
             "title": "Notes"
+          },
+          "operation_variance": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Variance"
           },
           "planned_end_date": {
             "format": "date",
@@ -36485,8 +36752,68 @@
           "source_type": {
             "$ref": "#/components/schemas/ProductionSourceType"
           },
+          "standard_material_unit_cost": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Material Unit Cost"
+          },
+          "standard_operation_unit_cost": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Operation Unit Cost"
+          },
+          "standard_subcontract_unit_cost": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Subcontract Unit Cost"
+          },
+          "standard_unit_cost": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Unit Cost"
+          },
           "status": {
             "$ref": "#/components/schemas/ProductionOrderStatus"
+          },
+          "subcontract_variance": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subcontract Variance"
           },
           "total_cost": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -36502,6 +36829,18 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Total Operation Cost",
             "type": "string"
+          },
+          "total_variance": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Variance"
           },
           "updated_at": {
             "format": "date-time",
@@ -36546,6 +36885,16 @@
           "closure_note",
           "total_material_cost",
           "total_operation_cost",
+          "standard_unit_cost",
+          "standard_material_unit_cost",
+          "standard_operation_unit_cost",
+          "standard_subcontract_unit_cost",
+          "actual_subcontract_cost",
+          "actual_unit_cost",
+          "material_variance",
+          "operation_variance",
+          "subcontract_variance",
+          "total_variance",
           "total_cost",
           "notes",
           "version",
@@ -62628,6 +62977,10 @@
             "title": "Id",
             "type": "string"
           },
+          "is_outsourced": {
+            "title": "Is Outsourced",
+            "type": "boolean"
+          },
           "machine_id": {
             "anyOf": [
               {
@@ -62793,6 +63146,7 @@
           "planned_setup_minutes",
           "planned_run_minutes",
           "process_cost",
+          "is_outsourced",
           "work_center_cost_per_hour",
           "work_center_setup_cost",
           "status",

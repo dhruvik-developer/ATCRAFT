@@ -409,6 +409,9 @@ class RoutingStep(Protocol):
     @property
     def process_cost(self) -> Decimal: ...
 
+    @property
+    def is_outsourced(self) -> bool: ...
+
 
 @dataclass(frozen=True, slots=True)
 class ComponentPlan:
@@ -437,6 +440,7 @@ class WorkOrderPlan:
     planned_setup_minutes: Decimal
     planned_run_minutes: Decimal
     process_cost: Decimal
+    is_outsourced: bool
     planned_start_at: datetime
     planned_end_at: datetime
 
@@ -457,6 +461,7 @@ class OperationCostInput:
     actual_end_at: datetime | None
     cost_per_hour: Decimal
     work_centre_setup_cost: Decimal
+    is_outsourced: bool
 
 
 def assert_may_force_partial_issue(principal: Principal, *, order_code: str) -> None:
@@ -664,6 +669,7 @@ def plan_work_orders(
                     Decimal(operation.run_time_per_unit_minutes) * quantity
                 ),
                 process_cost=to_money(operation.process_cost),
+                is_outsourced=operation.is_outsourced,
                 planned_start_at=cursor,
                 planned_end_at=finish,
             )
@@ -728,15 +734,22 @@ def operation_cost_line(operation: OperationCostInput) -> ProductionCostOperatio
     """
     minutes, is_actual = charged_minutes(operation)
     ran = minutes > ZERO or operation.status is WorkOrderStatus.COMPLETED
-    time_cost = to_money(minutes / MINUTES_PER_HOUR * Decimal(operation.cost_per_hour))
-    setup_cost = to_money(operation.work_centre_setup_cost) if ran else ZERO
-    process_cost = to_money(operation.process_cost) if ran else ZERO
+    time_cost = (
+        ZERO
+        if operation.is_outsourced
+        else to_money(minutes / MINUTES_PER_HOUR * Decimal(operation.cost_per_hour))
+    )
+    setup_cost = (
+        to_money(operation.work_centre_setup_cost) if ran and not operation.is_outsourced else ZERO
+    )
+    process_cost = to_money(operation.process_cost) if ran and not operation.is_outsourced else ZERO
     return ProductionCostOperationLine(
         work_order_id=operation.work_order_id,
         sequence=operation.sequence,
         operation_code=operation.operation_code,
         work_center_id=operation.work_center_id,
         status=operation.status,
+        is_outsourced=operation.is_outsourced,
         charged_minutes=minutes,
         is_actual_time=is_actual,
         cost_per_hour=to_money(operation.cost_per_hour),
@@ -780,6 +793,7 @@ def summarise_cost(
     materials: Sequence[ProductionCostMaterialLine],
     operations: Sequence[ProductionCostOperationLine],
     is_final: bool,
+    subcontract_cost: Decimal = ZERO,
 ) -> ProductionCostRead:
     """Add the two halves up.
 
@@ -789,8 +803,29 @@ def summarise_cost(
     """
     material_cost = sum((line.total_cost for line in materials), start=ZERO)
     operation_cost = sum((line.total_cost for line in operations), start=ZERO)
-    total = to_money(material_cost + operation_cost)
+    subcontract = to_money(subcontract_cost)
+    total = to_money(material_cost + operation_cost + subcontract)
     produced = to_quantity(order.produced_quantity)
+    standard_unit = order.standard_unit_cost
+    standard_material_unit = order.standard_material_unit_cost
+    standard_subcontract_unit = order.standard_subcontract_unit_cost
+    actual_unit = to_money(total / produced) if produced > ZERO else None
+    if (
+        standard_unit is not None
+        and standard_material_unit is not None
+        and standard_subcontract_unit is not None
+    ):
+        total_variance = to_money(total - Decimal(standard_unit) * produced)
+        material_variance = to_money(material_cost - Decimal(standard_material_unit) * produced)
+        subcontract_variance = to_money(subcontract - Decimal(standard_subcontract_unit) * produced)
+        # Assign the money-rounding remainder to operations so the three
+        # displayed components always add exactly to the total variance.
+        operation_variance = to_money(total_variance - material_variance - subcontract_variance)
+    else:
+        total_variance = None
+        material_variance = None
+        operation_variance = None
+        subcontract_variance = None
     return ProductionCostRead(
         production_order_id=order.id,
         code=order.code,
@@ -800,12 +835,21 @@ def summarise_cost(
         produced_quantity=produced,
         material_cost=to_money(material_cost),
         operation_cost=to_money(operation_cost),
+        subcontract_cost=subcontract,
         total_cost=total,
-        cost_per_unit=to_money(total / produced) if produced > ZERO else None,
+        cost_per_unit=actual_unit,
+        standard_unit_cost=standard_unit,
+        actual_unit_cost=actual_unit,
+        material_variance=material_variance,
+        operation_variance=operation_variance,
+        subcontract_variance=subcontract_variance,
+        total_variance=total_variance,
         materials=list(materials),
         operations=list(operations),
         uncosted_operation_count=sum(
-            1 for line in operations if not line.is_actual_time and line.charged_minutes > ZERO
+            1
+            for line in operations
+            if not line.is_outsourced and not line.is_actual_time and line.charged_minutes > ZERO
         ),
     )
 
@@ -1654,6 +1698,9 @@ async def release_order(
             bom_id=bom.id,
             as_of=as_of,
         )
+        standard = await bom_engine.cost_roll_up(
+            session, tenant, order.item_id, bom_id=bom.id, as_of=as_of
+        )
         if not explosion.components:
             raise BusinessRuleError(
                 f"Bill of materials {bom.code} explodes to no components; there is nothing "
@@ -1702,6 +1749,17 @@ async def release_order(
         order.bom_id = bom.id
         if routing is not None:
             order.routing_id = routing.id
+        standard_material_unit = to_money(standard.material_cost / standard.output_quantity)
+        standard_subcontract_unit = to_money(
+            standard.subcontract_operation_cost / standard.output_quantity
+        )
+        standard_unit = to_money(standard.unit_cost)
+        order.standard_unit_cost = standard_unit
+        order.standard_material_unit_cost = standard_material_unit
+        order.standard_subcontract_unit_cost = standard_subcontract_unit
+        order.standard_operation_unit_cost = to_money(
+            standard_unit - standard_material_unit - standard_subcontract_unit
+        )
         await session.flush()
 
         # The status change and the audit row are written before the reservation
@@ -1742,6 +1800,7 @@ async def release_order(
             new_values={
                 "bom_code": bom.code,
                 "routing_id": routing.id if routing else None,
+                "standard_unit_cost": order.standard_unit_cost,
                 "component_count": len(components),
                 "work_order_count": len(work_orders),
                 "shortage_count": len(shortages),
@@ -1828,6 +1887,7 @@ async def _create_work_orders(
                     planned_setup_minutes=plan.planned_setup_minutes,
                     planned_run_minutes=plan.planned_run_minutes,
                     process_cost=plan.process_cost,
+                    is_outsourced=plan.is_outsourced,
                     work_center_cost_per_hour=to_money(cost_per_hour),
                     work_center_setup_cost=to_money(setup_cost),
                     status=WorkOrderStatus.PENDING,
@@ -2012,6 +2072,12 @@ async def close_order(
         cost = await _compute_cost(session, tenant, order, is_final=True)
         order.total_material_cost = cost.material_cost
         order.total_operation_cost = cost.operation_cost
+        order.actual_subcontract_cost = cost.subcontract_cost
+        order.actual_unit_cost = cost.actual_unit_cost
+        order.material_variance = cost.material_variance
+        order.operation_variance = cost.operation_variance
+        order.subcontract_variance = cost.subcontract_variance
+        order.total_variance = cost.total_variance
         order.total_cost = cost.total_cost
         order.closure_note = payload.closure_note
 
@@ -2045,6 +2111,12 @@ async def close_order(
             new_values={
                 "total_material_cost": cost.material_cost,
                 "total_operation_cost": cost.operation_cost,
+                "actual_subcontract_cost": cost.subcontract_cost,
+                "actual_unit_cost": cost.actual_unit_cost,
+                "material_variance": cost.material_variance,
+                "operation_variance": cost.operation_variance,
+                "subcontract_variance": cost.subcontract_variance,
+                "total_variance": cost.total_variance,
                 "total_cost": cost.total_cost,
                 "cost_per_unit": cost.cost_per_unit,
                 "released_reservations": released,
@@ -3795,7 +3867,7 @@ async def wip_work_centres(
 async def _compute_cost(
     session: AsyncSession, tenant: TenantContext, order: ProductionOrder, *, is_final: bool
 ) -> ProductionCostRead:
-    """Material at movement cost, operations at actual time. Three statements.
+    """Material at movement cost, operations at actual time, subcontract at receipt charges.
 
     Every input is already frozen on the job - the component snapshot, the
     posted issue lines and the work orders' own rates - so the same order costs
@@ -3805,6 +3877,10 @@ async def _compute_cost(
     components = await ProductionOrderComponentRepository(session, tenant).list_for_order(order.id)
     totals = await MaterialIssueLineRepository(session, tenant).posted_totals_for_order(order.id)
     work_orders = await WorkOrderRepository(session, tenant).list_for_order(order.id)
+
+    from src.modules.job_work.service import production_order_charges
+
+    subcontract_cost = await production_order_charges(session, tenant, order.id)
 
     materials = [
         material_cost_line(component, totals.get(component.id)) for component in components
@@ -3824,12 +3900,17 @@ async def _compute_cost(
                 actual_end_at=work_order.actual_end_at,
                 cost_per_hour=Decimal(work_order.work_center_cost_per_hour),
                 work_centre_setup_cost=Decimal(work_order.work_center_setup_cost),
+                is_outsourced=work_order.is_outsourced,
             )
         )
         for work_order in work_orders
     ]
     return summarise_cost(
-        order=order, materials=materials, operations=operations, is_final=is_final
+        order=order,
+        materials=materials,
+        operations=operations,
+        subcontract_cost=subcontract_cost,
+        is_final=is_final,
     )
 
 
@@ -3852,12 +3933,19 @@ async def production_cost(
             "is_final": True,
             "material_cost": to_money(order.total_material_cost),
             "operation_cost": to_money(order.total_operation_cost),
+            "subcontract_cost": to_money(order.actual_subcontract_cost or ZERO),
             "total_cost": to_money(order.total_cost),
             "cost_per_unit": (
                 to_money(Decimal(order.total_cost) / Decimal(order.produced_quantity))
                 if Decimal(order.produced_quantity) > ZERO
                 else None
             ),
+            "standard_unit_cost": order.standard_unit_cost,
+            "actual_unit_cost": order.actual_unit_cost,
+            "material_variance": order.material_variance,
+            "operation_variance": order.operation_variance,
+            "subcontract_variance": order.subcontract_variance,
+            "total_variance": order.total_variance,
         }
     )
 

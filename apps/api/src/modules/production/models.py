@@ -307,6 +307,16 @@ class ProductionOrder(TenantEntity, OptimisticLockMixin):
     total_operation_cost: Mapped[Decimal] = mapped_column(
         Money, nullable=False, default=Decimal("0"), server_default="0"
     )
+    standard_unit_cost: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    standard_material_unit_cost: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    standard_operation_unit_cost: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    standard_subcontract_unit_cost: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    actual_subcontract_cost: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    actual_unit_cost: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    material_variance: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    operation_variance: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    subcontract_variance: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    total_variance: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
     total_cost: Mapped[Decimal] = mapped_column(
         Money, nullable=False, default=Decimal("0"), server_default="0"
     )
@@ -541,6 +551,9 @@ class WorkOrder(TenantEntity):
     #: snapshotted because it is a price, not a duration.
     process_cost: Mapped[Decimal] = mapped_column(
         Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    is_outsourced: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
     )
 
     # The work centre's rates as they stood when the job was released.

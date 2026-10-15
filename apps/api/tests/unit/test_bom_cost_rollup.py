@@ -61,6 +61,7 @@ class FakeOperation:
     run_time_minutes_per_unit: Decimal = Decimal("0")
     cost_per_hour: Decimal = Decimal("0")
     fixed_cost: Decimal = Decimal("0")
+    is_outsourced: bool = False
 
 
 @dataclass
@@ -221,6 +222,16 @@ def test_operations_accumulate() -> None:
         FakeOperation(run_time_minutes_per_unit=Decimal("30"), cost_per_hour=Decimal("40")),
     ]
     assert engine.operation_cost_per_run(cast(Any, operations), Decimal("2")) == Decimal("50")
+
+
+def test_outsourced_operation_cost_is_reported_as_a_component_of_operation_cost() -> None:
+    operations = [
+        FakeOperation(run_time_minutes_per_unit=Decimal("30"), cost_per_hour=Decimal("40")),
+        FakeOperation(fixed_cost=Decimal("15"), is_outsourced=True),
+    ]
+    assert engine.operation_cost_per_run(cast(Any, operations), Decimal("2")) == Decimal("55")
+    subcontract = engine.subcontract_operation_cost_per_run(cast(Any, operations), Decimal("2"))
+    assert subcontract == Decimal("15")
 
 
 def test_no_operations_costs_nothing() -> None:

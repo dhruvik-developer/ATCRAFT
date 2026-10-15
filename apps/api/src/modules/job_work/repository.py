@@ -51,6 +51,7 @@ from src.modules.job_work.models import (
     JobWorkOrderLine,
     JobWorkReceipt,
     JobWorkReceiptLine,
+    JobWorkSourceType,
 )
 from src.modules.job_work.schemas import (
     JobWorkOrderFilters,
@@ -528,6 +529,15 @@ class JobWorkOrderRepository(BaseRepository[JobWorkOrder]):
         """
         stmt = self._scoped().where(JobWorkOrder.id == order_id).with_for_update()
         return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def charges_for_production_order(self, production_order_id: uuid.UUID) -> Decimal:
+        """Accrued receipt charges for job-work orders sourced by one production order."""
+        stmt = select(func.coalesce(func.sum(JobWorkOrder.total_charges), 0)).where(
+            JobWorkOrder.company_id == self.tenant.company_id,
+            JobWorkOrder.source_type == JobWorkSourceType.PRODUCTION_ORDER,
+            JobWorkOrder.source_id == production_order_id,
+        )
+        return Decimal((await self.session.execute(stmt)).scalar_one())
 
     def _filtered(self, filters: JobWorkOrderFilters) -> Select[Any]:
         stmt = self._scoped()

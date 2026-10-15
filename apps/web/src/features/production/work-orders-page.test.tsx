@@ -72,6 +72,7 @@ function workOrder(overrides: Partial<WorkOrder> = {}): WorkOrder {
     work_center_cost_per_hour: '250.0000',
     work_center_setup_cost: '100.0000',
     process_cost: '0.0000',
+    is_outsourced: false,
     ...overrides,
   }
 }

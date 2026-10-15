@@ -426,6 +426,7 @@ class BomCostRead(BaseModel):
     output_quantity: Decimal
     material_cost: Decimal
     operation_cost: Decimal
+    subcontract_operation_cost: Decimal
     total_cost: Decimal
     #: Cost of one unit of the item, i.e. ``total_cost / output_quantity``.
     unit_cost: Decimal

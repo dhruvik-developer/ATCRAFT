@@ -50,13 +50,20 @@ from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.modules.allocation.models import DemandType, ReservationStatus, StockReservation
 from src.modules.audit.models import AuditAction, AuditLog
-from src.modules.bom.models import Bom, BomLine, BomStatus, BomType
+from src.modules.bom.models import Bom, BomLine, BomOperation, BomStatus, BomType
 from src.modules.inventory.models import (
     InventoryBalance,
     InventoryTransaction,
     TransactionType,
 )
 from src.modules.inventory.service import post_movement
+from src.modules.job_work.models import (
+    JobWorkOrder,
+    JobWorkOrderStatus,
+    JobWorkProcess,
+    JobWorkSourceType,
+    RateBasis,
+)
 from src.modules.organization.models import Company
 from src.modules.production import service
 from src.modules.production.models import (
@@ -1116,6 +1123,20 @@ async def test_release_issue_complete_moves_stock_end_to_end(
 async def test_closing_costs_the_job_from_real_movements_and_real_time(
     db, tenant, stocked, planner, approver
 ):
+    db.add(
+        BomOperation(
+            company_id=tenant.company_id,
+            bom_id=stocked["bom"].id,
+            operation_sequence=10,
+            name="PVD",
+            setup_time_minutes=Decimal("0"),
+            run_time_minutes_per_unit=Decimal("0"),
+            cost_per_hour=Decimal("0"),
+            fixed_cost=Decimal("9"),
+            is_outsourced=True,
+        )
+    )
+    await db.flush()
     order = await make_order(db, tenant, stocked, quantity="100")
     await approve(db, tenant, approver, order)
     await release(db, tenant, order)
@@ -1147,14 +1168,44 @@ async def test_closing_costs_the_job_from_real_movements_and_real_time(
     )
     await service.complete_order(db, tenant, order.id, CompleteRequest())
 
+    vendor = await seed_vendor(db, company_id=tenant.company_id)
+    db.add(
+        JobWorkOrder(
+            company_id=tenant.company_id,
+            code=f"JW-{uuid.uuid4().hex[:8]}",
+            vendor_id=vendor.id,
+            process_type=JobWorkProcess.PVD,
+            process_description="Production costing test",
+            expected_return_date=today(),
+            warehouse_id=stocked["warehouse"].id,
+            return_warehouse_id=stocked["warehouse"].id,
+            rate_per_unit=Decimal("9"),
+            rate_basis=RateBasis.PER_PIECE,
+            total_charges=Decimal("900"),
+            status=JobWorkOrderStatus.COMPLETED,
+            source_type=JobWorkSourceType.PRODUCTION_ORDER,
+            source_id=order.id,
+        )
+    )
+    await db.flush()
+
     closed = await service.close_order(db, tenant, order.id, CloseRequest(closure_note="Ran clean"))
-    # 100 bodies at 40 plus 630 screws at 5.
+    # 100 bodies at 40 plus 630 screws at 5, and the accrued vendor charge.
     assert closed.cost.material_cost == Decimal("7150.00")
     # Two clocked hours at 600 an hour.
     assert closed.cost.operation_cost == Decimal("1200.00")
-    assert closed.cost.total_cost == Decimal("8350.00")
-    assert closed.cost.cost_per_unit == Decimal("83.50")
+    assert closed.cost.subcontract_cost == Decimal("900.00")
+    assert closed.cost.total_cost == Decimal("9250.00")
+    assert closed.cost.cost_per_unit == Decimal("92.50")
+    assert closed.cost.standard_unit_cost == Decimal("80.50")
+    assert closed.cost.actual_unit_cost == Decimal("92.50")
+    assert closed.cost.material_variance == Decimal("0.00")
+    assert closed.cost.operation_variance == Decimal("1200.00")
+    assert closed.cost.subcontract_variance == Decimal("0.00")
+    assert closed.cost.total_variance == Decimal("1200.00")
     assert closed.order.status is ProductionOrderStatus.CLOSED
+    assert closed.order.actual_subcontract_cost == Decimal("900.0000")
+    assert closed.order.standard_subcontract_unit_cost == Decimal("9.0000")
 
     # A later rate revision must move neither the stored total nor the
     # per-operation breakdown under it: the work order carries the rate the job
@@ -1163,7 +1214,8 @@ async def test_closing_costs_the_job_from_real_movements_and_real_time(
     await db.flush()
     frozen = await service.production_cost(db, tenant, order.id)
     assert frozen.is_final is True
-    assert frozen.total_cost == Decimal("8350.00")
+    assert frozen.total_cost == Decimal("9250.00")
+    assert frozen.subcontract_cost == Decimal("900.00")
     assert frozen.operations[0].cost_per_hour == Decimal("600.00")
     assert sum(line.total_cost for line in frozen.operations) == frozen.operation_cost
 

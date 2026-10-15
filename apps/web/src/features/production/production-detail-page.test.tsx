@@ -213,8 +213,15 @@ describe('production costing', () => {
         produced_quantity: '40.0000',
         material_cost: '21.00',
         operation_cost: '12.50',
+        subcontract_cost: '3.00',
         total_cost: '33.50',
         cost_per_unit: '0.84',
+        standard_unit_cost: '0.80',
+        actual_unit_cost: '0.84',
+        material_variance: '1.00',
+        operation_variance: '-1.00',
+        subcontract_variance: '0.50',
+        total_variance: '0.50',
         uncosted_operation_count: 0,
         materials: [
           {
@@ -236,6 +243,7 @@ describe('production costing', () => {
             operation_code: 'OP-10',
             work_center_id: '01a00000-0000-7000-8000-0000000000w2',
             status: 'COMPLETED',
+            is_outsourced: false,
             charged_minutes: '15.0000',
             is_actual_time: true,
             cost_per_hour: '40.0000',
