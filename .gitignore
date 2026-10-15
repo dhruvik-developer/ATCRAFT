@@ -85,3 +85,8 @@ infrastructure/nginx/certs/*
 docs/handbook/handbook.html
 docs/handbook/Atcraft-ERP-Handbook.pdf
 docs/handbook/screens/
+.opencode/
+tmp/
+docs/implementation/reports/
+*.pdf
+AGENTS.md.txt
