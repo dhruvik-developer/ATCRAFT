@@ -548,6 +548,18 @@ class Item(TenantMasterEntity):
         Boolean, nullable=False, default=True, server_default=text("true")
     )
 
+    #: Output of this item is held for production QC: a production entry books
+    #: good output into QC_HOLD and raises an in-process inspection, and the
+    #: order cannot complete while any of it is held (docs/assumptions.md §E5-1).
+    requires_production_qc: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    #: Packing a line of this item raises a FINAL inspection, and the packing
+    #: order cannot complete or hand over until it is accepted (§E5-8).
+    requires_final_qc: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+
     # --- planning ------------------------------------------------------------
     production_type: Mapped[ProductionType] = mapped_column(
         String(16), nullable=False, default=ProductionType.BUY, server_default=ProductionType.BUY

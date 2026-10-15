@@ -291,6 +291,11 @@ class PackingOrderLine(TenantEntity):
         GUID, ForeignKey("units_of_measure.id", ondelete="RESTRICT"), nullable=False
     )
 
+    #: The FINAL inspection starting the order raised for this line, when its
+    #: item requires final QC. A bare UUID: quality owns the row, and this
+    #: module reaches it through the owner callback, never a join.
+    qc_inspection_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+
     __table_args__ = (
         UniqueConstraint(
             "packing_order_id", "line_number", name="uq_packing_order_lines_order_line_number"
