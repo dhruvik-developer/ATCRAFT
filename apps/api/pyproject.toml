@@ -28,7 +28,7 @@ dependencies = [
 
     # --- Database (locked stack) -------------------------------------------
     "sqlalchemy[asyncio]>=2.0.36,<2.1",
-    "asyncpg>=0.30,<0.31",                # async driver for the application
+    "asyncpg>=0.30,<0.33",                # async driver for the application
     "psycopg[binary]>=3.2,<4.0",          # sync driver, used only by Alembic
     "alembic>=1.14,<2.0",
 
