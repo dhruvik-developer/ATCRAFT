@@ -52,6 +52,7 @@ function order(overrides: Partial<ProductionOrderRow> = {}): ProductionOrderRow 
     priority: 100,
     source_type: 'MANUAL',
     source_id: null,
+    requires_qc: false,
     created_at: '2026-01-01T00:00:00Z',
     ...overrides,
   }

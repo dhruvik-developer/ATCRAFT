@@ -982,6 +982,7 @@ export default function ProductionDetailPage() {
             <Badge variant={priorityBand(order.priority).variant}>
               {priorityBand(order.priority).label} ({formatNumber(order.priority)})
             </Badge>
+            {order.requires_qc && <Badge variant="warning">QC hold</Badge>}
           </span>
         }
         actions={

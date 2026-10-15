@@ -238,6 +238,20 @@ class QcRejectionRow(ReportRowBase):
     rejection_rate_percent: Decimal = Decimal("0")
 
 
+class ReworkRateRow(ReportRowBase):
+    """Rework quantity and rate for one item and vendor over the period."""
+
+    item_id: uuid.UUID
+    item_code: str
+    item_name: str
+    vendor_id: uuid.UUID | None = None
+    vendor_name: str | None = None
+    inspection_count: int
+    inspected_quantity: Decimal
+    rework_quantity: Decimal
+    rework_rate_percent: Decimal = Decimal("0")
+
+
 class VendorPerformanceRow(ReportRowBase):
     vendor_id: uuid.UUID
     vendor_code: str

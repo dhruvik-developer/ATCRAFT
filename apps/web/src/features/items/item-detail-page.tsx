@@ -194,6 +194,14 @@ function OverviewPanel({
                     .filter(Boolean)
                     .join(' + ') || 'None',
               },
+              {
+                label: 'Production QC',
+                value: item.requires_production_qc ? 'Held for inspection' : 'Not held',
+              },
+              {
+                label: 'Final QC',
+                value: item.requires_final_qc ? 'Inspected at packing' : 'Not inspected',
+              },
               { label: 'Sale price', value: formatMoney(item.sale_price) },
               { label: 'Dealer price', value: formatMoney(item.dealer_price) },
               ...(canViewCost

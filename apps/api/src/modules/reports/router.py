@@ -81,6 +81,7 @@ from src.modules.reports.schemas import (
     ReportFilters,
     ReportJobRead,
     ReportPeriod,
+    ReworkRateRow,
     SalesOrderStatusRow,
     ScrapRegisterRow,
     ShiftProductionRow,
@@ -675,6 +676,31 @@ async def qc_rejection(
 ) -> PaginatedResponse[QcRejectionRow] | AcceptedJobResponse:
     return await _run(
         session, tenant, principal, response, ReportKey.QC_REJECTION, period, filters, page
+    )
+
+
+@router.get(
+    "/rework-rate",
+    response_model=None,
+    summary="Rework rate",
+    description=(
+        "Rework quantity and rate per item and vendor over the period, from decided "
+        "inspections. A pending inspection has no verdict and is not counted."
+    ),
+    responses=REPORT_RESPONSES,
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def rework_rate(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[ReworkRateRow] | AcceptedJobResponse:
+    return await _run(
+        session, tenant, principal, response, ReportKey.REWORK_RATE, period, filters, page
     )
 
 

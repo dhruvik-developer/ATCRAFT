@@ -2442,7 +2442,7 @@
             {
               "action": "Raise a new production order",
               "how": "New order, at the top right of the screen",
-              "note": "The order is saved as a draft. Nothing is reserved and no material moves. The screen then takes you straight to the new order's own page. Someone who may see cost centres can name the cost centre the job is charged to - material issued to it is charged there too - and the order's page shows it; for anyone else the order is raised unallocated."
+              "note": "The order is saved as a draft. Nothing is reserved and no material moves. The screen then takes you straight to the new order's own page. Someone who may see cost centres can name the cost centre the job is charged to - material issued to it is charged there too - and the order's page shows it; for anyone else the order is raised unallocated. Quality inspection is automatic by default - the order holds its output when the item or the routing asks for it - or choose always-hold or straight-to-stock explicitly."
             },
             {
               "action": "Open a job",
@@ -2525,12 +2525,12 @@
             {
               "action": "Book a shift's output",
               "how": "Record production, in the header, or from the Production entries tab",
-              "note": "Date, shift, operator, machine, good quantity, rejected quantity with its reason, and downtime in minutes. Good output is received into stock; rejected output is not."
+              "note": "Date, shift, operator, machine, good quantity, rejected quantity with its reason, and downtime in minutes. Good output is received into stock - or onto QC hold with an inspection when the order holds output for quality; rejected output is not received."
             },
             {
               "action": "Complete the job",
               "how": "Complete, in the header, while the order is in process",
-              "note": "Return anything still issued but unused first - a completed order no longer accepts a return."
+              "note": "Return anything still issued but unused first - a completed order no longer accepts a return. Refused while any booked output is still held for QC: decide the inspections first."
             },
             {
               "action": "Close and cost the job",
@@ -2627,7 +2627,7 @@
             {
               "action": "Complete an operation",
               "how": "The '...' menu, then Complete operation",
-              "note": "Stamps an end time. A completed operation cannot be reopened."
+              "note": "Stamps an end time. A completed operation cannot be reopened. An operation whose routing step demands quality inspection cannot complete until that inspection is accepted - raise a work-order inspection from Quality and decide it if none exists."
             },
             {
               "action": "Cancel an operation",
@@ -3016,9 +3016,19 @@
         {
           "route": "/quality",
           "title": "Quality control",
-          "purpose": "This is where material waits for a verdict and where the verdict is given. Goods arriving on a receipt, coming back from a job worker or finished on an assembly are put into QC hold - present in the building, counted and valued, but promised to nobody - and they stay there until an inspection says otherwise. The screen has three tabs: the queue of what is waiting, the full history of what has been decided, and two reports on what those decisions say about your items and your vendors.",
+          "purpose": "This is where material waits for a verdict and where the verdict is given. Goods arriving on a receipt, coming back from a job worker, finished on an assembly, booked out of production or packed for a customer are inspected here - most lots arrive automatically from the document that raised them, and a supervisor can also raise one by hand. The screen has four tabs: the queue of what is waiting, the full history of what has been decided, the rework bench, and two reports on what those decisions say about your items and your vendors.",
           "whoUses": "The QC inspector lives on the pending tab. Whoever is authorised to release material takes the decision. Buyers and the owner read the reports.",
           "keyActions": [
+            {
+              "action": "Raise an inspection by hand",
+              "how": "Raise inspection, at the top of the screen",
+              "note": "For a supervisor pulling a lot off the shelf: name the stage, the item, the store and the quantity, and whether raising it moves the quantity into QC hold. Leave the hold off when an upstream document has already held the stock."
+            },
+            {
+              "action": "Open any inspection read-only",
+              "how": "Click the row, at any status",
+              "note": "Readings per characteristic with their photo thumbnails, the rejection reason, the decided quantities, every earlier verdict and the rework cycles. Lots still owed a verdict keep their Inspect action beside it."
+            },
             {
               "action": "See what is waiting for a decision",
               "how": "Pending inspections, the tab the screen opens on",
@@ -3075,6 +3085,11 @@
               "note": "Quantity in those two buckets is still sitting in QC hold and still owes somebody a verdict."
             },
             {
+              "action": "Work the rework bench",
+              "how": "Rework tab, then Open a cycle on the lot",
+              "note": "Name the quantity and who does it. Starting puts it on the bench; completing it with an outcome hands the lot back for re-decision. A scrapped or returned outcome is the bench's recommendation - the inspector still dispositions it."
+            },
+            {
               "action": "Chart an item's quality over time",
               "how": "Reports tab, Item quality history, choose an item and a window of 90, 180 or 365 days",
               "note": "Accepted, rework and rejected quantity by month, with the same figures repeated as a table beneath the chart."
@@ -3104,10 +3119,11 @@
             "A lot can be decided again while quantity is still on hold, but accepted, rejected and scrapped quantities can only ever grow. Material already released may have been issued or sold, so it cannot be pulled back by editing the inspection.",
             "Rejected material from a named vendor is flagged as owing a return and the buyers are notified. The return itself is raised in procurement - quality states that one is owed, it does not raise it, because the return is procurement's document, numbering and approval.",
             "Whether a reading passes is decided by the system against the specification, never asserted by whoever typed it, and the result is stored as it was judged at the time. A later change to the specification therefore cannot rewrite the past.",
-            "An item for which nobody has written a specification is still put forward for inspection. It simply arrives with no characteristics to measure, and the inspector dispositions it on judgement with a remark - refusing to raise it would mean the goods were never inspected at all."
+            "An item for which nobody has written a specification is still put forward for inspection. It simply arrives with no characteristics to measure, and the inspector dispositions it on judgement with a remark - refusing to raise it would mean the goods were never inspected at all.",
+          "A finished rework cycle hands the lot back for re-decision rather than dispositioning it. Every verdict stays in the lot's history, so re-deciding a reworked lot never erases how it was decided before."
           ],
           "permission": "Reading the queue, the history and the reports needs the right to see quality. Recording measurements and deciding a lot are two separate rights on purpose: the person who measures a part is usually not the person authorised to release a consignment on the strength of it. An account that may only measure sees the readings and no disposition section at all, and is told so; an account that may only decide sees the readings as recorded and sends only the decision. Attaching a photograph additionally needs the right to upload documents.",
-          "notes": "Inspections cannot be raised by hand from this screen - they arrive automatically from goods receipts, job-work returns and assembly completions. There is also no Close action anywhere on the screen: a fully dispositioned inspection stays on the record as decided. Rows carry the item, batch and vendor as identifiers rather than names, so the Item column is an eight-character link into the item master; a screenshot will show that rather than an item code. Both report cards are empty until an item or a vendor is chosen, so a screenshot needs a selection made first."
+          "notes": "Most inspections arrive automatically from goods receipts, job-work returns, assembly completions, production bookings and packing starts - and a supervisor can raise one by hand with Raise inspection. There is also no Close action anywhere on the screen: a fully dispositioned inspection stays on the record as decided. Rows carry the item, batch and vendor as identifiers rather than names, so the Item column is an eight-character link into the item master; a screenshot will show that rather than an item code. Both report cards are empty until an item or a vendor is chosen, so a screenshot needs a selection made first."
         },
         {
           "route": "/packing",
@@ -3138,7 +3154,7 @@
             {
               "action": "Start packing",
               "how": "Start packing, at the top of the open order",
-              "note": "A draft has no bench: cartons can only be opened once the order is in progress."
+              "note": "A draft has no bench: cartons can only be opened once the order is in progress. Starting raises a final inspection per line whose item requires final quality control, and the order cannot complete or hand over until each is accepted."
             },
             {
               "action": "Open a carton",
@@ -3173,7 +3189,7 @@
             {
               "action": "Finish packing",
               "how": "Complete, with a reason",
-              "note": "Every carton must be sealed first. If a line is not fully packed, tick \"Allow a short pack\" to complete anyway; the lines that went out short are named in the confirmation."
+              "note": "Every carton must be sealed first. If a line is not fully packed, tick \"Allow a short pack\" to complete anyway; the lines that went out short are named in the confirmation. Refused while a line's final inspection is anything short of accepted: decide it, or repack the rejected goods and re-inspect the line."
             },
             {
               "action": "Hand the boxes to a consignment",
@@ -4231,7 +4247,7 @@
             "Read the table, page through it, or use the search box to find a row.",
             "If the result was too large to show, wait for the download strip and press Download to open the spreadsheet."
           ],
-          "notes": "Twenty-three reports exist and every one of them is listed above \u2014 this list is worth its own page in the deck. Two things to be accurate about. First, the six filters are the same on every report, so the screen offers a Customer filter on a machine-utilisation report where it does nothing; that is a known simplification, not a fault. Second, the filter set has no category picker even though the system would accept one, and the Status filter expects the exact status word rather than offering a dropdown. The management dashboard tiles (open orders, stock value, QC pending and so on) are a separate screen, not part of this one. The packing list PDF is produced from the Packing screen, not from here.",
+          "notes": "Twenty-four reports exist and every one of them is listed above \u2014 this list is worth its own page in the deck. Two things to be accurate about. First, the six filters are the same on every report, so the screen offers a Customer filter on a machine-utilisation report where it does nothing; that is a known simplification, not a fault. Second, the filter set has no category picker even though the system would accept one, and the Status filter expects the exact status word rather than offering a dropdown. The management dashboard tiles (open orders, stock value, QC pending and so on) are a separate screen, not part of this one. The packing list PDF is produced from the Packing screen, not from here.",
           "permission": "Needs the right to view reports \u2014 that one right opens every report in the catalogue. Producing a large report as a downloadable file additionally needs the right to export reports; without it, a report that returns too many rows is refused with a message asking you to narrow the dates or filters instead.",
           "rules": [
             "A report period may cover at most 366 days. An unbounded query over years of history is how a reporting screen takes the whole system down, so the limit is enforced rather than suggested.",

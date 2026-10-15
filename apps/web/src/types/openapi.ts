@@ -4401,6 +4401,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/packing/{order_id}/lines/{line_id}/reinspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Raise a fresh FINAL inspection for a rejected line
+         * @description Only once the line's FINAL inspection is REJECTED: the rejected stock has moved to DAMAGED, so the operator repacks replacement goods and this raises the inspection that covers them.
+         */
+        post: operations["reinspect_line_api_v1_packing__order_id__lines__line_id__reinspect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/packing/{order_id}/packing-list": {
         parameters: {
             query?: never;
@@ -6465,6 +6485,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/quality/rework": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List rework cycles */
+        get: operations["list_rework_api_v1_quality_rework_get"];
+        put?: never;
+        /**
+         * Open a rework cycle
+         * @description Send part of an inspection's rework quantity to the bench. The stock stays in QC hold for the whole cycle; completing the cycle re-opens the inspection so the quantity is re-decided.
+         */
+        post: operations["create_rework_api_v1_quality_rework_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quality/rework/{record_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete a rework cycle and re-open the inspection
+         * @description The outcome is the bench's recommendation, not a stock movement: even a SCRAPPED outcome leaves the quantity in QC hold for the inspector to disposition on re-decision. The inspection is re-opened so that re-decision is owed.
+         */
+        post: operations["complete_rework_api_v1_quality_rework__record_id__complete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quality/rework/{record_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start a rework cycle */
+        post: operations["start_rework_api_v1_quality_rework__record_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/quality/templates": {
         parameters: {
             query?: never;
@@ -6881,6 +6959,26 @@ export interface paths {
         };
         /** QC rejection */
         get: operations["qc_rejection_api_v1_reports_qc_rejection_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/rework-rate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Rework rate
+         * @description Rework quantity and rate per item and vendor over the period, from decided inspections. A pending inspection has no verdict and is not counted.
+         */
+        get: operations["rework_rate_api_v1_reports_rework_rate_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -10562,6 +10660,20 @@ export interface components {
              */
             success: boolean;
         };
+        /** ApiResponse[PackingOrderLineRead] */
+        ApiResponse_PackingOrderLineRead_: {
+            data?: components["schemas"]["PackingOrderLineRead"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
         /** ApiResponse[PackingOrderSummary] */
         ApiResponse_PackingOrderSummary_: {
             data?: components["schemas"]["PackingOrderSummary"] | null;
@@ -11041,6 +11153,20 @@ export interface components {
         /** ApiResponse[ResolvedPrice] */
         ApiResponse_ResolvedPrice_: {
             data?: components["schemas"]["ResolvedPrice"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[ReworkRecordRead] */
+        ApiResponse_ReworkRecordRead_: {
+            data?: components["schemas"]["ReworkRecordRead"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -15975,6 +16101,49 @@ export interface components {
             scrap_quantity: number | string;
         };
         /**
+         * DecisionHistoryRead
+         * @description One verdict in an inspection's decision history, oldest first.
+         */
+        DecisionHistoryRead: {
+            /** Accepted Quantity */
+            accepted_quantity: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Hold Quantity */
+            hold_quantity: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Inspected At
+             * Format: date-time
+             */
+            inspected_at: string;
+            /**
+             * Inspection Id
+             * Format: uuid
+             */
+            inspection_id: string;
+            /** Reason */
+            reason: string;
+            /** Rejected Quantity */
+            rejected_quantity: string;
+            /** Rejection Reason */
+            rejection_reason: string | null;
+            result: components["schemas"]["InspectionResult"];
+            /** Rework Quantity */
+            rework_quantity: string;
+            /** Scrap Quantity */
+            scrap_quantity: string;
+            /** Sequence */
+            sequence: number;
+        };
+        /**
          * DecisionRequest
          * @description Approval note, recorded on the document and in the audit log.
          */
@@ -17573,6 +17742,8 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Decisions */
+            decisions?: components["schemas"]["DecisionHistoryRead"][];
             /** Hold Quantity */
             hold_quantity: string;
             /**
@@ -17613,6 +17784,8 @@ export interface components {
             return_required: boolean;
             /** Rework Quantity */
             rework_quantity: string;
+            /** Rework Records */
+            rework_records?: components["schemas"]["ReworkRecordRead"][];
             /** Sample Size */
             sample_size: string;
             /** Scrap Quantity */
@@ -18292,6 +18465,16 @@ export interface components {
              */
             reorder_quantity: number | string;
             /**
+             * Requires Final Qc
+             * @default false
+             */
+            requires_final_qc: boolean;
+            /**
+             * Requires Production Qc
+             * @default false
+             */
+            requires_production_qc: boolean;
+            /**
              * Safety Stock
              * @default 0
              */
@@ -18448,6 +18631,10 @@ export interface components {
             reorder_level?: number | string | null;
             /** Reorder Quantity */
             reorder_quantity?: number | string | null;
+            /** Requires Final Qc */
+            requires_final_qc?: boolean | null;
+            /** Requires Production Qc */
+            requires_production_qc?: boolean | null;
             /** Safety Stock */
             safety_stock?: number | string | null;
             /** Sale Price */
@@ -20651,6 +20838,8 @@ export interface components {
              * Format: uuid
              */
             packing_order_id: string;
+            /** Qc Inspection Id */
+            qc_inspection_id?: string | null;
             /** Quantity To Pack */
             quantity_to_pack: string;
             /** Sales Order Line Id */
@@ -21639,6 +21828,22 @@ export interface components {
         PaginatedResponse_ReservationRead_: {
             /** Data */
             data?: components["schemas"]["ReservationRead"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** PaginatedResponse[ReworkRecordRead] */
+        PaginatedResponse_ReworkRecordRead_: {
+            /** Data */
+            data?: components["schemas"]["ReworkRecordRead"][];
             /**
              * Message
              * @default Operation completed successfully
@@ -23179,6 +23384,15 @@ export interface components {
              * Format: uuid
              */
             production_order_id: string;
+            /**
+             * Qc Hold Open
+             * @default false
+             */
+            qc_hold_open: boolean;
+            /** Qc Inspection Code */
+            qc_inspection_code?: string | null;
+            /** Qc Inspection Id */
+            qc_inspection_id?: string | null;
             /** Rejected Quantity */
             rejected_quantity: string;
             /** Rejection Reason */
@@ -23233,6 +23447,8 @@ export interface components {
              * @default 100
              */
             priority: number;
+            /** Requires Qc */
+            requires_qc?: boolean | null;
             /** Routing Id */
             routing_id?: string | null;
             /** Source Id */
@@ -23314,6 +23530,8 @@ export interface components {
             produced_quantity: string;
             /** Rejected Quantity */
             rejected_quantity: string;
+            /** Requires Qc */
+            requires_qc: boolean;
             /** Routing Id */
             routing_id: string | null;
             /** Scrap Quantity */
@@ -23398,6 +23616,8 @@ export interface components {
             produced_quantity: string;
             /** Rejected Quantity */
             rejected_quantity: string;
+            /** Requires Qc */
+            requires_qc: boolean;
             /** Routing Id */
             routing_id: string | null;
             /** Scrap Quantity */
@@ -23483,6 +23703,8 @@ export interface components {
             produced_quantity: string;
             /** Rejected Quantity */
             rejected_quantity: string;
+            /** Requires Qc */
+            requires_qc: boolean;
             /** Scrap Quantity */
             scrap_quantity: string;
             /** Source Id */
@@ -23516,6 +23738,8 @@ export interface components {
             plant_id?: string | null;
             /** Priority */
             priority?: number | null;
+            /** Requires Qc */
+            requires_qc?: boolean | null;
             /** Routing Id */
             routing_id?: string | null;
             /** Warehouse Id */
@@ -25380,7 +25604,7 @@ export interface components {
          *     catalogue asserts at import that every member has exactly one definition.
          * @enum {string}
          */
-        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "SHIFT_PRODUCTION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "SCRAP_REGISTER" | "CONSUMPTION_BY_DEPARTMENT" | "PURCHASE_ORDER" | "PACKING_LIST" | "SALES_INVOICE";
+        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "SHIFT_PRODUCTION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "SCRAP_REGISTER" | "CONSUMPTION_BY_DEPARTMENT" | "PURCHASE_ORDER" | "PACKING_LIST" | "SALES_INVOICE" | "REWORK_RATE";
         /**
          * RequisitionBatchConversionRequest
          * @description The batch form: several approved requisitions converted together.
@@ -26093,6 +26317,113 @@ export interface components {
             /** Variant Id */
             variant_id: string | null;
         };
+        /**
+         * ReworkCompleteRequest
+         * @description Finish a rework cycle and hand the quantity back for re-decision.
+         *
+         *     The outcome is the bench's recommendation, not a stock movement: quality
+         *     owns the hold and the decision is the one release path, so even a SCRAPPED
+         *     outcome leaves the quantity in QC hold for the inspector to scrap on
+         *     re-decision. A RETURNED outcome against a named vendor flags the inspection
+         *     for a vendor return, the way a rejection does.
+         */
+        ReworkCompleteRequest: {
+            /** Cost */
+            cost?: number | string | null;
+            /** Notes */
+            notes?: string | null;
+            outcome: components["schemas"]["ReworkOutcome"];
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * ReworkCreate
+         * @description Open a rework cycle against an inspection holding rework quantity.
+         *
+         *     The cycle covers part of the inspection's ``rework_quantity`` - the stock
+         *     stays in the QC hold pool for the whole cycle, so no movement is posted
+         *     here. Who does the work is named one of two ways: ``assigned_to`` (a user)
+         *     or ``work_center_id`` (a bench). One of the two is required; both set means
+         *     the assignee works at that centre.
+         */
+        ReworkCreate: {
+            /** Assigned To */
+            assigned_to?: string | null;
+            /**
+             * Inspection Id
+             * Format: uuid
+             */
+            inspection_id: string;
+            /** Notes */
+            notes?: string | null;
+            /** Quantity */
+            quantity: number | string;
+            /** Reason */
+            reason: string;
+            /** Work Center Id */
+            work_center_id?: string | null;
+        };
+        /**
+         * ReworkOutcome
+         * @description What the bench did with the rework quantity.
+         *
+         *     ``REWORKED_OK`` goes back for re-inspection; ``SCRAPPED`` writes the
+         *     quantity off; ``RETURNED`` sends it back to the vendor. Recorded at
+         *     completion, never before - an outcome on an unfinished cycle is a guess.
+         * @enum {string}
+         */
+        ReworkOutcome: "REWORKED_OK" | "SCRAPPED" | "RETURNED";
+        /** ReworkRecordRead */
+        ReworkRecordRead: {
+            /** Assigned To */
+            assigned_to: string | null;
+            /** Code */
+            code: string;
+            /** Completed At */
+            completed_at: string | null;
+            /** Cost */
+            cost: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Inspection Id
+             * Format: uuid
+             */
+            inspection_id: string;
+            /** Notes */
+            notes: string | null;
+            outcome: components["schemas"]["ReworkOutcome"] | null;
+            /** Quantity */
+            quantity: string;
+            /** Started At */
+            started_at: string | null;
+            status: components["schemas"]["ReworkStatus"];
+            /** Work Center Id */
+            work_center_id: string | null;
+        };
+        /** ReworkStartRequest */
+        ReworkStartRequest: {
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * ReworkStatus
+         * @description Lifecycle of one rework cycle (database.md section 7).
+         *
+         *     ``OPEN -> IN_PROGRESS -> DONE``. Completing the cycle re-opens the
+         *     inspection for re-decision; the cycle itself never reopens, because a
+         *     second round of work is a second record, not a reopened one.
+         * @enum {string}
+         */
+        ReworkStatus: "OPEN" | "IN_PROGRESS" | "DONE";
         /** RfqCreate */
         RfqCreate: {
             /**
@@ -62175,6 +62506,105 @@ export interface operations {
             };
         };
     };
+    reinspect_line_api_v1_packing__order_id__lines__line_id__reinspect_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["src__modules__packing__schemas__ReasonRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_PackingOrderLineRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     packing_list_api_v1_packing__order_id__packing_list_get: {
         parameters: {
             query?: never;
@@ -76657,6 +77087,405 @@ export interface operations {
             };
         };
     };
+    list_rework_api_v1_quality_rework_get: {
+        parameters: {
+            query?: {
+                inspection_id?: string | null;
+                status?: components["schemas"]["ReworkStatus"] | null;
+                assigned_to?: string | null;
+                work_center_id?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+                /** @description Field to sort by */
+                sort_by?: string | null;
+                /** @description Sort direction */
+                sort_dir?: "asc" | "desc";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_ReworkRecordRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    create_rework_api_v1_quality_rework_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReworkCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ReworkRecordRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    complete_rework_api_v1_quality_rework__record_id__complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReworkCompleteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ReworkRecordRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_rework_api_v1_quality_rework__record_id__start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReworkStartRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ReworkRecordRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     list_templates_api_v1_quality_templates_get: {
         parameters: {
             query?: {
@@ -79428,6 +80257,127 @@ export interface operations {
         };
     };
     qc_rejection_api_v1_reports_qc_rejection_get: {
+        parameters: {
+            query?: {
+                /** @description First day of the period, inclusive */
+                date_from?: string | null;
+                /** @description Last day of the period, inclusive */
+                date_to?: string | null;
+                item_id?: string | null;
+                warehouse_id?: string | null;
+                vendor_id?: string | null;
+                customer_id?: string | null;
+                category_id?: string | null;
+                status?: string | null;
+                /** @description Age threshold in days, where the report uses one */
+                min_days?: number | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report, paginated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Too large to return inline. Generated in the background; poll the status URL. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    rework_rate_api_v1_reports_rework_rate_get: {
         parameters: {
             query?: {
                 /** @description First day of the period, inclusive */

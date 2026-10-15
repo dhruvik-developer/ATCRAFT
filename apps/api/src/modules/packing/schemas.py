@@ -149,6 +149,10 @@ class PackingOrderLineRead(BaseModel):
     quantity_to_pack: Decimal
     packed_quantity: Decimal
     uom_id: uuid.UUID
+    #: The FINAL inspection starting the order raised for this line, when its
+    #: item requires final QC. The order cannot complete or hand over until it
+    #: is ACCEPTED; a REJECTED one is replaced through re-inspection.
+    qc_inspection_id: uuid.UUID | None = None
 
 
 class PackingOrderSummary(BaseModel):

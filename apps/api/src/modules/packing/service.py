@@ -1954,6 +1954,185 @@ async def carton_label(
 # -----------------------------------------------------------------------------
 
 
+# =============================================================================
+# Final QC seam (WP E5)
+# =============================================================================
+
+
+#: The reference type FINAL inspections name the packing line they cover.
+#: Quality owns the inspection; this module reaches it through the reader port,
+#: never a join - the line carries only the inspection's id.
+QUALITY_REFERENCE_PACKING_ORDER = "packing_order"
+
+
+class QualityPort(Protocol):
+    """What packing asks of the quality module when it is deployed.
+
+    Deliberately narrow: one call raising one FINAL inspection against one
+    packing line. Anything wider would couple starting the bench to a module
+    that is built independently of it.
+    """
+
+    async def __call__(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        *,
+        item_id: uuid.UUID,
+        quantity: Decimal,
+        warehouse_id: uuid.UUID,
+        reference_type: str,
+        reference_id: uuid.UUID,
+        reference_code: str,
+    ) -> Any: ...
+
+
+def resolve_quality_port() -> QualityPort | None:
+    """The quality module's FINAL inspection factory, if it is deployed.
+
+    Only the *absence* of the module is tolerated. A failure inside it is not
+    swallowed: inspections that could not be raised must roll the start back
+    with everything else, rather than letting the bench pack goods nobody will
+    ever inspect.
+    """
+    try:
+        from src.modules.quality import service as quality_service
+    except ImportError:
+        return None
+
+    factory = getattr(quality_service, "create_final_inspection", None)
+    return factory if callable(factory) else None
+
+
+class InspectionReaderPort(Protocol):
+    """The quality module's read of every inspection a set of lines raised."""
+
+    async def __call__(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        reference_type: str,
+        reference_id: list[uuid.UUID],
+    ) -> Sequence[Any]: ...
+
+
+def resolve_inspection_reader_port() -> InspectionReaderPort | None:
+    """The quality module's ``inspections_for_reference``, if it is deployed.
+
+    Read by the completion gates, which refuse to complete or hand over while
+    a line's FINAL inspection is anything short of ACCEPTED.
+    """
+    try:
+        from src.modules.quality import service as quality_service
+    except ImportError:
+        return None
+
+    reader = getattr(quality_service, "inspections_for_reference", None)
+    return reader if callable(reader) else None
+
+
+async def _raise_line_inspections(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: PackingOrder,
+    lines: Sequence[PackingOrderLine],
+    quality_port: QualityPort,
+) -> int:
+    """Raise a FINAL inspection per line whose item requires final QC.
+
+    The goods are reserved for the sales order, not held: the inspection
+    covers what the line has to pack, and completion and hand-over are refused
+    until it is ACCEPTED. A REJECTED verdict moves the stock to DAMAGED through
+    the ordinary decision path, and the line is re-inspected once replacement
+    goods are packed (docs/assumptions.md §E5-8).
+    """
+    items = await ItemLookupRepository(session, tenant).load([line.item_id for line in lines])
+    raised = 0
+    for line in lines:
+        item = items.get(line.item_id)
+        if item is None or not item.requires_final_qc:
+            continue
+        if line.qc_inspection_id is not None:
+            continue
+        quantity = to_quantity(Decimal(line.quantity_to_pack))
+        if quantity <= ZERO:
+            continue
+        inspection = await quality_port(
+            session,
+            tenant,
+            item_id=line.item_id,
+            quantity=quantity,
+            warehouse_id=order.warehouse_id,
+            reference_type=QUALITY_REFERENCE_PACKING_ORDER,
+            reference_id=line.id,
+            reference_code=order.code,
+        )
+        line.qc_inspection_id = getattr(inspection, "id", None)
+        if line.qc_inspection_id is not None:
+            raised += 1
+            log.info(
+                "packing.final_inspection_raised",
+                order_code=order.code,
+                line_number=line.line_number,
+                inspection_id=str(line.qc_inspection_id),
+            )
+    await session.flush()
+    return raised
+
+
+async def _assert_final_qc_accepted(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: PackingOrder,
+    lines: Sequence[PackingOrderLine],
+    *,
+    action: str,
+) -> None:
+    """Refuse completion or hand-over while a FINAL inspection is not ACCEPTED.
+
+    Every line carrying an inspection must point at an ACCEPTED one. A REJECTED
+    verdict names the line it blocks: the rejected stock has moved to DAMAGED,
+    so the operator repacks replacement goods and re-inspects the line, which
+    is what unblocks the order. Without the quality module there is nothing to
+    check against - but starting already refuses that combination, so reaching
+    here with inspections and no reader means the module went away mid-order,
+    which is refused loudly rather than waved through.
+    """
+    inspected = [line for line in lines if line.qc_inspection_id is not None]
+    if not inspected:
+        return
+    reader = resolve_inspection_reader_port()
+    if reader is None:
+        raise BusinessRuleError(
+            f"{order.code} cannot {action}: its FINAL inspections cannot be read.",
+            details={"order_code": order.code},
+        )
+    verdicts = await reader(
+        session,
+        tenant,
+        QUALITY_REFERENCE_PACKING_ORDER,
+        [line.id for line in inspected],
+    )
+    by_id = {getattr(verdict, "id", None): verdict for verdict in verdicts}
+    blocking = [
+        line
+        for line in inspected
+        if str(getattr(by_id.get(line.qc_inspection_id), "result", "")) != "ACCEPTED"
+    ]
+    if blocking:
+        numbers = ", ".join(str(line.line_number) for line in blocking)
+        raise BusinessRuleError(
+            f"{order.code} cannot {action}: line(s) {numbers} still owe an ACCEPTED "
+            "final inspection. Decide the inspections, or repack and re-inspect a "
+            "rejected line.",
+            details={
+                "order_code": order.code,
+                "blocked_line_numbers": [line.line_number for line in blocking],
+                "blocked_inspection_ids": [str(line.qc_inspection_id) for line in blocking],
+            },
+        )
+
+
 async def start_packing(
     session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID, *, reason: str
 ) -> tuple[PackingOrder, list[PackingOrderLine]]:
@@ -1968,9 +2147,44 @@ async def start_packing(
                 f"{order.code} has no lines; there is nothing to pack.",
                 details={"order_id": str(order.id)},
             )
+        # Final QC is fail-closed: a line whose item requires it starts no
+        # bench without its FINAL inspection, because completing that bench
+        # without one would be the gate waving through goods nobody inspected.
+        quality_port = resolve_quality_port()
+        if quality_port is not None:
+            raised = await _raise_line_inspections(session, tenant, order, lines, quality_port)
+        else:
+            raised = 0
+            items = await ItemLookupRepository(session, tenant).load(
+                [line.item_id for line in lines]
+            )
+            gated = [
+                line.line_number
+                for line in lines
+                if (found := items.get(line.item_id)) is not None and found.requires_final_qc
+            ]
+            if gated:
+                raise BusinessRuleError(
+                    f"{order.code} cannot start: line(s) {', '.join(map(str, gated))} "
+                    "require final QC and the quality module is not available.",
+                    details={"order_id": str(order.id), "blocked_line_numbers": gated},
+                )
         await _transition(
             session, tenant, order, PackingOrderStatus.IN_PROGRESS, reason=reason, repo=repo
         )
+        if raised:
+            await record_audit(
+                session,
+                company_id=tenant.company_id,
+                action=AuditAction.UPDATE,
+                entity_type=AUDIT_PACKING_ORDER,
+                entity_id=order.id,
+                entity_code=order.code,
+                summary=(f"{order.code} raised {raised} FINAL inspection(s) on start"),
+                user_id=tenant.user_id,
+                new_values={"final_inspections_raised": raised},
+                context={"reason": reason},
+            )
 
     return order, lines
 
@@ -2035,6 +2249,8 @@ async def complete_packing(
                 "Pack the balance, or complete with allow_short_pack.",
                 details={"order_id": str(order.id), "short_packed_lines": short},
             )
+
+        await _assert_final_qc_accepted(session, tenant, order, lines, action="complete")
 
         before = snapshot(order, ORDER_AUDITED_FIELDS)
         order.total_cartons = totals.carton_count
@@ -2113,6 +2329,9 @@ async def hand_over_to_dispatch(
                 )
             return order
 
+        lines = await PackingOrderLineRepository(session, tenant).list_for_order(order.id)
+        await _assert_final_qc_accepted(session, tenant, order, lines, action="hand over")
+
         order.dispatch_id = dispatch_id
         order.handed_over_at = utcnow()
         await _transition(
@@ -2126,6 +2345,109 @@ async def hand_over_to_dispatch(
         )
 
     return order
+
+
+async def reinspect_line(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order_id: uuid.UUID,
+    line_id: uuid.UUID,
+    *,
+    reason: str,
+) -> PackingOrderLine:
+    """Raise a fresh FINAL inspection for a rejected packing line.
+
+    The replace path for a REJECTED verdict: the rejected stock has moved to
+    DAMAGED, so the operator removes the bad cartons and packs replacement
+    goods, and this raises the new inspection that covers them. Only a
+    REJECTED line can be re-inspected - anything else already has a verdict
+    the gates understand, and raising beside it would leave two inspections
+    over one line with no rule for which one the gate reads.
+    """
+    repo = PackingOrderRepository(session, tenant)
+    line_repo = PackingOrderLineRepository(session, tenant)
+
+    async with transaction(session):
+        order = await _lock_order(repo, order_id)
+        if PackingOrderStatus(order.status) is not PackingOrderStatus.IN_PROGRESS:
+            raise BusinessRuleError(
+                f"{order.code} is {order.status}; lines can only be re-inspected while "
+                "the order is being packed.",
+                details={"order_id": str(order.id), "status": str(order.status)},
+            )
+        lines = await line_repo.list_for_order(order.id)
+        line = next((row for row in lines if row.id == line_id), None)
+        if line is None:
+            raise NotFoundError("Packing order line", line_id)
+        if line.qc_inspection_id is None:
+            raise BusinessRuleError(
+                f"Line {line.line_number} of {order.code} has no FINAL inspection; there "
+                "is nothing to replace.",
+                details={"order_id": str(order.id), "line_id": str(line.id)},
+            )
+
+        reader = resolve_inspection_reader_port()
+        current = None
+        if reader is not None:
+            found = await reader(session, tenant, QUALITY_REFERENCE_PACKING_ORDER, [line.id])
+            current = next(
+                (row for row in found if getattr(row, "id", None) == line.qc_inspection_id),
+                None,
+            )
+        if current is None or str(getattr(current, "result", "")) != "REJECTED":
+            raise BusinessRuleError(
+                f"Line {line.line_number} of {order.code} can only be re-inspected once "
+                "its FINAL inspection is REJECTED.",
+                details={
+                    "order_id": str(order.id),
+                    "line_id": str(line.id),
+                    "inspection_id": str(line.qc_inspection_id),
+                },
+            )
+
+        quality_port = resolve_quality_port()
+        if quality_port is None:
+            raise BusinessRuleError(
+                f"Line {line.line_number} of {order.code} cannot be re-inspected: the "
+                "quality module is not available.",
+                details={"order_id": str(order.id), "line_id": str(line.id)},
+            )
+        quantity = to_quantity(Decimal(line.quantity_to_pack))
+        inspection = await quality_port(
+            session,
+            tenant,
+            item_id=line.item_id,
+            quantity=quantity,
+            warehouse_id=order.warehouse_id,
+            reference_type=QUALITY_REFERENCE_PACKING_ORDER,
+            reference_id=line.id,
+            reference_code=order.code,
+        )
+        previous = line.qc_inspection_id
+        line.qc_inspection_id = getattr(inspection, "id", None)
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.UPDATE,
+            entity_type=AUDIT_PACKING_ORDER,
+            entity_id=order.id,
+            entity_code=order.code,
+            summary=(
+                f"{order.code} line {line.line_number} re-inspected: "
+                f"{getattr(inspection, 'code', '?')} replaces a REJECTED verdict"
+            ),
+            user_id=tenant.user_id,
+            new_values={
+                "line_id": str(line.id),
+                "previous_inspection_id": str(previous),
+                "inspection_id": str(line.qc_inspection_id),
+            },
+            context={"reason": reason},
+        )
+
+    return line
 
 
 async def close_order(
@@ -2398,9 +2720,12 @@ __all__ = [
     "queue_packing_list",
     "ready_for_dispatch",
     "recompute_packed_quantities",
+    "reinspect_line",
     "remove_carton",
     "replace_carton_contents",
     "resolve_assembly_port",
+    "resolve_inspection_reader_port",
+    "resolve_quality_port",
     "seal_carton",
     "start_packing",
     "update_order",

@@ -66,8 +66,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
-from src.core.models import TenantEntity, TenantMasterEntity, sql_in_list
-from src.core.types import GUID, Percentage, Quantity
+from src.core.models import ImmutableLedgerEntity, TenantEntity, TenantMasterEntity, sql_in_list
+from src.core.types import GUID, Money, Percentage, Quantity
 
 # Shared VARCHAR-backed status type. It stores exactly what a plain
 # ``String`` column would - the DDL is unchanged - but reads back as the
@@ -637,6 +637,155 @@ class QcInspection(TenantEntity):
     )
 
 
+class ReworkStatus(StrEnum):
+    """Lifecycle of one rework cycle (database.md section 7).
+
+    ``OPEN -> IN_PROGRESS -> DONE``. Completing the cycle re-opens the
+    inspection for re-decision; the cycle itself never reopens, because a
+    second round of work is a second record, not a reopened one.
+    """
+
+    OPEN = "OPEN"
+    IN_PROGRESS = "IN_PROGRESS"
+    DONE = "DONE"
+
+
+class ReworkOutcome(StrEnum):
+    """What the bench did with the rework quantity.
+
+    ``REWORKED_OK`` goes back for re-inspection; ``SCRAPPED`` writes the
+    quantity off; ``RETURNED`` sends it back to the vendor. Recorded at
+    completion, never before - an outcome on an unfinished cycle is a guess.
+    """
+
+    REWORKED_OK = "REWORKED_OK"
+    SCRAPPED = "SCRAPPED"
+    RETURNED = "RETURNED"
+
+
+class QcReworkRecord(TenantEntity):
+    """One rework cycle against one inspection: who did what, where, for how much.
+
+    The inspection's ``rework_quantity`` says how much is on the bench; this row
+    says what the bench is doing about it. Stock stays in the QC hold pool for
+    the whole cycle - no movement is posted here - and completing the record
+    re-opens the inspection so the reworked quantity is re-decided.
+    """
+
+    __tablename__ = "qc_rework_records"
+
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    #: CASCADE: the cycle is part of the inspection's history. An inspection is
+    #: never deleted once decided, so in practice this fires only when a
+    #: still-pending inspection is discarded.
+    inspection_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("qc_inspections.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    #: How much of the inspection's rework quantity this cycle covers.
+    quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    #: Who is doing the work, or where. One of the two is expected; both set
+    #: means the assignee works at that centre, which is legitimate.
+    assigned_to: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    work_center_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("work_centers.id", ondelete="RESTRICT"), nullable=True
+    )
+
+    status: Mapped[ReworkStatus] = mapped_column(
+        StatusEnum(ReworkStatus, 16),
+        nullable=False,
+        default=ReworkStatus.OPEN,
+        server_default=ReworkStatus.OPEN.value,
+    )
+    outcome: Mapped[ReworkOutcome | None] = mapped_column(
+        StatusEnum(ReworkOutcome, 16), nullable=True
+    )
+    #: What the rework cost, when it is tracked. Optional money, so Decimal and
+    #: NUMERIC like every other amount.
+    cost: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "code", name="uq_qc_rework_records_company_id_code"),
+        # The inspection's cycles, oldest first, and the bench's work list.
+        Index("ix_qc_rework_records_inspection", "company_id", "inspection_id", "created_at"),
+        Index(
+            "ix_qc_rework_records_open",
+            "company_id",
+            "status",
+            postgresql_where=text("status <> 'DONE'"),
+        ),
+        CheckConstraint(f"status IN ({sql_in_list(tuple(ReworkStatus))})", name="status_known"),
+        CheckConstraint(
+            f"outcome IS NULL OR outcome IN ({sql_in_list(tuple(ReworkOutcome))})",
+            name="outcome_known",
+        ),
+        CheckConstraint("quantity > 0", name="quantity_positive"),
+        CheckConstraint("cost IS NULL OR cost >= 0", name="cost_non_negative"),
+        # An outcome is the completion's verdict on the cycle: nothing unfinished
+        # carries one, and nothing finished lacks one.
+        CheckConstraint(
+            "(status = 'DONE') = (outcome IS NOT NULL)", name="outcome_matches_completion"
+        ),
+        CheckConstraint(
+            "(status = 'DONE') = (completed_at IS NOT NULL)", name="completion_is_timed"
+        ),
+    )
+
+
+class QcInspectionDecision(ImmutableLedgerEntity):
+    """One verdict in an inspection's decision history.
+
+    Every call to ``decide_inspection`` appends a row here with the cumulative
+    disposition it wrote, so re-deciding a reworked lot does not erase how it
+    was decided before. Append-only: a later decision never edits an earlier
+    one, it only follows it (``sequence`` orders the cycles per inspection).
+    """
+
+    __tablename__ = "qc_inspection_decisions"
+
+    #: CASCADE for the same reason as the rework record: history belongs to its
+    #: inspection.
+    inspection_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("qc_inspections.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    #: 1, 2, 3 ... per inspection. Assigned by the service under the
+    #: inspection's row lock, so two concurrent decisions cannot claim one number.
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    result: Mapped[InspectionResult] = mapped_column(
+        StatusEnum(InspectionResult, 16), nullable=False
+    )
+    accepted_quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    rejected_quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    rework_quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    hold_quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    scrap_quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+
+    reason: Mapped[str] = mapped_column(String(255), nullable=False)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Business time of the verdict, matching the inspection's own ``inspected_at``.
+    inspected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "inspection_id", "sequence", name="uq_qc_inspection_decisions_inspection_sequence"
+        ),
+        Index("ix_qc_inspection_decisions_inspection", "company_id", "inspection_id", "sequence"),
+        CheckConstraint(f"result IN ({sql_in_list(tuple(InspectionResult))})", name="result_known"),
+        CheckConstraint("sequence >= 1", name="sequence_positive"),
+        CheckConstraint("accepted_quantity >= 0", name="accepted_non_negative"),
+        CheckConstraint("rejected_quantity >= 0", name="rejected_non_negative"),
+        CheckConstraint("rework_quantity >= 0", name="rework_non_negative"),
+        CheckConstraint("hold_quantity >= 0", name="hold_non_negative"),
+        CheckConstraint("scrap_quantity >= 0", name="scrap_non_negative"),
+    )
+
+
 class QcInspectionResult(TenantEntity):
     """One measurement: what a parameter read on this inspection, and whether it passed.
 
@@ -712,9 +861,13 @@ __all__ = [
     "MeasurementValue",
     "ParameterType",
     "QcInspection",
+    "QcInspectionDecision",
     "QcInspectionResult",
+    "QcReworkRecord",
     "QcStage",
     "QcTemplate",
     "QcTemplateParameter",
+    "ReworkOutcome",
+    "ReworkStatus",
     "SamplingPlan",
 ]

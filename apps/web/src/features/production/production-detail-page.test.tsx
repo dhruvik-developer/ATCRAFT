@@ -40,6 +40,7 @@ function detail(overrides: Partial<ProductionOrderDetail> = {}): ProductionOrder
     priority: 100,
     source_type: 'MANUAL',
     source_id: null,
+    requires_qc: false,
     created_at: '2026-09-01T06:00:00Z',
     bom_id: null,
     routing_id: null,

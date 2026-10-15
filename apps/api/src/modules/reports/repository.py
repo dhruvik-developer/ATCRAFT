@@ -98,7 +98,7 @@ from src.modules.production.models import (
     WorkOrder,
 )
 from src.modules.products.models import Item
-from src.modules.quality.models import InspectionStatus, QcInspection
+from src.modules.quality.models import InspectionResult, InspectionStatus, QcInspection
 from src.modules.reports.models import InventorySummary, ReportJobStatus, ReportKey, ReportSnapshot
 from src.modules.reports.schemas import ReportFilters, ReportPeriod
 from src.modules.routing.models import (
@@ -799,6 +799,56 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
             stmt = stmt.where(QcInspection.status == filters.status)
         if filters.search:
             stmt = stmt.where(QcInspection.code.ilike(f"%{filters.search.strip()}%"))
+        return stmt
+
+    # --- 7b. rework rate ------------------------------------------------------
+
+    def rework_rate(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
+        #: Rework quantity and rate per item and vendor. Only decided
+        #: inspections count: a pending one has no verdict, and counting it
+        #: would drag the rate towards zero purely because nobody has looked
+        #: yet. The window is the verdict's business time, which is also the
+        #: stock event's ``occurred_at``. A NULL vendor groups together: bought
+        #: lots carry a vendor, production and packing output does not.
+        start, end = period_bounds(period)
+        stmt = (
+            select(
+                QcInspection.item_id.label("item_id"),
+                Item.code.label("item_code"),
+                Item.name.label("item_name"),
+                QcInspection.vendor_id.label("vendor_id"),
+                Vendor.name.label("vendor_name"),
+                func.count(QcInspection.id).label("inspection_count"),
+                func.coalesce(func.sum(QcInspection.inspected_quantity), 0).label(
+                    "inspected_quantity"
+                ),
+                func.coalesce(func.sum(QcInspection.rework_quantity), 0).label("rework_quantity"),
+            )
+            .join(Item, Item.id == QcInspection.item_id)
+            .outerjoin(Vendor, Vendor.id == QcInspection.vendor_id)
+            .where(
+                QcInspection.company_id == self._company,
+                QcInspection.result != InspectionResult.PENDING,
+                QcInspection.inspected_at >= start,
+                QcInspection.inspected_at < end,
+            )
+            .group_by(
+                QcInspection.item_id,
+                Item.code,
+                Item.name,
+                QcInspection.vendor_id,
+                Vendor.name,
+            )
+            .order_by(Item.code.asc(), Vendor.name.asc())
+        )
+        if filters.item_id:
+            stmt = stmt.where(QcInspection.item_id == filters.item_id)
+        if filters.vendor_id:
+            stmt = stmt.where(QcInspection.vendor_id == filters.vendor_id)
+        if filters.warehouse_id:
+            stmt = stmt.where(QcInspection.warehouse_id == filters.warehouse_id)
+        if filters.search:
+            stmt = stmt.where(Item.code.ilike(f"%{filters.search.strip()}%"))
         return stmt
 
     # --- 8. vendor performance ---------------------------------------------

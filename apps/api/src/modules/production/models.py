@@ -274,6 +274,14 @@ class ProductionOrder(TenantEntity, OptimisticLockMixin):
         server_default=ProductionOrderStatus.DRAFT,
     )
 
+    #: Good output of this order is booked into QC_HOLD with an in-process
+    #: inspection per booking, and the order cannot COMPLETE while any of it is
+    #: held. Decided at creation from the routing and the item (§E5-1), and
+    #: editable while the order is still a draft.
+    requires_qc: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+
     source_type: Mapped[ProductionSourceType] = mapped_column(
         StatusEnum(ProductionSourceType),
         nullable=False,
@@ -805,6 +813,19 @@ class ProductionEntry(TenantEntity):
     #: A bare UUID rather than a foreign key: the ledger outlives its source, so
     #: purging an archived booking must not be able to delete stock history.
     output_transaction_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+
+    #: The in-process inspection this booking raised, when the order requires
+    #: QC. A bare UUID for the same reason as above: quality owns the row, and
+    #: this module reaches it through the owner callback, never a join.
+    qc_inspection_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+    #: Denormalised from the inspection so the completion gate can name the open
+    #: inspections without reading another module's table.
+    qc_inspection_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: Set while the booking's output sits in QC_HOLD, cleared by the quality
+    #: verdict callback. The order cannot COMPLETE while any entry holds this.
+    qc_hold_open: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
 
     __table_args__ = (
         Index("ix_production_entries_order", "company_id", "production_order_id", "entry_date"),

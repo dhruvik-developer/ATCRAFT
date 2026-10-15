@@ -13,7 +13,16 @@
  */
 
 import { type ColumnDef } from '@tanstack/react-table'
-import { BarChart3, ClipboardCheck, ClipboardList, ExternalLink, Microscope, X } from 'lucide-react'
+import {
+  BarChart3,
+  ClipboardCheck,
+  ClipboardList,
+  ExternalLink,
+  Microscope,
+  Plus,
+  Wrench,
+  X,
+} from 'lucide-react'
 import { Suspense, lazy, useCallback, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
@@ -41,11 +50,18 @@ import { queryKeys, staleTimes } from '@/lib/query-client'
 
 import { InspectionDialog } from './inspection-dialog'
 
+const RaiseInspectionDialog = lazy(() =>
+  import('./raise-inspection-dialog').then((m) => ({ default: m.RaiseInspectionDialog })),
+)
+const InspectionDetailDialog = lazy(() =>
+  import('./inspection-detail-dialog').then((m) => ({ default: m.InspectionDetailDialog })),
+)
 const QualityReports = lazy(() =>
   import('./quality-reports').then((m) => ({ default: m.QualityReports })),
 )
 import {
   QC_DECIDED_RESULTS,
+  QC_INSPECTION_STATUSES,
   QC_STAGES,
   ageInDays,
   isInspectable,
@@ -122,7 +138,13 @@ function ItemCell({ inspection }: { inspection: QcInspectionRow }) {
 
 // ------------------------------------------------------------- pending ------
 
-function PendingTab({ onInspect }: { onInspect: (inspection: QcInspectionRow) => void }) {
+function PendingTab({
+  onInspect,
+  onOpen,
+}: {
+  onInspect: (inspection: QcInspectionRow) => void
+  onOpen: (inspection: QcInspectionRow) => void
+}) {
   const { canAny } = useAuth()
   const [searchParams] = useSearchParams()
 
@@ -222,7 +244,16 @@ function PendingTab({ onInspect }: { onInspect: (inspection: QcInspectionRow) =>
         enableHiding: false,
         meta: { align: 'right' },
         cell: ({ row }) => (
-          <Button variant="outline" size="sm" onClick={() => onInspect(row.original)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(event) => {
+              // The row itself opens the read-only detail; the button must
+              // not open both dialogs.
+              event.stopPropagation()
+              onInspect(row.original)
+            }}
+          >
             <Microscope />
             Inspect
           </Button>
@@ -244,9 +275,10 @@ function PendingTab({ onInspect }: { onInspect: (inspection: QcInspectionRow) =>
       onPageChange={list.setPage}
       onLimitChange={list.setLimit}
       onRefresh={() => void list.refetch()}
+      onRowClick={onOpen}
       getRowId={(row) => row.id}
       emptyTitle="Nothing waiting for inspection"
-      emptyDescription="Every lot that needs a decision has had one. New receipts and production entries raise inspections automatically."
+      emptyDescription="Every lot that needs a decision has had one. New receipts, production entries and packing starts raise inspections automatically - or raise one by hand."
       toolbar={
         <>
           <Select
@@ -286,7 +318,15 @@ function PendingTab({ onInspect }: { onInspect: (inspection: QcInspectionRow) =>
 
 // --------------------------------------------------------- all inspections --
 
-function InspectionsTab({ onInspect }: { onInspect: (inspection: QcInspectionRow) => void }) {
+function InspectionsTab({
+  onInspect,
+  onOpen,
+  reworkOnly,
+}: {
+  onInspect: (inspection: QcInspectionRow) => void
+  onOpen: (inspection: QcInspectionRow) => void
+  reworkOnly?: boolean
+}) {
   const { canAny } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -294,6 +334,7 @@ function InspectionsTab({ onInspect }: { onInspect: (inspection: QcInspectionRow
 
   const stage = searchParams.get('stage') ?? ''
   const result = searchParams.get('result') ?? ''
+  const status = searchParams.get('status') ?? ''
 
   const list = useListQuery<QcInspectionRow>({
     path: '/quality/inspections',
@@ -303,7 +344,8 @@ function InspectionsTab({ onInspect }: { onInspect: (inspection: QcInspectionRow
     staleTime: staleTimes.transactional,
     filters: {
       ...(stage ? { qc_stage: stage } : {}),
-      ...(result ? { result } : {}),
+      ...(reworkOnly ? { rework_only: true } : result ? { result } : {}),
+      ...(reworkOnly && status ? { status } : {}),
     },
   })
 
@@ -325,6 +367,7 @@ function InspectionsTab({ onInspect }: { onInspect: (inspection: QcInspectionRow
         const params = new URLSearchParams(current)
         params.delete('stage')
         params.delete('result')
+        params.delete('status')
         params.set('page', '1')
         return params
       },
@@ -332,7 +375,7 @@ function InspectionsTab({ onInspect }: { onInspect: (inspection: QcInspectionRow
     )
   }, [setSearchParams])
 
-  const filterCount = (stage ? 1 : 0) + (result ? 1 : 0)
+  const filterCount = (stage ? 1 : 0) + (result ? 1 : 0) + (status ? 1 : 0)
 
   const columns = useMemo<ColumnDef<QcInspectionRow, unknown>[]>(() => {
     const defs: ColumnDef<QcInspectionRow, unknown>[] = [
@@ -440,7 +483,14 @@ function InspectionsTab({ onInspect }: { onInspect: (inspection: QcInspectionRow
         meta: { align: 'right' },
         cell: ({ row }) =>
           isInspectable(row.original.status) ? (
-            <Button variant="outline" size="sm" onClick={() => onInspect(row.original)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={(event) => {
+                event.stopPropagation()
+                onInspect(row.original)
+              }}
+            >
               <Microscope />
               Inspect
             </Button>
@@ -466,9 +516,14 @@ function InspectionsTab({ onInspect }: { onInspect: (inspection: QcInspectionRow
       onRefresh={() => void list.refetch()}
       searchValue={list.search}
       searchPlaceholder="Search inspection, item or reference..."
+      onRowClick={onOpen}
       getRowId={(row) => row.id}
-      emptyTitle="No inspections found"
-      emptyDescription="Nothing matches the current filters. Clear them to see the full history."
+      emptyTitle={reworkOnly ? 'No rework on the bench' : 'No inspections found'}
+      emptyDescription={
+        reworkOnly
+          ? 'Nothing is holding quantity for rework. Lots the verdict sends for rework land here.'
+          : 'Nothing matches the current filters. Clear them to see the full history.'
+      }
       toolbar={
         <>
           <Select
@@ -488,22 +543,45 @@ function InspectionsTab({ onInspect }: { onInspect: (inspection: QcInspectionRow
             </SelectContent>
           </Select>
 
-          <Select
-            value={result || SELECT_ALL}
-            onValueChange={(value) => setParam('result', value === SELECT_ALL ? undefined : value)}
-          >
-            <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by result">
-              <SelectValue placeholder="All results" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={SELECT_ALL}>All results</SelectItem>
-              {QC_DECIDED_RESULTS.map((value) => (
-                <SelectItem key={value} value={value}>
-                  {humanise(value)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {reworkOnly ? (
+            <Select
+              value={status || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('status', value === SELECT_ALL ? undefined : value)
+              }
+            >
+              <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by status">
+                <SelectValue placeholder="All statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
+                {QC_INSPECTION_STATUSES.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {humanise(value)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Select
+              value={result || SELECT_ALL}
+              onValueChange={(value) =>
+                setParam('result', value === SELECT_ALL ? undefined : value)
+              }
+            >
+              <SelectTrigger className="w-full sm:w-[170px]" aria-label="Filter by result">
+                <SelectValue placeholder="All results" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SELECT_ALL}>All results</SelectItem>
+                {QC_DECIDED_RESULTS.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {humanise(value)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
 
           {filterCount > 0 && (
             <Button variant="ghost" size="sm" onClick={clearFilters}>
@@ -522,12 +600,16 @@ function InspectionsTab({ onInspect }: { onInspect: (inspection: QcInspectionRow
 const TABS = [
   { value: 'pending', label: 'Pending inspections', icon: ClipboardCheck },
   { value: 'inspections', label: 'All inspections', icon: ClipboardList },
+  { value: 'rework', label: 'Rework', icon: Wrench },
   { value: 'reports', label: 'Reports', icon: BarChart3 },
 ] as const
 
 export default function QualityPage() {
+  const { can } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const [inspecting, setInspecting] = useState<QcInspectionRow | null>(null)
+  const [viewing, setViewing] = useState<QcInspectionRow | null>(null)
+  const [raising, setRaising] = useState(false)
 
   const tab = searchParams.get('tab') ?? 'pending'
 
@@ -538,7 +620,8 @@ export default function QualityPage() {
         params.set('tab', next)
         // Page 4 of the pending queue is meaningless once the table below is
         // the full history, and so is a filter the next list does not offer.
-        for (const key of ['page', 'q', 'sort', 'dir', 'stage', 'result']) params.delete(key)
+        for (const key of ['page', 'q', 'sort', 'dir', 'stage', 'result', 'status'])
+          params.delete(key)
         return params
       },
       { replace: true },
@@ -549,7 +632,15 @@ export default function QualityPage() {
     <div>
       <PageHeader
         title="Quality"
-        description="Material waiting on a decision, the inspections already made, and what they say about the items and vendors behind them."
+        description="Material waiting on a decision, the inspections already made, what they sent back for rework, and what they say about the items and vendors behind them."
+        actions={
+          can(P.QC_INSPECT) ? (
+            <Button onClick={() => setRaising(true)}>
+              <Plus />
+              Raise inspection
+            </Button>
+          ) : undefined
+        }
       />
 
       <Tabs value={tab} onValueChange={changeTab}>
@@ -563,10 +654,13 @@ export default function QualityPage() {
         </TabsList>
 
         <TabsContent value="pending">
-          <PendingTab onInspect={setInspecting} />
+          <PendingTab onInspect={setInspecting} onOpen={setViewing} />
         </TabsContent>
         <TabsContent value="inspections">
-          <InspectionsTab onInspect={setInspecting} />
+          <InspectionsTab onInspect={setInspecting} onOpen={setViewing} />
+        </TabsContent>
+        <TabsContent value="rework">
+          <InspectionsTab onInspect={setInspecting} onOpen={setViewing} reworkOnly />
         </TabsContent>
         <TabsContent value="reports">
           {/* The only charting tab here, and not the default one - lazy so
@@ -584,6 +678,25 @@ export default function QualityPage() {
           if (!open) setInspecting(null)
         }}
       />
+
+      <Suspense fallback={null}>
+        <InspectionDetailDialog
+          inspection={viewing}
+          open={Boolean(viewing)}
+          onOpenChange={(open) => {
+            if (!open) setViewing(null)
+          }}
+          onInspect={setInspecting}
+        />
+      </Suspense>
+
+      <Suspense fallback={null}>
+        <RaiseInspectionDialog
+          open={raising}
+          onOpenChange={setRaising}
+          onRaised={(inspection) => setViewing(inspection)}
+        />
+      </Suspense>
     </div>
   )
 }

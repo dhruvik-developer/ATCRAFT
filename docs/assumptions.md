@@ -2690,6 +2690,153 @@ scope evidence are hidden from restricted readers.
 assignments and platform superusers remain unrestricted within the company; no
 repair migration or silent rewriting of historical workbooks is required.
 
+## §E5-1. Production output is held when the item or the routing asks for it
+
+**Assumed:** A production order holds its good output for QC when the item
+carries `requires_production_qc` or any routing operation gates its completion
+on QC. An explicit order-level choice wins over the item flag, but an explicit
+false is refused while a routing operation gates - the operation's gate would
+strand the job with output the routing demands inspected and no inspection
+anyone will raise.
+
+**Why:** The routing gate is structural (a step that may not report complete
+until inspected) while the item flag is policy (this part is always checked).
+Overriding policy per order is planning; overriding structure per order is a
+job that can never finish.
+
+**Where:** `production._resolve_requires_qc` at order creation and on every
+draft edit touching the hold or the routing; `items.requires_production_qc`.
+
+**Impact if wrong:** Allow explicit false against a gated routing and such jobs
+complete their operations uninspected; the gate stays as the backstop and names
+the missing inspection.
+
+## §E5-2. Completion waits for the hold; operations wait for acceptance
+
+**Assumed:** A production order cannot COMPLETE while any booking's output is
+still flagged held - the refusal names the open inspections. A work order whose
+routing operation gates on QC cannot COMPLETE until an inspection on that
+operation is ACCEPTED *and settled* (nothing left in rework or hold): a partial
+decision can carry an ACCEPTED verdict while quantity is still parked. Only
+operations that produced output are gated; a dry run booked nothing into stock.
+
+**Why:** Completing around held stock closes the job around a verdict that is
+still outstanding, and completing an operation on a partial verdict releases
+the job around stock nobody has released.
+
+**Where:** `production.complete_order`, `production.transition_work_order`,
+`production.record_quality_verdict` (clears the flag only on a settled verdict).
+
+**Impact if wrong:** If partial acceptance should release the operation, gate on
+the verdict alone; held quantity then completes with the job and is re-decided
+afterwards.
+
+## §E5-3. Final QC reserves instead of holding, and rejects are replaced
+
+**Assumed:** Starting a packing order raises one FINAL inspection per line whose
+item requires final QC, over the quantity to pack. The goods are reserved for
+the sales order, not held: completion and hand-over are refused until each
+line's inspection is ACCEPTED. A REJECTED verdict moves the stock to DAMAGED
+through the ordinary decision path, and the line is unblocked by repacking
+replacement goods and re-inspecting it - never by force. Starting is
+fail-closed: a QC line starts no bench without its inspection.
+
+**Why:** Packing never owns the stock it boxes, so there is no pool to hold
+it in; the gate is the control, and the re-inspection is the way out that keeps
+the gate honest.
+
+**Where:** `packing.start_packing`, `packing.complete_packing`,
+`packing.hand_over_to_dispatch`, `packing.reinspect_line`.
+
+**Impact if wrong:** If rejected lines should be editable instead of
+re-inspected, add a line-replacement path that voids the old inspection's link;
+the gate reads only the current link.
+
+## §E5-4. Inspection attachments are entity documents, not link rows
+
+**Assumed:** Files about an inspection - including inspections raised without a
+template - are `documents` rows filed with `entity_type='qc_inspection'`, not
+`qc_inspection_documents` link rows. Readings keep their own
+`photo_document_id`; anything else about the lot attaches at the inspection
+level.
+
+**Why:** The documents module already files, lists, downloads and expires
+against any snake_case noun, so a link table would duplicate exactly that
+machinery for one noun.
+
+**Where:** Quality detail screen; `DocumentFilters(entity_type, entity_id)`.
+
+**Impact if wrong:** If per-inspection retention or approval is ever needed,
+introduce the link table then; existing rows migrate by their entity pair.
+
+## §E5-5. Every verdict is kept, numbered per inspection
+
+**Assumed:** Each call to `decide_inspection` appends one
+`qc_inspection_decisions` row carrying the cumulative disposition it wrote,
+numbered 1, 2, 3... per inspection under the inspection's row lock. Re-deciding
+overwrites the five live quantities; the cycles survive here.
+
+**Why:** Without the sequence, two concurrent verdicts could claim one history
+position, and without the rows a reworked lot's earlier decisions would survive
+only as audit diffs.
+
+**Where:** `quality.decide_inspection`, `qc_inspection_decisions`.
+
+**Impact if wrong:** If decisions must be immutable rather than re-decidable,
+refuse re-decision outright; the history table then records exactly one row per
+inspection.
+
+## §E5-6. Completing rework moves nothing
+
+**Assumed:** Finishing a rework cycle records the outcome and re-opens the
+inspection (REWORK to IN_PROGRESS, verdict back to PENDING) so re-decision is
+owed. Even a SCRAPPED outcome leaves the quantity in QC hold for the inspector
+to scrap on re-decision, because the decision is the one release path. A
+RETURNED outcome against a named vendor flags the inspection for a vendor
+return the way a rejection does.
+
+**Why:** A second movement path out of the hold would be the two-release-paths
+defect again: the completion would release stock the decision also releases.
+
+**Where:** `quality.complete_rework`.
+
+**Impact if wrong:** If the bench should write scrap off directly, post the
+movement in the completion and narrow the re-decision to the remainder; the
+owner callback and the gates must then both understand a partially-completed
+cycle.
+
+## §E5-7. A decision moves stock from the pool the lot sits in
+
+**Assumed:** The decision reads the position's QC-hold quantity first. What is
+still on hold leaves the hold pool; the rest is already where an ACCEPTED
+verdict would put it (no movement), or leaves the available pool for DAMAGED
+and SCRAP. This is what lets FINAL inspections - which never hold anything -
+and hold-free manual inspections be decided at all.
+
+**Why:** Sourcing unconditionally from QC hold made every unheld inspection
+undecidable: the movement failed for want of held stock that was never
+supposed to be there.
+
+**Where:** `quality._post_decision_movements`.
+
+**Impact if wrong:** If unheld lots must not be rejectable to DAMAGED either,
+refuse REJECTED/SCRAP dispositions on inspections that hold nothing.
+
+## §E5-8. Packing raises FINAL inspections per line at start
+
+**Assumed:** See §E5-3. The inspection covers the line's quantity to pack at
+the order's warehouse, named against the line, so a replacement line
+re-inspection supersedes exactly the verdict it replaces.
+
+**Why:** Per-line naming is what makes the re-inspection unambiguous when one
+line of an order fails and the rest pass.
+
+**Where:** `packing._raise_line_inspections`, `packing_order_lines.qc_inspection_id`.
+
+**Impact if wrong:** If final QC should gate dispatch rather than packing,
+move the raise to the hand-over; lines packed before the change carry no
+inspection and pass the gate vacuously.
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant

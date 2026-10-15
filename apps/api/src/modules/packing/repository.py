@@ -81,6 +81,10 @@ class PackingItem:
     is_batch_tracked: bool
     is_serial_tracked: bool
     is_active: bool
+    #: Starting the order raises a FINAL inspection per line of this item (§E5-8).
+    #: Default False so a projection built before the flag existed keeps meaning
+    #: "no final QC owed".
+    requires_final_qc: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +155,7 @@ class ItemLookupRepository(BaseRepository[Item]):
             Item.is_batch_tracked,
             Item.is_serial_tracked,
             Item.is_active,
+            Item.requires_final_qc,
         ).where(
             Item.company_id == self.tenant.company_id,
             Item.deleted_at.is_(None),
@@ -166,6 +171,7 @@ class ItemLookupRepository(BaseRepository[Item]):
                 is_batch_tracked=row.is_batch_tracked,
                 is_serial_tracked=row.is_serial_tracked,
                 is_active=row.is_active,
+                requires_final_qc=row.requires_final_qc,
             )
             for row in (await self.session.execute(stmt)).all()
         }

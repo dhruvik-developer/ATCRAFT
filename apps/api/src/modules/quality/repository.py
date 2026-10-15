@@ -55,12 +55,15 @@ from src.modules.quality.models import (
     InspectionResult,
     InspectionStatus,
     QcInspection,
+    QcInspectionDecision,
     QcInspectionResult,
+    QcReworkRecord,
     QcStage,
     QcTemplate,
     QcTemplateParameter,
+    ReworkStatus,
 )
-from src.modules.quality.schemas import InspectionFilters, TemplateFilters
+from src.modules.quality.schemas import InspectionFilters, ReworkFilters, TemplateFilters
 from src.modules.warehouses.models import Warehouse
 
 
@@ -647,6 +650,106 @@ class QcInspectionResultRepository(BaseRepository[QcInspectionResult]):
         return {row.parameter_id: row for row in await self.list_for_inspection(inspection_id)}
 
 
+class QcInspectionDecisionRepository(BaseRepository[QcInspectionDecision]):
+    model = QcInspectionDecision
+    entity_label = "QC inspection decision"
+    sortable_fields: dict[str, InstrumentedAttribute[Any]] = {}  # noqa: RUF012
+
+    async def next_sequence(self, inspection_id: uuid.UUID) -> int:
+        """The sequence number the next verdict on this inspection carries.
+
+        Read under the inspection's row lock, which every decision takes before
+        computing anything: two verdicts cannot claim one number. The first
+        verdict on an inspection is 1, so a history that starts at 2 is evidence
+        of a deleted row rather than of anything this code does.
+        """
+        stmt = select(func.coalesce(func.max(QcInspectionDecision.sequence), 0)).where(
+            QcInspectionDecision.company_id == self.tenant.company_id,
+            QcInspectionDecision.inspection_id == inspection_id,
+        )
+        return int((await self.session.execute(stmt)).scalar_one()) + 1
+
+    async def list_for_inspection(self, inspection_id: uuid.UUID) -> list[QcInspectionDecision]:
+        """Every verdict one inspection has carried, oldest first.
+
+        Not paginated: a decision history is short - one row per verdict - and a
+        page of it would be a history with the earlier cycles missing, which is
+        exactly what this table exists to prevent.
+        """
+        stmt = (
+            self._scoped()
+            .where(QcInspectionDecision.inspection_id == inspection_id)
+            .order_by(QcInspectionDecision.sequence)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+
+class QcReworkRepository(BaseRepository[QcReworkRecord]):
+    model = QcReworkRecord
+    entity_label = "QC rework record"
+    sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
+        "code": QcReworkRecord.code,
+        "status": QcReworkRecord.status,
+        "created_at": QcReworkRecord.created_at,
+    }
+
+    async def lock_for_update(self, record_id: uuid.UUID) -> QcReworkRecord | None:
+        """Row-lock the cycle before starting or completing it.
+
+        The header is the serialisation point the way the inspection header is
+        for a decision: completing a cycle reads the inspection's rework
+        quantity and re-opens it, and two completions running at once would
+        each re-open from the same stale quantities.
+        """
+        stmt = self._scoped().where(QcReworkRecord.id == record_id).with_for_update()
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def list_for_inspection(self, inspection_id: uuid.UUID) -> list[QcReworkRecord]:
+        """Every cycle raised against one inspection, oldest first.
+
+        Bounded by the inspection: a lot is reworked a handful of times, not
+        hundreds, and the detail dialog reads the whole history at once.
+        """
+        stmt = (
+            self._scoped()
+            .where(QcReworkRecord.inspection_id == inspection_id)
+            # created_at is transaction-start time, so rows written in one
+            # transaction share it; the UUIDv7 id recovers insertion order.
+            .order_by(QcReworkRecord.created_at, QcReworkRecord.id)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def open_quantity_for_inspection(self, inspection_id: uuid.UUID) -> Decimal:
+        """Quantity already covered by unfinished cycles on this inspection.
+
+        A new cycle may only cover what is still uncovered: two open cycles
+        each covering the whole rework quantity would promise the bench twice
+        the material the inspection holds.
+        """
+        stmt = select(func.coalesce(func.sum(QcReworkRecord.quantity), 0)).where(
+            QcReworkRecord.company_id == self.tenant.company_id,
+            QcReworkRecord.inspection_id == inspection_id,
+            QcReworkRecord.status != ReworkStatus.DONE,
+        )
+        return Decimal(str((await self.session.execute(stmt)).scalar_one()))
+
+    async def list_rework(
+        self, filters: ReworkFilters, params: PageParams, sort: SortParams
+    ) -> tuple[list[QcReworkRecord], OffsetPagination]:
+        """The bench's work list, paginated."""
+        stmt = self._scoped()
+        if filters.inspection_id is not None:
+            stmt = stmt.where(QcReworkRecord.inspection_id == filters.inspection_id)
+        if filters.status is not None:
+            stmt = stmt.where(QcReworkRecord.status == filters.status)
+        if filters.assigned_to is not None:
+            stmt = stmt.where(QcReworkRecord.assigned_to == filters.assigned_to)
+        if filters.work_center_id is not None:
+            stmt = stmt.where(QcReworkRecord.work_center_id == filters.work_center_id)
+        order_by = sort.resolve(self.sortable_fields, QcReworkRecord.created_at.desc())
+        return await self.list_page(params, stmt=stmt, order_by=order_by)
+
+
 async def decided_inspection_companies(session: AsyncSession) -> list[uuid.UUID]:
     """Companies holding at least one decided inspection.
 
@@ -690,8 +793,10 @@ def open_inspection_count(
 __all__ = [
     "InspectableItem",
     "ItemLookupRepository",
+    "QcInspectionDecisionRepository",
     "QcInspectionRepository",
     "QcInspectionResultRepository",
+    "QcReworkRepository",
     "QcTemplateParameterRepository",
     "QcTemplateRepository",
     "QualityPeriodTotals",

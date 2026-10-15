@@ -106,6 +106,12 @@ const orderSchema = z
     warehouse_id: z.string().min(1, 'Choose the warehouse the output is received into'),
     /** Empty means unallocated - the order carries no cost centre. */
     cost_centre_id: z.string(),
+    /**
+     * `auto` omits `requires_qc` so the API decides: held when the item
+     * requires production QC or any routing operation gates on it. `skip`
+     * posts false, which the API refuses while a routing operation gates.
+     */
+    qc_mode: z.enum(['auto', 'hold', 'skip']),
     notes: z.string().trim().max(500, 'At most 500 characters'),
   })
   // ISO dates compare correctly as strings, so no Date object is needed here.
@@ -133,6 +139,7 @@ function emptyOrder(): OrderFormValues {
     priority: String(PRIORITY_DEFAULT),
     warehouse_id: '',
     cost_centre_id: '',
+    qc_mode: 'auto',
     notes: '',
   }
 }
@@ -202,6 +209,9 @@ export function ProductionOrderFormDialog({
         // Explicit or absent: an order inherits no centre from anywhere
         // (docs/assumptions.md §42), and material issued to it inherits this.
         cost_centre_id: orNull(values.cost_centre_id),
+        // `auto` is the server default (item flag or gated routing); the other
+        // two post an explicit choice.
+        ...(values.qc_mode === 'auto' ? {} : { requires_qc: values.qc_mode === 'hold' }),
         notes: orNull(values.notes),
       }),
     onSuccess: (order) => {
@@ -404,6 +414,34 @@ export function ProductionOrderFormDialog({
                   )}
                 />
               )}
+
+              <div className="sm:col-span-2">
+                <Label htmlFor="production-qc-mode">Quality inspection</Label>
+                <Controller
+                  control={control}
+                  name="qc_mode"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger
+                        id="production-qc-mode"
+                        className="mt-1.5"
+                        aria-label="Quality inspection"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Automatic - from the item and routing</SelectItem>
+                        <SelectItem value="hold">Always hold output for QC</SelectItem>
+                        <SelectItem value="skip">Book straight to free stock</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Held output raises an inspection per booking and the order cannot complete until
+                  it is decided. Skipping is refused while a routing operation gates on QC.
+                </p>
+              </div>
 
               <div className="sm:col-span-2">
                 <Label htmlFor="production-notes">Notes</Label>
