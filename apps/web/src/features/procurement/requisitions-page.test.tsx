@@ -572,9 +572,13 @@ describe('the requisition form', () => {
     await settled(fetch)
     await user.click(screen.getByRole('button', { name: /raise requisition/i }))
     await stable(() => screen.getByRole('dialog'))
-    await user.type(screen.getByLabelText(/required by/i), '2026-10-15')
+    const requiredDate = new Date()
+    requiredDate.setDate(requiredDate.getDate() + 1)
+    const requiredDateInput = toDateInput(requiredDate)
+    await user.type(screen.getByLabelText(/required by/i), requiredDateInput)
     await user.click(screen.getByRole('combobox', { name: 'Needed at' }))
     await user.click(await stable(() => screen.getByRole('option', { name: /WH-MAIN/ })))
+    return requiredDateInput
   }
 
   /** Choose an item and key a quantity on one line of the editor. */
@@ -592,7 +596,7 @@ describe('the requisition form', () => {
       }),
     })
 
-    await openForm(user, fetch)
+    const requiredDate = await openForm(user, fetch)
     await fillLine(user, 0, /BRASS-ROD-12/, '12.5')
 
     await user.click(screen.getByRole('button', { name: /add line/i }))
@@ -615,7 +619,7 @@ describe('the requisition form', () => {
     }
 
     expect(body.warehouse_id).toBe(WAREHOUSE_ID)
-    expect(body.required_date).toBe('2026-10-15')
+    expect(body.required_date).toBe(requiredDate)
     expect(body.requisition_date).toBe(toDateInput(new Date()))
     // This screen only ever raises demand by hand; a converted MRP suggestion
     // arrives through the planner carrying its own source type and source id.
