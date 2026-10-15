@@ -86,6 +86,307 @@ function today(): string {
   return toDateInput(new Date())
 }
 
+const completionSchema = z
+  .object({
+    produced_quantity: z
+      .string()
+      .trim()
+      .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
+    rejected_quantity: z
+      .string()
+      .trim()
+      .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
+    rejection_reason: z.string().trim().max(255, 'At most 255 characters'),
+    scrap_quantity: z
+      .string()
+      .trim()
+      .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
+    actual_end_date: z.string().min(1, 'Enter the actual end date'),
+    shift_id: z.string(),
+    note: z.string().trim().max(1000, 'At most 1000 characters'),
+  })
+  .superRefine((values, ctx) => {
+    if (toDecimal(values.rejected_quantity).greaterThan(0) && !values.rejection_reason) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A rejection needs a reason',
+        path: ['rejection_reason'],
+      })
+    }
+  })
+
+type CompletionFormValues = z.infer<typeof completionSchema>
+
+type CompletionPayload = {
+  produced_quantity: string
+  rejected_quantity: string
+  rejection_reason: string | null
+  scrap_quantity: string
+  entry_date: string
+  actual_end_date: string
+  shift_id: string | null
+  note: string | null
+}
+
+function completionDefaults(): CompletionFormValues {
+  return {
+    produced_quantity: '0',
+    rejected_quantity: '0',
+    rejection_reason: '',
+    scrap_quantity: '0',
+    actual_end_date: today(),
+    shift_id: '',
+    note: '',
+  }
+}
+
+export function CompleteProductionDialog({
+  open,
+  onOpenChange,
+  order,
+  loading,
+  onConfirm,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  order: Pick<
+    ProductionOrderRow,
+    'code' | 'planned_quantity' | 'produced_quantity' | 'rejected_quantity' | 'scrap_quantity'
+  >
+  loading: boolean
+  onConfirm: (payload: CompletionPayload) => void
+}) {
+  const {
+    register,
+    control,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<CompletionFormValues>({
+    resolver: zodResolver(completionSchema),
+    defaultValues: completionDefaults(),
+  })
+
+  useEffect(() => {
+    if (open) reset(completionDefaults())
+  }, [open, reset])
+
+  const submit = (values: CompletionFormValues) => {
+    onConfirm({
+      produced_quantity: asDecimal(values.produced_quantity),
+      rejected_quantity: asDecimal(values.rejected_quantity),
+      rejection_reason: orNull(values.rejection_reason),
+      scrap_quantity: asDecimal(values.scrap_quantity),
+      entry_date: values.actual_end_date,
+      actual_end_date: values.actual_end_date,
+      shift_id: orNull(values.shift_id),
+      note: orNull(values.note),
+    })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !loading && onOpenChange(next)}>
+      <DialogContent size="lg">
+        <DialogHeader>
+          <DialogTitle>Complete {order.code}?</DialogTitle>
+          <DialogDescription>
+            Record any final good output, rejects and scrap. Rejects require a reason. Existing
+            shift bookings remain included; only quantities entered below are booked now.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit(submit)} className="flex min-h-0 flex-col gap-4" noValidate>
+          <DialogBody className="space-y-4">
+            <div className="rounded-md border p-3">
+              <p className="mb-2 text-sm font-medium">Planned against booked</p>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
+                <div>
+                  <dt className="text-muted-foreground">Planned</dt>
+                  <dd className="tabular">{formatQuantity(order.planned_quantity)}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Good booked</dt>
+                  <dd className="tabular">{formatQuantity(order.produced_quantity)}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Rejected</dt>
+                  <dd className="tabular">{formatQuantity(order.rejected_quantity)}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">Scrap</dt>
+                  <dd className="tabular">{formatQuantity(order.scrap_quantity)}</dd>
+                </div>
+              </dl>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="production-complete-produced">Final good output</Label>
+                <Input
+                  id="production-complete-produced"
+                  {...register('produced_quantity')}
+                  inputMode="decimal"
+                  className="mt-1.5 text-right tabular"
+                  aria-invalid={Boolean(errors.produced_quantity)}
+                />
+                <FieldError message={errors.produced_quantity?.message} />
+              </div>
+              <div>
+                <Label htmlFor="production-complete-rejected">Rejected quantity</Label>
+                <Input
+                  id="production-complete-rejected"
+                  {...register('rejected_quantity')}
+                  inputMode="decimal"
+                  className="mt-1.5 text-right tabular"
+                  aria-invalid={Boolean(errors.rejected_quantity)}
+                />
+                <FieldError message={errors.rejected_quantity?.message} />
+              </div>
+              <div className="sm:col-span-2">
+                <Label htmlFor="production-complete-rejection-reason">Rejection reason</Label>
+                <Input
+                  id="production-complete-rejection-reason"
+                  {...register('rejection_reason')}
+                  autoComplete="off"
+                  className="mt-1.5"
+                  aria-invalid={Boolean(errors.rejection_reason)}
+                />
+                <FieldError message={errors.rejection_reason?.message} />
+              </div>
+              <div>
+                <Label htmlFor="production-complete-scrap">Scrap quantity</Label>
+                <Input
+                  id="production-complete-scrap"
+                  {...register('scrap_quantity')}
+                  inputMode="decimal"
+                  className="mt-1.5 text-right tabular"
+                  aria-invalid={Boolean(errors.scrap_quantity)}
+                />
+                <FieldError message={errors.scrap_quantity?.message} />
+              </div>
+              <div>
+                <Label htmlFor="production-complete-end-date" required>
+                  Actual end date
+                </Label>
+                <Input
+                  id="production-complete-end-date"
+                  type="date"
+                  {...register('actual_end_date')}
+                  className="mt-1.5"
+                  aria-invalid={Boolean(errors.actual_end_date)}
+                />
+                <FieldError message={errors.actual_end_date?.message} />
+              </div>
+              <div>
+                <Label htmlFor="production-complete-shift">Shift</Label>
+                <Controller
+                  control={control}
+                  name="shift_id"
+                  render={({ field }) => (
+                    <ShiftSelect
+                      id="production-complete-shift"
+                      value={field.value || null}
+                      onChange={(value) => field.onChange(value ?? '')}
+                      enabled={open}
+                    />
+                  )}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <Label htmlFor="production-complete-note">Completion note</Label>
+                <Textarea id="production-complete-note" {...register('note')} className="mt-1.5" />
+                <FieldError message={errors.note?.message} />
+              </div>
+            </div>
+          </DialogBody>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={loading}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={loading}>
+              Complete order
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function CloseProductionDialog({
+  open,
+  onOpenChange,
+  order,
+  loading,
+  onConfirm,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  order: Pick<
+    ProductionOrderRow,
+    'code' | 'planned_quantity' | 'produced_quantity' | 'rejected_quantity' | 'scrap_quantity'
+  >
+  loading: boolean
+  onConfirm: (payload: { closure_note: string | null }) => void
+}) {
+  const [closureNote, setClosureNote] = useState('')
+
+  useEffect(() => {
+    if (open) setClosureNote('')
+  }, [open])
+
+  return (
+    <ConfirmDialog
+      open={open}
+      onOpenChange={(next) => !loading && onOpenChange(next)}
+      title={`Close ${order.code}?`}
+      description="Closing settles the order and its costing. A closed order cannot be reopened."
+      confirmLabel="Close order"
+      loading={loading}
+      onConfirm={() => onConfirm({ closure_note: orNull(closureNote.trim()) })}
+    >
+      <div className="space-y-4">
+        <div className="rounded-md border p-3">
+          <p className="mb-2 text-sm font-medium">Planned against booked</p>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
+            <div>
+              <dt className="text-muted-foreground">Planned</dt>
+              <dd className="tabular">{formatQuantity(order.planned_quantity)}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Good booked</dt>
+              <dd className="tabular">{formatQuantity(order.produced_quantity)}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Rejected</dt>
+              <dd className="tabular">{formatQuantity(order.rejected_quantity)}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Scrap</dt>
+              <dd className="tabular">{formatQuantity(order.scrap_quantity)}</dd>
+            </div>
+          </dl>
+        </div>
+        <div>
+          <Label htmlFor="production-closure-note">Closure note</Label>
+          <Textarea
+            id="production-closure-note"
+            value={closureNote}
+            onChange={(event) => setClosureNote(event.target.value)}
+            maxLength={4000}
+            className="mt-1.5"
+          />
+        </div>
+      </div>
+    </ConfirmDialog>
+  )
+}
+
 // ------------------------------------------------- raise a production order --
 
 const orderSchema = z

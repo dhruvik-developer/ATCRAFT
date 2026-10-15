@@ -8,7 +8,7 @@
  * all, with no message anywhere.
  */
 
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
@@ -70,6 +70,136 @@ function renderDetail(permissions: string[], routes: Record<string, unknown> = {
     },
   })
 }
+
+describe('completing an order', () => {
+  it('captures final output, rejection reason, scrap, date, shift and note', async () => {
+    const inProgress = detail({
+      status: 'IN_PROCESS',
+      produced_quantity: '65.0000',
+      rejected_quantity: '2.0000',
+      scrap_quantity: '1.0000',
+    })
+    const { user, fetch } = renderScreen(<ProductionDetailPage />, {
+      permissions: [P.PRODUCTION_ORDER_VIEW, P.PRODUCTION_ENTRY_CREATE],
+      route: `/production/${ORDER_ID}`,
+      path: '/production/:orderId',
+      routes: {
+        [`GET /production/${ORDER_ID}`]: ok(inProgress),
+        [`GET /production/${ORDER_ID}/components`]: ok([]),
+        'GET /routing/shifts': page([
+          {
+            id: 'shift-day',
+            code: 'DAY',
+            name: 'Day shift',
+            start_time: '08:00:00',
+            end_time: '16:00:00',
+            crosses_midnight: false,
+            break_minutes: 30,
+            sort_order: 1,
+            is_active: true,
+          },
+        ]),
+        [`POST /production/${ORDER_ID}/complete`]: ok({
+          message: 'Production completed.',
+          order: detail({ status: 'COMPLETED', actual_end_date: '2026-10-15' }),
+          output_movement: null,
+          backflush_issue_code: null,
+          backflush_movements: [],
+          consumed_component_count: 0,
+        }),
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: /^complete$/i }))
+    expect(await screen.findByText('Planned against booked')).toBeVisible()
+    expect(screen.getByText('65')).toBeVisible()
+    fireEvent.change(screen.getByLabelText('Final good output'), {
+      target: { value: '30.2500' },
+    })
+    fireEvent.change(screen.getByLabelText('Rejected quantity'), { target: { value: '3' } })
+    await user.click(screen.getByRole('button', { name: 'Complete order' }))
+
+    expect(await screen.findByText('A rejection needs a reason')).toBeVisible()
+    expect(fetch.calls.some((call) => call.path.endsWith('/complete'))).toBe(false)
+    fireEvent.change(screen.getByLabelText('Rejection reason'), {
+      target: { value: 'Dimension out of tolerance' },
+    })
+    fireEvent.change(screen.getByLabelText('Scrap quantity'), { target: { value: '1.25' } })
+    fireEvent.change(screen.getByLabelText(/Actual end date/), {
+      target: { value: '2026-10-14' },
+    })
+    await user.click(screen.getByRole('combobox', { name: 'Shift' }))
+    await user.click(await screen.findByRole('option', { name: /DAY/ }))
+    fireEvent.change(screen.getByLabelText('Completion note'), {
+      target: { value: 'Final inspection complete' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Complete order' }))
+
+    const body = (await waitFor(() =>
+      fetch.requestFor('POST', `/production/${ORDER_ID}/complete`),
+    )) as Record<string, unknown>
+    expect(body).toEqual({
+      produced_quantity: '30.2500',
+      rejected_quantity: '3',
+      rejection_reason: 'Dimension out of tolerance',
+      scrap_quantity: '1.25',
+      entry_date: '2026-10-14',
+      actual_end_date: '2026-10-14',
+      shift_id: 'shift-day',
+      note: 'Final inspection complete',
+    })
+  })
+})
+
+describe('closing an order', () => {
+  it('shows planned and booked figures and sends the closure note', async () => {
+    const completed = detail({
+      status: 'COMPLETED',
+      produced_quantity: '92.0000',
+      rejected_quantity: '4.0000',
+      scrap_quantity: '2.0000',
+    })
+    const { user, fetch } = renderScreen(<ProductionDetailPage />, {
+      permissions: [P.PRODUCTION_ORDER_VIEW, P.PRODUCTION_ORDER_CLOSE],
+      route: `/production/${ORDER_ID}`,
+      path: '/production/:orderId',
+      routes: {
+        [`GET /production/${ORDER_ID}`]: ok(completed),
+        [`GET /production/${ORDER_ID}/components`]: ok([]),
+        [`POST /production/${ORDER_ID}/close`]: ok({
+          message: 'Production order closed.',
+          order: detail({ status: 'CLOSED', closure_note: 'Variance reviewed' }),
+          cost: {
+            production_order_id: ORDER_ID,
+            code: 'PRD-0001',
+            status: 'CLOSED',
+            material_cost: '0.00',
+            operation_cost: '0.00',
+            total_cost: '0.00',
+            cost_per_unit: null,
+            planned_quantity: '100.0000',
+            produced_quantity: '92.0000',
+            is_final: true,
+            uncosted_operation_count: 0,
+          },
+        }),
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: /^close$/i }))
+    expect(await screen.findByText('Planned against booked')).toBeVisible()
+    expect(screen.getByText('92')).toBeVisible()
+    fireEvent.change(screen.getByLabelText('Closure note'), {
+      target: { value: 'Variance reviewed' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Close order' }))
+
+    const body = (await waitFor(() =>
+      fetch.requestFor('POST', `/production/${ORDER_ID}/close`),
+    )) as Record<string, unknown>
+    expect(body).toEqual({ closure_note: 'Variance reviewed' })
+  })
+})
 
 describe('cancelling an order', () => {
   it('records the audit reason the API insists on, within its bounds', async () => {

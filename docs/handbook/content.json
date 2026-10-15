@@ -2540,12 +2540,12 @@
             {
               "action": "Complete the job",
               "how": "Complete, in the header, while the order is in process",
-              "note": "Return anything still issued but unused first - a completed order no longer accepts a return. Refused while any booked output is still held for QC: decide the inspections first."
+              "note": "The dialog shows planned against booked good, rejected and scrap quantities. Capture any final good output, rejects with their reason, scrap, actual end date, shift and note. Return anything still issued but unused first. Refused while any booked output is still held for QC: decide the inspections first."
             },
             {
               "action": "Close and cost the job",
               "how": "Close, in the header, once the order is completed",
-              "note": "Closing works out the final cost and freezes it, and gives back anything the job was still holding. A closed order cannot be reopened."
+              "note": "Review planned against booked quantities and enter the closure note. Closing works out the final cost and freezes it, and gives back anything the job was still holding. A closed order cannot be reopened."
             },
             {
               "action": "Cancel the job",
@@ -2580,8 +2580,8 @@
             "MATERIAL ISSUED. The storekeeper presses Issue material and posts the pick. Now stock genuinely leaves the store: the components come off the shelf and off the available balance. When every component that has to be picked has been fully issued, the order moves to Material issued by itself.",
             "IN PROCESS. Press Start. The actual start date is recorded and the job can no longer be cancelled.",
             "Bookings. Press Record production at the end of each shift. Good output booked at the last operation - or on a job with no routing at all - is received into the output warehouse. Rejected quantity is counted for the yield but never received, because it was never good stock.",
-            "COMPLETED. Press Complete. No more can be booked or issued. Every component's consumed quantity is set to what the job was holding; this posts nothing, because that stock already left the store when it was issued.",
-            "CLOSED. Press Close. The material cost and the operation cost are worked out and stored on the order, and anything the job was still holding is released. The figures are frozen at that moment, because work centre rates and stock valuations both move afterwards."
+            "COMPLETED. Press Complete. Review the quantities already booked against the plan, then capture any final good output, rejects and their reason, scrap, actual end date, shift and note. No more can be booked or issued. Every component's consumed quantity is set to what the job was holding; this posts nothing, because that stock already left the store when it was issued.",
+            "CLOSED. Press Close, review planned against booked quantities and record a closure note. The material cost and the operation cost are worked out and stored on the order, and anything the job was still holding is released. The figures are frozen at that moment, because work centre rates and stock valuations both move afterwards."
           ],
           "permission": "Reading the order needs the right to see production orders; the Costing tab additionally needs the right to see production costs. Every button asks for its own right, and they are deliberately not the same one: Approve needs approval of production orders, Release needs release, Start needs the right to manage work orders, Issue material needs the right to issue material, Return material a separate return right, Record production and Complete both need the right to book production, Close needs the close right, and Cancel needs the cancel right. A button you do not hold the right for is simply absent.",
           "rules": [
@@ -2602,7 +2602,7 @@
             "The costing is calculated by the system from the issues and bookings actually posted - material at what the movements were valued at, operations at the time actually clocked at the work centre's rate. The screen never re-adds them, so the figures always reconcile with the stock ledger.",
             "An operation with no rate behind it is flagged: its work centre carries no cost per hour, so the operation cost is an understatement rather than a complete figure."
           ],
-          "notes": "Three things to be careful about in the deck. First, the Record production dialog carries a line saying the first booking moves the order from material issued to in process. It does not - only the Start button does that, and the header's own confirmation text says so correctly. Do not repeat the dialog's wording. Second, backflushed components (issued automatically at completion rather than picked) exist in the system, and the kit list will label them, but the Release button on this screen never nominates any - so on orders released through the screen the kit list is always fully picked. Third, pressing Complete from this screen books no additional output and records no scrap; it finishes a job whose output was already booked shift by shift. The item and the bill of materials appear as links ('Open item master', 'View BOM') rather than as codes, because the order carries their identity but not their names. Shift selects use the company shift master. Operators come from the active internal directory; choose a work order for per-operation output or leave it blank for final output. Downtime-only bookings are accepted. Legacy shift codes remain visible read-only."
+          "notes": "Two things to be careful about in the deck. First, the Record production dialog carries a line saying the first booking moves the order from material issued to in process. It does not - only the Start button does that, and the header's own confirmation text says so correctly. Do not repeat the dialog's wording. Second, backflushed components (issued automatically at completion rather than picked) exist in the system, and the kit list will label them, but the Release button on this screen never nominates any - so on orders released through the screen the kit list is always fully picked. The item and the bill of materials appear as links ('Open item master', 'View BOM') rather than as codes, because the order carries their identity but not their names. Shift selects use the company shift master. Operators come from the active internal directory; choose a work order for per-operation output or leave it blank for final output. Downtime-only bookings are accepted. Legacy shift codes remain visible read-only."
         },
         {
           "route": "/production/work-orders",

@@ -79,6 +79,8 @@ import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 
 import {
+  CloseProductionDialog,
+  CompleteProductionDialog,
   IssueMaterialDialog,
   RecordProductionDialog,
   ReturnMaterialDialog,
@@ -801,14 +803,21 @@ export default function ProductionDetailPage() {
   }
 
   /**
-   * Every transition takes a JSON body, even when there is nothing to say in it:
-   * the request body is required on all five endpoints, so posting nothing at
-   * all is a 422 rather than a default. `release` and `close` answer with a
-   * richer result than the order alone, which is what the toasts read.
+   * Every transition takes a JSON body, even when there is nothing to say in it.
+   * Completion and closure collect their endpoint-specific capture fields below.
    */
   const transition = useMutation({
-    mutationFn: async (action: ActionKey) => {
-      const result = await api.post<TransitionResult>(`/production/${orderId}/${action}`, {})
+    mutationFn: async ({
+      action,
+      body,
+    }: {
+      action: ActionKey
+      body?: Record<string, string | null>
+    }) => {
+      const result = await api.post<TransitionResult>(
+        `/production/${orderId}/${action}`,
+        body ?? {},
+      )
       return { action, result }
     },
     onSuccess: ({ action, result }) => {
@@ -1269,13 +1278,29 @@ export default function ProductionDetailPage() {
       )}
 
       <ConfirmDialog
-        open={pendingAction !== null}
+        open={pendingAction !== null && pendingAction !== 'complete' && pendingAction !== 'close'}
         onOpenChange={(open) => !open && setPendingAction(null)}
         title={pendingAction ? actionLabels[pendingAction].title : ''}
         description={pendingAction ? actionLabels[pendingAction].description : undefined}
         confirmLabel={pendingAction ? actionLabels[pendingAction].confirm : 'Confirm'}
         loading={transition.isPending}
-        onConfirm={() => pendingAction && transition.mutate(pendingAction)}
+        onConfirm={() => pendingAction && transition.mutate({ action: pendingAction })}
+      />
+
+      <CompleteProductionDialog
+        open={pendingAction === 'complete'}
+        onOpenChange={(open) => !open && setPendingAction(null)}
+        order={order}
+        loading={transition.isPending}
+        onConfirm={(body) => transition.mutate({ action: 'complete', body })}
+      />
+
+      <CloseProductionDialog
+        open={pendingAction === 'close'}
+        onOpenChange={(open) => !open && setPendingAction(null)}
+        order={order}
+        loading={transition.isPending}
+        onConfirm={(body) => transition.mutate({ action: 'close', body })}
       />
 
       <ConfirmDialog
