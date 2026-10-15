@@ -49,6 +49,7 @@ import type {
   SalesOrderLine,
   SalesOrderRow,
 } from './sales-types'
+import type { ItemVariant } from '@/features/items/item-model'
 
 // ------------------------------------------------------------- fixtures ----
 
@@ -58,6 +59,7 @@ const WAREHOUSE_ID = '01a00000-0000-7000-8000-00000000wh01'
 const ITEM_ID = '01a00000-0000-7000-8000-0000000item1'
 const UOM_ID = '01a00000-0000-7000-8000-00000000uom1'
 const LINE_ID = '01a00000-0000-7000-8000-000000000ln1'
+const VARIANT_ID = '01a00000-0000-7000-8000-0000000var01'
 
 function orderRow(overrides: Partial<SalesOrderRow> = {}): SalesOrderRow {
   return {
@@ -159,6 +161,20 @@ const ITEM = {
   code: 'FG-HINGE-4',
   name: 'Brass hinge 4in',
   base_uom_id: UOM_ID,
+  is_active: true,
+}
+
+const ITEM_VARIANT: ItemVariant = {
+  id: VARIANT_ID,
+  item_id: ITEM_ID,
+  code: 'FG-HINGE-4-BLK',
+  name: 'Black finish',
+  finish_id: null,
+  size_id: null,
+  colour_id: null,
+  price_delta: '25.000000',
+  cost_delta: null,
+  barcode: null,
   is_active: true,
 }
 
@@ -463,6 +479,7 @@ describe('what the new-order form sends', () => {
       [`GET /customers/${CUSTOMER_ID}/addresses`]: page([]),
       'GET /warehouses': page([WAREHOUSE]),
       'GET /products/items': page([ITEM]),
+      [`GET /products/items/${ITEM_ID}/variants`]: page([]),
       ...extra,
     }
   }
@@ -489,6 +506,7 @@ describe('what the new-order form sends', () => {
     await stable(() => screen.getByRole('combobox', { name: 'Item' }))
     await user.click(screen.getByRole('combobox', { name: 'Item' }))
     await user.click(await stable(() => screen.getByRole('option', { name: /FG-HINGE-4/ })))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add line' })).toBeEnabled())
 
     const quantity = screen.getByRole('textbox', { name: /quantity/i })
     await user.clear(quantity)
@@ -555,6 +573,7 @@ describe('what the new-order form sends', () => {
       {
         line_number: 1,
         item_id: ITEM_ID,
+        item_variant_id: null,
         description: null,
         quantity: '12.5',
         // The item's own sale unit, chosen by leaving the unit alone.
@@ -569,6 +588,33 @@ describe('what the new-order form sends', () => {
     // here hands the API 340.25 and loses what was actually negotiated.
     expect(typeof body.lines[0]!.unit_price).toBe('string')
     expect(typeof body.lines[0]!.quantity).toBe('string')
+  })
+
+  it('offers and sends an active variant for a selected item', async () => {
+    const { user, fetch } = renderScreen(<SalesOrdersPage />, {
+      permissions: formPermissions,
+      routes: formRoutes({
+        [`GET /products/items/${ITEM_ID}/variants`]: page([ITEM_VARIANT]),
+        'POST /sales': ok({ ...orderDetail(), code: 'SO-VARIANT' }),
+      }),
+    })
+
+    await openForm(user, fetch)
+    await user.click(screen.getByRole('button', { name: /add line/i }))
+    await stable(() => screen.getByRole('combobox', { name: 'Item' }))
+    await user.click(screen.getByRole('combobox', { name: 'Item' }))
+    await user.click(await stable(() => screen.getByRole('option', { name: /FG-HINGE-4/ })))
+
+    const variantPicker = await stable(() => screen.getByRole('combobox', { name: 'Variant' }))
+    await user.click(variantPicker)
+    await user.click(await stable(() => screen.getByRole('option', { name: /FG-HINGE-4-BLK/ })))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add line' })).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: 'Add line' }))
+    await user.click(screen.getByRole('button', { name: 'Create draft order' }))
+
+    await waitFor(() => fetch.requestFor('POST', '/sales'))
+    const body = fetch.requestFor('POST', '/sales') as { lines: Record<string, unknown>[] }
+    expect(body.lines[0]!.item_variant_id).toBe(VARIANT_ID)
   })
 
   it('leaves the unit price null so the API prices the line from the price list', async () => {

@@ -16,6 +16,7 @@
  */
 
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -39,9 +40,12 @@ import {
 import { Input, Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
-import { useUomOptions } from '@/features/items/item-model'
+import { useUomOptions, type ItemVariant } from '@/features/items/item-model'
+import { api } from '@/lib/api-client'
+import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { formatMoney, toDateInput, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
+import { queryKeys, staleTimes } from '@/lib/query-client'
 
 import type { SalesOrderLineIn } from './sales-types'
 
@@ -54,6 +58,7 @@ const ITEM_DEFAULT_UOM = '__item_default'
 
 const schema = z.object({
   item_id: z.string().min(1, 'Choose an item'),
+  item_variant_id: z.string(),
   description: z.string().trim().max(500, 'At most 500 characters'),
   quantity: z
     .string()
@@ -76,6 +81,7 @@ type LineFormValues = z.infer<typeof schema>
 function emptyValues(): LineFormValues {
   return {
     item_id: '',
+    item_variant_id: SELECT_NONE,
     description: '',
     quantity: '1',
     uom_id: ITEM_DEFAULT_UOM,
@@ -89,6 +95,7 @@ function emptyValues(): LineFormValues {
 function valuesFrom(line: SalesOrderLineIn): LineFormValues {
   return {
     item_id: line.item_id,
+    item_variant_id: line.item_variant_id ?? SELECT_NONE,
     description: line.description ?? '',
     quantity: line.quantity,
     uom_id: line.uom_id ?? ITEM_DEFAULT_UOM,
@@ -128,21 +135,41 @@ export function SalesOrderLineDialog({
     control,
     handleSubmit,
     reset,
+    setValue,
     watch,
     formState: { errors },
   } = useForm<LineFormValues>({ resolver: zodResolver(schema), defaultValues: emptyValues() })
 
-  const editingKey = line ? `${line.line_number}:${line.item_id}` : null
+  const editingKey = line
+    ? `${line.line_number}:${line.item_id}:${line.item_variant_id ?? ''}`
+    : null
   useEffect(() => {
     if (open) reset(line ? valuesFrom(line) : emptyValues())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editingKey, reset])
 
-  const [quantity, unitPrice, discountPercentage] = watch([
+  const [itemId, itemVariantId, quantity, unitPrice, discountPercentage] = watch([
+    'item_id',
+    'item_variant_id',
     'quantity',
     'unit_price',
     'discount_percentage',
   ])
+
+  const variantParams = { page: 1, limit: LOOKUP_LIST_LIMIT, with_total: false }
+  const variantsQuery = useQuery({
+    queryKey: queryKeys.items.variants(itemId, variantParams),
+    queryFn: () =>
+      api.getPage<ItemVariant>(`/products/items/${itemId}/variants`, {
+        params: variantParams,
+      }),
+    enabled: open && Boolean(itemId),
+    staleTime: staleTimes.master,
+  })
+  const variants = variantsQuery.data?.data ?? []
+  const selectableVariants = variants.filter(
+    (variant) => variant.is_active || variant.id === itemVariantId,
+  )
 
   // decimal.js throughout: 0.1 + 0.2 on a line total is a real invoice defect.
   const gross = toDecimal(quantity).times(toDecimal(unitPrice))
@@ -153,6 +180,7 @@ export function SalesOrderLineDialog({
     onSubmit({
       line_number: lineNumber,
       item_id: values.item_id,
+      item_variant_id: values.item_variant_id === SELECT_NONE ? null : values.item_variant_id,
       description: orNull(values.description),
       // Decimals stay strings all the way to the wire - never parsed to a double.
       quantity: values.quantity.trim(),
@@ -188,7 +216,11 @@ export function SalesOrderLineDialog({
                       id="line-item"
                       label="Item"
                       value={field.value || null}
-                      onChange={(itemId) => field.onChange(itemId ?? '')}
+                      onChange={(nextItemId) => {
+                        const next = nextItemId ?? ''
+                        field.onChange(next)
+                        setValue('item_variant_id', SELECT_NONE)
+                      }}
                       placeholder="Search the item master"
                       invalid={Boolean(errors.item_id)}
                       filters={{ can_sell: true }}
@@ -197,6 +229,58 @@ export function SalesOrderLineDialog({
                 />
                 <FieldError message={errors.item_id?.message} />
               </div>
+
+              {itemId && variantsQuery.isLoading && (
+                <p className="text-sm text-muted-foreground" role="status">
+                  Loading item variants…
+                </p>
+              )}
+              {itemId && variantsQuery.isError && (
+                <div className="flex items-center justify-between gap-3 text-sm text-destructive">
+                  <p role="alert">Unable to load item variants. Retry to continue.</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void variantsQuery.refetch()}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              )}
+              {selectableVariants.length > 0 && (
+                <div>
+                  <Label htmlFor="line-item-variant">Variant</Label>
+                  <Controller
+                    control={control}
+                    name="item_variant_id"
+                    render={({ field }) => (
+                      <Select
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        disabled={variantsQuery.isLoading || variantsQuery.isError}
+                      >
+                        <SelectTrigger id="line-item-variant" className="mt-1.5">
+                          <SelectValue placeholder="No variant" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={SELECT_NONE}>No variant</SelectItem>
+                          {selectableVariants.map((variant) => (
+                            <SelectItem
+                              key={variant.id}
+                              value={variant.id}
+                              disabled={!variant.is_active}
+                            >
+                              {variant.code} - {variant.name}
+                              {!variant.is_active ? ' (inactive)' : ''}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                </div>
+              )}
 
               <div className="sm:col-span-2">
                 <Label htmlFor="line-description">Description</Label>
@@ -340,7 +424,9 @@ export function SalesOrderLineDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit">{isEdit ? 'Save line' : 'Add line'}</Button>
+            <Button type="submit" disabled={variantsQuery.isLoading || variantsQuery.isError}>
+              {isEdit ? 'Save line' : 'Add line'}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
