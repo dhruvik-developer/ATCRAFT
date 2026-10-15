@@ -180,6 +180,11 @@ const ITEM_VARIANT: ItemVariant = {
 
 const WAREHOUSE = { id: WAREHOUSE_ID, code: 'WH-MAIN', name: 'Main store', is_active: true }
 
+// The line editor asks for the chosen item's variants. An exact route, so the
+// editor's request does not fall through to the item search's prefix match and
+// conjure a variant out of the item row.
+const NO_VARIANTS: RouteTable = { [`GET /products/items/${ITEM_ID}/variants`]: page([]) }
+
 /**
  * A required date the form will accept whenever this suite is run.
  *
@@ -479,7 +484,7 @@ describe('what the new-order form sends', () => {
       [`GET /customers/${CUSTOMER_ID}/addresses`]: page([]),
       'GET /warehouses': page([WAREHOUSE]),
       'GET /products/items': page([ITEM]),
-      [`GET /products/items/${ITEM_ID}/variants`]: page([]),
+      ...NO_VARIANTS,
       ...extra,
     }
   }
@@ -594,7 +599,10 @@ describe('what the new-order form sends', () => {
     const { user, fetch } = renderScreen(<SalesOrdersPage />, {
       permissions: formPermissions,
       routes: formRoutes({
-        [`GET /products/items/${ITEM_ID}/variants`]: page([ITEM_VARIANT]),
+        [`GET /products/items/${ITEM_ID}/variants`]: page([
+          ITEM_VARIANT,
+          { ...ITEM_VARIANT, id: 'inactive-variant', code: 'FG-HINGE-4-OLD', is_active: false },
+        ]),
         'POST /sales': ok({ ...orderDetail(), code: 'SO-VARIANT' }),
       }),
     })
@@ -607,6 +615,7 @@ describe('what the new-order form sends', () => {
 
     const variantPicker = await stable(() => screen.getByRole('combobox', { name: 'Variant' }))
     await user.click(variantPicker)
+    expect(screen.queryByRole('option', { name: /FG-HINGE-4-OLD/ })).not.toBeInTheDocument()
     await user.click(await stable(() => screen.getByRole('option', { name: /FG-HINGE-4-BLK/ })))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Add line' })).toBeEnabled())
     await user.click(screen.getByRole('button', { name: 'Add line' }))
@@ -691,6 +700,60 @@ describe('what the new-order form sends', () => {
     expect(await screen.findByText('This PO number is already on order SO-0009')).toBeVisible()
   })
 
+  it('drops the variant when the line is repointed at another item', async () => {
+    // A variant belongs to its item. Keeping the choice across an item change
+    // would send a variant the new item does not have, which the API refuses -
+    // so the editor clears it the moment the item moves.
+    const ITEM_2_ID = '01a00000-0000-7000-8000-0000000item2'
+    const { user, fetch } = renderScreen(<SalesOrdersPage />, {
+      permissions: formPermissions,
+      routes: formRoutes({
+        'GET /products/items': page([
+          ITEM,
+          { ...ITEM, id: ITEM_2_ID, code: 'FG-KNOB-1', name: 'Brass knob 25mm' },
+        ]),
+        [`GET /products/items/${ITEM_ID}/variants`]: page([
+          {
+            id: 'var-brushed',
+            item_id: ITEM_ID,
+            code: 'FG-HINGE-4-BR',
+            name: 'Brushed finish',
+            finish_id: 'att-brushed',
+            size_id: null,
+            colour_id: null,
+            price_delta: '10.000000',
+            cost_delta: '0.0000',
+            barcode: null,
+            is_active: true,
+          },
+        ]),
+        [`GET /products/items/${ITEM_2_ID}/variants`]: page([]),
+        'POST /sales': ok({ ...orderDetail(), code: 'SO-0006' }),
+      }),
+    })
+
+    await openForm(user, fetch)
+    await user.click(screen.getByRole('button', { name: /add line/i }))
+    await stable(() => screen.getByRole('combobox', { name: 'Item' }))
+    await user.click(screen.getByRole('combobox', { name: 'Item' }))
+    await user.click(await stable(() => screen.getByRole('option', { name: /FG-HINGE-4/ })))
+    await user.click(await stable(() => screen.getByRole('combobox', { name: 'Variant' })))
+    await user.click(await stable(() => screen.getByRole('option', { name: /FG-HINGE-4-BR/ })))
+
+    // Repoint the line at the knob, which has no variants of its own.
+    await user.click(screen.getByRole('combobox', { name: 'Item' }))
+    await user.click(await stable(() => screen.getByRole('option', { name: /FG-KNOB-1/ })))
+    await waitFor(() => expect(screen.queryByRole('combobox', { name: 'Variant' })).toBeNull())
+
+    await user.click(screen.getByRole('button', { name: 'Add line' }))
+    await user.click(screen.getByRole('button', { name: 'Create draft order' }))
+
+    await waitFor(() => fetch.requestFor('POST', '/sales'))
+    const body = fetch.requestFor('POST', '/sales') as { lines: Record<string, unknown>[] }
+    expect(body.lines[0]!.item_id).toBe(ITEM_2_ID)
+    expect(body.lines[0]!.item_variant_id).toBeNull()
+  })
+
   it('tells a user without warehouse.view instead of offering a select it cannot fill', async () => {
     // An order names the warehouse it ships from, and the lookup is a separate
     // right. Firing it regardless earns a 403 the user can do nothing about.
@@ -740,6 +803,7 @@ describe('the line editor', () => {
       'GET /customers': page([CUSTOMER]),
       'GET /warehouses': page([WAREHOUSE]),
       'GET /products/items': page([ITEM]),
+      ...NO_VARIANTS,
     }
   }
 
@@ -828,6 +892,80 @@ describe('the line editor', () => {
     await openLineEditor(user, fetch)
     expect(screen.getByRole('combobox', { name: /unit/i })).toBeDisabled()
     expect(fetch.calls.map((call) => call.path)).not.toContain('/products/uoms')
+  })
+
+  it('offers no variant picker for an item with no variants', async () => {
+    // Most items are stocked and sold in one form. A picker that could only
+    // ever say "the item itself" would be noise on every line, so the control
+    // appears only when the variants request comes back with rows.
+    const { user, fetch } = renderScreen(<SalesOrdersPage />, {
+      permissions: formPermissions,
+      routes: editorRoutes(),
+    })
+
+    await openLineEditor(user, fetch)
+    await user.click(screen.getByRole('combobox', { name: 'Item' }))
+    await user.click(await stable(() => screen.getByRole('option', { name: /FG-HINGE-4/ })))
+
+    await waitFor(() =>
+      expect(fetch.calls.some((call) => call.path === `/products/items/${ITEM_ID}/variants`)).toBe(
+        true,
+      ),
+    )
+    expect(screen.queryByRole('combobox', { name: 'Variant' })).not.toBeInTheDocument()
+  })
+
+  it('holds the line open after a failed variant lookup and allows a retry', async () => {
+    let attempts = 0
+    const { user, fetch } = renderScreen(<SalesOrdersPage />, {
+      permissions: formPermissions,
+      routes: {
+        ...editorRoutes(),
+        [`GET /products/items/${ITEM_ID}/variants`]: () =>
+          ++attempts === 1
+            ? fail(503, 'TEMPORARILY_UNAVAILABLE', 'Variant lookup unavailable')
+            : page([ITEM_VARIANT]),
+      },
+    })
+
+    await openLineEditor(user, fetch)
+    await user.click(screen.getByRole('combobox', { name: 'Item' }))
+    await user.click(await stable(() => screen.getByRole('option', { name: /FG-HINGE-4/ })))
+
+    expect(
+      await screen.findByText('Unable to load item variants. Retry to continue.'),
+    ).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Add line' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(await screen.findByRole('combobox', { name: 'Variant' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Add line' })).toBeEnabled()
+    expect(attempts).toBe(2)
+  })
+
+  it('tells the operator whether their discount needs the override right', async () => {
+    // The threshold itself is a server number, so the editor states the rule
+    // and the operator's own standing under it - not the figure.
+    const { user, fetch } = renderScreen(<SalesOrdersPage />, {
+      permissions: [...formPermissions, P.SALES_ORDER_DISCOUNT_OVERRIDE],
+      routes: editorRoutes(),
+    })
+
+    await openLineEditor(user, fetch)
+    expect(
+      await screen.findByText(/allowed for your account, but the order will wait/i),
+    ).toBeVisible()
+    expect(fetch.calls.map((call) => call.path)).not.toContain('/sales/threshold')
+  })
+
+  it('warns that a discount above the threshold will be refused without the override right', async () => {
+    const { user, fetch } = renderScreen(<SalesOrdersPage />, {
+      permissions: formPermissions,
+      routes: editorRoutes(),
+    })
+
+    await openLineEditor(user, fetch)
+    expect(await screen.findByText(/does not hold the discount-override right/i)).toBeVisible()
   })
 })
 
@@ -1018,10 +1156,35 @@ describe('cancelling an order', () => {
 })
 
 describe('editing the lines of an order', () => {
+  it('keeps the saved variant when an existing line is opened and saved', async () => {
+    const order = orderDetail({ lines: [orderLine({ item_variant_id: VARIANT_ID })] })
+    const { user, fetch } = renderDetail({
+      order,
+      permissions: [P.SALES_ORDER_VIEW, P.SALES_ORDER_UPDATE, P.ITEM_VIEW],
+      routes: {
+        [`GET /products/items/${ITEM_ID}`]: ok(ITEM),
+        [`GET /products/items/${ITEM_ID}/variants`]: page([ITEM_VARIANT]),
+        [`PATCH /sales/${ORDER_ID}`]: ok(order),
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Edit line 1' }))
+    const variantPicker = await screen.findByRole('combobox', { name: 'Variant' })
+    expect(variantPicker).toHaveTextContent('FG-HINGE-4-BLK')
+    await user.click(screen.getByRole('button', { name: 'Save line' }))
+
+    await waitFor(() => fetch.requestFor('PATCH', `/sales/${ORDER_ID}`))
+    const body = fetch.requestFor('PATCH', `/sales/${ORDER_ID}`) as {
+      lines: Record<string, unknown>[]
+    }
+    expect(body.lines[0]!.item_variant_id).toBe(VARIANT_ID)
+  })
+
   it('uses the saved USD denomination in a line preview', async () => {
     const { user } = renderDetail({
       order: orderDetail({ currency: 'USD' }),
       permissions: [P.SALES_ORDER_VIEW, P.SALES_ORDER_UPDATE],
+      routes: { ...NO_VARIANTS },
     })
     await user.click(await screen.findByRole('button', { name: 'Edit line 1' }))
     const dialog = await stable(() => screen.getByRole('dialog', { name: 'Edit line 1' }))

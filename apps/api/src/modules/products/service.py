@@ -2650,7 +2650,9 @@ async def link_vendor(
     repo = ItemVendorLinkRepository(session, tenant)
 
     async with transaction(session):
-        item = await item_repo.get_or_404(item_id)
+        item = await item_repo.lock_for_update(item_id)
+        if item is None:
+            raise NotFoundError("Item", item_id)
         if not item.can_purchase:
             # Capability flag, never item_group: a finished good that is also
             # bought in is perfectly legitimate and must be linkable.
@@ -2669,50 +2671,52 @@ async def link_vendor(
         # so it is read through the tenant-scoped repository like the vendor.
         await _require_manufacturer(session, tenant, payload.manufacturer_id)
 
-        if await repo.get_pair(item.id, payload.vendor_id) is not None:
+        link = await repo.get_pair(item.id, payload.vendor_id, include_deleted=True)
+        if link is not None and link.deleted_at is None:
             raise DuplicateError("This vendor is already linked to the item.")
 
-        if payload.is_preferred:
-            # Demote BEFORE inserting. The partial unique index is evaluated per
-            # statement, not at commit, so inserting a second preferred row and
-            # clearing the old one afterwards violates it - even though the
-            # transaction would have ended in a valid state.
-            await repo.clear_preferred(item.id)
+        values = payload.model_dump()
+        values["currency"] = payload.currency.upper()
+        audited = [*values, "is_active", "deleted_at"]
+        before = snapshot(link, audited) if link is not None else None
 
-        link = ItemVendorLink(
-            item_id=item.id,
-            vendor_id=payload.vendor_id,
-            vendor_item_code=payload.vendor_item_code,
-            vendor_item_name=payload.vendor_item_name,
-            manufacturer_id=payload.manufacturer_id,
-            manufacturer_part_number=payload.manufacturer_part_number,
-            is_preferred=payload.is_preferred,
-            lead_time_days=payload.lead_time_days,
-            min_order_quantity=payload.min_order_quantity,
-            order_multiple=payload.order_multiple,
-            last_purchase_price=payload.last_purchase_price,
-            last_purchase_date=payload.last_purchase_date,
-            currency=payload.currency.upper(),
-        )
-        repo.add(link)
+        if payload.is_preferred:
+            # Demote BEFORE inserting or restoring. The partial unique index
+            # is checked per statement, including when deleted_at is cleared.
+            await repo.clear_preferred(item.id, keep_id=link.id if link is not None else None)
+
+        if link is None:
+            link = ItemVendorLink(item_id=item.id, **values)
+            repo.add(link)
+        else:
+            # ASSUMPTION: a pair has one identity for its lifetime. Relinking
+            # restores that row with the newly entered terms; omitted purchase
+            # history and currency keep their recorded values (assumptions E10-4).
+            for field in ("last_purchase_price", "last_purchase_date", "currency"):
+                if field not in payload.model_fields_set:
+                    values.pop(field)
+            for field, value in values.items():
+                setattr(link, field, value)
+            link.deleted_at = None
+            link.is_active = True
+            repo.touch(link)
         await session.flush()
 
         await record_audit(
             session,
             company_id=tenant.company_id,
-            action=AuditAction.CREATE,
+            action=AuditAction.UPDATE if before is not None else AuditAction.CREATE,
             entity_type=AUDIT_VENDOR_LINK,
             entity_id=link.id,
             entity_code=item.code,
-            summary=f"Linked vendor to item {item.code}",
+            summary=(
+                f"Restored vendor link to item {item.code}"
+                if before is not None
+                else f"Linked vendor to item {item.code}"
+            ),
             user_id=tenant.user_id,
-            new_values={
-                "vendor_id": link.vendor_id,
-                "manufacturer_id": link.manufacturer_id,
-                "manufacturer_part_number": link.manufacturer_part_number,
-                "is_preferred": link.is_preferred,
-                "lead_time_days": link.lead_time_days,
-            },
+            old_values=before,
+            new_values=snapshot(link, audited),
         )
 
     return VendorLinkOut.model_validate(link)

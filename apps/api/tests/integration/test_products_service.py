@@ -43,6 +43,8 @@ from src.modules.products.models import (
     ItemAttribute,
     ItemAttributeType,
     ItemGroup,
+    ItemVendorLink,
+    Manufacturer,
     PriceType,
     ProductionType,
     UomCategory,
@@ -950,6 +952,183 @@ async def test_only_one_preferred_vendor_survives_per_item(
     preferred = [link.id for link in links if link.is_preferred]
     assert preferred == [second.id]
     assert first.id not in preferred
+
+
+async def test_relink_restores_terms_without_losing_purchase_history(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    item = await service.create_item(
+        session, tenant, item_payload("RELINK", units["NOS"], can_purchase=True)
+    )
+    vendor = await seed_support.seed_vendor(session, company_id=tenant.company_id)
+    item_id, vendor_id = item.id, vendor.id
+    original = await service.link_vendor(
+        session,
+        tenant,
+        item_id,
+        VendorLinkCreate(
+            vendor_id=vendor_id,
+            vendor_item_code="OLD",
+            last_purchase_price=Decimal("18.500000"),
+            last_purchase_date=date(2026, 9, 14),
+            currency="USD",
+        ),
+    )
+    await service.unlink_vendor(session, tenant, original.id)
+
+    restored = await service.link_vendor(
+        session,
+        tenant,
+        item_id,
+        VendorLinkCreate(
+            vendor_id=vendor_id,
+            vendor_item_code="NEW",
+            vendor_item_name="New supplier description",
+            lead_time_days=12,
+            min_order_quantity=Decimal("25"),
+            order_multiple=Decimal("5"),
+        ),
+    )
+
+    assert restored.id == original.id
+    assert restored.is_active
+    assert restored.vendor_item_code == "NEW"
+    assert restored.vendor_item_name == "New supplier description"
+    assert restored.lead_time_days == 12
+    assert restored.min_order_quantity == Decimal("25")
+    assert restored.order_multiple == Decimal("5")
+    assert restored.last_purchase_price == Decimal("18.500000")
+    assert restored.last_purchase_date == date(2026, 9, 14)
+    assert restored.currency == "USD"
+    audits = (
+        (
+            await session.execute(
+                select(AuditLog)
+                .where(AuditLog.entity_id == original.id)
+                .order_by(AuditLog.created_at, AuditLog.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [audit.action for audit in audits] == ["CREATE", "DELETE", "UPDATE"]
+    assert audits[-1].old_values["deleted_at"] is not None
+    assert audits[-1].new_values["deleted_at"] is None
+
+    # A second live link is still a duplicate, rather than silently replacing
+    # terms on an active source through the create endpoint.
+    with pytest.raises(DuplicateError):
+        await service.link_vendor(session, tenant, item_id, VendorLinkCreate(vendor_id=vendor_id))
+
+
+@pytest.mark.parametrize("other_preferred", [False, True])
+async def test_relink_demotes_the_current_preferred_before_restoring_and_honours_explicit_history(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+    other_preferred: bool,
+) -> None:
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    item = await service.create_item(
+        session, tenant, item_payload("RELINK-PREF", units["NOS"], can_purchase=True)
+    )
+    vendor_a = await seed_support.seed_vendor(session, company_id=tenant.company_id)
+    original = await service.link_vendor(
+        session,
+        tenant,
+        item.id,
+        VendorLinkCreate(vendor_id=vendor_a.id, is_preferred=True),
+    )
+    await service.unlink_vendor(session, tenant, original.id)
+    second = None
+    if other_preferred:
+        vendor_b = await seed_support.seed_vendor(session, company_id=tenant.company_id)
+        second = await service.link_vendor(
+            session,
+            tenant,
+            item.id,
+            VendorLinkCreate(vendor_id=vendor_b.id, is_preferred=True),
+        )
+
+    restored = await service.link_vendor(
+        session,
+        tenant,
+        item.id,
+        VendorLinkCreate(
+            vendor_id=vendor_a.id,
+            is_preferred=True,
+            last_purchase_price=Decimal("24.125000"),
+            last_purchase_date=date(2026, 10, 1),
+            currency="eur",
+        ),
+    )
+
+    assert restored.id == original.id
+    assert restored.last_purchase_price == Decimal("24.125000")
+    assert restored.last_purchase_date == date(2026, 10, 1)
+    assert restored.currency == "EUR"
+    links, _ = await service.list_vendor_links(
+        session, tenant, item.id, PageParams(page=1, limit=10)
+    )
+    assert [link.id for link in links if link.is_preferred] == [original.id]
+    if second is not None:
+        assert second.id in [link.id for link in links]
+    # Read scalar columns from PostgreSQL: an identity-map copy could hide a
+    # demotion performed by clear_preferred's unsynchronised bulk UPDATE.
+    preferred_ids = (
+        await session.scalars(
+            select(ItemVendorLink.id).where(
+                ItemVendorLink.company_id == tenant.company_id,
+                ItemVendorLink.item_id == item.id,
+                ItemVendorLink.deleted_at.is_(None),
+                ItemVendorLink.is_preferred.is_(True),
+            )
+        )
+    ).all()
+    assert preferred_ids == [original.id]
+
+
+async def test_relink_revalidates_vendor_and_manufacturer_tenant_ownership(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    item = await service.create_item(
+        session, tenant, item_payload("RELINK-TENANT", units["NOS"], can_purchase=True)
+    )
+    vendor = await seed_support.seed_vendor(session, company_id=tenant.company_id)
+    item_id, vendor_id = item.id, vendor.id
+    original = await service.link_vendor(
+        session, tenant, item_id, VendorLinkCreate(vendor_id=vendor_id)
+    )
+    await service.unlink_vendor(session, tenant, original.id)
+    outsider = await seed_support.seed_company(session, prefix="OTH")
+    foreign_vendor = await seed_support.seed_vendor(session, company_id=outsider.id)
+    foreign_maker = Manufacturer(company_id=outsider.id, code="FOREIGN", name="Other maker")
+    session.add(foreign_maker)
+    await session.flush()
+    foreign_vendor_id, foreign_maker_id = foreign_vendor.id, foreign_maker.id
+
+    with pytest.raises(NotFoundError):
+        await service.link_vendor(
+            session,
+            tenant,
+            item_id,
+            VendorLinkCreate(vendor_id=vendor_id, manufacturer_id=foreign_maker_id),
+        )
+    with pytest.raises(NotFoundError):
+        await service.link_vendor(
+            session, tenant, item_id, VendorLinkCreate(vendor_id=foreign_vendor_id)
+        )
+
+    stored = (
+        await session.execute(select(ItemVendorLink).where(ItemVendorLink.id == original.id))
+    ).scalar_one()
+    assert stored.company_id == tenant.company_id
+    assert stored.deleted_at is not None
+    assert stored.manufacturer_id is None
+    assert stored.vendor_id == vendor_id
 
 
 async def test_vendor_cannot_be_linked_to_a_non_purchasable_item(

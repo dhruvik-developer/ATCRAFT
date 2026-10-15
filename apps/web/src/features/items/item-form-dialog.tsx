@@ -56,10 +56,15 @@ import {
 } from './item-model'
 
 const DECIMAL = /^(\d{1,14}(\.\d{1,4})?)?$/
+const DECIMAL_6 = /^(\d{1,14}(\.\d{1,6})?)?$/
 const WHOLE_DAYS = /^\d{0,4}$/
 
 const decimalField = (message = 'Enter a number with up to 4 decimal places') =>
   z.string().trim().regex(DECIMAL, message)
+
+/** Channel prices carry 6 decimal places, like the price-list rows. */
+const priceField = (message = 'Enter a price with up to 6 decimal places') =>
+  z.string().trim().regex(DECIMAL_6, message)
 
 const schema = z.object({
   code: z.string().trim().min(1, 'Code is required').max(64, 'Code is at most 64 characters'),
@@ -82,7 +87,21 @@ const schema = z.object({
   ),
   production_type: z.enum(PRODUCTION_TYPES),
   standard_cost: decimalField(),
+  sale_price: priceField(),
+  dealer_price: priceField(),
   reorder_level: decimalField(),
+  reorder_quantity: decimalField(),
+  min_order_quantity: decimalField(),
+  safety_stock: decimalField(),
+  shelf_life_days: z
+    .string()
+    .trim()
+    .regex(/^\d*$/, 'Whole days only')
+    .refine((value) => value === '' || Number(value) >= 1, 'Shelf life must be at least 1 day')
+    .refine(
+      (value) => value === '' || Number.isSafeInteger(Number(value)),
+      'Enter a whole number of days that can be represented exactly',
+    ),
   default_warehouse_id: z.string(),
   default_location_id: z.string(),
   lead_time_days: z
@@ -105,6 +124,11 @@ const schema = z.object({
   can_scrap: z.boolean(),
   requires_production_qc: z.boolean(),
   requires_final_qc: z.boolean(),
+  // How stock of this item is identified. Changing either flag while the item
+  // holds stock anywhere is refused by the API - the dialog stays editable and
+  // the refusal is shown, because the principal may clear the balance first.
+  is_batch_tracked: z.boolean(),
+  is_serial_tracked: z.boolean(),
 })
 
 type ItemFormValues = z.infer<typeof schema>
@@ -128,7 +152,13 @@ function emptyValues(): ItemFormValues {
     gst_rate: '0',
     production_type: 'BUY',
     standard_cost: '0',
+    sale_price: '0',
+    dealer_price: '0',
     reorder_level: '0',
+    reorder_quantity: '0',
+    min_order_quantity: '0',
+    safety_stock: '0',
+    shelf_life_days: '',
     default_warehouse_id: '',
     default_location_id: '',
     lead_time_days: '0',
@@ -143,6 +173,8 @@ function emptyValues(): ItemFormValues {
     can_scrap: false,
     requires_production_qc: false,
     requires_final_qc: false,
+    is_batch_tracked: false,
+    is_serial_tracked: false,
   }
 }
 
@@ -165,7 +197,13 @@ function valuesFrom(item: ItemDetail): ItemFormValues {
     gst_rate: item.gst_rate,
     production_type: item.production_type,
     standard_cost: item.standard_cost ?? '0',
+    sale_price: item.sale_price,
+    dealer_price: item.dealer_price,
     reorder_level: item.reorder_level,
+    reorder_quantity: item.reorder_quantity,
+    min_order_quantity: item.min_order_quantity,
+    safety_stock: item.safety_stock,
+    shelf_life_days: item.shelf_life_days === null ? '' : String(item.shelf_life_days),
     default_warehouse_id: item.default_warehouse_id ?? '',
     default_location_id: item.default_location_id ?? '',
     lead_time_days: String(item.lead_time_days),
@@ -180,6 +218,8 @@ function valuesFrom(item: ItemDetail): ItemFormValues {
     can_scrap: item.can_scrap,
     requires_production_qc: item.requires_production_qc,
     requires_final_qc: item.requires_final_qc,
+    is_batch_tracked: item.is_batch_tracked,
+    is_serial_tracked: item.is_serial_tracked,
   }
 }
 
@@ -188,7 +228,11 @@ const asDecimal = (value: string): string => (value.trim() === '' ? '0' : value.
 
 function buildPayload(
   values: ItemFormValues,
-  { includeCode, includeCost }: { includeCode: boolean; includeCost: boolean },
+  {
+    includeCode,
+    includeCost,
+    includePrices,
+  }: { includeCode: boolean; includeCost: boolean; includePrices: boolean },
 ): Record<string, unknown> {
   return {
     ...(includeCode ? { code: values.code.trim() } : {}),
@@ -210,11 +254,31 @@ function buildPayload(
     gst_rate: asDecimal(values.gst_rate),
     production_type: values.production_type,
     reorder_level: asDecimal(values.reorder_level),
+    reorder_quantity: asDecimal(values.reorder_quantity),
+    min_order_quantity: asDecimal(values.min_order_quantity),
+    safety_stock: asDecimal(values.safety_stock),
+    // An empty shelf life posts null, which clears it; the API refuses a shelf
+    // life on an item that is not batch tracked.
+    shelf_life_days:
+      values.shelf_life_days.trim() === '' ? null : Number.parseInt(values.shelf_life_days, 10),
     default_warehouse_id: values.default_warehouse_id || null,
     default_location_id: values.default_location_id || null,
     // Days are a whole count, not a monetary decimal, so an integer is correct.
     lead_time_days: Number.parseInt(values.lead_time_days || '0', 10),
     ...(includeCost ? { standard_cost: asDecimal(values.standard_cost) } : {}),
+    // The two channel prices are governed by a second right on top of
+    // `item.update`: moving either needs `price.manage`. Posting an unchanged
+    // value would be a harmless no-op - the API only fires the gate when the
+    // value actually moves - but leaving the keys out states the intent, and a
+    // principal who cannot see the field cannot disturb it by accident.
+    ...(includePrices
+      ? {
+          sale_price: asDecimal(values.sale_price),
+          dealer_price: asDecimal(values.dealer_price),
+        }
+      : {}),
+    is_batch_tracked: values.is_batch_tracked,
+    is_serial_tracked: values.is_serial_tracked,
     can_purchase: values.can_purchase,
     can_manufacture: values.can_manufacture,
     can_sell: values.can_sell,
@@ -293,6 +357,11 @@ export function ItemFormDialog({
 
   // Affordance only - the API decides whether cost may be written.
   const showCost = can(P.ITEM_COST_VIEW)
+  // The channel prices are governed by a second right on top of `item.update`.
+  // On a create there is no existing price to disturb, so the initial prices
+  // ride along for everyone; on an edit the keys are left out entirely for a
+  // principal who may not move them.
+  const canManagePrices = can(P.PRICE_MANAGE)
 
   const categories = useCategoryOptions(open && can(P.CATEGORY_VIEW))
   // The client's own vocabulary. Gated on the read right like the category
@@ -337,11 +406,19 @@ export function ItemFormDialog({
       item
         ? api.patch<ItemDetail>(
             `/products/items/${item.id}`,
-            buildPayload(values, { includeCode: false, includeCost: showCost }),
+            buildPayload(values, {
+              includeCode: false,
+              includeCost: showCost,
+              includePrices: canManagePrices,
+            }),
           )
         : api.post<ItemDetail>(
             '/products/items',
-            buildPayload(values, { includeCode: true, includeCost: showCost }),
+            buildPayload(values, {
+              includeCode: true,
+              includeCost: showCost,
+              includePrices: true,
+            }),
           ),
     onSuccess: (saved) => {
       // One prefix invalidation covers every item list and every item detail.
@@ -648,6 +725,58 @@ export function ItemFormDialog({
               </div>
 
               <div>
+                <Label htmlFor="item-reorder-quantity">Reorder quantity</Label>
+                <Input
+                  id="item-reorder-quantity"
+                  {...register('reorder_quantity')}
+                  inputMode="decimal"
+                  aria-invalid={Boolean(errors.reorder_quantity)}
+                  className="mt-1.5 text-right tabular"
+                />
+                <FieldError message={errors.reorder_quantity?.message} />
+              </div>
+
+              <div>
+                <Label htmlFor="item-min-order">Minimum order quantity</Label>
+                <Input
+                  id="item-min-order"
+                  {...register('min_order_quantity')}
+                  inputMode="decimal"
+                  aria-invalid={Boolean(errors.min_order_quantity)}
+                  className="mt-1.5 text-right tabular"
+                />
+                <FieldError message={errors.min_order_quantity?.message} />
+              </div>
+
+              <div>
+                <Label htmlFor="item-safety-stock">Safety stock</Label>
+                <Input
+                  id="item-safety-stock"
+                  {...register('safety_stock')}
+                  inputMode="decimal"
+                  aria-invalid={Boolean(errors.safety_stock)}
+                  className="mt-1.5 text-right tabular"
+                />
+                <FieldError message={errors.safety_stock?.message} />
+              </div>
+
+              <div>
+                <Label htmlFor="item-shelf-life">Shelf life (days)</Label>
+                <Input
+                  id="item-shelf-life"
+                  {...register('shelf_life_days')}
+                  inputMode="numeric"
+                  placeholder="No expiry"
+                  aria-invalid={Boolean(errors.shelf_life_days)}
+                  className="mt-1.5 text-right tabular"
+                />
+                <FieldError message={errors.shelf_life_days?.message} />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Empty means the item does not expire. A shelf life needs batch tracking, below.
+                </p>
+              </div>
+
+              <div>
                 <Label htmlFor="item-lead-time">Lead time (days)</Label>
                 <Input
                   id="item-lead-time"
@@ -672,6 +801,42 @@ export function ItemFormDialog({
                   <FieldError message={errors.standard_cost?.message} />
                 </div>
               )}
+
+              <div>
+                <Label htmlFor="item-sale-price">Sale price</Label>
+                <Input
+                  id="item-sale-price"
+                  {...register('sale_price')}
+                  inputMode="decimal"
+                  disabled={isEdit && !canManagePrices}
+                  aria-invalid={Boolean(errors.sale_price)}
+                  className="mt-1.5 text-right tabular"
+                />
+                <FieldError message={errors.sale_price?.message} />
+                {isEdit && !canManagePrices && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Moving this price needs the price-management right.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <Label htmlFor="item-dealer-price">Dealer price</Label>
+                <Input
+                  id="item-dealer-price"
+                  {...register('dealer_price')}
+                  inputMode="decimal"
+                  disabled={isEdit && !canManagePrices}
+                  aria-invalid={Boolean(errors.dealer_price)}
+                  className="mt-1.5 text-right tabular"
+                />
+                <FieldError message={errors.dealer_price?.message} />
+                {isEdit && !canManagePrices && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Moving this price needs the price-management right.
+                  </p>
+                )}
+              </div>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
@@ -742,6 +907,49 @@ export function ItemFormDialog({
                     </div>
                   )
                 })}
+              </div>
+            </fieldset>
+
+            <fieldset className="rounded-lg border p-4">
+              <legend className="px-1 text-sm font-medium">Stock identification</legend>
+              <p className="mb-3 text-xs text-muted-foreground">
+                How stock of this item is identified. Changing either setting while the item holds
+                stock anywhere - on hand, reserved, in transit or at a job worker - is refused;
+                clear the balance first.
+              </p>
+              <div className="grid gap-2.5 sm:grid-cols-2">
+                <div className="flex items-center gap-2.5">
+                  <Controller
+                    control={control}
+                    name="is_batch_tracked"
+                    render={({ field }) => (
+                      <Checkbox
+                        id="item-is-batch-tracked"
+                        checked={field.value}
+                        onCheckedChange={(checked) => field.onChange(checked === true)}
+                      />
+                    )}
+                  />
+                  <Label htmlFor="item-is-batch-tracked" className="font-normal">
+                    Batch tracked
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <Controller
+                    control={control}
+                    name="is_serial_tracked"
+                    render={({ field }) => (
+                      <Checkbox
+                        id="item-is-serial-tracked"
+                        checked={field.value}
+                        onCheckedChange={(checked) => field.onChange(checked === true)}
+                      />
+                    )}
+                  />
+                  <Label htmlFor="item-is-serial-tracked" className="font-normal">
+                    Serial tracked
+                  </Label>
+                </div>
               </div>
             </fieldset>
 

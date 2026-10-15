@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/overlays'
 import { Checkbox, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { mastersKeys } from '@/features/masters/masters-model'
 import {
   attributeLabeller,
   useItemAttributeOptions,
@@ -35,12 +36,11 @@ import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { asId, asText } from '@/lib/utils'
-import { mastersKeys } from '@/features/masters/masters-model'
 
 import type { ItemVariant } from './item-model'
 
-const PRICE_DELTA = /^-?\d{1,12}(\.\d{1,6})?$/
-const COST_DELTA = /^-?\d{1,14}(\.\d{1,4})?$/
+const PRICE_DELTA = /^(-?\d{1,12}(\.\d{1,6})?)?$/
+const COST_DELTA = /^(-?\d{1,14}(\.\d{1,4})?)?$/
 
 const schema = z
   .object({
@@ -63,7 +63,7 @@ const schema = z
       values.size_id !== SELECT_NONE ||
       values.colour_id !== SELECT_NONE,
     {
-      message: 'Choose at least one finish, size or colour',
+      message: 'A variant must differ in at least one of finish, size or colour.',
       path: ['finish_id'],
     },
   )
@@ -98,6 +98,9 @@ function valuesFrom(variant: ItemVariant): VariantFormValues {
   }
 }
 
+/** Decimal deltas stay strings; an emptied optional delta returns to zero. */
+const asDelta = (value: string): string => (value.trim() === '' ? '0' : value.trim())
+
 function attributeOptions(
   options: ItemAttributeOption[] | undefined,
   selectedId: string,
@@ -111,20 +114,21 @@ function attributeOptions(
 
 export function VariantFormDialog({
   itemId,
+  itemCode,
   variant,
   open,
-  canViewCost,
   onOpenChange,
 }: {
   itemId: string
+  itemCode: string
   variant?: ItemVariant | null
   open: boolean
-  canViewCost: boolean
   onOpenChange: (open: boolean) => void
 }) {
   const { can } = useAuth()
   const queryClient = useQueryClient()
   const isEdit = Boolean(variant)
+  const canViewCost = can(P.ITEM_COST_VIEW)
   const canViewAttributes = can(P.ITEM_ATTRIBUTE_VIEW)
   const finishes = useItemAttributeOptions('FINISH', open && canViewAttributes)
   const sizes = useItemAttributeOptions('SIZE', open && canViewAttributes)
@@ -147,7 +151,7 @@ export function VariantFormDialog({
   useEffect(() => {
     if (open) reset(variant ? valuesFrom(variant) : emptyValues())
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, variantId, reset])
+  }, [open, itemId, variantId, reset])
 
   const mutation = useMutation({
     mutationFn: (values: VariantFormValues) => {
@@ -156,9 +160,9 @@ export function VariantFormDialog({
         finish_id: asId(values.finish_id),
         size_id: asId(values.size_id),
         colour_id: asId(values.colour_id),
-        price_delta: values.price_delta.trim(),
+        price_delta: asDelta(values.price_delta),
         barcode: asText(values.barcode),
-        ...(canViewCost ? { cost_delta: values.cost_delta.trim() } : {}),
+        ...(canViewCost ? { cost_delta: asDelta(values.cost_delta) } : {}),
         is_active: values.is_active,
       }
 
@@ -187,9 +191,11 @@ export function VariantFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent size="md">
         <DialogHeader>
-          <DialogTitle>{isEdit ? `Edit ${variant?.code}` : 'New variant'}</DialogTitle>
+          <DialogTitle>
+            {isEdit ? `Edit variant ${variant?.code}` : `New variant of ${itemCode}`}
+          </DialogTitle>
           <DialogDescription>
             A variant shares its item&apos;s stock, BOM and planning settings. Use a separate item
             when the product needs its own BOM.
@@ -254,7 +260,7 @@ export function VariantFormDialog({
                           <SelectValue placeholder={`Choose ${label.toLowerCase()}`} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value={SELECT_NONE}>None</SelectItem>
+                          <SelectItem value={SELECT_NONE}>No {label.toLowerCase()}</SelectItem>
                           {attributeOptions(options, selectedId, labelFor).map((option) => (
                             <SelectItem key={option.id} value={option.id}>
                               {option.name}
@@ -287,6 +293,10 @@ export function VariantFormDialog({
                   {...register('price_delta')}
                 />
                 <FieldError message={errors.price_delta?.message} />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Added to the item-wide price when no variant-specific price row exists. May be
+                  negative.
+                </p>
               </div>
 
               {canViewCost && (
@@ -326,14 +336,20 @@ export function VariantFormDialog({
                 )}
               />
             </div>
+            <FieldError message={errors.root?.message} />
           </DialogBody>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={mutation.isPending}
+            >
               Cancel
             </Button>
-            <Button type="submit" disabled={mutation.isPending}>
-              {mutation.isPending ? 'Saving…' : isEdit ? 'Save changes' : 'Create variant'}
+            <Button type="submit" loading={mutation.isPending}>
+              {isEdit ? 'Save changes' : 'Create variant'}
             </Button>
           </DialogFooter>
         </form>

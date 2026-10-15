@@ -650,6 +650,11 @@ class ItemRepository(BaseRepository[Item]):
     async def get_by_code(self, code: str) -> Item | None:
         return await self.get_by_field("code", code)
 
+    async def lock_for_update(self, item_id: uuid.UUID) -> Item | None:
+        """Serialise vendor-link creation/restoration on the parent item."""
+        stmt = _locked_read(self._scoped().where(Item.id == item_id), share=False)
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     async def code_exists(self, code: str, *, exclude_id: uuid.UUID | None = None) -> bool:
         """Duplicate probe.
 
@@ -1033,12 +1038,16 @@ class ItemVendorLinkRepository(BaseRepository[ItemVendorLink]):
         "last_purchase_price": ItemVendorLink.last_purchase_price,
     }
 
-    async def get_pair(self, item_id: uuid.UUID, vendor_id: uuid.UUID) -> ItemVendorLink | None:
-        stmt = self._scoped().where(
+    async def get_pair(
+        self, item_id: uuid.UUID, vendor_id: uuid.UUID, *, include_deleted: bool = False
+    ) -> ItemVendorLink | None:
+        stmt = self._scoped(include_deleted=include_deleted).where(
             ItemVendorLink.item_id == item_id,
             ItemVendorLink.vendor_id == vendor_id,
         )
-        return (await self.session.execute(stmt)).scalar_one_or_none()
+        return (
+            await self.session.execute(stmt.execution_options(populate_existing=True))
+        ).scalar_one_or_none()
 
     async def list_for_item(
         self, item_id: uuid.UUID, params: PageParams, *, is_active: bool | None = None

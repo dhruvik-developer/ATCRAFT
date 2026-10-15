@@ -1,7 +1,7 @@
 /**
  * Add or amend one line of a sales order.
  *
- * This dialog does not talk to the API. Sales order lines are not addressable -
+ * This dialog does not persist lines. Sales order lines are not addressable -
  * there is no `/sales/{id}/lines` endpoint - so a line change is a change to the
  * order's whole line set, sent by whoever owns that set: the create dialog
  * before the order exists, the detail screen afterwards. The dialog therefore
@@ -129,6 +129,7 @@ export function SalesOrderLineDialog({
   const { can } = useAuth()
   const isEdit = Boolean(line)
   const uoms = useUomOptions(can(P.UOM_VIEW) && open)
+  const canOverrideDiscount = can(P.SALES_ORDER_DISCOUNT_OVERRIDE)
 
   const {
     register,
@@ -219,7 +220,7 @@ export function SalesOrderLineDialog({
                       onChange={(nextItemId) => {
                         const next = nextItemId ?? ''
                         field.onChange(next)
-                        setValue('item_variant_id', SELECT_NONE)
+                        if (next !== field.value) setValue('item_variant_id', SELECT_NONE)
                       }}
                       placeholder="Search the item master"
                       invalid={Boolean(errors.item_id)}
@@ -249,7 +250,7 @@ export function SalesOrderLineDialog({
                 </div>
               )}
               {selectableVariants.length > 0 && (
-                <div>
+                <div className="sm:col-span-2">
                   <Label htmlFor="line-item-variant">Variant</Label>
                   <Controller
                     control={control}
@@ -261,10 +262,10 @@ export function SalesOrderLineDialog({
                         disabled={variantsQuery.isLoading || variantsQuery.isError}
                       >
                         <SelectTrigger id="line-item-variant" className="mt-1.5">
-                          <SelectValue placeholder="No variant" />
+                          <SelectValue placeholder="The item itself" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value={SELECT_NONE}>No variant</SelectItem>
+                          <SelectItem value={SELECT_NONE}>The item itself</SelectItem>
                           {selectableVariants.map((variant) => (
                             <SelectItem
                               key={variant.id}
@@ -279,6 +280,12 @@ export function SalesOrderLineDialog({
                       </Select>
                     )}
                   />
+                  <FieldError message={errors.item_variant_id?.message} />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    A variant-specific price row is already that variant&apos;s price; otherwise its
+                    difference is added to the item-wide price. An explicit unit price is used as
+                    entered.
+                  </p>
                 </div>
               )}
 
@@ -364,6 +371,11 @@ export function SalesOrderLineDialog({
                   aria-invalid={Boolean(errors.discount_percentage)}
                 />
                 <FieldError message={errors.discount_percentage?.message} />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {canOverrideDiscount
+                    ? 'A discount above the company threshold is allowed for your account, but the order will wait for a pricing approval before it can be confirmed.'
+                    : 'A discount above the company threshold will be refused when the order is saved - your account does not hold the discount-override right. A discount within the threshold still needs pricing approval if it takes the line below cost.'}
+                </p>
               </div>
 
               <div>

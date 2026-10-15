@@ -167,10 +167,9 @@ def test_every_hand_written_mirror_of_an_item_shape_is_registered() -> None:
         # The where-used answer is assembled by the BOM module from several
         # queries; there is no one model that is its shape.
         "WhereUsedRow",
-        # Both are lines of a larger response rather than a response, and the
-        # response that carries them is already checked through its own mirror.
+        # A line of a larger response rather than a response, and the response
+        # that carries it is already checked through its own mirror.
         "ItemPrice",
-        "ItemVendorLink",
     }
 
     declared = set(re.findall(r"^export interface ([A-Z]\w+)", item_model, re.M))

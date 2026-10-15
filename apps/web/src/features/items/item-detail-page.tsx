@@ -10,14 +10,32 @@
  * and, more to the point, what they do not refuse.
  */
 
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
-import { Boxes, Layers, Pencil, Plus, RefreshCw, Shapes, Tags, Trash2, Truck } from 'lucide-react'
+import {
+  Boxes,
+  Layers,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Shapes,
+  Star,
+  Tags,
+  Trash2,
+  Truck,
+} from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { DescriptionList, EmptyState, PageHeader, StatTile, StatusBadge } from '@/components/shared'
+import {
+  ConfirmDialog,
+  DescriptionList,
+  EmptyState,
+  PageHeader,
+  StatTile,
+  StatusBadge,
+} from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/overlays'
 import {
@@ -47,11 +65,15 @@ import {
 import { brandLabeller, useBrandOptions } from '@/hooks/use-brand-options'
 import { attributeLabeller, useItemAttributeOptions } from '@/hooks/use-item-attribute-options'
 import { manufacturerLabeller, useManufacturerOptions } from '@/hooks/use-manufacturer-options'
+import { reportFieldErrors } from '@/lib/form-errors'
+import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
+import { toast } from '@/lib/toast'
 import { indexById } from '@/lib/utils'
 
 import { ItemFormDialog } from './item-form-dialog'
+import { VendorLinkDialog } from './vendor-link-dialog'
 import { VariantFormDialog } from './variant-form-dialog'
 import {
   ALL_CAPABILITIES,
@@ -452,14 +474,20 @@ function DeltaCell({ value }: { value: ItemVariant['price_delta'] | null }) {
  * parameters and all nine capability flags - which is why the list belongs on
  * the item rather than on a screen of its own.
  *
- * Inactive variants remain visible so the row most likely to need editing or
- * retirement is not hidden by a default filter.
+ * The request deliberately omits `is_active`, so an inactive variant still
+ * appears and is greyed by its status badge instead. Filtering it out would
+ * hide the row most likely to need retiring.
+ *
+ * Creating and editing are offered on `item.create` / `item.update` - the
+ * rights `POST /products/items/{id}/variants` and `PATCH
+ * /products/variants/{id}` enforce. Retirement stays on `item.delete`, because
+ * it is terminal where deactivating a variant is not.
  */
 function VariantsPanel({
   itemId,
   canViewCost,
   canCreate,
-  canEdit,
+  canUpdate,
   canRetire,
   onCreate,
   onEdit,
@@ -468,7 +496,7 @@ function VariantsPanel({
   itemId: string
   canViewCost: boolean
   canCreate: boolean
-  canEdit: boolean
+  canUpdate: boolean
   canRetire: boolean
   onCreate: () => void
   onEdit: (variant: ItemVariant) => void
@@ -569,17 +597,17 @@ function VariantsPanel({
       },
     )
 
-    if (canEdit || canRetire) {
+    if (canRetire || canUpdate) {
       defs.push({
         id: 'actions',
         header: '',
         enableSorting: false,
         enableHiding: false,
-        size: 56,
+        size: 96,
         meta: { align: 'right' },
         cell: ({ row }) => (
-          <div className="flex justify-end">
-            {canEdit && (
+          <div className="flex items-center justify-end gap-1">
+            {canUpdate && (
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -589,7 +617,10 @@ function VariantsPanel({
                 <Pencil />
               </Button>
             )}
-            {canRetire && acceptsVariantRetirement(row.original) && (
+            {/* Every variant a list returns accepts retirement - the predicate
+                says why - but it is asked rather than assumed, so the day the
+                API grows a rule the row stops offering the action on its own. */}
+            {canRetire && acceptsVariantRetirement(row.original) ? (
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -598,22 +629,22 @@ function VariantsPanel({
               >
                 <Trash2 className="text-destructive" />
               </Button>
-            )}
+            ) : null}
           </div>
         ),
       })
     }
 
     return defs
-  }, [canEdit, canRetire, canViewCost, onEdit, onRetire, finishLabel, sizeLabel, colourLabel])
+  }, [canRetire, canUpdate, canViewCost, onEdit, onRetire, finishLabel, sizeLabel, colourLabel])
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {canCreate && (
         <div className="flex justify-end">
-          <Button onClick={onCreate}>
+          <Button variant="outline" size="sm" onClick={onCreate}>
             <Plus />
-            Add variant
+            New variant
           </Button>
         </div>
       )}
@@ -825,17 +856,57 @@ interface VendorOption {
 
 function VendorsPanel({
   itemId,
+  itemCode,
   canViewVendors,
   canViewMakers,
+  canEdit,
 }: {
   itemId: string
+  itemCode: string
   canViewVendors: boolean
   canViewMakers: boolean
+  /** `item.update`, which all three vendor-link writes enforce. */
+  canEdit: boolean
 }) {
+  const queryClient = useQueryClient()
+  // Null means closed; `{ link: null }` is an add and a row is an edit.
+  const [linkEditor, setLinkEditor] = useState<{ link: ItemVendorLink | null } | null>(null)
+  const [pendingRemove, setPendingRemove] = useState<ItemVendorLink | null>(null)
+
   const panel = usePanelQuery<ItemVendorLink>({
     queryKey: [...queryKeys.items.detail(itemId), 'vendors'],
     path: `/products/items/${itemId}/vendors`,
     staleTime: staleTimes.master,
+  })
+
+  const invalidateLinks = () => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.items.detail(itemId) })
+  }
+
+  const setPreferred = useMutation({
+    mutationFn: (link: ItemVendorLink) =>
+      api.patch<ItemVendorLink>(`/products/item-vendors/${link.id}`, { is_preferred: true }),
+    onSuccess: (saved) => {
+      invalidateLinks()
+      toast.success(
+        success.updated('Vendor link'),
+        `${saved.vendor_item_name ?? saved.vendor_item_code ?? 'Vendor'} is now the preferred source.`,
+      )
+    },
+    onError: (error) => reportFieldErrors(error, 'Could not change the preferred source'),
+  })
+
+  const removeLink = useMutation({
+    mutationFn: (link: ItemVendorLink) => api.delete(`/products/item-vendors/${link.id}`),
+    onSuccess: (_, link) => {
+      invalidateLinks()
+      toast.success(
+        success.deleted('Vendor link'),
+        link.vendor_item_name ?? link.vendor_item_code ?? 'Vendor unlinked',
+      )
+      setPendingRemove(null)
+    },
+    onError: (error) => reportFieldErrors(error, 'Could not remove this vendor link'),
   })
 
   const vendors = useQuery({
@@ -859,13 +930,13 @@ function VendorsPanel({
     enabled: canViewVendors,
   })
   const vendorById = useMemo(() => indexById(vendors.data), [vendors.data])
-  // Which maker's part a source supplies. Display only: a link is created and
-  // edited through the API, not from this panel.
+  // Which maker's part a source supplies. Displayed from the cached maker
+  // list; edited through the link dialog, not from this table.
   const makers = useManufacturerOptions(canViewMakers)
   const makerLabel = useMemo(() => manufacturerLabeller(makers.data), [makers.data])
 
-  const columns = useMemo<ColumnDef<ItemVendorLink, unknown>[]>(
-    () => [
+  const columns = useMemo<ColumnDef<ItemVendorLink, unknown>[]>(() => {
+    const defs: ColumnDef<ItemVendorLink, unknown>[] = [
       {
         id: 'vendor',
         header: 'Vendor',
@@ -955,24 +1026,106 @@ function VendorsPanel({
         enableSorting: false,
         cell: ({ row }) => <StatusBadge status={row.original.is_active ? 'ACTIVE' : 'INACTIVE'} />,
       },
-    ],
-    [vendorById, makerLabel],
-  )
+    ]
+
+    // Gating is UX only - the API refuses a link change it does not allow.
+    if (canEdit) {
+      defs.push({
+        id: 'actions',
+        header: '',
+        enableSorting: false,
+        enableHiding: false,
+        size: 132,
+        meta: { align: 'right' },
+        cell: ({ row }) => (
+          <div className="flex items-center justify-end gap-1">
+            {!row.original.is_preferred && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Set ${row.original.vendor_item_name ?? row.original.vendor_item_code ?? 'vendor'} as preferred`}
+                title="Set as preferred source"
+                onClick={() => setPreferred.mutate(row.original)}
+              >
+                <Star />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Edit link to ${row.original.vendor_item_name ?? row.original.vendor_item_code ?? 'vendor'}`}
+              onClick={() => setLinkEditor({ link: row.original })}
+            >
+              <Pencil />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Remove link to ${row.original.vendor_item_name ?? row.original.vendor_item_code ?? 'vendor'}`}
+              onClick={() => setPendingRemove(row.original)}
+            >
+              <Trash2 className="text-destructive" />
+            </Button>
+          </div>
+        ),
+      })
+    }
+
+    return defs
+  }, [vendorById, makerLabel, canEdit, setPreferred])
 
   return (
-    <DataTable
-      columns={columns}
-      data={panel.rows}
-      pagination={panel.pagination}
-      isLoading={panel.isLoading}
-      isFetching={panel.isFetching}
-      error={panel.error}
-      onPageChange={panel.setPage}
-      onRefresh={panel.refetch}
-      getRowId={(row) => row.id}
-      emptyTitle="No vendors linked"
-      emptyDescription="Link a supplier so requisitions and purchase orders can propose one."
-    />
+    <div className="space-y-4">
+      {/* Adding names a vendor, so it needs the vendor list as well as the
+          write right. Editing a link never repoints it, so it stays on
+          `item.update` alone. */}
+      {canEdit && canViewVendors && (
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" onClick={() => setLinkEditor({ link: null })}>
+            <Plus />
+            Link vendor
+          </Button>
+        </div>
+      )}
+      <DataTable
+        columns={columns}
+        data={panel.rows}
+        pagination={panel.pagination}
+        isLoading={panel.isLoading}
+        isFetching={panel.isFetching || setPreferred.isPending}
+        error={panel.error}
+        onPageChange={panel.setPage}
+        onRefresh={panel.refetch}
+        getRowId={(row) => row.id}
+        emptyTitle="No vendors linked"
+        emptyDescription="Link a supplier so requisitions and purchase orders can propose one."
+      />
+
+      {linkEditor !== null && (
+        <VendorLinkDialog
+          open
+          onOpenChange={(next) => {
+            if (!next) setLinkEditor(null)
+          }}
+          itemId={itemId}
+          itemCode={itemCode}
+          link={linkEditor.link}
+        />
+      )}
+
+      <ConfirmDialog
+        open={pendingRemove !== null}
+        onOpenChange={(next) => {
+          if (!next) setPendingRemove(null)
+        }}
+        title="Remove this vendor link?"
+        description="Requisitions and purchase orders will stop proposing this source. Past documents keep their reference to it."
+        confirmLabel="Remove link"
+        destructive
+        loading={removeLink.isPending}
+        onConfirm={() => pendingRemove && removeLink.mutate(pendingRemove)}
+      />
+    </div>
   )
 }
 
@@ -984,12 +1137,12 @@ export default function ItemDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [editOpen, setEditOpen] = useState(false)
   const [retireOpen, setRetireOpen] = useState(false)
-  const [variantFormOpen, setVariantFormOpen] = useState(false)
-  const [editingVariant, setEditingVariant] = useState<ItemVariant | null>(null)
   // The variant being retired is held here rather than inside the panel: Radix
   // unmounts an inactive tab, and a confirmation that disappears when the user
   // glances at another tab is worse than no confirmation.
   const [retiringVariant, setRetiringVariant] = useState<ItemVariant | null>(null)
+  // Null means closed; `{ variant: null }` is a create and a row is an edit.
+  const [variantEditor, setVariantEditor] = useState<{ variant: ItemVariant | null } | null>(null)
 
   const canViewCost = can(P.ITEM_COST_VIEW)
   // Both retirements are gated on `item.delete`, which is what
@@ -1072,7 +1225,6 @@ export default function ItemDetailPage() {
   const baseUomCode = uomById.get(item.base_uom_id)?.code ?? ''
 
   const canEdit = can(P.ITEM_UPDATE)
-  const canCreateVariant = can(P.ITEM_CREATE)
   // Offered only from the two states the lifecycle actually retires from. An
   // ARCHIVED item is refused by the machine, so putting the user through a
   // confirmation for it would spend the decision on nothing.
@@ -1161,17 +1313,11 @@ export default function ItemDetailPage() {
           <VariantsPanel
             itemId={item.id}
             canViewCost={canViewCost}
-            canCreate={canCreateVariant}
-            canEdit={canEdit}
+            canCreate={can(P.ITEM_CREATE)}
+            canUpdate={can(P.ITEM_UPDATE)}
             canRetire={canRetire}
-            onCreate={() => {
-              setEditingVariant(null)
-              setVariantFormOpen(true)
-            }}
-            onEdit={(variant) => {
-              setEditingVariant(variant)
-              setVariantFormOpen(true)
-            }}
+            onCreate={() => setVariantEditor({ variant: null })}
+            onEdit={(variant) => setVariantEditor({ variant })}
             onRetire={setRetiringVariant}
           />
         </TabsContent>
@@ -1199,24 +1345,25 @@ export default function ItemDetailPage() {
         <TabsContent value="vendors">
           <VendorsPanel
             itemId={item.id}
+            itemCode={item.code}
             canViewVendors={can(P.VENDOR_VIEW)}
             canViewMakers={can(P.MANUFACTURER_VIEW)}
+            canEdit={can(P.ITEM_UPDATE)}
           />
         </TabsContent>
       </Tabs>
 
       {canEdit && <ItemFormDialog open={editOpen} onOpenChange={setEditOpen} item={item} />}
 
-      {(canCreateVariant || canEdit) && (
+      {variantEditor !== null && (can(P.ITEM_CREATE) || can(P.ITEM_UPDATE)) && (
         <VariantFormDialog
-          itemId={item.id}
-          variant={editingVariant}
-          open={variantFormOpen}
-          canViewCost={canViewCost}
-          onOpenChange={(open) => {
-            setVariantFormOpen(open)
-            if (!open) setEditingVariant(null)
+          open
+          onOpenChange={(next) => {
+            if (!next) setVariantEditor(null)
           }}
+          itemId={item.id}
+          itemCode={item.code}
+          variant={variantEditor.variant}
         />
       )}
 
