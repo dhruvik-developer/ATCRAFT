@@ -85,10 +85,17 @@ def test_a_job_work_lot_reaches_one_owner_under_both_of_its_keys() -> None:
     assert receipt.handler is legacy.handler
 
 
-def test_production_entries_are_a_placeholder_and_sales_returns_pull() -> None:
-    production = owners.resolve_owner("production_entry")
-    assert production is not None
-    assert production.handler is None
+def test_production_bookings_and_operations_share_one_owner_and_returns_pull() -> None:
+    # WP E5 wired the placeholder: held production output reports its verdict
+    # through the same handler whether the inspection names the booking or the
+    # operation, and the sweep walks that owner once for both keys.
+    entry = owners.resolve_owner("production_entry")
+    operation = owners.resolve_owner("work_order")
+    assert entry is not None and operation is not None
+    assert entry.handler is operation.handler
+    assert entry.handler is not None
+    assert entry.lock is operation.lock
+    assert entry.awaiting is operation.awaiting
     # The customer return document reads its verdict; it is never called back.
     assert "sales_return" not in owners.OWNER_BINDINGS
     assert owners.resolve_owner("sales_return") is None
@@ -116,10 +123,11 @@ def test_a_binding_naming_a_missing_function_fails_loudly(monkeypatch) -> None:
 
 def test_the_sweep_walks_a_shared_owner_once() -> None:
     hooks = owners._awaiting_hooks()
-    # goods receipts, assembly orders and job-work lots: three owners, although
-    # job work is bound under two reference types.
-    assert len(hooks) == 3
-    assert len({id(hook) for hook in hooks}) == 3
+    # goods receipts, assembly orders, job-work lots and production bookings:
+    # four owners, although job work is bound under two reference types and
+    # production under two more.
+    assert len(hooks) == 4
+    assert len({id(hook) for hook in hooks}) == 4
 
 
 # -----------------------------------------------------------------------------

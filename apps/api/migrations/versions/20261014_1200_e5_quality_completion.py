@@ -383,10 +383,16 @@ def upgrade() -> None:
     )
 
     op.drop_constraint(op.f(CONSTRAINT), TABLE, type_="check")
+    # One literal string, not built by ``_in_list``: the history test
+    # (``tests/unit/test_report_key_check_migration.py``) reads the keys a
+    # CHECK swap states by finding exactly one ``report_key IN (...)`` literal
+    # in ``upgrade()``. A swap migration that only swaps can build the list
+    # from tuples; this one also creates tables, whose index column lists
+    # would read as sixteen more key lists. Same twenty-seven keys either way.
     op.create_check_constraint(
         op.f(CONSTRAINT),
         TABLE,
-        f"report_key IN ({_in_list((*_PREVIOUS_KEYS, *_NEW_KEYS))})",
+        "report_key IN ('SALES_ORDER_STATUS', 'STOCK_AVAILABILITY', 'MRP_SHORTAGE', 'PURCHASE_PENDING', 'PRODUCTION_PENDING', 'JOB_WORK_PENDING', 'QC_REJECTION', 'VENDOR_PERFORMANCE', 'PRODUCT_PROFITABILITY', 'FAST_MOVING', 'SLOW_MOVING', 'DEAD_STOCK', 'ORDER_DELAY', 'PRODUCTION_EFFICIENCY', 'MACHINE_UTILISATION', 'SHIFT_PRODUCTION', 'INVENTORY_VALUATION', 'DISPATCH', 'COURIER_TRACKING', 'VENDOR_DISPATCH_HISTORY', 'COST_CENTRE_EXPENSE', 'SCRAP_REGISTER', 'CONSUMPTION_BY_DEPARTMENT', 'PURCHASE_ORDER', 'PACKING_LIST', 'SALES_INVOICE', 'REWORK_RATE')",
         postgresql_not_valid=True,
     )
     op.execute(f"ALTER TABLE {TABLE} VALIDATE CONSTRAINT {CONSTRAINT}")
