@@ -2719,3 +2719,15 @@ module is used in production:
    instalments, and is there a minimum dispatch quantity?
 
 8. **Staffing policy.** Do operators need employee records without logins? Are helpers on one machine allowed? What holidays, weekly offs and minimum rest apply? Is a weekly publish/lock step required?
+
+## Warehouse assignment policy for A02/A03
+
+An empty warehouse assignment denotes unrestricted access within the company;
+platform superusers use that same exemption. Company isolation always applies.
+Transfers require assignment to both warehouses, matching their existing create
+rule. Adjustments/counts require their single warehouse. Procurement/production
+destinations and every grain touched by a stock movement are checked with this
+same policy, including documents raised before the restriction. Trusted system
+contexts use an empty assignment; user-driven operations retain the caller's
+assignment. This clarifies existing assignment semantics without changing the
+database schema.
