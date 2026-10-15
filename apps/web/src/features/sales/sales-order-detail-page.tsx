@@ -451,7 +451,7 @@ export default function SalesOrderDetailPage() {
   const approveOrder = useMutation({
     mutationFn: () =>
       api.post<SalesOrderRow>(`/sales/${orderId}/approve`, {
-        reason: 'Below-cost pricing approved',
+        reason: 'Pricing approved',
       }),
     onSuccess: (updated) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.sales.all })
@@ -802,9 +802,9 @@ export default function SalesOrderDetailPage() {
           <Alert variant="warning">
             <AlertTitle>This order is waiting for a pricing approval</AlertTitle>
             <AlertDescription>
-              A line was priced below the item&apos;s cost. It cannot be confirmed until somebody
-              with the approval permission signs for it, and that may not be the person who raised
-              it.
+              A line was priced below the item&apos;s cost, or discounted above the company
+              threshold. It cannot be confirmed until somebody with the approval permission signs
+              for it, and that may not be the person who raised it.
             </AlertDescription>
           </Alert>
         )}
@@ -956,7 +956,7 @@ export default function SalesOrderDetailPage() {
         open={approveOpen}
         onOpenChange={setApproveOpen}
         title={`Approve the pricing on ${order.code}?`}
-        description="A line is priced below the item's cost. Approving it records who accepted that and releases the order to be confirmed."
+        description="A line is priced below the item's cost or discounted above the approval threshold. Approving it records who accepted that and releases the order to be confirmed."
         confirmLabel="Approve pricing"
         loading={approveOrder.isPending}
         onConfirm={() => approveOrder.mutate()}

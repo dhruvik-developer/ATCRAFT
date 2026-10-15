@@ -1034,13 +1034,18 @@
             },
             {
               "action": "Edit the item",
-              "how": "Press Edit in the header and change what is needed.",
-              "note": "The code is locked. Everything else on the create form can be changed, and the same rules apply \u2014 at least one capability, and capabilities that agree with the production type."
+              "how": "Press Edit in the header and change what is needed: the sale and dealer prices (only for someone with the price-management right), the planning figures (minimum order, reorder quantity, safety stock, shelf life, default bin), and whether stock is batch or serial tracked.",
+              "note": "The code is locked. Changing batch or serial tracking while the item holds stock anywhere is refused \u2014 clear the balance first. A shelf life needs batch tracking."
             },
             {
               "action": "See the finish, size and colour variants of this item",
               "how": "Variants tab.",
               "note": "A variant shares this item's bill of materials, planning figures and capabilities and differs only in its identity, its price and cost difference against the parent, and its barcode. Anything that needs its own bill of materials is a new item, not a variant."
+            },
+            {
+              "action": "Add or edit a variant",
+              "how": "Variants tab: New variant, or the pencil at the end of a variant's row. Pick at least one of finish, size or colour, and the price difference against the parent (negative allowed).",
+              "note": "Adding needs the right to create items, editing the right to update them. The code is locked after creation. The cost difference is shown only to someone who may see costs."
             },
             {
               "action": "See stock of this item everywhere",
@@ -1060,7 +1065,12 @@
             {
               "action": "See the suppliers of this part",
               "how": "Vendors tab \u2014 vendor, the vendor's own code for the part, the maker's part number it delivers (with the maker's name), lead time, minimum order, order multiple, last purchase price and date, and which one is preferred.",
-              "note": "Read only. There is no screen anywhere in the application for adding or editing a supplier link."
+              "note": "The last purchase price is written by goods receipts and cannot be typed here."
+            },
+            {
+              "action": "Link, edit, prefer or unlink a supplier",
+              "how": "Vendors tab: Link vendor, or the star, pencil and bin icons at the end of a link's row. The star makes that source the preferred one.",
+              "note": "All four need the right to update items."
             },
             {
               "action": "Retire the item",
@@ -1388,7 +1398,7 @@
             {
               "action": "Add a line",
               "how": "Add line, top right, or the Add line button on the empty Lines table.",
-              "note": "Draft only. Leave the unit price empty and the system prices the line from the customer's own price list."
+              "note": "Draft only. Leave the unit price empty and the system prices the line from the customer's own price list. When the item has finish, size or colour variants, pick the variant too \u2014 the line is priced with its difference."
             },
             {
               "action": "Change or remove a line",
@@ -1396,8 +1406,8 @@
               "note": "Draft only. Removing a line renumbers the rest and the totals are recalculated."
             },
             {
-              "action": "Approve below-cost pricing",
-              "how": "Approve pricing, which only appears when a line was priced under the item's cost and nobody has signed for it yet.",
+              "action": "Approve the pricing",
+              "how": "Approve pricing, which only appears when a line was priced under the item's cost, or discounted above the company threshold, and nobody has signed for it yet.",
               "note": "Needs the right to approve sales orders, and it may not be the person who raised the order."
             },
             {
@@ -1444,7 +1454,7 @@
             "Confirming runs the credit check first, against the customer's account as it stands at that instant. If the account is blocked, inactive, or the order would take the account past its credit limit, the confirmation is refused and the message states the numbers \u2014 what is outstanding, what this order adds, and what the limit is. To proceed: settle or write off part of the balance, raise the limit on the customer record, or release the credit hold.",
             "Confirming reserves stock; it does not move it. The goods stay physically where they are and stay in the stock total. What changes is that they stop being available to any other order. Nothing leaves the warehouse until a despatch is made.",
             "Reserving less than was ordered is the normal outcome, not a failure. Refusing the whole order because one line is short would hide the shortage until somebody tried to pick it. The shortfall reported here is exactly the number planning exists to cover.",
-            "A line priced below the item's cost holds the order at draft until a second person approves it. The approver may not be the person who raised the order \u2014 an approval signed by the salesperson who granted the discount is not evidence of anything.",
+            "A line priced below the item's cost, or discounted above the company approval threshold, holds the order at draft until a second person approves it. A discount above the threshold without the discount-override right is refused when the order is saved, not queued. The approver may not be the person who raised the order \u2014 an approval signed by the salesperson who granted the discount is not evidence of anything. Discounts that come from a dealer scheme skip the threshold but still face the below-cost check.",
             "Prices come from the price list that belongs to the customer's channel. Typing a price over the top is an override and needs the right to manage prices.",
             "When no discount is typed on a line, the order takes the best dealer scheme that applies \u2014 one percentage off, never stacked \u2014 and records which scheme it came from. A typed discount always wins and keeps today's approval rules.",
             "Tax is decided once and then frozen on the order: the same state as the seller means CGST plus SGST, a different state (or an export) means IGST. The place of supply comes from the ship-to address. If the selling company or branch has no state code recorded, a taxed order cannot be raised at all \u2014 fix the state code on the company or branch first.",

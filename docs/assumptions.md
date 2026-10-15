@@ -2837,6 +2837,79 @@ line of an order fails and the rest pass.
 move the raise to the hand-over; lines packed before the change carry no
 inspection and pass the gate vacuously.
 
+## §E10-1. Variants share the parent's stock and bill of materials
+
+**Assumed:** A variant is a finish/size/colour identity on the *same* item. It
+shares the parent's stock balances, bill of materials, planning figures and all
+nine capability flags, and differs only in its code and name, in the price and
+cost deltas, in its barcode and in whether it is active. A finish that needs
+its own stock position, its own bill of materials or its own planning figures
+is a separate item, not a variant.
+
+**Why:** Stock is keyed by item everywhere - balances, ledger, reservations,
+price resolution - so a variant-level quantity would be a second stock master
+to reconcile. The delta model also keeps price revisions cheap: changing the
+parent's price moves every variant without touching their rows.
+
+**Where:** `products.service.create_variant` / `update_variant`,
+`sales.service.resolve_unit_price`, the item detail Variants tab and the sales
+order line editor's variant picker.
+
+**Impact if wrong:** If a finish genuinely needs its own on-hand figure, model
+it as its own item; promoting variants to stocked entities later is a schema
+change (balances keyed by variant) plus a migration of every document line that
+names one.
+
+## §E10-2. Batch and serial tracking change only while the item holds nothing
+
+**Assumed:** `is_batch_tracked` and `is_serial_tracked` may change in either
+direction only while the item holds no stock anywhere - no on-hand, nothing
+reserved, nothing in transit, nothing out at a job-work vendor, nothing on QC
+hold, damaged or scrapped. The check reads the balance rows, which is where an
+in-flight document has already put the stock, rather than sweeping open
+documents. A change attempted over a balance is refused with the item's code.
+
+**Why:** `batch_id` is part of the balance grain, so switching batch tracking
+on over existing stock strands that quantity at the batch-NULL position no
+receipt can ever add to; switching serial tracking on claims a per-unit
+history for units that were never identified. Switching either off splits a
+live item across two grain shapes.
+
+**Where:** `products.service._assert_tracking_change_is_safe`, called from
+`update_item`; the item form's Stock identification checkboxes.
+
+**Impact if wrong:** If the business needs to start lot-tracking a stocked
+part, the supported path is to clear the balance first (issue, transfer or
+write it off) and then flip the flag; a same-day migration of live balances
+into identified lots needs a dedicated, audited routine.
+
+## §E10-3. Line discounts above the threshold need the override right and an approval
+
+**Assumed:** `SALES_DISCOUNT_APPROVAL_PERCENT` (deployment configuration,
+default 10%) is the line-discount percentage above which an *explicit*
+discount - a percentage, or a flat amount restated against the line gross -
+needs `sales_order.discount_override`. Without the right the save is refused
+outright; with it the order is flagged `requires_approval` and goes through
+the existing `approve_order` path before it can be confirmed. A line whose
+*net* unit price after the discount sits below the item's standard cost is
+flagged too. Offer-derived discounts are pre-authorised: they skip the
+threshold but still face the below-cost check. A price list that simply sits
+under cost, with no override and no discount, is not flagged - that is a
+commercial decision already made on the price-list screen.
+
+**Why:** The old checks read the price before the discount, so a discount
+could take a line under cost unnoticed, and any 0-100% discount was ungated.
+The threshold is a number the business owns, so it lives in configuration
+rather than in code.
+
+**Where:** `sales.service.price_line`, `core.config`, the sales order line
+editor's discount hint and the order detail approval banner.
+
+**Impact if wrong:** If the desk needs a different number, set the deployment
+configuration - no code change. If scheme discounts should also face the
+threshold, remove the offer exemption in `price_line`; dealers ordering above
+it will then queue for approval like everyone else.
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant

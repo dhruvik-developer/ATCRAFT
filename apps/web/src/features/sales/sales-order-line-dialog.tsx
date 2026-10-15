@@ -16,7 +16,8 @@
  */
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useEffect, useRef } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { z } from 'zod'
 
@@ -39,9 +40,12 @@ import {
 import { Input, Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
-import { useUomOptions } from '@/features/items/item-model'
+import { useUomOptions, type ItemVariant } from '@/features/items/item-model'
+import { api } from '@/lib/api-client'
+import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { formatMoney, toDateInput, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
+import { queryKeys, staleTimes } from '@/lib/query-client'
 
 import type { SalesOrderLineIn } from './sales-types'
 
@@ -54,6 +58,7 @@ const ITEM_DEFAULT_UOM = '__item_default'
 
 const schema = z.object({
   item_id: z.string().min(1, 'Choose an item'),
+  variant_id: z.string(),
   description: z.string().trim().max(500, 'At most 500 characters'),
   quantity: z
     .string()
@@ -76,6 +81,7 @@ type LineFormValues = z.infer<typeof schema>
 function emptyValues(): LineFormValues {
   return {
     item_id: '',
+    variant_id: SELECT_NONE,
     description: '',
     quantity: '1',
     uom_id: ITEM_DEFAULT_UOM,
@@ -89,6 +95,7 @@ function emptyValues(): LineFormValues {
 function valuesFrom(line: SalesOrderLineIn): LineFormValues {
   return {
     item_id: line.item_id,
+    variant_id: line.item_variant_id ?? SELECT_NONE,
     description: line.description ?? '',
     quantity: line.quantity,
     uom_id: line.uom_id ?? ITEM_DEFAULT_UOM,
@@ -122,12 +129,14 @@ export function SalesOrderLineDialog({
   const { can } = useAuth()
   const isEdit = Boolean(line)
   const uoms = useUomOptions(can(P.UOM_VIEW) && open)
+  const canOverrideDiscount = can(P.SALES_ORDER_DISCOUNT_OVERRIDE)
 
   const {
     register,
     control,
     handleSubmit,
     reset,
+    setValue,
     watch,
     formState: { errors },
   } = useForm<LineFormValues>({ resolver: zodResolver(schema), defaultValues: emptyValues() })
@@ -137,6 +146,41 @@ export function SalesOrderLineDialog({
     if (open) reset(line ? valuesFrom(line) : emptyValues())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editingKey, reset])
+
+  const selectedItemId = watch('item_id')
+
+  // The variants of the chosen item, for the picker below. Listing variants
+  // needs `item.view`, which the order screen already required to be here.
+  // Active and inactive alike: a kept line may carry a variant since
+  // deactivated, and the picker must name what the line holds rather than
+  // show "the item itself" for a line that has a variant. Ordering an
+  // inactive variant is refused by the API with the variant's code.
+  const variants = useQuery({
+    queryKey: [...queryKeys.items.detail(selectedItemId), 'variant-options'],
+    queryFn: () =>
+      api.getPage<ItemVariant>(`/products/items/${selectedItemId}/variants`, {
+        params: { limit: LOOKUP_LIST_LIMIT },
+      }),
+    enabled: open && Boolean(selectedItemId),
+    staleTime: staleTimes.master,
+  })
+  const variantRows = variants.data?.data ?? []
+
+  // A variant belongs to its item: picking another item drops the choice
+  // rather than sending a variant the new item does not have. The ref records
+  // the item the form was seeded with, so reopening the dialog on a kept line
+  // does not clear the variant it already carries.
+  const seededItemId = useRef<string | null>(null)
+  useEffect(() => {
+    if (open) seededItemId.current = line?.item_id ?? ''
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editingKey])
+  useEffect(() => {
+    if (open && seededItemId.current !== null && selectedItemId !== seededItemId.current) {
+      seededItemId.current = selectedItemId
+      setValue('variant_id', SELECT_NONE)
+    }
+  }, [open, selectedItemId, setValue])
 
   const [quantity, unitPrice, discountPercentage] = watch([
     'quantity',
@@ -153,6 +197,9 @@ export function SalesOrderLineDialog({
     onSubmit({
       line_number: lineNumber,
       item_id: values.item_id,
+      // The API prices the variant's delta onto the line; null is the item
+      // itself, sold in its one form.
+      item_variant_id: values.variant_id === SELECT_NONE ? null : values.variant_id,
       description: orNull(values.description),
       // Decimals stay strings all the way to the wire - never parsed to a double.
       quantity: values.quantity.trim(),
@@ -197,6 +244,41 @@ export function SalesOrderLineDialog({
                 />
                 <FieldError message={errors.item_id?.message} />
               </div>
+
+              {/* Offered only when the chosen item actually has variants: most
+                  items are stocked and sold in one form, and a picker that can
+                  only ever say "the item itself" is noise on every line. */}
+              {variantRows.length > 0 && (
+                <div className="sm:col-span-2">
+                  <Label htmlFor="line-variant">Variant</Label>
+                  <Controller
+                    control={control}
+                    name="variant_id"
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger id="line-variant" className="mt-1.5">
+                          <SelectValue placeholder="The item itself" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={SELECT_NONE}>The item itself</SelectItem>
+                          {variantRows.map((variant) => (
+                            <SelectItem key={variant.id} value={variant.id}>
+                              {variant.code} - {variant.name}
+                              {!variant.is_active && ' (inactive)'}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  <FieldError message={errors.variant_id?.message} />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Priced with the variant&apos;s difference against the item. A variant-specific
+                    price row is already that variant&apos;s price; otherwise the difference is
+                    added to the item-wide price.
+                  </p>
+                </div>
+              )}
 
               <div className="sm:col-span-2">
                 <Label htmlFor="line-description">Description</Label>
@@ -280,6 +362,11 @@ export function SalesOrderLineDialog({
                   aria-invalid={Boolean(errors.discount_percentage)}
                 />
                 <FieldError message={errors.discount_percentage?.message} />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {canOverrideDiscount
+                    ? 'A discount above the company threshold is allowed for your account, but the order will wait for a pricing approval before it can be confirmed.'
+                    : 'A discount above the company threshold will be refused when the order is saved - your account does not hold the discount-override right - and an allowed one still puts the order through a pricing approval.'}
+                </p>
               </div>
 
               <div>

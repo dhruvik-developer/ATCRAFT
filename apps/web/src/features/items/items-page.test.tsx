@@ -151,6 +151,39 @@ describe('the grid', () => {
     expect(fetch.calls.map((call) => call.path)).not.toContain('/products/uoms')
   })
 
+  it('names the brand beside the filter for a principal who may read brands', async () => {
+    // The list had a brand filter but no brand column, so a filtered list
+    // could not say which brand a row belonged to. The column is offered on
+    // the same right as the filter, and left unsorted: the endpoint's
+    // `sortable_fields` names no brand, and a sortable column the server
+    // refuses empties the table.
+    renderScreen(<ItemsPage />, {
+      permissions: [P.ITEM_VIEW, P.BRAND_VIEW],
+      routes: {
+        'GET /products/items': page([{ ...BRASS_ROD, brand_id: 'brand-house' }]),
+        'GET /products/brands': page([BRAND]),
+      },
+    })
+
+    expect(await screen.findByRole('columnheader', { name: 'Brand' })).toBeVisible()
+    // The brand lookup resolves beside the list; the cell fills in with it.
+    expect(await screen.findByText('ATCRAFT')).toBeVisible()
+  })
+
+  it('withholds the brand column from an account that cannot read brands', async () => {
+    // The list row carries the id regardless; without the lookup it would
+    // print a UUID, so the column stays away with the filter.
+    const { fetch } = renderScreen(<ItemsPage />, {
+      permissions: [P.ITEM_VIEW],
+      routes: { 'GET /products/items': page([{ ...BRASS_ROD, brand_id: 'brand-house' }]) },
+    })
+
+    await screen.findByRole('link', { name: 'RM-001' })
+    expect(screen.queryByRole('columnheader', { name: 'Brand' })).not.toBeInTheDocument()
+    expect(screen.queryByText('brand-house')).not.toBeInTheDocument()
+    expect(fetch.calls.map((call) => call.path)).not.toContain('/products/brands')
+  })
+
   it('gives the capability icons a text alternative', async () => {
     // Six glyphs in a 3.5mm column are unreadable to a screen reader and
     // ambiguous to everyone else; the row states the enabled ones in words.

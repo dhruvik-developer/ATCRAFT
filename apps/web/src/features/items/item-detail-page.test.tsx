@@ -864,3 +864,245 @@ describe('the brand and the maker', () => {
     expect(body.manufacturer_part_number).toBe('SCW-PC60-5P')
   })
 })
+
+// ------------------------------------------- the price and planning fields ----
+
+describe('what the edit dialog sends for prices and planning', () => {
+  it('patches the channel prices, the planning figures and the tracking flags', async () => {
+    const { user, fetch } = renderDetail({
+      permissions: [P.ITEM_VIEW, P.ITEM_UPDATE, P.PRICE_MANAGE, P.CATEGORY_VIEW, P.UOM_VIEW],
+      routes: baseRoutes({
+        [`PATCH /products/items/${ITEM_ID}`]: ok(ITEM),
+      }),
+    })
+
+    await screen.findByRole('heading', { name: /RM-001/ })
+    await user.click(screen.getByRole('button', { name: /^edit$/i }))
+    const dialog = await screen.findByRole('dialog')
+
+    // Seeded from the item, like every other field: the form restates what is
+    // recorded rather than blanking what it cannot see.
+    expect(within(dialog).getByRole('textbox', { name: 'Sale price' })).toHaveValue('250.0000')
+    expect(within(dialog).getByRole('textbox', { name: 'Dealer price' })).toHaveValue('230.0000')
+    expect(within(dialog).getByRole('textbox', { name: 'Reorder quantity' })).toHaveValue(
+      '500.0000',
+    )
+    expect(within(dialog).getByRole('textbox', { name: 'Minimum order quantity' })).toHaveValue(
+      '50.0000',
+    )
+    expect(within(dialog).getByRole('textbox', { name: 'Safety stock' })).toHaveValue('25.0000')
+    expect(within(dialog).getByRole('textbox', { name: 'Shelf life (days)' })).toHaveValue('')
+    expect(within(dialog).getByRole('checkbox', { name: 'Batch tracked' })).toBeChecked()
+    expect(within(dialog).getByRole('checkbox', { name: 'Serial tracked' })).not.toBeChecked()
+
+    const sale = within(dialog).getByRole('textbox', { name: 'Sale price' })
+    await user.clear(sale)
+    await user.type(sale, '260.5')
+    await user.click(within(dialog).getByRole('button', { name: /save changes/i }))
+
+    const body = await waitForPatch(fetch)
+    expect(body.sale_price).toBe('260.5')
+    expect(body.dealer_price).toBe('230.0000')
+    expect(body.reorder_quantity).toBe('500.0000')
+    expect(body.min_order_quantity).toBe('50.0000')
+    expect(body.safety_stock).toBe('25.0000')
+    // Empty stays empty: null clears the shelf life rather than storing "".
+    expect(body.shelf_life_days).toBeNull()
+    expect(body.is_batch_tracked).toBe(true)
+    expect(body.is_serial_tracked).toBe(false)
+  })
+
+  it('locks the channel prices and leaves them out for a principal without price.manage', async () => {
+    // The API refuses a moved price without that right, and the form posts
+    // every field on every save - so the keys are omitted rather than sent
+    // with whatever the inputs happen to hold.
+    const { user, fetch } = renderDetail({
+      permissions: [P.ITEM_VIEW, P.ITEM_UPDATE, P.CATEGORY_VIEW, P.UOM_VIEW],
+      routes: baseRoutes({ [`PATCH /products/items/${ITEM_ID}`]: ok(ITEM) }),
+    })
+
+    await screen.findByRole('heading', { name: /RM-001/ })
+    await user.click(screen.getByRole('button', { name: /^edit$/i }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('textbox', { name: 'Sale price' })).toBeDisabled()
+    expect(within(dialog).getByRole('textbox', { name: 'Dealer price' })).toBeDisabled()
+
+    await user.click(within(dialog).getByRole('button', { name: /save changes/i }))
+
+    const body = await waitForPatch(fetch)
+    expect('sale_price' in body).toBe(false)
+    expect('dealer_price' in body).toBe(false)
+    // The planning figures are governed by item.update alone, so they still go.
+    expect(body.reorder_quantity).toBe('500.0000')
+  })
+})
+
+// ------------------------------------------------- variant create and edit ----
+
+describe('variant create and edit affordances', () => {
+  const variantRoutes = {
+    [`GET /products/items/${ITEM_ID}/variants`]: page([VARIANT]),
+  }
+
+  it('offers New variant to item.create', async () => {
+    renderDetail({
+      permissions: [P.ITEM_VIEW, P.ITEM_CREATE],
+      tab: 'variants',
+      routes: baseRoutes(variantRoutes),
+    })
+
+    await screen.findByText('RM-001-BR')
+    expect(screen.getByRole('button', { name: /new variant/i })).toBeVisible()
+    // Creating is not editing: no per-row pencil without item.update.
+    expect(screen.queryByRole('button', { name: /edit variant/i })).not.toBeInTheDocument()
+  })
+
+  it('offers per-row Edit to item.update', async () => {
+    renderDetail({
+      permissions: [P.ITEM_VIEW, P.ITEM_UPDATE],
+      tab: 'variants',
+      routes: baseRoutes(variantRoutes),
+    })
+
+    await screen.findByText('RM-001-BR')
+    expect(screen.getByRole('button', { name: 'Edit variant RM-001-BR' })).toBeVisible()
+    expect(screen.queryByRole('button', { name: /new variant/i })).not.toBeInTheDocument()
+  })
+
+  it('offers neither to a principal who may only view', async () => {
+    renderDetail({
+      permissions: [P.ITEM_VIEW],
+      tab: 'variants',
+      routes: baseRoutes(variantRoutes),
+    })
+
+    await screen.findByText('RM-001-BR')
+    expect(screen.queryByRole('button', { name: /new variant/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /edit variant/i })).not.toBeInTheDocument()
+  })
+
+  it('opens the create dialog from New variant', async () => {
+    const { user } = renderDetail({
+      permissions: [P.ITEM_VIEW, P.ITEM_CREATE],
+      tab: 'variants',
+      routes: baseRoutes(variantRoutes),
+    })
+
+    await screen.findByText('RM-001-BR')
+    await user.click(screen.getByRole('button', { name: /new variant/i }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('heading', { name: /new variant of RM-001/i })).toBeVisible()
+  })
+})
+
+// -------------------------------------------------- vendor link management ----
+
+const VENDOR_LIST = page([{ id: 'vendor-fast', code: 'FASTNERS', name: 'Fastners & Co' }])
+
+const LINK_A = {
+  id: 'link-a',
+  item_id: ITEM_ID,
+  vendor_id: 'vendor-fast',
+  vendor_item_code: 'PF-CYL-60-5P',
+  vendor_item_name: 'Pin cylinder 60mm',
+  manufacturer_id: null,
+  manufacturer_part_number: null,
+  is_preferred: true,
+  lead_time_days: 15,
+  min_order_quantity: '0.0000',
+  order_multiple: '0.0000',
+  last_purchase_price: null,
+  last_purchase_date: null,
+  currency: 'INR',
+  is_active: true,
+}
+
+const LINK_B = {
+  ...LINK_A,
+  id: 'link-b',
+  vendor_item_code: 'ALT-44',
+  vendor_item_name: 'Alternate source',
+  is_preferred: false,
+}
+
+function renderVendors(options: {
+  permissions: string[]
+  links?: Record<string, unknown>[]
+  extra?: RouteTable
+}) {
+  return renderDetail({
+    permissions: options.permissions,
+    tab: 'vendors',
+    routes: baseRoutes({
+      [`GET /products/items/${ITEM_ID}/vendors`]: page(options.links ?? [LINK_A, LINK_B]),
+      'GET /vendors': VENDOR_LIST,
+      ...options.extra,
+    }),
+  })
+}
+
+describe('vendor link management', () => {
+  it('offers Link vendor to item.update with a readable vendor list', async () => {
+    // Adding names a vendor, so the action needs the vendor list as well as
+    // the write right. Editing a link never repoints it, so it stays on
+    // `item.update` alone.
+    renderVendors({ permissions: [P.ITEM_VIEW, P.ITEM_UPDATE, P.VENDOR_VIEW] })
+    expect(await screen.findByRole('button', { name: /link vendor/i })).toBeVisible()
+    await screen.findByText('PF-CYL-60-5P')
+    expect(screen.getAllByRole('button', { name: /edit link/i })).toHaveLength(2)
+  })
+
+  it('withholds Link vendor when the vendor list is not readable', async () => {
+    renderVendors({ permissions: [P.ITEM_VIEW, P.ITEM_UPDATE] })
+
+    await screen.findByText('PF-CYL-60-5P')
+    expect(screen.queryByRole('button', { name: /link vendor/i })).not.toBeInTheDocument()
+    // Editing needs no picker - the vendor is locked - so it stays offered.
+    expect(screen.getAllByRole('button', { name: /edit link/i })).toHaveLength(2)
+  })
+
+  it('withholds every write from a principal who may only view', async () => {
+    renderVendors({ permissions: [P.ITEM_VIEW] })
+
+    await screen.findByText('PF-CYL-60-5P')
+    expect(screen.queryByRole('button', { name: /link vendor/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /edit link/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /remove link/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /as preferred/i })).not.toBeInTheDocument()
+  })
+
+  it('sets a link preferred with a patch naming only the flag', async () => {
+    const { user, fetch } = renderVendors({
+      permissions: [P.ITEM_VIEW, P.ITEM_UPDATE, P.VENDOR_VIEW],
+      links: [LINK_A, LINK_B],
+      extra: { 'PATCH /products/item-vendors/link-b': ok({ ...LINK_B, is_preferred: true }) },
+    })
+
+    await screen.findByText('ALT-44')
+    await user.click(screen.getByRole('button', { name: 'Set Alternate source as preferred' }))
+
+    await waitFor(() => fetch.requestFor('PATCH', '/products/item-vendors/link-b'))
+    expect(fetch.requestFor('PATCH', '/products/item-vendors/link-b')).toEqual({
+      is_preferred: true,
+    })
+  })
+
+  it('removes a link only after confirmation, with a bare DELETE', async () => {
+    const { user, fetch } = renderVendors({
+      permissions: [P.ITEM_VIEW, P.ITEM_UPDATE, P.VENDOR_VIEW],
+      extra: { 'DELETE /products/item-vendors/link-b': ok({ deleted: true }) },
+    })
+
+    await screen.findByText('ALT-44')
+    await user.click(screen.getByRole('button', { name: 'Remove link to Alternate source' }))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /remove link/i }))
+
+    await waitFor(() => fetch.requestFor('DELETE', '/products/item-vendors/link-b'))
+    const call = fetch.calls.find((entry) => entry.method === 'DELETE')
+    expect(call?.path).toBe('/products/item-vendors/link-b')
+    // The contract declares nothing but the path id on this DELETE.
+    expect(call?.body).toBeUndefined()
+  })
+})

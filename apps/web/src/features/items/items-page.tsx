@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/overlays'
 import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
-import { useBrandOptions } from '@/hooks/use-brand-options'
+import { brandLabeller, useBrandOptions } from '@/hooks/use-brand-options'
 import { useListQuery } from '@/hooks/use-list-query'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatMoney, humanise } from '@/lib/format'
@@ -99,6 +99,7 @@ export default function ItemsPage() {
   // the filter is the server's, not this control's.
   const canFilterByBrand = can(P.BRAND_VIEW)
   const brands = useBrandOptions(canFilterByBrand)
+  const brandLabel = useMemo(() => brandLabeller(brands.data), [brands.data])
   const categoryById = useMemo(() => indexById(categories.data), [categories.data])
   const uomById = useMemo(() => indexById(uoms.data), [uoms.data])
 
@@ -188,6 +189,21 @@ export default function ItemsPage() {
       // for one item is answered by the Stock tab on the item detail page.
     ]
 
+    // The brand beside the brand filter, on the same right: without
+    // `brand.view` the name cannot be resolved and a raw id says nothing.
+    // Unsorted on purpose - the endpoint's `sortable_fields` names no brand,
+    // and a sortable column the server refuses empties the table.
+    if (canFilterByBrand) {
+      defs.push({
+        id: 'brand',
+        header: 'Brand',
+        enableSorting: false,
+        cell: ({ row }) => (
+          <span className="text-muted-foreground">{brandLabel(row.original.brand_id)}</span>
+        ),
+      })
+    }
+
     // Cost is withheld by the API itself for a principal without item.cost_view;
     // hiding the column keeps the grid honest rather than showing empty cells.
     if (canViewCost) {
@@ -213,7 +229,7 @@ export default function ItemsPage() {
     })
 
     return defs
-  }, [canViewCost, categoryById, uomById])
+  }, [canFilterByBrand, brandLabel, canViewCost, categoryById, uomById])
 
   const newItemButton = can(P.ITEM_CREATE) ? (
     <Button onClick={() => setCreateOpen(true)}>
