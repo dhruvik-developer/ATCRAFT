@@ -118,7 +118,7 @@ x-api-env: &api-env
 services:
   # ---------------------------------------------------------------- postgres
   postgres:
-    image: postgres:18.6-alpine3.23@sha256:697c180dbf244d3ce4a8f4cbc0156cde840af055c1bf8b76aebe422a4822086f
+    image: postgres:18.6-alpine3.23@sha256:885cf05d376c7cf27afef02073e6bdac3841252537f16e244fd1c1e6a7c99fb1
     environment:
       <<: *postgres-env
       # Deterministic collation so index ordering never drifts between hosts.
