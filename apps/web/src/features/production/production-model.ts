@@ -291,8 +291,8 @@ export interface ProductionCost {
   is_final: boolean
   /** Operations with no rate behind them, so the figure above is understated. */
   uncosted_operation_count: number
-  materials?: ProductionCostMaterialLine[]
-  operations?: ProductionCostOperationLine[]
+  materials: ProductionCostMaterialLine[]
+  operations: ProductionCostOperationLine[]
 }
 
 export interface ProductionCostMaterialLine {

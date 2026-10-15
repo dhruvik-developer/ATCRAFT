@@ -105,6 +105,8 @@ import {
   returnableQuantity,
   type ProductionComponent,
   type ProductionCost,
+  type ProductionCostMaterialLine,
+  type ProductionCostOperationLine,
   type ProductionEntryRow,
   type ProductionOrderDetail,
   type ComponentShortage,
@@ -603,6 +605,121 @@ function EntriesPanel({
 
 // ------------------------------------------------------------- costing ------
 
+const materialCostColumns: ColumnDef<ProductionCostMaterialLine, unknown>[] = [
+  {
+    id: 'component',
+    header: 'Component',
+    enableSorting: false,
+    cell: ({ row }) => <span className="font-medium">{row.original.item_code}</span>,
+  },
+  {
+    id: 'required',
+    header: 'Required',
+    enableSorting: false,
+    meta: { align: 'right' },
+    cell: ({ row }) => formatQuantity(row.original.required_quantity),
+  },
+  {
+    id: 'issued',
+    header: 'Issued',
+    enableSorting: false,
+    meta: { align: 'right' },
+    cell: ({ row }) => formatQuantity(row.original.issued_quantity),
+  },
+  {
+    id: 'returned',
+    header: 'Returned',
+    enableSorting: false,
+    meta: { align: 'right' },
+    cell: ({ row }) => formatQuantity(row.original.returned_quantity),
+  },
+  {
+    id: 'net-issued',
+    header: 'Net issued',
+    enableSorting: false,
+    meta: { align: 'right' },
+    cell: ({ row }) => formatQuantity(row.original.net_issued_quantity),
+  },
+  {
+    id: 'unit-cost',
+    header: 'Unit cost',
+    enableSorting: false,
+    meta: { align: 'right' },
+    cell: ({ row }) => formatMoney(row.original.unit_cost),
+  },
+  {
+    id: 'total-cost',
+    header: 'Total cost',
+    enableSorting: false,
+    meta: { align: 'right' },
+    cell: ({ row }) => formatMoney(row.original.total_cost),
+  },
+]
+
+const operationCostColumns: ColumnDef<ProductionCostOperationLine, unknown>[] = [
+  {
+    id: 'sequence',
+    header: 'Seq',
+    enableSorting: false,
+    meta: { align: 'right' },
+    cell: ({ row }) => row.original.sequence,
+  },
+  {
+    id: 'operation',
+    header: 'Operation',
+    enableSorting: false,
+    cell: ({ row }) => <span className="font-medium">{row.original.operation_code}</span>,
+  },
+  {
+    id: 'status',
+    header: 'Status',
+    enableSorting: false,
+    cell: ({ row }) => humanise(row.original.status),
+  },
+  {
+    id: 'charged-minutes',
+    header: 'Charged minutes',
+    enableSorting: false,
+    meta: { align: 'right' },
+    cell: ({ row }) => formatQuantity(row.original.charged_minutes),
+  },
+  {
+    id: 'rate',
+    header: 'Rate / hour',
+    enableSorting: false,
+    meta: { align: 'right' },
+    cell: ({ row }) => formatMoney(row.original.cost_per_hour),
+  },
+  {
+    id: 'time-cost',
+    header: 'Time cost',
+    enableSorting: false,
+    meta: { align: 'right' },
+    cell: ({ row }) => formatMoney(row.original.time_cost),
+  },
+  {
+    id: 'setup-cost',
+    header: 'Setup cost',
+    enableSorting: false,
+    meta: { align: 'right' },
+    cell: ({ row }) => formatMoney(row.original.setup_cost),
+  },
+  {
+    id: 'process-cost',
+    header: 'Process cost',
+    enableSorting: false,
+    meta: { align: 'right' },
+    cell: ({ row }) => formatMoney(row.original.process_cost),
+  },
+  {
+    id: 'total-cost',
+    header: 'Total cost',
+    enableSorting: false,
+    meta: { align: 'right' },
+    cell: ({ row }) => formatMoney(row.original.total_cost),
+  },
+]
+
 function CostingPanel({ order }: { order: ProductionOrderDetail }) {
   const cost = useQuery({
     queryKey: [...queryKeys.production.detail(order.id), 'cost'] as const,
@@ -699,6 +816,42 @@ function CostingPanel({ order }: { order: ProductionOrderDetail }) {
         Calculated by the API from the issues and bookings posted against this order. The screen
         never re-adds them, so these figures reconcile with the inventory ledger.
       </p>
+
+      <section aria-labelledby="production-material-cost-heading" className="space-y-3">
+        <div>
+          <h3 id="production-material-cost-heading" className="text-base font-semibold">
+            Material cost by component
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            Net issues are valued at the cost recorded on their inventory movements.
+          </p>
+        </div>
+        <DataTable
+          columns={materialCostColumns}
+          data={data.materials}
+          getRowId={(row) => row.component_id}
+          emptyTitle="No material cost"
+          emptyDescription="This order has no material issue lines to cost."
+        />
+      </section>
+
+      <section aria-labelledby="production-operation-cost-heading" className="space-y-3">
+        <div>
+          <h3 id="production-operation-cost-heading" className="text-base font-semibold">
+            Operation cost by work order
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            Clocked time is used when available; otherwise the planned setup and run time is costed.
+          </p>
+        </div>
+        <DataTable
+          columns={operationCostColumns}
+          data={data.operations}
+          getRowId={(row) => row.work_order_id}
+          emptyTitle="No operation cost"
+          emptyDescription="This order has no work orders to cost."
+        />
+      </section>
     </div>
   )
 }

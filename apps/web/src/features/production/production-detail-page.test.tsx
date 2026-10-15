@@ -201,6 +201,66 @@ describe('closing an order', () => {
   })
 })
 
+describe('production costing', () => {
+  it('renders the material and operation cost breakdowns', async () => {
+    const { user } = renderDetail([P.PRODUCTION_ORDER_VIEW, P.PRODUCTION_COST_VIEW], {
+      [`GET /production/${ORDER_ID}/cost`]: ok({
+        production_order_id: ORDER_ID,
+        code: 'PRD-0001',
+        status: 'IN_PROCESS',
+        is_final: false,
+        planned_quantity: '100.0000',
+        produced_quantity: '40.0000',
+        material_cost: '21.00',
+        operation_cost: '12.50',
+        total_cost: '33.50',
+        cost_per_unit: '0.84',
+        uncosted_operation_count: 0,
+        materials: [
+          {
+            component_id: '01a00000-0000-7000-8000-0000000000c1',
+            item_id: '01a00000-0000-7000-8000-0000000000i2',
+            item_code: 'MAT-001',
+            required_quantity: '2.0000',
+            issued_quantity: '2.5000',
+            returned_quantity: '0.5000',
+            net_issued_quantity: '2.0000',
+            unit_cost: '10.5000',
+            total_cost: '21.00',
+          },
+        ],
+        operations: [
+          {
+            work_order_id: '01a00000-0000-7000-8000-0000000000o1',
+            sequence: 10,
+            operation_code: 'OP-10',
+            work_center_id: '01a00000-0000-7000-8000-0000000000w2',
+            status: 'COMPLETED',
+            charged_minutes: '15.0000',
+            is_actual_time: true,
+            cost_per_hour: '40.0000',
+            time_cost: '10.00',
+            setup_cost: '2.50',
+            process_cost: '0.00',
+            total_cost: '12.50',
+          },
+        ],
+      }),
+    })
+
+    await user.click(await screen.findByRole('tab', { name: /costing/i }))
+
+    expect(await screen.findByRole('heading', { name: 'Material cost by component' })).toBeVisible()
+    expect(screen.getByText('MAT-001')).toBeVisible()
+    expect(screen.getByText('2.5')).toBeVisible()
+    expect(screen.getByText('0.5')).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Operation cost by work order' })).toBeVisible()
+    expect(screen.getByText('OP-10')).toBeVisible()
+    expect(screen.getAllByText('Completed')).toHaveLength(2)
+    expect(screen.getByText('15')).toBeVisible()
+  })
+})
+
 describe('cancelling an order', () => {
   it('records the audit reason the API insists on, within its bounds', async () => {
     const { user, fetch } = renderDetail([P.PRODUCTION_ORDER_VIEW, P.PRODUCTION_ORDER_CANCEL], {
