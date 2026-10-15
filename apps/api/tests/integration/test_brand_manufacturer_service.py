@@ -521,7 +521,7 @@ async def test_item_create_refuses_another_company_s_brand_and_maker(ctx: Ctx) -
 
 
 async def test_item_update_refuses_another_company_s_brand_and_maker(ctx: Ctx) -> None:
-    session, tenant, _ = ctx
+    session, tenant, principal = ctx
     item = await service.create_item(
         session, tenant, _item(_code("X"), await _base_unit(session, tenant))
     )
@@ -531,9 +531,13 @@ async def test_item_update_refuses_another_company_s_brand_and_maker(ctx: Ctx) -
     their_brand, their_maker = await _foreign_brand_and_maker(session)
 
     with pytest.raises(NotFoundError):
-        await service.update_item(session, tenant, item_id, ItemUpdate(brand_id=their_brand))
+        await service.update_item(
+            session, tenant, principal, item_id, ItemUpdate(brand_id=their_brand)
+        )
     with pytest.raises(NotFoundError):
-        await service.update_item(session, tenant, item_id, ItemUpdate(manufacturer_id=their_maker))
+        await service.update_item(
+            session, tenant, principal, item_id, ItemUpdate(manufacturer_id=their_maker)
+        )
 
     stored = (
         await session.execute(select(Item.brand_id, Item.manufacturer_id).where(Item.id == item_id))
@@ -542,7 +546,7 @@ async def test_item_update_refuses_another_company_s_brand_and_maker(ctx: Ctx) -
 
 
 async def test_an_inactive_brand_or_maker_is_refused_on_the_way_in(ctx: Ctx) -> None:
-    session, tenant, _ = ctx
+    session, tenant, principal = ctx
     unit = await _base_unit(session, tenant)
     brand = await _brand(session, tenant, is_active=False)
     maker = await _maker(session, tenant, is_active=False)
@@ -552,7 +556,9 @@ async def test_an_inactive_brand_or_maker_is_refused_on_the_way_in(ctx: Ctx) -> 
     item = await service.create_item(session, tenant, _item(_code("X"), unit))
     item_id = item.id
     with pytest.raises(ValidationError):
-        await service.update_item(session, tenant, item_id, ItemUpdate(manufacturer_id=maker.id))
+        await service.update_item(
+            session, tenant, principal, item_id, ItemUpdate(manufacturer_id=maker.id)
+        )
     with pytest.raises(ValidationError):
         await _brand(session, tenant, manufacturer_id=maker.id)
 
@@ -560,7 +566,7 @@ async def test_an_inactive_brand_or_maker_is_refused_on_the_way_in(ctx: Ctx) -> 
 async def test_an_item_takes_a_brand_a_maker_and_a_part_number_and_can_drop_them(
     ctx: Ctx,
 ) -> None:
-    session, tenant, _ = ctx
+    session, tenant, principal = ctx
     brand = await _brand(session, tenant)
     maker = await _maker(session, tenant)
     item = await service.create_item(
@@ -590,6 +596,7 @@ async def test_an_item_takes_a_brand_a_maker_and_a_part_number_and_can_drop_them
     cleared = await service.update_item(
         session,
         tenant,
+        principal,
         item.id,
         ItemUpdate(brand_id=None, manufacturer_id=None, manufacturer_part_number=None),
     )
@@ -604,14 +611,14 @@ async def test_re_saving_an_item_with_its_brand_unchanged_does_not_reassert_it(
     ctx: Ctx,
 ) -> None:
     """The item form posts every field on every save; an unchanged brand is not re-checked."""
-    session, tenant, _ = ctx
+    session, tenant, principal = ctx
     brand = await _brand(session, tenant)
     item = await service.create_item(
         session, tenant, _item(_code("FG"), await _base_unit(session, tenant), brand_id=brand.id)
     )
 
     saved = await service.update_item(
-        session, tenant, item.id, ItemUpdate(brand_id=brand.id, name="Renamed")
+        session, tenant, principal, item.id, ItemUpdate(brand_id=brand.id, name="Renamed")
     )
 
     assert saved.name == "Renamed" and saved.brand_id == brand.id

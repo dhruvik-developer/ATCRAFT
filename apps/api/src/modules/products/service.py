@@ -40,6 +40,7 @@ from src.core.errors import (
     DuplicateError,
     ErrorCode,
     NotFoundError,
+    PermissionDeniedError,
     ValidationError,
 )
 from src.core.ids import new_id
@@ -1464,8 +1465,21 @@ async def _assert_tracking_change_is_safe(
 
 
 async def update_item(
-    session: AsyncSession, tenant: TenantContext, item_id: uuid.UUID, payload: ItemUpdate
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    item_id: uuid.UUID,
+    payload: ItemUpdate,
 ) -> Item:
+    """Apply a PATCH to an item.
+
+    The two channel prices are the one field set a second right governs: moving
+    ``sale_price`` or ``dealer_price`` needs ``price.manage`` on top of
+    ``item.update``, the same authority a sales-line price override already
+    demands (docs/assumptions.md §E10-3). The gate fires only when the value
+    actually moves - the item form posts every field on every save, and
+    refusing a no-op would turn an ordinary edit into a permission error.
+    """
     repo = ItemRepository(session, tenant)
 
     async with transaction(session):
@@ -1475,6 +1489,16 @@ async def update_item(
         data = payload.model_dump(exclude_unset=True)
         capability_updates = {k: v for k, v in data.items() if k in CAPABILITY_FIELDS}
         scalar_updates = {k: v for k, v in data.items() if k not in CAPABILITY_FIELDS}
+
+        price_updates = {
+            field: scalar_updates[field]
+            for field in ("sale_price", "dealer_price")
+            if field in scalar_updates
+            and scalar_updates[field] is not None
+            and Decimal(str(scalar_updates[field])) != Decimal(str(getattr(item, field)))
+        }
+        if price_updates and not principal.has(Permission.PRICE_MANAGE):
+            raise PermissionDeniedError(str(Permission.PRICE_MANAGE))
 
         await _assert_tracking_change_is_safe(repo, item, scalar_updates)
 

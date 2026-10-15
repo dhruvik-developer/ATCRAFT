@@ -87,6 +87,7 @@ pytestmark = pytest.mark.integration
 async def test_default_bin_assignment_and_retirement_share_the_same_contract(
     session,
     tenant,
+    principal,
     unique_code,
     other_company,
 ):
@@ -113,6 +114,7 @@ async def test_default_bin_assignment_and_retirement_share_the_same_contract(
         await update_item(
             session,
             tenant,
+            principal,
             item_id,
             ItemUpdate(default_warehouse_id=warehouse_id, default_location_id=foreign_id),
         )
@@ -120,12 +122,14 @@ async def test_default_bin_assignment_and_retirement_share_the_same_contract(
         await update_item(
             session,
             tenant,
+            principal,
             item_id,
             ItemUpdate(default_warehouse_id=other_id, default_location_id=location_id),
         )
     await update_item(
         session,
         tenant,
+        principal,
         item_id,
         ItemUpdate(default_warehouse_id=warehouse_id, default_location_id=location_id),
     )
@@ -138,10 +142,12 @@ async def test_default_bin_assignment_and_retirement_share_the_same_contract(
         await WarehouseService(session, tenant).delete_warehouse(
             warehouse_id, reason="Retire the old store"
         )
-    await update_item(session, tenant, item_id, ItemUpdate(default_location_id=None))
+    await update_item(session, tenant, principal, item_id, ItemUpdate(default_location_id=None))
     await service.set_active(location_id, active=False, reason="Retire the old rack")
     with pytest.raises(BusinessRuleError, match="inactive"):
-        await update_item(session, tenant, item_id, ItemUpdate(default_location_id=location_id))
+        await update_item(
+            session, tenant, principal, item_id, ItemUpdate(default_location_id=location_id)
+        )
 
 
 PAGE = PageParams()

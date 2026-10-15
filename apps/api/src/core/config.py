@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import secrets
+from decimal import Decimal
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
@@ -263,6 +264,13 @@ class Settings(BaseSettings):
     # Above this many demand lines an MRP run is dispatched to Celery rather
     # than executed inline (section 14: never hold HTTP open for minutes).
     mrp_sync_threshold_demand_lines: Annotated[int, Field(ge=1)] = 50
+    # A line discount above this percentage needs the
+    # ``sales_order.discount_override`` right, and the order then needs
+    # approval before it can be confirmed. Without the right the discount is
+    # refused outright. Offer-derived discounts are pre-authorised and exempt
+    # from the threshold, but still subject to the below-cost check
+    # (docs/assumptions.md §E10-3).
+    sales_discount_approval_percent: Annotated[Decimal, Field(ge=0, le=100)] = Decimal("10")
 
     # ------------------------------------------------------ observability --
     otel_enabled: bool = False

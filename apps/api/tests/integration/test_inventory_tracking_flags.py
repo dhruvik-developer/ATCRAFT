@@ -64,7 +64,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import transaction
-from src.core.deps import TenantContext
+from src.core.deps import Principal, TenantContext
 from src.core.errors import BusinessRuleError, ErrorCode, InsufficientStockError
 from src.modules.inventory import service as inv
 from src.modules.inventory.models import TransactionType, TransferStatus
@@ -475,30 +475,30 @@ class TestTheFlagCannotBeFlippedUnderLiveStock:
     """The prevention. ``update_item`` used to apply no stock guard at all."""
 
     async def test_batch_tracking_cannot_be_turned_on_over_stock_on_hand(
-        self, session: AsyncSession, tenant: TenantContext
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal
     ) -> None:
         bench = await seed_bench(session, tenant)
 
         with pytest.raises(BusinessRuleError) as excinfo:
             await products.update_item(
-                session, tenant, bench.item_id, ItemUpdate(is_batch_tracked=True)
+                session, tenant, principal, bench.item_id, ItemUpdate(is_batch_tracked=True)
             )
         assert excinfo.value.code is ErrorCode.REFERENCED_RECORD_IN_USE
         assert excinfo.value.details["fields"] == ["is_batch_tracked"]
 
     async def test_serial_tracking_cannot_be_either(
-        self, session: AsyncSession, tenant: TenantContext
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal
     ) -> None:
         bench = await seed_bench(session, tenant)
 
         with pytest.raises(BusinessRuleError) as excinfo:
             await products.update_item(
-                session, tenant, bench.item_id, ItemUpdate(is_serial_tracked=True)
+                session, tenant, principal, bench.item_id, ItemUpdate(is_serial_tracked=True)
             )
         assert excinfo.value.details["fields"] == ["is_serial_tracked"]
 
     async def test_the_refusal_is_actionable(
-        self, session: AsyncSession, tenant: TenantContext
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal
     ) -> None:
         """A message that names the item and says what to do about it - the
         thing the defect had none of."""
@@ -506,14 +506,14 @@ class TestTheFlagCannotBeFlippedUnderLiveStock:
 
         with pytest.raises(BusinessRuleError) as excinfo:
             await products.update_item(
-                session, tenant, bench.item_id, ItemUpdate(is_batch_tracked=True)
+                session, tenant, principal, bench.item_id, ItemUpdate(is_batch_tracked=True)
             )
         assert "still holds stock" in excinfo.value.message
         assert "in transit" in excinfo.value.message
         assert excinfo.value.details["item_id"] == str(bench.item_id)
 
     async def test_stock_that_is_only_in_transit_still_counts(
-        self, session: AsyncSession, tenant: TenantContext
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal
     ) -> None:
         """The exact hole a guard reading ``on_hand_quantity`` alone would leave:
         the dispatched quantity is off the source's on-hand and standing in the
@@ -528,11 +528,11 @@ class TestTheFlagCannotBeFlippedUnderLiveStock:
 
         with pytest.raises(BusinessRuleError, match="still holds stock"):
             await products.update_item(
-                session, tenant, bench.item_id, ItemUpdate(is_batch_tracked=True)
+                session, tenant, principal, bench.item_id, ItemUpdate(is_batch_tracked=True)
             )
 
     async def test_turning_tracking_off_is_refused_on_the_same_terms(
-        self, session: AsyncSession, tenant: TenantContext
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal
     ) -> None:
         """It strands nothing, but it splits a live item across two grain shapes.
         One sentence - how stock is identified changes only while there is no
@@ -542,23 +542,23 @@ class TestTheFlagCannotBeFlippedUnderLiveStock:
 
         with pytest.raises(BusinessRuleError, match="still holds stock"):
             await products.update_item(
-                session, tenant, bench.item_id, ItemUpdate(is_batch_tracked=False)
+                session, tenant, principal, bench.item_id, ItemUpdate(is_batch_tracked=False)
             )
 
     async def test_an_item_holding_nothing_may_still_start_being_tracked(
-        self, session: AsyncSession, tenant: TenantContext
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal
     ) -> None:
         """The guard is a guard, not a wall. "We are starting to lot-track this
         part" stays a decision the business can take."""
         bench = await seed_bench(session, tenant, on_hand="0")
 
         updated = await products.update_item(
-            session, tenant, bench.item_id, ItemUpdate(is_batch_tracked=True)
+            session, tenant, principal, bench.item_id, ItemUpdate(is_batch_tracked=True)
         )
         assert updated.is_batch_tracked is True
 
     async def test_and_once_the_balance_is_emptied_again(
-        self, session: AsyncSession, tenant: TenantContext
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal
     ) -> None:
         """A zeroed balance row is still a row. It must not keep the flag locked
         for good, or the guard becomes the wall."""
@@ -578,12 +578,12 @@ class TestTheFlagCannotBeFlippedUnderLiveStock:
             )
 
         updated = await products.update_item(
-            session, tenant, bench.item_id, ItemUpdate(is_batch_tracked=True)
+            session, tenant, principal, bench.item_id, ItemUpdate(is_batch_tracked=True)
         )
         assert updated.is_batch_tracked is True
 
     async def test_a_flag_restated_at_its_current_value_is_not_a_change(
-        self, session: AsyncSession, tenant: TenantContext
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal
     ) -> None:
         """A form that posts every field must not be refused for the fields it
         did not touch."""
@@ -592,18 +592,19 @@ class TestTheFlagCannotBeFlippedUnderLiveStock:
         updated = await products.update_item(
             session,
             tenant,
+            principal,
             bench.item_id,
             ItemUpdate(is_batch_tracked=False, is_serial_tracked=False, name="Brass rod, 12mm"),
         )
         assert updated.name == "Brass rod, 12mm"
 
     async def test_every_other_edit_is_untouched(
-        self, session: AsyncSession, tenant: TenantContext
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal
     ) -> None:
         bench = await seed_bench(session, tenant)
 
         updated = await products.update_item(
-            session, tenant, bench.item_id, ItemUpdate(name="Brass rod, 16mm")
+            session, tenant, principal, bench.item_id, ItemUpdate(name="Brass rod, 16mm")
         )
         assert updated.name == "Brass rod, 16mm"
 

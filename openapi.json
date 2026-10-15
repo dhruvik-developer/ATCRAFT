@@ -45501,7 +45501,7 @@
             "items": {
               "type": "string"
             },
-            "maxItems": 175,
+            "maxItems": 176,
             "title": "Permissions",
             "type": "array"
           }
@@ -45713,7 +45713,7 @@
                 "items": {
                   "type": "string"
                 },
-                "maxItems": 175,
+                "maxItems": 176,
                 "type": "array"
               },
               {

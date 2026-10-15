@@ -83,6 +83,9 @@ x-api-env: &api-env
   # How often the allocation top-up reserves newly arrived stock for short
   # sales orders (docs/assumptions.md section E1-2).
   SO_TOPUP_INTERVAL_SECONDS: ${SO_TOPUP_INTERVAL_SECONDS:-900}
+  # A line discount above this percentage needs sales_order.discount_override
+  # and an approval before the order can be confirmed (docs/assumptions.md §E10-3).
+  SALES_DISCOUNT_APPROVAL_PERCENT: ${SALES_DISCOUNT_APPROVAL_PERCENT:-10}
   # Per deployment, and never shared: a token minted by one deployment must not
   # authenticate against the other. The issuer and audience make that a
   # deliberate rejection rather than an accident of key rotation.

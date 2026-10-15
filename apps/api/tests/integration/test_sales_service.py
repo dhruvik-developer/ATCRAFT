@@ -58,12 +58,14 @@ from src.modules.allocation.models import (
 )
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.customers.models import AddressType, Customer, CustomerAddress, CustomerType
+from src.modules.dealer_portal.models import DealerOffer
 from src.modules.inventory.models import InventoryBalance
 from src.modules.organization.models import Company
 from src.modules.products.models import (
     Item,
     ItemGroup,
     ItemPrice,
+    ItemVariant,
     PriceType,
     ProductionType,
     UnitOfMeasure,
@@ -1723,3 +1725,154 @@ async def test_a_header_edit_does_not_demand_price_manage(ctx: Ctx):
     # The agreed price survived, and so did the reason it needs approval.
     assert lines[0].unit_price == Decimal("55.000000")
     assert updated.requires_approval is True
+
+
+# -----------------------------------------------------------------------------
+# E10a: discount authority, and variants on the line
+# -----------------------------------------------------------------------------
+
+
+def _desk_principal(ctx: Ctx, *permissions: Permission) -> Principal:
+    """A sales-desk caller holding exactly the named rights."""
+    return _principal(
+        ctx.tenant.company_id,
+        ctx.tenant.user_id,
+        permissions=frozenset(str(p) for p in permissions),
+    )
+
+
+async def _draft_with(
+    ctx: Ctx,
+    customer: Customer,
+    warehouse: Warehouse,
+    lines: list[SalesOrderLineIn],
+    principal: Principal,
+) -> SalesOrder:
+    order, _ = await service.create_order(
+        ctx.session, ctx.tenant, principal, create_payload(customer, warehouse, lines)
+    )
+    return order
+
+
+async def test_discount_above_the_threshold_is_refused_without_the_right(ctx: Ctx):
+    """The desk default: 15% against the 10% threshold, no override right."""
+    uom = await seed_uom(ctx)
+    warehouse = await seed_warehouse(ctx)
+    customer, _ = await seed_customer(ctx)
+    item = await seed_item(ctx, uom, sale_price="100", standard_cost="60")
+
+    desk = _desk_principal(ctx, Permission.SALES_ORDER_CREATE)
+    with pytest.raises(PermissionDeniedError) as excinfo:
+        await _draft_with(
+            ctx, customer, warehouse, [line(item, "2", discount_percentage=Decimal("15"))], desk
+        )
+
+    assert excinfo.value.details == {"required_permission": "sales_order.discount_override"}
+
+
+async def test_discount_above_the_threshold_with_the_right_needs_approval(ctx: Ctx):
+    uom = await seed_uom(ctx)
+    warehouse = await seed_warehouse(ctx)
+    customer, _ = await seed_customer(ctx)
+    item = await seed_item(ctx, uom, sale_price="100", standard_cost="60")
+    await seed_stock(ctx, item, warehouse, "100")
+
+    desk = _desk_principal(
+        ctx, Permission.SALES_ORDER_CREATE, Permission.SALES_ORDER_DISCOUNT_OVERRIDE
+    )
+    order = await _draft_with(
+        ctx, customer, warehouse, [line(item, "2", discount_percentage=Decimal("15"))], desk
+    )
+    assert order.requires_approval is True
+
+    with pytest.raises(ApprovalRequiredError):
+        await service.confirm_order(
+            ctx.session, ctx.tenant, desk, order.id, reason="Confirmed", allocation=ctx.allocation
+        )
+
+    await service.approve_order(
+        ctx.session, ctx.approver_tenant, ctx.approver, order.id, reason="Key account terms"
+    )
+    result = await service.confirm_order(
+        ctx.session, ctx.tenant, desk, order.id, reason="Confirmed", allocation=ctx.allocation
+    )
+    assert result.order.status is SalesOrderStatus.ALLOCATED
+
+
+async def test_discount_netting_below_cost_needs_approval_without_passing_the_threshold(
+    ctx: Ctx, monkeypatch: pytest.MonkeyPatch
+):
+    """50% off 100 nets 50, under the 60 cost. The threshold is raised so
+    only the cost rule can fire - and no override right is needed for it."""
+    monkeypatch.setattr(settings, "sales_discount_approval_percent", Decimal("90"))
+    uom = await seed_uom(ctx)
+    warehouse = await seed_warehouse(ctx)
+    customer, _ = await seed_customer(ctx)
+    item = await seed_item(ctx, uom, sale_price="100", standard_cost="60")
+
+    desk = _desk_principal(ctx, Permission.SALES_ORDER_CREATE)
+    order = await _draft_with(
+        ctx, customer, warehouse, [line(item, "2", discount_percentage=Decimal("50"))], desk
+    )
+
+    assert order.requires_approval is True
+
+
+async def test_offer_discount_above_the_threshold_is_exempt_but_still_cost_checked(ctx: Ctx):
+    """A published 25% scheme exceeds the desk's 10% limit and still prices
+    with no override right - and nets 75, above the 60 cost, so no approval."""
+    uom = await seed_uom(ctx)
+    warehouse = await seed_warehouse(ctx)
+    customer, _ = await seed_customer(ctx)
+    item = await seed_item(ctx, uom, sale_price="100", standard_cost="60")
+    ctx.session.add(
+        DealerOffer(
+            company_id=ctx.tenant.company_id,
+            code=f"SCHEME-{uuid.uuid4().hex[:6].upper()}",
+            title="Festive scheme",
+            scope_kind="ALL",
+            min_quantity=Decimal("1"),
+            discount_percentage=Decimal("25"),
+            is_active=True,
+        )
+    )
+    await ctx.session.flush()
+
+    desk = _desk_principal(ctx, Permission.SALES_ORDER_CREATE)
+    order, lines = await service.create_order(
+        ctx.session, ctx.tenant, desk, create_payload(customer, warehouse, [line(item, "2")])
+    )
+
+    assert lines[0].discount_percentage == Decimal("25")
+    assert lines[0].offer_id is not None
+    assert order.requires_approval is False
+
+
+async def test_order_line_with_a_variant_prices_with_its_delta(ctx: Ctx):
+    """The line editor's variant select (§E10-1): the 15 delta on top of the
+    100 master price, taxed like any other line."""
+    uom = await seed_uom(ctx)
+    warehouse = await seed_warehouse(ctx)
+    customer, _ = await seed_customer(ctx)
+    item = await seed_item(ctx, uom, sale_price="100", standard_cost="60")
+    variant = ItemVariant(
+        company_id=ctx.tenant.company_id,
+        item_id=item.id,
+        code=f"{item.code}-BR",
+        name="Brushed",
+        price_delta=Decimal("15"),
+        is_active=True,
+    )
+    ctx.session.add(variant)
+    await ctx.session.flush()
+
+    order, lines = await service.create_order(
+        ctx.session,
+        ctx.tenant,
+        ctx.principal,
+        create_payload(customer, warehouse, [line(item, "2", item_variant_id=variant.id)]),
+    )
+
+    assert lines[0].item_variant_id == variant.id
+    assert lines[0].unit_price == Decimal("115.000000")
+    assert order.requires_approval is False

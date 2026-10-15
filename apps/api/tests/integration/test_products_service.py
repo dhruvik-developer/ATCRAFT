@@ -30,6 +30,7 @@ from src.core.errors import (
     DuplicateError,
     InvalidStateTransitionError,
     NotFoundError,
+    PermissionDeniedError,
     ValidationError,
 )
 from src.core.models import Base
@@ -360,7 +361,7 @@ async def test_retired_item_disappears_from_reads(
 async def test_update_cannot_leave_production_type_without_its_capability(
     ctx: tuple[AsyncSession, TenantContext, Principal],
 ) -> None:
-    session, tenant, _ = ctx
+    session, tenant, principal = ctx
     units = await seed_units(session, tenant)
     item = await service.create_item(
         session,
@@ -371,7 +372,9 @@ async def test_update_cannot_leave_production_type_without_its_capability(
     )
 
     with pytest.raises(BusinessRuleError):
-        await service.update_item(session, tenant, item.id, ItemUpdate(can_manufacture=False))
+        await service.update_item(
+            session, tenant, principal, item.id, ItemUpdate(can_manufacture=False)
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -1013,7 +1016,7 @@ async def test_another_company_s_vendor_cannot_be_linked(
 async def test_another_company_s_warehouse_cannot_be_an_item_s_default(
     ctx: tuple[AsyncSession, TenantContext, Principal],
 ) -> None:
-    session, tenant, _ = ctx
+    session, tenant, principal = ctx
     units = await seed_units(session, tenant)
     outsider = await seed_support.seed_company(session, prefix="OTH")
     theirs = await seed_support.seed_warehouse(
@@ -1031,7 +1034,7 @@ async def test_another_company_s_warehouse_cannot_be_an_item_s_default(
     item_id = item.id
     with pytest.raises(NotFoundError):
         await service.update_item(
-            session, tenant, item_id, ItemUpdate(default_warehouse_id=theirs.id)
+            session, tenant, principal, item_id, ItemUpdate(default_warehouse_id=theirs.id)
         )
 
     stored_default = (
@@ -1130,12 +1133,14 @@ async def test_renaming_an_attribute_is_free(
 async def test_an_item_takes_a_finish_by_id(
     ctx: tuple[AsyncSession, TenantContext, Principal],
 ) -> None:
-    session, tenant, _ = ctx
+    session, tenant, principal = ctx
     units = await seed_units(session, tenant)
     finish = await _finish(session, tenant, "BRUSHED", "Brushed")
     item = await service.create_item(session, tenant, item_payload("ATTR-1", units["NOS"]))
 
-    updated = await service.update_item(session, tenant, item.id, ItemUpdate(finish_id=finish.id))
+    updated = await service.update_item(
+        session, tenant, principal, item.id, ItemUpdate(finish_id=finish.id)
+    )
 
     assert updated.finish_id == finish.id
 
@@ -1144,7 +1149,7 @@ async def test_a_colour_is_refused_where_a_finish_belongs(
     ctx: tuple[AsyncSession, TenantContext, Principal],
 ) -> None:
     """The foreign key cannot tell these apart. A person reading the item can."""
-    session, tenant, _ = ctx
+    session, tenant, principal = ctx
     units = await seed_units(session, tenant)
     colour = await service.create_item_attribute(
         session,
@@ -1156,25 +1161,29 @@ async def test_a_colour_is_refused_where_a_finish_belongs(
     item = await service.create_item(session, tenant, item_payload("ATTR-2", units["NOS"]))
 
     with pytest.raises(ValidationError):
-        await service.update_item(session, tenant, item.id, ItemUpdate(finish_id=colour.id))
+        await service.update_item(
+            session, tenant, principal, item.id, ItemUpdate(finish_id=colour.id)
+        )
 
 
 async def test_an_unknown_attribute_id_is_refused(
     ctx: tuple[AsyncSession, TenantContext, Principal],
 ) -> None:
     """An id from another tenant lands here too: the scoped read does not find it."""
-    session, tenant, _ = ctx
+    session, tenant, principal = ctx
     units = await seed_units(session, tenant)
     item = await service.create_item(session, tenant, item_payload("ATTR-3", units["NOS"]))
 
     with pytest.raises(NotFoundError):
-        await service.update_item(session, tenant, item.id, ItemUpdate(finish_id=uuid.uuid4()))
+        await service.update_item(
+            session, tenant, principal, item.id, ItemUpdate(finish_id=uuid.uuid4())
+        )
 
 
 async def test_a_retired_attribute_cannot_be_newly_assigned(
     ctx: tuple[AsyncSession, TenantContext, Principal],
 ) -> None:
-    session, tenant, _ = ctx
+    session, tenant, principal = ctx
     units = await seed_units(session, tenant)
     finish = await _finish(session, tenant, "DISCONTINUED", "Discontinued")
     await service.update_item_attribute(
@@ -1183,18 +1192,20 @@ async def test_a_retired_attribute_cannot_be_newly_assigned(
     item = await service.create_item(session, tenant, item_payload("ATTR-4", units["NOS"]))
 
     with pytest.raises(ValidationError):
-        await service.update_item(session, tenant, item.id, ItemUpdate(finish_id=finish.id))
+        await service.update_item(
+            session, tenant, principal, item.id, ItemUpdate(finish_id=finish.id)
+        )
 
 
 async def test_an_attribute_in_use_cannot_be_retired(
     ctx: tuple[AsyncSession, TenantContext, Principal],
 ) -> None:
     """Otherwise the item shows a value its own edit form can no longer offer."""
-    session, tenant, _ = ctx
+    session, tenant, principal = ctx
     units = await seed_units(session, tenant)
     finish = await _finish(session, tenant, "IN-USE", "In use")
     item = await service.create_item(session, tenant, item_payload("ATTR-5", units["NOS"]))
-    await service.update_item(session, tenant, item.id, ItemUpdate(finish_id=finish.id))
+    await service.update_item(session, tenant, principal, item.id, ItemUpdate(finish_id=finish.id))
 
     with pytest.raises(BusinessRuleError):
         await service.update_item_attribute(
@@ -1388,3 +1399,135 @@ async def test_create_item_accepts_its_own_attributes(
     )
 
     assert (item.finish_id, item.size_id, item.colour_id) == (finish.id, size.id, None)
+
+
+# -----------------------------------------------------------------------------
+# E10a: variants through the dialogs' routes, and the channel-price right
+# -----------------------------------------------------------------------------
+
+
+def _price_principal(principal: Principal) -> Principal:
+    """The same person, plus ``price.manage``."""
+    return Principal(
+        user_id=principal.user_id,
+        company_id=principal.company_id,
+        email=principal.email,
+        full_name=principal.full_name,
+        is_superuser=False,
+        permissions=principal.permissions | frozenset({str(Permission.PRICE_MANAGE)}),
+    )
+
+
+async def test_variant_create_update_list_and_retire(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    """The full lifecycle behind the Variants tab dialog (docs/assumptions.md §E10-1)."""
+    session, tenant, _ = ctx
+    units = await seed_units(session, tenant)
+    item = await service.create_item(session, tenant, item_payload("VAR-2", units["NOS"]))
+    finish = await _finish(session, tenant, "BRUSHED", "Brushed")
+
+    created = await service.create_variant(
+        session,
+        tenant,
+        item.id,
+        VariantCreate(
+            code="VAR-2-BR",
+            name="Brushed",
+            finish_id=finish.id,
+            price_delta=Decimal("15"),
+            cost_delta=Decimal("4"),
+            barcode="890000000001",
+        ),
+    )
+    assert created.price_delta == Decimal("15")
+    assert created.cost_delta == Decimal("4")
+
+    updated = await service.update_variant(
+        session,
+        tenant,
+        created.id,
+        VariantUpdate(name="Brushed steel", price_delta=Decimal("20"), is_active=False),
+    )
+    assert updated.name == "Brushed steel"
+    assert updated.price_delta == Decimal("20")
+    assert updated.is_active is False
+
+    rows, _ = await service.list_variants(session, tenant, item.id, PageParams(page=1, limit=10))
+    assert [row.code for row in rows] == ["VAR-2-BR"]
+
+    await service.delete_variant(session, tenant, created.id)
+    rows, _ = await service.list_variants(session, tenant, item.id, PageParams(page=1, limit=10))
+    assert rows == []
+
+
+async def test_moving_a_channel_price_needs_price_manage(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    """``sale_price`` and ``dealer_price`` move only for ``price.manage`` (§E10-3).
+
+    The fixture principal holds ``item.view`` alone, which is exactly the
+    caller this gate exists for: somebody who may maintain the item but not
+    set what it sells for.
+    """
+    session, tenant, principal = ctx
+    units = await seed_units(session, tenant)
+    item = await service.create_item(session, tenant, item_payload("PX-1", units["NOS"]))
+
+    with pytest.raises(PermissionDeniedError) as excinfo:
+        await service.update_item(
+            session,
+            tenant,
+            principal,
+            item.id,
+            ItemUpdate(sale_price=Decimal("120"), dealer_price=Decimal("100")),
+        )
+    assert excinfo.value.message == "Missing required permission: price.manage"
+    assert excinfo.value.details == {"required_permission": "price.manage"}
+
+
+async def test_channel_prices_move_with_the_right(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    session, tenant, principal = ctx
+    units = await seed_units(session, tenant)
+    item = await service.create_item(session, tenant, item_payload("PX-2", units["NOS"]))
+
+    updated = await service.update_item(
+        session,
+        tenant,
+        _price_principal(principal),
+        item.id,
+        ItemUpdate(sale_price=Decimal("120"), dealer_price=Decimal("100")),
+    )
+
+    assert updated.sale_price == Decimal("120")
+    assert updated.dealer_price == Decimal("100")
+
+
+async def test_reposting_an_unchanged_channel_price_needs_no_right(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    """The item form posts every field on every save: a no-op must not refuse
+    an edit the caller is otherwise allowed to make."""
+    session, tenant, principal = ctx
+    units = await seed_units(session, tenant)
+    item = await service.create_item(session, tenant, item_payload("PX-3", units["NOS"]))
+    item = await service.update_item(
+        session,
+        tenant,
+        _price_principal(principal),
+        item.id,
+        ItemUpdate(sale_price=Decimal("120")),
+    )
+
+    updated = await service.update_item(
+        session,
+        tenant,
+        principal,
+        item.id,
+        ItemUpdate(name="Renamed", sale_price=Decimal("120")),
+    )
+
+    assert updated.name == "Renamed"
+    assert updated.sale_price == Decimal("120")

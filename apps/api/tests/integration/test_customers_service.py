@@ -434,7 +434,7 @@ class TestAddresses:
         service = CustomerService(session, tenant)
         customer = await service.create_customer(principal, _payload(unique_code("AC")))
 
-        address = await service.create_address(customer.id, _address(is_default=False))
+        address = await service.create_address(principal, customer.id, _address(is_default=False))
 
         assert address.is_default is True
 
@@ -443,10 +443,10 @@ class TestAddresses:
     ) -> None:
         service = CustomerService(session, tenant)
         customer = await service.create_customer(principal, _payload(unique_code("AC")))
-        first = await service.create_address(customer.id, _address(label="Godown A"))
+        first = await service.create_address(principal, customer.id, _address(label="Godown A"))
 
         second = await service.create_address(
-            customer.id, _address(label="Godown B", is_default=True)
+            principal, customer.id, _address(label="Godown B", is_default=True)
         )
 
         assert second.is_default is True
@@ -462,8 +462,12 @@ class TestAddresses:
         service = CustomerService(session, tenant)
         customer = await service.create_customer(principal, _payload(unique_code("AC")))
 
-        await service.create_address(customer.id, _address(address_type=AddressType.SHIPPING))
-        await service.create_address(customer.id, _address(address_type=AddressType.BILLING))
+        await service.create_address(
+            principal, customer.id, _address(address_type=AddressType.SHIPPING)
+        )
+        await service.create_address(
+            principal, customer.id, _address(address_type=AddressType.BILLING)
+        )
 
         assert await _default_count(session, customer.id, AddressType.SHIPPING) == 1
         assert await _default_count(session, customer.id, AddressType.BILLING) == 1
@@ -473,10 +477,10 @@ class TestAddresses:
     ) -> None:
         service = CustomerService(session, tenant)
         customer = await service.create_customer(principal, _payload(unique_code("AC")))
-        first = await service.create_address(customer.id, _address(label="Godown A"))
-        second = await service.create_address(customer.id, _address(label="Godown B"))
+        first = await service.create_address(principal, customer.id, _address(label="Godown A"))
+        second = await service.create_address(principal, customer.id, _address(label="Godown B"))
 
-        await service.delete_address(customer.id, first.id, reason="Godown closed")
+        await service.delete_address(principal, customer.id, first.id, reason="Godown closed")
 
         promoted = await session.get(CustomerAddress, second.id)
         assert promoted is not None
@@ -490,7 +494,7 @@ class TestAddresses:
         customer = await service.create_customer(principal, _payload(unique_code("AC")))
 
         with pytest.raises(BusinessRuleError) as exc:
-            await service.create_address(customer.id, _address(state_code=None))
+            await service.create_address(principal, customer.id, _address(state_code=None))
         assert exc.value.details == {"field": "state_code"}
 
     async def test_gstin_contradicting_the_state_code_is_refused(
@@ -501,7 +505,7 @@ class TestAddresses:
 
         with pytest.raises(BusinessRuleError):
             await service.create_address(
-                customer.id, _address(state_code="29", gstin="27ABCDE1234F1Z0")
+                principal, customer.id, _address(state_code="29", gstin="27ABCDE1234F1Z0")
             )
 
     async def test_export_address_may_omit_the_state_code(
@@ -511,7 +515,7 @@ class TestAddresses:
         customer = await service.create_customer(principal, _payload(unique_code("AC")))
 
         address = await service.create_address(
-            customer.id, _address(country="Germany", city="Hamburg", state_code=None)
+            principal, customer.id, _address(country="Germany", city="Hamburg", state_code=None)
         )
         assert address.state_code is None
 
@@ -523,10 +527,10 @@ class TestAddresses:
         service = CustomerService(session, tenant)
         mine = await service.create_customer(principal, _payload(unique_code("AC")))
         theirs = await service.create_customer(principal, _payload(unique_code("AC")))
-        address = await service.create_address(theirs.id, _address())
+        address = await service.create_address(principal, theirs.id, _address())
 
         with pytest.raises(NotFoundError):
-            await service.set_default_address(mine.id, address.id)
+            await service.set_default_address(principal, mine.id, address.id)
 
 
 # -----------------------------------------------------------------------------
@@ -542,10 +546,10 @@ class TestContacts:
         customer = await service.create_customer(principal, _payload(unique_code("AC")))
 
         first = await service.create_contact(
-            customer.id, ContactCreate(name="Asha Rao", phone="9800000000")
+            principal, customer.id, ContactCreate(name="Asha Rao", phone="9800000000")
         )
         second = await service.create_contact(
-            customer.id, ContactCreate(name="Ravi Nair", email="ravi@example.com")
+            principal, customer.id, ContactCreate(name="Ravi Nair", email="ravi@example.com")
         )
 
         assert first.is_primary is True
@@ -557,13 +561,13 @@ class TestContacts:
         service = CustomerService(session, tenant)
         customer = await service.create_customer(principal, _payload(unique_code("AC")))
         first = await service.create_contact(
-            customer.id, ContactCreate(name="Asha Rao", phone="9800000000")
+            principal, customer.id, ContactCreate(name="Asha Rao", phone="9800000000")
         )
         second = await service.create_contact(
-            customer.id, ContactCreate(name="Ravi Nair", email="ravi@example.com")
+            principal, customer.id, ContactCreate(name="Ravi Nair", email="ravi@example.com")
         )
 
-        await service.set_primary_contact(customer.id, second.id)
+        await service.set_primary_contact(principal, customer.id, second.id)
 
         stmt = select(func.count()).where(
             CustomerContact.customer_id == customer.id,
@@ -582,7 +586,77 @@ class TestContacts:
         customer = await service.create_customer(principal, _payload(unique_code("AC")))
 
         with pytest.raises(BusinessRuleError):
-            await service.create_contact(customer.id, ContactCreate(name="Nobody"))
+            await service.create_contact(principal, customer.id, ContactCreate(name="Nobody"))
+
+
+class TestDealerChannelWrites:
+    """A dealer's GSTIN, state code and ship-to move only for ``dealer.manage``.
+
+    ``customer.update`` alone must not change them - which is what the address
+    and contact writes allowed before E10a, because they took no principal.
+    """
+
+    async def test_dealer_address_write_without_dealer_manage_is_refused(
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal, unique_code
+    ) -> None:
+        service = CustomerService(session, tenant)
+        dealer = await service.create_customer(
+            principal, _payload(unique_code("DL"), customer_type=CustomerType.DEALER)
+        )
+        desk = _no_dealer_principal(principal)
+
+        with pytest.raises(PermissionDeniedError) as excinfo:
+            await service.create_address(desk, dealer.id, _address())
+
+        assert excinfo.value.details == {"required_permission": "dealer.manage"}
+
+    async def test_dealer_contact_write_without_dealer_manage_is_refused(
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal, unique_code
+    ) -> None:
+        service = CustomerService(session, tenant)
+        dealer = await service.create_customer(
+            principal, _payload(unique_code("DL"), customer_type=CustomerType.DEALER)
+        )
+        contact = await service.create_contact(
+            principal, dealer.id, ContactCreate(name="Asha Rao", phone="9800000000")
+        )
+        desk = _no_dealer_principal(principal)
+
+        with pytest.raises(PermissionDeniedError):
+            await service.set_primary_contact(desk, dealer.id, contact.id)
+
+    async def test_dealer_writes_succeed_with_dealer_manage(
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal, unique_code
+    ) -> None:
+        service = CustomerService(session, tenant)
+        dealer = await service.create_customer(
+            principal, _payload(unique_code("DL"), customer_type=CustomerType.DEALER)
+        )
+
+        address = await service.create_address(principal, dealer.id, _address())
+        contact = await service.create_contact(
+            principal, dealer.id, ContactCreate(name="Asha Rao", phone="9800000000")
+        )
+
+        assert address.customer_id == dealer.id
+        assert contact.is_primary is True
+
+    async def test_ordinary_customer_writes_need_no_dealer_right(
+        self, session: AsyncSession, tenant: TenantContext, principal: Principal, unique_code
+    ) -> None:
+        """The gate is the channel, not the endpoint: a plain CUSTOMER account
+        is writable with ``customer.update`` alone."""
+        service = CustomerService(session, tenant)
+        customer = await service.create_customer(principal, _payload(unique_code("AC")))
+        desk = _no_dealer_principal(principal)
+
+        address = await service.create_address(desk, customer.id, _address())
+        contact = await service.create_contact(
+            desk, customer.id, ContactCreate(name="Asha Rao", phone="9800000000")
+        )
+
+        assert address.customer_id == customer.id
+        assert contact.customer_id == customer.id
 
 
 # -----------------------------------------------------------------------------
@@ -617,9 +691,9 @@ class TestRetirement:
     ) -> None:
         service = CustomerService(session, tenant)
         customer = await service.create_customer(principal, _payload(unique_code("AC")))
-        await service.create_address(customer.id, _address())
+        await service.create_address(principal, customer.id, _address())
         await service.create_contact(
-            customer.id, ContactCreate(name="Asha Rao", phone="9800000000")
+            principal, customer.id, ContactCreate(name="Asha Rao", phone="9800000000")
         )
 
         await service.retire_customer(principal, customer.id, reason="Business closed")
