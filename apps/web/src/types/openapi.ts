@@ -30054,7 +30054,7 @@ export interface components {
             /** Colour Id */
             colour_id: string | null;
             /** Cost Delta */
-            cost_delta: string;
+            cost_delta: string | null;
             /** Finish Id */
             finish_id: string | null;
             /**

@@ -722,7 +722,7 @@ class VariantOut(_Base):
     size_id: uuid.UUID | None
     colour_id: uuid.UUID | None
     price_delta: Decimal
-    cost_delta: Decimal
+    cost_delta: Decimal | None
     barcode: str | None
     is_active: bool
 

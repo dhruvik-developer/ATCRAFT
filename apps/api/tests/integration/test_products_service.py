@@ -1439,6 +1439,7 @@ async def test_variant_create_update_list_and_retire(
             cost_delta=Decimal("4"),
             barcode="890000000001",
         ),
+        include_cost=True,
     )
     assert created.price_delta == Decimal("15")
     assert created.cost_delta == Decimal("4")
@@ -1455,10 +1456,85 @@ async def test_variant_create_update_list_and_retire(
 
     rows, _ = await service.list_variants(session, tenant, item.id, PageParams(page=1, limit=10))
     assert [row.code for row in rows] == ["VAR-2-BR"]
+    assert rows[0].cost_delta is None
+    rows_with_cost, _ = await service.list_variants(
+        session,
+        tenant,
+        item.id,
+        PageParams(page=1, limit=10),
+        include_cost=True,
+    )
+    assert rows_with_cost[0].cost_delta == Decimal("4")
 
     await service.delete_variant(session, tenant, created.id)
     rows, _ = await service.list_variants(session, tenant, item.id, PageParams(page=1, limit=10))
     assert rows == []
+
+
+async def test_variant_cost_delta_is_redacted_and_cost_writes_are_gated(
+    ctx: tuple[AsyncSession, TenantContext, Principal],
+) -> None:
+    session, tenant, principal = ctx
+    units = await seed_units(session, tenant)
+    item = await service.create_item(session, tenant, item_payload("VAR-COST", units["NOS"]))
+    finish = await _finish(session, tenant, "SATIN", "Satin")
+
+    with pytest.raises(PermissionDeniedError, match=r"item.cost_view"):
+        await service.create_variant(
+            session,
+            tenant,
+            item.id,
+            VariantCreate(
+                code="VAR-COST-ST",
+                name="Satin",
+                finish_id=finish.id,
+                cost_delta=Decimal("2"),
+            ),
+        )
+
+    created = await service.create_variant(
+        session,
+        tenant,
+        item.id,
+        VariantCreate(
+            code="VAR-COST-ST",
+            name="Satin",
+            finish_id=finish.id,
+            cost_delta=Decimal("2"),
+        ),
+        include_cost=True,
+    )
+    assert created.cost_delta == Decimal("2")
+
+    redacted, _ = await service.list_variants(
+        session, tenant, item.id, PageParams(page=1, limit=10)
+    )
+    assert redacted[0].cost_delta is None
+
+    with pytest.raises(PermissionDeniedError, match=r"item.cost_view"):
+        await service.update_variant(
+            session,
+            tenant,
+            created.id,
+            VariantUpdate(cost_delta=Decimal("3")),
+        )
+
+    privileged = Principal(
+        user_id=principal.user_id,
+        company_id=principal.company_id,
+        email=principal.email,
+        full_name=principal.full_name,
+        is_superuser=False,
+        permissions=principal.permissions | frozenset({str(Permission.ITEM_COST_VIEW)}),
+    )
+    rows, _ = await service.list_variants(
+        session,
+        tenant,
+        item.id,
+        PageParams(page=1, limit=10),
+        include_cost=service.may_view_cost(privileged),
+    )
+    assert rows[0].cost_delta == Decimal("2")
 
 
 async def test_moving_a_channel_price_needs_price_manage(

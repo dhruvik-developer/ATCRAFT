@@ -667,12 +667,18 @@ async def delete_item(session: DbSession, tenant: Tenant, item_id: uuid.UUID) ->
 async def list_variants(
     session: DbSession,
     tenant: Tenant,
+    principal: CurrentUser,
     item_id: uuid.UUID,
     params: PageDep,
     is_active: Annotated[bool | None, Query()] = None,
 ) -> PaginatedResponse[VariantOut]:
     rows, pagination = await service.list_variants(
-        session, tenant, item_id, params, is_active=is_active
+        session,
+        tenant,
+        item_id,
+        params,
+        is_active=is_active,
+        include_cost=service.may_view_cost(principal),
     )
     return paginated(rows, pagination)
 
@@ -685,9 +691,15 @@ async def list_variants(
     dependencies=[require_permission(Permission.ITEM_CREATE)],
 )
 async def create_variant(
-    session: DbSession, tenant: Tenant, item_id: uuid.UUID, payload: VariantCreate
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    item_id: uuid.UUID,
+    payload: VariantCreate,
 ) -> ApiResponse[VariantOut]:
-    variant = await service.create_variant(session, tenant, item_id, payload)
+    variant = await service.create_variant(
+        session, tenant, item_id, payload, include_cost=service.may_view_cost(principal)
+    )
     return ApiResponse.ok(variant, "Variant created")
 
 
@@ -698,9 +710,15 @@ async def create_variant(
     dependencies=[require_permission(Permission.ITEM_UPDATE)],
 )
 async def update_variant(
-    session: DbSession, tenant: Tenant, variant_id: uuid.UUID, payload: VariantUpdate
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    variant_id: uuid.UUID,
+    payload: VariantUpdate,
 ) -> ApiResponse[VariantOut]:
-    variant = await service.update_variant(session, tenant, variant_id, payload)
+    variant = await service.update_variant(
+        session, tenant, variant_id, payload, include_cost=service.may_view_cost(principal)
+    )
     return ApiResponse.ok(variant, "Variant updated")
 
 

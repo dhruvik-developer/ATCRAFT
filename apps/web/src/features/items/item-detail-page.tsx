@@ -12,7 +12,7 @@
 
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
-import { Boxes, Layers, Pencil, RefreshCw, Shapes, Tags, Trash2, Truck } from 'lucide-react'
+import { Boxes, Layers, Pencil, Plus, RefreshCw, Shapes, Tags, Trash2, Truck } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 
@@ -52,6 +52,7 @@ import { queryKeys, staleTimes } from '@/lib/query-client'
 import { indexById } from '@/lib/utils'
 
 import { ItemFormDialog } from './item-form-dialog'
+import { VariantFormDialog } from './variant-form-dialog'
 import {
   ALL_CAPABILITIES,
   CAPABILITY_META,
@@ -432,7 +433,8 @@ function StockPanel({ itemId, uomCode }: { itemId: string; uomCode: string }) {
  * on the decimal rather than on the string - "0.00" and "0" are the same number
  * and have to read the same way.
  */
-function DeltaCell({ value }: { value: ItemVariant['price_delta'] }) {
+function DeltaCell({ value }: { value: ItemVariant['price_delta'] | null }) {
+  if (value === null) return <span className="text-muted-foreground">-</span>
   const amount = toDecimal(value)
   if (amount.isZero()) return <span className="text-muted-foreground">-</span>
   return (
@@ -450,24 +452,26 @@ function DeltaCell({ value }: { value: ItemVariant['price_delta'] }) {
  * parameters and all nine capability flags - which is why the list belongs on
  * the item rather than on a screen of its own.
  *
- * The request deliberately omits `is_active`, so an inactive variant still
- * appears and is greyed by its status badge instead. Filtering it out would
- * hide the row most likely to need retiring.
- *
- * Creating and editing a variant are not offered here: `POST
- * /products/items/{id}/variants` and `PATCH /products/variants/{id}` have no
- * screen anywhere in the application yet. Retirement is, because a variant
- * entered wrongly otherwise sits in the price list's picker forever.
+ * Inactive variants remain visible so the row most likely to need editing or
+ * retirement is not hidden by a default filter.
  */
 function VariantsPanel({
   itemId,
   canViewCost,
+  canCreate,
+  canEdit,
   canRetire,
+  onCreate,
+  onEdit,
   onRetire,
 }: {
   itemId: string
   canViewCost: boolean
+  canCreate: boolean
+  canEdit: boolean
   canRetire: boolean
+  onCreate: () => void
+  onEdit: (variant: ItemVariant) => void
   onRetire: (variant: ItemVariant) => void
 }) {
   // The three attribute lists, resolved here rather than threaded down as
@@ -536,10 +540,8 @@ function VariantsPanel({
       },
     ]
 
-    // `VariantOut` carries `cost_delta` unconditionally - unlike the item's
-    // `standard_cost`, which the API itself withholds - so hiding this column is
-    // presentation, not access control. It follows the same permission anyway,
-    // because a cost is a cost wherever it is shown.
+    // The API redacts this field to null without `item.cost_view`; the column
+    // follows the same permission so the screen and endpoint agree.
     if (canViewCost) {
       defs.push({
         id: 'cost_delta',
@@ -567,7 +569,7 @@ function VariantsPanel({
       },
     )
 
-    if (canRetire) {
+    if (canEdit || canRetire) {
       defs.push({
         id: 'actions',
         header: '',
@@ -575,40 +577,60 @@ function VariantsPanel({
         enableHiding: false,
         size: 56,
         meta: { align: 'right' },
-        // Every variant a list returns accepts retirement - the predicate says
-        // why - but it is asked rather than assumed, so the day the API grows a
-        // rule the row stops offering the action on its own.
-        cell: ({ row }) =>
-          acceptsVariantRetirement(row.original) ? (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`Retire variant ${row.original.code}`}
-              onClick={() => onRetire(row.original)}
-            >
-              <Trash2 className="text-destructive" />
-            </Button>
-          ) : null,
+        cell: ({ row }) => (
+          <div className="flex justify-end">
+            {canEdit && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Edit variant ${row.original.code}`}
+                onClick={() => onEdit(row.original)}
+              >
+                <Pencil />
+              </Button>
+            )}
+            {canRetire && acceptsVariantRetirement(row.original) && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Retire variant ${row.original.code}`}
+                onClick={() => onRetire(row.original)}
+              >
+                <Trash2 className="text-destructive" />
+              </Button>
+            )}
+          </div>
+        ),
       })
     }
 
     return defs
-  }, [canRetire, canViewCost, onRetire, finishLabel, sizeLabel, colourLabel])
+  }, [canEdit, canRetire, canViewCost, onEdit, onRetire, finishLabel, sizeLabel, colourLabel])
 
   return (
-    <DataTable
-      columns={columns}
-      data={panel.rows}
-      pagination={panel.pagination}
-      isLoading={panel.isLoading}
-      isFetching={panel.isFetching}
-      error={panel.error}
-      onPageChange={panel.setPage}
-      onRefresh={panel.refetch}
-      getRowId={(row) => row.id}
-      emptyTitle="No variants"
-      emptyDescription="This item is stocked and sold in one form only. A finish, size or colour needing its own code is a variant; anything needing its own BOM is a new item."
-    />
+    <div className="space-y-3">
+      {canCreate && (
+        <div className="flex justify-end">
+          <Button onClick={onCreate}>
+            <Plus />
+            Add variant
+          </Button>
+        </div>
+      )}
+      <DataTable
+        columns={columns}
+        data={panel.rows}
+        pagination={panel.pagination}
+        isLoading={panel.isLoading}
+        isFetching={panel.isFetching}
+        error={panel.error}
+        onPageChange={panel.setPage}
+        onRefresh={panel.refetch}
+        getRowId={(row) => row.id}
+        emptyTitle="No variants"
+        emptyDescription="This item is stocked and sold in one form only. A finish, size or colour needing its own code is a variant; anything needing its own BOM is a new item."
+      />
+    </div>
   )
 }
 
@@ -962,6 +984,8 @@ export default function ItemDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [editOpen, setEditOpen] = useState(false)
   const [retireOpen, setRetireOpen] = useState(false)
+  const [variantFormOpen, setVariantFormOpen] = useState(false)
+  const [editingVariant, setEditingVariant] = useState<ItemVariant | null>(null)
   // The variant being retired is held here rather than inside the panel: Radix
   // unmounts an inactive tab, and a confirmation that disappears when the user
   // glances at another tab is worse than no confirmation.
@@ -1048,6 +1072,7 @@ export default function ItemDetailPage() {
   const baseUomCode = uomById.get(item.base_uom_id)?.code ?? ''
 
   const canEdit = can(P.ITEM_UPDATE)
+  const canCreateVariant = can(P.ITEM_CREATE)
   // Offered only from the two states the lifecycle actually retires from. An
   // ARCHIVED item is refused by the machine, so putting the user through a
   // confirmation for it would spend the decision on nothing.
@@ -1136,7 +1161,17 @@ export default function ItemDetailPage() {
           <VariantsPanel
             itemId={item.id}
             canViewCost={canViewCost}
+            canCreate={canCreateVariant}
+            canEdit={canEdit}
             canRetire={canRetire}
+            onCreate={() => {
+              setEditingVariant(null)
+              setVariantFormOpen(true)
+            }}
+            onEdit={(variant) => {
+              setEditingVariant(variant)
+              setVariantFormOpen(true)
+            }}
             onRetire={setRetiringVariant}
           />
         </TabsContent>
@@ -1171,6 +1206,19 @@ export default function ItemDetailPage() {
       </Tabs>
 
       {canEdit && <ItemFormDialog open={editOpen} onOpenChange={setEditOpen} item={item} />}
+
+      {(canCreateVariant || canEdit) && (
+        <VariantFormDialog
+          itemId={item.id}
+          variant={editingVariant}
+          open={variantFormOpen}
+          canViewCost={canViewCost}
+          onOpenChange={(open) => {
+            setVariantFormOpen(open)
+            if (!open) setEditingVariant(null)
+          }}
+        />
+      )}
 
       {canRetire && (
         <>

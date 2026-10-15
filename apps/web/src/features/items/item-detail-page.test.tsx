@@ -461,6 +461,7 @@ describe('the variants panel', () => {
 
     await screen.findByText('RM-001-BR')
     expect(screen.queryByRole('button', { name: /retire variant/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add variant' })).not.toBeInTheDocument()
   })
 
   it('shows the cost delta only to item.cost_view', async () => {
@@ -497,6 +498,83 @@ describe('the variants panel', () => {
     // The contract declares nothing but the path id on this DELETE. A body here
     // would be a field the server never reads.
     expect(call?.body).toBeUndefined()
+  })
+
+  it('creates a variant without exposing or sending cost to an unprivileged user', async () => {
+    const { user, fetch } = renderDetail({
+      permissions: [P.ITEM_VIEW, P.ITEM_CREATE, P.ITEM_ATTRIBUTE_VIEW],
+      tab: 'variants',
+      routes: baseRoutes({
+        [`GET /products/items/${ITEM_ID}/variants`]: page([]),
+        [`POST /products/items/${ITEM_ID}/variants`]: ok({
+          ...VARIANT,
+          code: 'RM-001-BR2',
+          name: 'Brass rod 12mm - brushed',
+          cost_delta: null,
+        }),
+      }),
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Add variant' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).queryByRole('textbox', { name: 'Cost delta' })).not.toBeInTheDocument()
+    await user.type(within(dialog).getByRole('textbox', { name: 'Code' }), 'RM-001-BR2')
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Name' }),
+      'Brass rod 12mm - brushed',
+    )
+    await user.click(within(dialog).getByRole('combobox', { name: 'Finish' }))
+    await user.click(await screen.findByRole('option', { name: 'Brushed' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Create variant' }))
+
+    await waitFor(() => expect(fetch.calls.some((call) => call.method === 'POST')).toBe(true))
+    const call = fetch.calls.find((entry) => entry.method === 'POST')
+    expect(call?.path).toBe(`/products/items/${ITEM_ID}/variants`)
+    expect(call?.body).toMatchObject({
+      code: 'RM-001-BR2',
+      finish_id: FINISH_ID,
+      price_delta: '0',
+      is_active: true,
+    })
+    expect(call?.body).not.toHaveProperty('cost_delta')
+  })
+
+  it('edits by variant id and includes cost delta only with item.cost_view', async () => {
+    const { user, fetch } = renderDetail({
+      permissions: [P.ITEM_VIEW, P.ITEM_UPDATE, P.ITEM_COST_VIEW, P.ITEM_ATTRIBUTE_VIEW],
+      tab: 'variants',
+      routes: baseRoutes({
+        [`GET /products/items/${ITEM_ID}/variants`]: page([VARIANT]),
+        'PATCH /products/variants/var-brushed': ok({
+          ...VARIANT,
+          name: 'Brushed brass rod',
+          price_delta: '-5.25',
+          cost_delta: '3.1250',
+        }),
+      }),
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Edit variant RM-001-BR' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('textbox', { name: 'Code' })).toBeDisabled()
+    await user.clear(within(dialog).getByRole('textbox', { name: 'Name' }))
+    await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Brushed brass rod')
+    await user.clear(within(dialog).getByRole('textbox', { name: 'Price delta' }))
+    await user.type(within(dialog).getByRole('textbox', { name: 'Price delta' }), '-5.25')
+    await user.clear(within(dialog).getByRole('textbox', { name: 'Cost delta' }))
+    await user.type(within(dialog).getByRole('textbox', { name: 'Cost delta' }), '3.125')
+    await user.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(fetch.calls.some((call) => call.method === 'PATCH')).toBe(true))
+    const call = fetch.calls.find((entry) => entry.method === 'PATCH')
+    expect(call?.path).toBe('/products/variants/var-brushed')
+    expect(call?.body).toMatchObject({
+      name: 'Brushed brass rod',
+      price_delta: '-5.25',
+      cost_delta: '3.125',
+      finish_id: FINISH_ID,
+    })
+    expect(call?.body).not.toHaveProperty('code')
   })
 })
 

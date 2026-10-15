@@ -607,6 +607,13 @@ def may_view_cost(principal: Principal) -> bool:
     return principal.has(Permission.ITEM_COST_VIEW)
 
 
+def variant_response(variant: ItemVariant, *, include_cost: bool) -> VariantOut:
+    response = VariantOut.model_validate(variant)
+    if include_cost:
+        return response
+    return response.model_copy(update={"cost_delta": None})
+
+
 # -----------------------------------------------------------------------------
 # UoM graph loading (Redis is a cache only, always with a TTL - section 33)
 # -----------------------------------------------------------------------------
@@ -2190,8 +2197,16 @@ async def list_brands(
 
 
 async def create_variant(
-    session: AsyncSession, tenant: TenantContext, item_id: uuid.UUID, payload: VariantCreate
+    session: AsyncSession,
+    tenant: TenantContext,
+    item_id: uuid.UUID,
+    payload: VariantCreate,
+    *,
+    include_cost: bool = False,
 ) -> VariantOut:
+    if not include_cost and "cost_delta" in payload.model_fields_set:
+        raise PermissionDeniedError("The item.cost_view permission is required to set cost delta.")
+
     item_repo = ItemRepository(session, tenant)
     repo = ItemVariantRepository(session, tenant)
 
@@ -2255,12 +2270,20 @@ async def create_variant(
             },
         )
 
-    return VariantOut.model_validate(variant)
+    return variant_response(variant, include_cost=include_cost)
 
 
 async def update_variant(
-    session: AsyncSession, tenant: TenantContext, variant_id: uuid.UUID, payload: VariantUpdate
+    session: AsyncSession,
+    tenant: TenantContext,
+    variant_id: uuid.UUID,
+    payload: VariantUpdate,
+    *,
+    include_cost: bool = False,
 ) -> VariantOut:
+    if not include_cost and "cost_delta" in payload.model_fields_set:
+        raise PermissionDeniedError("The item.cost_view permission is required to set cost delta.")
+
     repo = ItemVariantRepository(session, tenant)
     audited = [
         "name",
@@ -2326,7 +2349,7 @@ async def update_variant(
             new_values=snapshot(variant, audited),
         )
 
-    return VariantOut.model_validate(variant)
+    return variant_response(variant, include_cost=include_cost)
 
 
 async def delete_variant(
@@ -2356,12 +2379,13 @@ async def list_variants(
     params: PageParams,
     *,
     is_active: bool | None = None,
+    include_cost: bool = False,
 ) -> tuple[list[VariantOut], OffsetPagination]:
     await ItemRepository(session, tenant).get_or_404(item_id)
     rows, pagination = await ItemVariantRepository(session, tenant).list_for_item(
         item_id, params, is_active=is_active
     )
-    return [VariantOut.model_validate(row) for row in rows], pagination
+    return [variant_response(row, include_cost=include_cost) for row in rows], pagination
 
 
 # -----------------------------------------------------------------------------

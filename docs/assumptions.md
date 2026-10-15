@@ -2878,3 +2878,21 @@ same policy, including documents raised before the restriction. Trusted system
 contexts use an empty assignment; user-driven operations retain the caller's
 assignment. This clarifies existing assignment semantics without changing the
 database schema.
+
+## §E10-1. Variants share the parent item's stock and production structure
+
+**Assumed.** A variant identifies a finish, size or colour of the same item. It
+shares the parent's inventory balance and BOM, planning parameters, and
+capability flags; only its identity, barcode, price delta and cost delta differ.
+A product that needs its own stock grain or BOM is a separate item, not a
+variant.
+
+**Why.** This keeps an item's inventory and production history addressable by
+one item id while allowing sales to identify the selected configuration.
+
+**Where.** `products.items` and `products.item_variants`; sales lines carry an
+optional `variant_id`, while stock and BOM references remain on `item_id`.
+
+**Impact if wrong.** If a finish must be independently stocked or manufactured,
+model it as its own item and BOM rather than treating the variant as an
+independent stock-keeping unit.
