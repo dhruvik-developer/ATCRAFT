@@ -129,6 +129,11 @@ class Permission(StrEnum):
     SALES_ORDER_UPDATE = "sales_order.update"
     SALES_ORDER_APPROVE = "sales_order.approve"
     SALES_ORDER_CANCEL = "sales_order.cancel"
+    #: Grant a line discount above ``SALES_DISCOUNT_APPROVAL_PERCENT``. Held by
+    #: nobody on the sales desk by default: an above-threshold discount without
+    #: it is refused outright, with it the order needs approval
+    #: (docs/assumptions.md §E10-3).
+    SALES_ORDER_DISCOUNT_OVERRIDE = "sales_order.discount_override"
     SALES_INVOICE_VIEW = "sales_invoice.view"
     SALES_INVOICE_CREATE = "sales_invoice.create"
     SALES_INVOICE_CANCEL = "sales_invoice.cancel"

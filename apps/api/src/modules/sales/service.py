@@ -42,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
 from src.core.clock import today, utcnow
+from src.core.config import settings
 from src.core.database import advisory_xact_lock, transaction
 from src.core.deps import Principal, TenantContext
 from src.core.errors import (
@@ -742,12 +743,40 @@ class PricedLine:
     amounts: LineAmounts
     is_price_override: bool
     is_below_cost: bool
+    #: An explicit discount above the configured threshold, granted by someone
+    #: holding ``sales_order.discount_override``. Offer-derived discounts never
+    #: set this: schemes are pre-authorised (docs/assumptions.md §E10-3).
+    is_discount_override: bool = False
     #: The effective discount percentage: the payload's own, or the best
     #: dealer scheme when the caller gave none (docs/assumptions.md §C3-3).
     discount_percentage: Decimal = Decimal("0")
     #: The scheme the discount came from, if any - stored on the line for
     #: traceability. Explicit discounts carry none.
     offer_id: uuid.UUID | None = None
+
+
+def discount_approval_percent() -> Decimal:
+    """The line-discount percentage above which an order needs approval.
+
+    A company setting with a config default, not a module constant: the
+    business owns this number and a deployment sets it without a code change
+    (docs/assumptions.md §E10-3).
+    """
+    return Decimal(settings.sales_discount_approval_percent)
+
+
+def _effective_discount_percent(payload: SalesOrderLineIn, *, gross: Decimal) -> Decimal:
+    """The payload's explicit discount as a percentage of the line.
+
+    A flat amount is restated against the gross so the one threshold governs
+    both discount forms. Zero when the payload carries no explicit discount -
+    an offer-derived default is pre-authorised and never measured here.
+    """
+    if payload.discount_percentage is not None:
+        return Decimal(payload.discount_percentage)
+    if payload.discount_amount is not None and gross > 0:
+        return Decimal(payload.discount_amount) / gross * Decimal(100)
+    return ZERO
 
 
 def _dealer_offer_functions() -> tuple[Callable[..., Any], Callable[..., Any]]:
@@ -811,12 +840,26 @@ def price_line(
     item's cost the order is flagged as needing approval rather than silently
     accepted (master rules section 42).
 
+    Discounts carry their own authority (docs/assumptions.md §E10-3). An
+    explicit discount above ``SALES_DISCOUNT_APPROVAL_PERCENT`` is refused
+    outright without ``sales_order.discount_override``; with the right the
+    order is flagged as needing approval. A line whose net unit price *after*
+    the discount sits below the item's cost is flagged too - the old check read
+    the price before the discount, so a discount could take a line under cost
+    unnoticed. Offer-derived discounts are pre-authorised: they skip the
+    threshold, but a scheme that prices under cost still flags the order.
+
+    A price list that simply sits under cost, with no override and no discount,
+    is not flagged: that is a commercial decision somebody already made on the
+    price-list screen, with its own permission.
+
     ``enforce_override_authority=False`` is for the one caller that did not get
     the price from a request: :func:`_update_draft` rebuilds payloads from the
     order's own stored lines when a header edit changes the tax treatment, and
     those prices were authorised when they were written. Re-demanding
     ``price.manage`` there would mean nobody could edit a delivery date on an
-    order that once carried an approved discount.
+    order that once carried an approved discount. The approval flags are still
+    recomputed: a re-price that removed the reason removes the approval with it.
 
     When the payload carries no explicit discount - neither a percentage nor a
     flat amount - the line takes the best active dealer scheme as its default
@@ -840,14 +883,12 @@ def price_line(
             )
 
     is_override = payload.unit_price is not None
-    below_cost = False
 
     if is_override:
         if enforce_override_authority and not principal.has(Permission.PRICE_MANAGE):
             raise PermissionDeniedError(str(Permission.PRICE_MANAGE))
         unit_price = to_unit_price(payload.unit_price or ZERO)
         source = "OVERRIDE"
-        below_cost = is_below_cost(unit_price, item.standard_cost)
     else:
         unit_price, source = resolve_unit_price(
             item=item,
@@ -890,6 +931,36 @@ def price_line(
         discount_amount=payload.discount_amount,
     )
 
+    # Discount authority (docs/assumptions.md §E10-3). Only an *explicit*
+    # discount is measured against the threshold: a scheme the business
+    # published is pre-authorised, so it can exceed the desk's own limit.
+    is_discount_override = False
+    if offer_id is None:
+        explicit_percent = _effective_discount_percent(payload, gross=amounts.gross_amount)
+        if explicit_percent > discount_approval_percent():
+            # The discount the request carries was authorised when it was
+            # written, not now: a header-only re-price of the order's own lines
+            # must not start refusing work the desk already did.
+            if enforce_override_authority and not principal.has(
+                Permission.SALES_ORDER_DISCOUNT_OVERRIDE
+            ):
+                raise PermissionDeniedError(str(Permission.SALES_ORDER_DISCOUNT_OVERRIDE))
+            is_discount_override = True
+
+    # The cost check reads the net price, after the discount. A list price
+    # under cost with no discount and no override is still not flagged (see the
+    # docstring): only a price somebody set here, or a discount that moved it,
+    # can put an order in the approval queue.
+    if amounts.discount_amount > 0:
+        net_unit_price = (amounts.gross_amount - amounts.discount_amount) / Decimal(
+            payload.quantity
+        )
+    else:
+        net_unit_price = unit_price
+    below_cost = (is_override or amounts.discount_amount > 0) and is_below_cost(
+        net_unit_price, item.standard_cost
+    )
+
     return PricedLine(
         payload=payload,
         item=item,
@@ -901,6 +972,7 @@ def price_line(
         amounts=amounts,
         is_price_override=is_override,
         is_below_cost=below_cost,
+        is_discount_override=is_discount_override,
         discount_percentage=discount_percentage or ZERO,
         offer_id=offer_id,
     )
@@ -1366,7 +1438,7 @@ async def create_order(
             billing_address_id=billing_id,
             shipping_address_id=shipping_id,
             transporter_id=payload.transporter_id,
-            requires_approval=any(p.is_below_cost for p in priced),
+            requires_approval=any(p.is_below_cost or p.is_discount_override for p in priced),
             notes=payload.notes,
         )
         _apply_totals(order, totals)
@@ -1399,6 +1471,9 @@ async def create_order(
                 "line_count": len(lines),
                 "price_overrides": [p.payload.line_number for p in priced if p.is_price_override],
                 "below_cost_lines": [p.payload.line_number for p in priced if p.is_below_cost],
+                "discount_override_lines": [
+                    p.payload.line_number for p in priced if p.is_discount_override
+                ],
             },
         )
 
@@ -1570,11 +1645,12 @@ async def _update_draft(
             ):
                 line.offer_id = previous[1]
     _apply_totals(order, sum_order_totals([p.amounts for p in priced]))
-    order.requires_approval = any(p.is_below_cost for p in priced)
+    order.requires_approval = any(p.is_below_cost or p.is_discount_override for p in priced)
     if not order.requires_approval:
-        # A re-price that removed the below-cost line also removes the reason
-        # the approval existed; a stale approval on a document nobody has looked
-        # at since is not evidence of anything.
+        # A re-price that removed the below-cost line - or the above-threshold
+        # discount - also removes the reason the approval existed; a stale
+        # approval on a document nobody has looked at since is not evidence of
+        # anything.
         order.approved_by_id = None
         order.approved_at = None
 
@@ -2179,8 +2255,8 @@ async def confirm_order(
 
         if order.requires_approval and order.approved_at is None:
             raise ApprovalRequiredError(
-                f"{order.code} contains a below-cost price and needs approval before it "
-                "can be confirmed.",
+                f"{order.code} needs a pricing approval - a below-cost price or an "
+                "above-threshold discount - before it can be confirmed.",
                 details={"order_id": str(order.id)},
             )
 
@@ -2389,6 +2465,7 @@ __all__ = [
     "create_order",
     "delete_draft_order",
     "demand_summary",
+    "discount_approval_percent",
     "dispatchable_quantity",
     "get_order_detail",
     "is_below_cost",

@@ -427,3 +427,138 @@ def test_priced_line_carries_the_item_tax_rate_and_computed_amounts():
     # The description defaults to the item name so the document prints something.
     assert priced.description == item.name
     assert priced.uom_id == item.base_uom_id
+
+
+# -----------------------------------------------------------------------------
+# Discount authority (docs/assumptions.md §E10-3)
+# -----------------------------------------------------------------------------
+
+
+def _override_principal() -> Principal:
+    return principal_with(Permission.SALES_ORDER_CREATE, Permission.SALES_ORDER_DISCOUNT_OVERRIDE)
+
+
+def test_explicit_discount_above_the_threshold_without_the_right_is_refused():
+    """The default threshold is 10%: a 15% line discount with no override
+    right never reaches pricing."""
+    item = make_item()
+    payload = SalesOrderLineIn(
+        line_number=1, item_id=item.id, quantity=Decimal("2"), discount_percentage=Decimal("15")
+    )
+
+    with pytest.raises(PermissionDeniedError) as excinfo:
+        price_line(payload, context_for(item, []), principal_with(Permission.SALES_ORDER_CREATE))
+
+    assert excinfo.value.message == "Missing required permission: sales_order.discount_override"
+    assert excinfo.value.details == {"required_permission": "sales_order.discount_override"}
+
+
+def test_discount_at_the_threshold_needs_no_right():
+    item = make_item()
+    payload = SalesOrderLineIn(
+        line_number=1, item_id=item.id, quantity=Decimal("2"), discount_percentage=Decimal("10")
+    )
+
+    priced = price_line(
+        payload, context_for(item, []), principal_with(Permission.SALES_ORDER_CREATE)
+    )
+
+    assert priced.is_discount_override is False
+    assert priced.is_below_cost is False
+
+
+def test_above_threshold_discount_with_the_right_flags_the_order():
+    item = make_item()
+    payload = SalesOrderLineIn(
+        line_number=1, item_id=item.id, quantity=Decimal("2"), discount_percentage=Decimal("15")
+    )
+
+    priced = price_line(payload, context_for(item, []), _override_principal())
+
+    assert priced.is_discount_override is True
+    assert priced.is_below_cost is False
+    assert priced.discount_percentage == Decimal("15")
+
+
+def test_discount_taking_the_net_below_cost_flags_approval(monkeypatch):
+    """The cost check reads the price *after* the discount: 100 less 50% is 50,
+    under the 60 cost. The threshold is raised for this case so only the
+    cost rule can fire."""
+    from src.core.config import settings
+
+    monkeypatch.setattr(settings, "sales_discount_approval_percent", Decimal("90"))
+    item = make_item()
+    payload = SalesOrderLineIn(
+        line_number=1, item_id=item.id, quantity=Decimal("2"), discount_percentage=Decimal("50")
+    )
+
+    priced = price_line(
+        payload, context_for(item, []), principal_with(Permission.SALES_ORDER_CREATE)
+    )
+
+    assert priced.is_discount_override is False
+    assert priced.is_below_cost is True
+
+
+def test_flat_amount_discount_is_measured_against_the_threshold():
+    """A flat 30 on a gross of 200 is 15%: above the threshold, so refused
+    without the right and flagged with it."""
+    item = make_item()
+    payload = SalesOrderLineIn(
+        line_number=1, item_id=item.id, quantity=Decimal("2"), discount_amount=Decimal("30")
+    )
+
+    with pytest.raises(PermissionDeniedError):
+        price_line(payload, context_for(item, []), principal_with(Permission.SALES_ORDER_CREATE))
+
+    priced = price_line(payload, context_for(item, []), _override_principal())
+    assert priced.is_discount_override is True
+
+
+def test_offer_discount_above_the_threshold_is_pre_authorised():
+    """A published 25% scheme exceeds the desk's 10% limit and still prices:
+    schemes are authorised when they are published, not per order."""
+    from dataclasses import replace
+
+    item = make_item()
+    offer = _scheme("25")
+    context = replace(context_for(item, []), offers=(offer,))
+    payload = SalesOrderLineIn(line_number=1, item_id=item.id, quantity=Decimal("2"))
+
+    priced = price_line(payload, context, principal_with(Permission.SALES_ORDER_CREATE))
+
+    assert priced.discount_percentage == Decimal("25")
+    assert priced.offer_id == offer.id
+    assert priced.is_discount_override is False
+    assert priced.is_below_cost is False
+
+
+def test_offer_discount_below_cost_still_flags_approval():
+    """The exemption covers the threshold, not the costing floor: 100 less a
+    50% scheme is 50, under the 60 cost."""
+    from dataclasses import replace
+
+    item = make_item()
+    offer = _scheme("50")
+    context = replace(context_for(item, []), offers=(offer,))
+    payload = SalesOrderLineIn(line_number=1, item_id=item.id, quantity=Decimal("2"))
+
+    priced = price_line(payload, context, principal_with(Permission.SALES_ORDER_CREATE))
+
+    assert priced.offer_id == offer.id
+    assert priced.is_discount_override is False
+    assert priced.is_below_cost is True
+
+
+def test_uncosted_item_with_a_big_discount_flags_no_cost_approval():
+    """A zero standard cost is 'never costed', not 'everything is below
+    cost' - but the threshold still applies."""
+    item = make_item(standard_cost=Decimal("0"))
+    payload = SalesOrderLineIn(
+        line_number=1, item_id=item.id, quantity=Decimal("2"), discount_percentage=Decimal("50")
+    )
+
+    priced = price_line(payload, context_for(item, []), _override_principal())
+
+    assert priced.is_discount_override is True
+    assert priced.is_below_cost is False

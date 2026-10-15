@@ -120,6 +120,7 @@ export const P = {
   SALES_ORDER_UPDATE: 'sales_order.update',
   SALES_ORDER_APPROVE: 'sales_order.approve',
   SALES_ORDER_CANCEL: 'sales_order.cancel',
+  SALES_ORDER_DISCOUNT_OVERRIDE: 'sales_order.discount_override',
 
   // planning
   MRP_VIEW: 'mrp.view',

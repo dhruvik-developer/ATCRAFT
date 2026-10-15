@@ -615,7 +615,7 @@ async def update_item(
     item_id: uuid.UUID,
     payload: ItemUpdate,
 ) -> ApiResponse:
-    item = await service.update_item(session, tenant, item_id, payload)
+    item = await service.update_item(session, tenant, principal, item_id, payload)
     return ApiResponse.ok(
         service.item_response(item, include_cost=service.may_view_cost(principal)),
         "Item updated",

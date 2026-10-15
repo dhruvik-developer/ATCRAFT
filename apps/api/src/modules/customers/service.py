@@ -943,9 +943,12 @@ class CustomerService:
         rows, pagination = await self.addresses.list_page(params, stmt=stmt, order_by=None)
         return [AddressRead.model_validate(row) for row in rows], pagination
 
-    async def create_address(self, customer_id: uuid.UUID, payload: AddressCreate) -> AddressRead:
+    async def create_address(
+        self, principal: Principal, customer_id: uuid.UUID, payload: AddressCreate
+    ) -> AddressRead:
         async with transaction(self.session):
             customer = await self.repo.get_or_404(customer_id)
+            assert_channel_write_allowed(principal, customer.customer_type)
             self._assert_address_gst(payload.country, payload.state_code, payload.gstin)
 
             existing_default = await self.addresses.get_default(customer.id, payload.address_type)
@@ -985,7 +988,11 @@ class CustomerService:
         return AddressRead.model_validate(address)
 
     async def update_address(
-        self, customer_id: uuid.UUID, address_id: uuid.UUID, payload: AddressUpdate
+        self,
+        principal: Principal,
+        customer_id: uuid.UUID,
+        address_id: uuid.UUID,
+        payload: AddressUpdate,
     ) -> AddressRead:
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
@@ -993,6 +1000,7 @@ class CustomerService:
 
         async with transaction(self.session):
             customer = await self.repo.get_or_404(customer_id)
+            assert_channel_write_allowed(principal, customer.customer_type)
             address = await self._address_of(customer_id, address_id)
             before = snapshot(address, _ADDRESS_AUDITED_FIELDS)
 
@@ -1034,10 +1042,11 @@ class CustomerService:
         return AddressRead.model_validate(address)
 
     async def set_default_address(
-        self, customer_id: uuid.UUID, address_id: uuid.UUID
+        self, principal: Principal, customer_id: uuid.UUID, address_id: uuid.UUID
     ) -> AddressRead:
         async with transaction(self.session):
             customer = await self.repo.get_or_404(customer_id)
+            assert_channel_write_allowed(principal, customer.customer_type)
             address = await self._address_of(customer_id, address_id)
 
             if not address.is_active:
@@ -1076,11 +1085,12 @@ class CustomerService:
         return AddressRead.model_validate(address)
 
     async def delete_address(
-        self, customer_id: uuid.UUID, address_id: uuid.UUID, *, reason: str
+        self, principal: Principal, customer_id: uuid.UUID, address_id: uuid.UUID, *, reason: str
     ) -> None:
         """Retire an address, promoting a successor if it was the default."""
         async with transaction(self.session):
             customer = await self.repo.get_or_404(customer_id)
+            assert_channel_write_allowed(principal, customer.customer_type)
             address = await self._address_of(customer_id, address_id)
             before = snapshot(address, _ADDRESS_AUDITED_FIELDS)
 
@@ -1129,9 +1139,12 @@ class CustomerService:
         rows, pagination = await self.contacts.list_page(params, stmt=stmt, order_by=None)
         return [ContactRead.model_validate(row) for row in rows], pagination
 
-    async def create_contact(self, customer_id: uuid.UUID, payload: ContactCreate) -> ContactRead:
+    async def create_contact(
+        self, principal: Principal, customer_id: uuid.UUID, payload: ContactCreate
+    ) -> ContactRead:
         async with transaction(self.session):
             customer = await self.repo.get_or_404(customer_id)
+            assert_channel_write_allowed(principal, customer.customer_type)
             self._assert_contact_reachable(payload.email, payload.phone)
 
             # The first contact of a customer becomes the primary one: an
@@ -1166,7 +1179,11 @@ class CustomerService:
         return ContactRead.model_validate(contact)
 
     async def update_contact(
-        self, customer_id: uuid.UUID, contact_id: uuid.UUID, payload: ContactUpdate
+        self,
+        principal: Principal,
+        customer_id: uuid.UUID,
+        contact_id: uuid.UUID,
+        payload: ContactUpdate,
     ) -> ContactRead:
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
@@ -1174,6 +1191,7 @@ class CustomerService:
 
         async with transaction(self.session):
             customer = await self.repo.get_or_404(customer_id)
+            assert_channel_write_allowed(principal, customer.customer_type)
             contact = await self._contact_of(customer_id, contact_id)
             before = snapshot(contact, _CONTACT_AUDITED_FIELDS)
 
@@ -1210,10 +1228,11 @@ class CustomerService:
         return ContactRead.model_validate(contact)
 
     async def set_primary_contact(
-        self, customer_id: uuid.UUID, contact_id: uuid.UUID
+        self, principal: Principal, customer_id: uuid.UUID, contact_id: uuid.UUID
     ) -> ContactRead:
         async with transaction(self.session):
             customer = await self.repo.get_or_404(customer_id)
+            assert_channel_write_allowed(principal, customer.customer_type)
             contact = await self._contact_of(customer_id, contact_id)
 
             if not contact.is_active:
@@ -1245,10 +1264,11 @@ class CustomerService:
         return ContactRead.model_validate(contact)
 
     async def delete_contact(
-        self, customer_id: uuid.UUID, contact_id: uuid.UUID, *, reason: str
+        self, principal: Principal, customer_id: uuid.UUID, contact_id: uuid.UUID, *, reason: str
     ) -> None:
         async with transaction(self.session):
             customer = await self.repo.get_or_404(customer_id)
+            assert_channel_write_allowed(principal, customer.customer_type)
             contact = await self._contact_of(customer_id, contact_id)
             before = snapshot(contact, _CONTACT_AUDITED_FIELDS)
 

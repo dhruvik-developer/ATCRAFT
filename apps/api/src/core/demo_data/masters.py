@@ -1464,7 +1464,9 @@ async def _seed_item_branding(ctx: DemoContext) -> None:
         if not wanted:
             ctx.note(STAGE, existing=1)
             continue
-        await update_item(ctx.session, ctx.tenant, item.id, ItemUpdate.model_validate(wanted))
+        await update_item(
+            ctx.session, ctx.tenant, ctx.principal, item.id, ItemUpdate.model_validate(wanted)
+        )
         ctx.note(STAGE, created=1)
 
 
@@ -1924,6 +1926,7 @@ async def _seed_customer_address(
         return
 
     await service.create_address(
+        ctx.principal,
         customer_id,
         AddressCreate(
             address_type=AddressType.BILLING,
@@ -1958,6 +1961,7 @@ async def _seed_customer_contact(
         return
 
     await service.create_contact(
+        ctx.principal,
         customer_id,
         ContactCreate(
             name=spec.contact_name,

@@ -356,9 +356,13 @@ async def list_addresses(
     dependencies=[require_permission(Permission.CUSTOMER_UPDATE)],
 )
 async def create_address(
-    session: DbSession, tenant: Tenant, customer_id: uuid.UUID, payload: AddressCreate
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    customer_id: uuid.UUID,
+    payload: AddressCreate,
 ) -> ApiResponse[AddressRead]:
-    created = await CustomerService(session, tenant).create_address(customer_id, payload)
+    created = await CustomerService(session, tenant).create_address(principal, customer_id, payload)
     return ApiResponse.ok(created, "Address added")
 
 
@@ -371,12 +375,13 @@ async def create_address(
 async def update_address(
     session: DbSession,
     tenant: Tenant,
+    principal: CurrentUser,
     customer_id: uuid.UUID,
     address_id: uuid.UUID,
     payload: AddressUpdate,
 ) -> ApiResponse[AddressRead]:
     updated = await CustomerService(session, tenant).update_address(
-        customer_id, address_id, payload
+        principal, customer_id, address_id, payload
     )
     return ApiResponse.ok(updated, "Address updated")
 
@@ -388,9 +393,15 @@ async def update_address(
     dependencies=[require_permission(Permission.CUSTOMER_UPDATE)],
 )
 async def set_default_address(
-    session: DbSession, tenant: Tenant, customer_id: uuid.UUID, address_id: uuid.UUID
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    customer_id: uuid.UUID,
+    address_id: uuid.UUID,
 ) -> ApiResponse[AddressRead]:
-    updated = await CustomerService(session, tenant).set_default_address(customer_id, address_id)
+    updated = await CustomerService(session, tenant).set_default_address(
+        principal, customer_id, address_id
+    )
     return ApiResponse.ok(updated, "Default address updated")
 
 
@@ -403,11 +414,14 @@ async def set_default_address(
 async def delete_address(
     session: DbSession,
     tenant: Tenant,
+    principal: CurrentUser,
     customer_id: uuid.UUID,
     address_id: uuid.UUID,
     reason: ReasonQuery,
 ) -> ApiResponse[None]:
-    await CustomerService(session, tenant).delete_address(customer_id, address_id, reason=reason)
+    await CustomerService(session, tenant).delete_address(
+        principal, customer_id, address_id, reason=reason
+    )
     return ApiResponse.ok(None, "Address removed")
 
 
@@ -443,9 +457,13 @@ async def list_contacts(
     dependencies=[require_permission(Permission.CUSTOMER_UPDATE)],
 )
 async def create_contact(
-    session: DbSession, tenant: Tenant, customer_id: uuid.UUID, payload: ContactCreate
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    customer_id: uuid.UUID,
+    payload: ContactCreate,
 ) -> ApiResponse[ContactRead]:
-    created = await CustomerService(session, tenant).create_contact(customer_id, payload)
+    created = await CustomerService(session, tenant).create_contact(principal, customer_id, payload)
     return ApiResponse.ok(created, "Contact added")
 
 
@@ -458,12 +476,13 @@ async def create_contact(
 async def update_contact(
     session: DbSession,
     tenant: Tenant,
+    principal: CurrentUser,
     customer_id: uuid.UUID,
     contact_id: uuid.UUID,
     payload: ContactUpdate,
 ) -> ApiResponse[ContactRead]:
     updated = await CustomerService(session, tenant).update_contact(
-        customer_id, contact_id, payload
+        principal, customer_id, contact_id, payload
     )
     return ApiResponse.ok(updated, "Contact updated")
 
@@ -475,9 +494,15 @@ async def update_contact(
     dependencies=[require_permission(Permission.CUSTOMER_UPDATE)],
 )
 async def set_primary_contact(
-    session: DbSession, tenant: Tenant, customer_id: uuid.UUID, contact_id: uuid.UUID
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    customer_id: uuid.UUID,
+    contact_id: uuid.UUID,
 ) -> ApiResponse[ContactRead]:
-    updated = await CustomerService(session, tenant).set_primary_contact(customer_id, contact_id)
+    updated = await CustomerService(session, tenant).set_primary_contact(
+        principal, customer_id, contact_id
+    )
     return ApiResponse.ok(updated, "Primary contact updated")
 
 
@@ -490,9 +515,12 @@ async def set_primary_contact(
 async def delete_contact(
     session: DbSession,
     tenant: Tenant,
+    principal: CurrentUser,
     customer_id: uuid.UUID,
     contact_id: uuid.UUID,
     reason: ReasonQuery,
 ) -> ApiResponse[None]:
-    await CustomerService(session, tenant).delete_contact(customer_id, contact_id, reason=reason)
+    await CustomerService(session, tenant).delete_contact(
+        principal, customer_id, contact_id, reason=reason
+    )
     return ApiResponse.ok(None, "Contact removed")
