@@ -4,6 +4,8 @@ Completed 15 October 2026 (Asia/Calcutta), branch `fix/additional-11-20261014`.
 Baseline: main `142f04d`. The eleven repairs were integrated as separate commits
 in audit order. Main advanced to round-2 integration `768a3e7` during testing;
 that newer release was merged into the repair branch and verified again.
+The subsequent documentation checkpoint `0db0d62` was also merged intact;
+it changes planning notes only, with no runtime code changes.
 Existing main notes and all five development lanes are preserved.
 
 | Issue | Verified repair | Integrated commit |

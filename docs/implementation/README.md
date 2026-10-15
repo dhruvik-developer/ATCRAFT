@@ -12,21 +12,19 @@ and [the traceability audit](trace/trace.json).
 
 ## Current checkpoint
 
-Updated 13 October 2026, about 09:50 IST. **Resumed by a Cursor agent (Claude Opus) as orchestrator, at the user's request.**
+Updated 14 October 2026. **Round 2 integrated into `main` at `768a3e7` (single migration head `7f3070625160`).** All five lanes built, reviewed, merged, verified.
 
-Between the checkpoint below and this resume, lane B committed B2 (`c768493`) and lane C committed its C1a/C1b review fixes (`e1c0e7b`). Both lanes are clean and verified. Lanes A, D and E still held uncommitted work; nothing had been written in any lane since 12 October about 19:51.
+| Lane | Branch | Round-2 packages | State |
+|---|---|---|---|
+| A | `lane/commercial` @ `16cbe2a` | E1a dispatch linkage + top-up; A2 sales invoices | Merged. Review: approve-with-fix (`16cbe2a`). |
+| B | `lane/operations` @ `f3aefcb` | B3a job-work invoices | Merged. Review: approve-with-fix (`f3aefcb`, net-payable money bug). DB-verified. |
+| C | `lane/portals` @ `cd38749` | C3a dealer portal backend | Merged. Review: approve-with-fix (`cd38749`). |
+| D | `lane/supply` @ `cf38ff4` | E8a inventory operations | Merged. Review: approve. |
+| E | `lane/quality` @ `c80a255` | E4 QC unification + assembly UI | Merged. Review: approve. |
 
-Lane holders:
+Integration commits on main: `faa949a` (D) + `3adcb1b` (E) + `15720f7` (B) + `a0a0dfa` (A) + `80fabb1` (C) + `c42eb04` (reconcile: re-chain, ReportKey union 26 keys, picker unification under `pick_free_chart_code`, contract 624 req/29 folders) + `2033436` + `768a3e7` (cross-lane fixes). Verification: 3523 unit passed, mypy/ruff clean, migration round-trip green, demo idempotent, sweep 44 routes clean, live order→dispatch→invoice SI/2026-27/00002, Playwright 12/12. No lane holds uncommitted work; no agent active in any lane.
 
-| Lane | Holder (Cursor subagent) | Step |
-|---|---|---|
-| A | lane-A takeover agent (restarted) | The first takeover stopped on a usage limit before it edited anything. The uncommitted E1a and A2 work is unchanged. Take it over, finish, verify and commit. |
-| B | lane-B build agent (restarted) | The first B3a run stopped on a usage limit before it wrote anything. The lane is still clean at `c768493`. Build the job-work invoice. |
-| C | lane-C dealer-portal agent | R4 C3a dealer portal backend. C2a and C2b (vendor mobile app, PWA shell, push opt-in, inbound board) stay deferred until the user asks. Do not build them. |
-| D | lane-D takeover agent (restarted) | The first takeover stopped on a usage limit before it edited the uncommitted E8a work. Take it over, finish, verify and commit. |
-| E | lane-E takeover agent (restarted) | The first takeover stopped on a usage limit before it edited the partial E4 backend. Finish the backend, then the frontend. |
-
-The next integration merges all five lanes once each holds only committed, reviewed work. Round 2 and the started round-3 packages go in together.
+Scope update 14 Oct 2026: user approved FULL build — C2a/C2b vendor app, D2 WhatsApp/SMS, D3 courier tracking, D4 signatures all back in scope. C2a/C2b build after the R2 integration (lane C finishes C3a first).
 
 ### Previous checkpoint
 
