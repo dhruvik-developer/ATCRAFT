@@ -61,7 +61,7 @@ ENV VITE_ERROR_REPORT_URL=$VITE_ERROR_REPORT_URL
 RUN npm run build
 
 # ------------------------------------------------------------- production ---
-FROM nginx:1.30.4-alpine3.24@sha256:dc5069ad14f19660b141b21236140b91656bf89bbc3e2417c70ae650cd66104c AS production
+FROM nginx:1.30.5-alpine3.24@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94 AS production
 
 # Serve as an unprivileged user. nginx:alpine already defines the `nginx` user;
 # it needs write access to its runtime directories to start without root.
