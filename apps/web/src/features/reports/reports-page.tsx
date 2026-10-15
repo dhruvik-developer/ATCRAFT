@@ -13,8 +13,8 @@
  *
  * 1. **The filter set is uniform.** Every report route binds the same
  *    `report_filters` dependency, and the descriptor declares no per-report
- *    parameters. So the same controls are offered for every report, and the
- *    ones a given report ignores simply change nothing.
+ * parameters. So the same controls are offered for every report, with the
+ * reference selectors shown only to users who may read those masters.
  * 2. **A period is required only where the descriptor says so.** `date_from`
  *    and `date_to` are validated as a pair and bounded at 366 days; a position
  *    report takes no dates at all and is not sent any.
@@ -39,6 +39,13 @@ import { DataTable } from '@/components/data-table'
 import { EmptyState, FieldError, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/overlays'
+import {
   Alert,
   AlertDescription,
   AlertTitle,
@@ -51,10 +58,13 @@ import {
   Skeleton,
 } from '@/components/ui/primitives'
 import { CustomerPicker } from '@/features/customers/customer-picker'
+import { CostCentreSelect } from '@/features/admin/cost-centre-select'
+import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
+import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import {
   formatDate,
   formatDateTime,
@@ -65,7 +75,8 @@ import {
   toDateInput,
 } from '@/lib/format'
 import { queryKeys, staleTimes } from '@/lib/query-client'
-import type { PaginatedEnvelope } from '@/types/api'
+import { P } from '@/lib/permissions'
+import type { PaginatedEnvelope, SchemaOf } from '@/types/api'
 
 import { ReportJobPanel } from './job-panel'
 import { useReportJob, type AcceptedJobData } from './report-jobs'
@@ -120,13 +131,23 @@ function sameQuery(a: URLSearchParams, b: URLSearchParams): boolean {
  * contract. `category_id` is accepted too but has no picker in this app yet, so
  * it is not offered rather than being offered as a UUID box.
  */
-type FilterKind = 'WAREHOUSE' | 'ITEM' | 'VENDOR' | 'CUSTOMER' | 'STATUS' | 'MIN_DAYS'
+type FilterKind =
+  | 'WAREHOUSE'
+  | 'ITEM'
+  | 'VENDOR'
+  | 'CUSTOMER'
+  | 'WORK_CENTER'
+  | 'COST_CENTRE'
+  | 'STATUS'
+  | 'MIN_DAYS'
 
 const FILTERS: { name: string; label: string; kind: FilterKind; help?: string }[] = [
   { name: 'warehouse_id', label: 'Warehouse', kind: 'WAREHOUSE' },
   { name: 'item_id', label: 'Item', kind: 'ITEM' },
   { name: 'vendor_id', label: 'Vendor', kind: 'VENDOR' },
   { name: 'customer_id', label: 'Customer', kind: 'CUSTOMER' },
+  { name: 'work_center_id', label: 'Work centre', kind: 'WORK_CENTER' },
+  { name: 'cost_centre_id', label: 'Cost centre', kind: 'COST_CENTRE' },
   {
     name: 'status',
     label: 'Status',
@@ -350,6 +371,7 @@ function buildSchema(requiresPeriod: boolean): z.ZodType<RunFormValues> {
 function ReportRunner({ definition }: { definition: ReportDescriptor }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const job = useReportJob()
+  const { can } = useAuth()
 
   const requiresPeriod = definition.requires_period
   const schema = useMemo(() => buildSchema(requiresPeriod), [requiresPeriod])
@@ -511,7 +533,11 @@ function ReportRunner({ definition }: { definition: ReportDescriptor }) {
                 </>
               )}
 
-              {FILTERS.map((filter) => (
+              {FILTERS.filter(
+                (filter) =>
+                  (filter.kind !== 'WORK_CENTER' || can(P.WORK_CENTER_VIEW)) &&
+                  (filter.kind !== 'COST_CENTRE' || can(P.COST_CENTRE_VIEW)),
+              ).map((filter) => (
                 <FilterField
                   key={filter.name}
                   filter={filter}
@@ -662,6 +688,25 @@ function FilterField({
     )
   }
 
+  if (filter.kind === 'WORK_CENTER') {
+    return <WorkCenterFilter id={id} value={value} onChange={onChange} error={error} />
+  }
+
+  if (filter.kind === 'COST_CENTRE') {
+    return (
+      <div className="space-y-1.5">
+        <CostCentreSelect
+          id={id}
+          label={filter.label}
+          value={value || null}
+          onChange={(next) => onChange(next ?? '')}
+          noneLabel="All cost centres"
+          error={error}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id}>{filter.label}</Label>
@@ -680,6 +725,59 @@ function FilterField({
   )
 }
 
+function WorkCenterFilter({
+  id,
+  value,
+  onChange,
+  error,
+}: {
+  id: string
+  value: string
+  onChange: (next: string) => void
+  error?: string
+}) {
+  const params = {
+    page: 1,
+    limit: LOOKUP_LIST_LIMIT,
+    with_total: false,
+    is_active: true,
+  } as const
+  const options = useQuery({
+    queryKey: queryKeys.routing.workCenters(params),
+    queryFn: async () =>
+      (await api.getPage<SchemaOf<'WorkCenterRead'>>('/routing/work-centers', { params })).data,
+    staleTime: staleTimes.reference,
+  })
+
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>Work centre</Label>
+      <Select
+        value={value || SELECT_NONE}
+        onValueChange={(next) => onChange(next === SELECT_NONE ? '' : next)}
+        disabled={options.isLoading || Boolean(options.error)}
+      >
+        <SelectTrigger id={id} aria-label="Work centre" aria-invalid={Boolean(error)}>
+          <SelectValue
+            placeholder={
+              options.isLoading ? 'Loading...' : options.error ? 'Unavailable' : 'All work centres'
+            }
+          />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={SELECT_NONE}>All work centres</SelectItem>
+          {(options.data ?? []).map((centre) => (
+            <SelectItem key={centre.id} value={centre.id}>
+              {centre.code} - {centre.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <FieldError message={error ?? options.error?.message} />
+    </div>
+  )
+}
+
 // --------------------------------------------------------------- results ----
 
 /**
@@ -692,7 +790,7 @@ function numericFormat(name: string): 'money' | 'quantity' | 'percent' | 'plain'
   // The API names every proportion `*_percent` and already scales it to 0-100.
   if (/_percent$/.test(name)) return 'percent'
   if (/(_quantity|_qty)$/.test(name)) return 'quantity'
-  if (/(_amount|_value|_cost|_price|_total)$/.test(name)) return 'money'
+  if (/(_amount|_value|_cost|_price|_total|_variance)$/.test(name)) return 'money'
   return 'plain'
 }
 

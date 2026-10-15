@@ -6899,6 +6899,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/production-cost": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Production cost
+         * @description Closed production orders costed in the selected period. Requires item-cost visibility.
+         */
+        get: operations["production_cost_api_v1_reports_production_cost_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/production-efficiency": {
         parameters: {
             query?: never;
@@ -25662,7 +25682,7 @@ export interface components {
          *     catalogue asserts at import that every member has exactly one definition.
          * @enum {string}
          */
-        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "SHIFT_PRODUCTION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "SCRAP_REGISTER" | "CONSUMPTION_BY_DEPARTMENT" | "PURCHASE_ORDER" | "PACKING_LIST" | "SALES_INVOICE" | "REWORK_RATE";
+        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "SHIFT_PRODUCTION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "SCRAP_REGISTER" | "CONSUMPTION_BY_DEPARTMENT" | "PURCHASE_ORDER" | "PACKING_LIST" | "SALES_INVOICE" | "REWORK_RATE" | "PRODUCTION_COST";
         /**
          * RequisitionBatchConversionRequest
          * @description The batch form: several approved requisitions converted together.
@@ -78243,6 +78263,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -78364,6 +78386,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -78485,6 +78509,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -78694,6 +78720,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -78815,6 +78843,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -78936,6 +78966,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -79053,6 +79085,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -79174,6 +79208,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -79481,6 +79517,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -79602,6 +79640,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -79723,6 +79763,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -79844,6 +79886,131 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
+                status?: string | null;
+                /** @description Age threshold in days, where the report uses one */
+                min_days?: number | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report, paginated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Too large to return inline. Generated in the background; poll the status URL. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    production_cost_api_v1_reports_production_cost_get: {
+        parameters: {
+            query?: {
+                /** @description First day of the period, inclusive */
+                date_from?: string | null;
+                /** @description Last day of the period, inclusive */
+                date_to?: string | null;
+                item_id?: string | null;
+                warehouse_id?: string | null;
+                vendor_id?: string | null;
+                customer_id?: string | null;
+                category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -79965,6 +80132,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -80086,6 +80255,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -80207,6 +80378,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -80328,6 +80501,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -80449,6 +80624,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -80570,6 +80747,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -80691,6 +80870,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -80812,6 +80993,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -80933,6 +81116,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -81050,6 +81235,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -81171,6 +81358,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;
@@ -81292,6 +81481,8 @@ export interface operations {
                 vendor_id?: string | null;
                 customer_id?: string | null;
                 category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
                 status?: string | null;
                 /** @description Age threshold in days, where the report uses one */
                 min_days?: number | null;

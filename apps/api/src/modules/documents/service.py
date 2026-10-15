@@ -67,7 +67,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.database import transaction
-from src.core.deps import TenantContext
+from src.core.deps import Principal, TenantContext
 from src.core.errors import ErrorCode, FileValidationError, NotFoundError
 from src.core.ids import new_id
 from src.core.logging import get_logger
@@ -720,17 +720,26 @@ class DocumentService:
     # --- reads --------------------------------------------------------------
 
     async def list_documents(
-        self, filters: DocumentFilters, params: PageParams, sort: SortParams
+        self,
+        filters: DocumentFilters,
+        params: PageParams,
+        sort: SortParams,
+        *,
+        principal: Principal | None = None,
     ) -> tuple[list[DocumentRead], OffsetPagination]:
-        stmt = self.repo.build_list_stmt(filters, sort, now=utcnow())
+        stmt = self.repo.build_list_stmt(filters, sort, now=utcnow(), principal=principal)
         rows, pagination = await self.repo.list_page(params, stmt=stmt, order_by=None)
         return [DocumentRead.model_validate(row) for row in rows], pagination
 
-    async def get_document(self, document_id: uuid.UUID) -> DocumentRead:
-        return DocumentRead.model_validate(await self._load_live(document_id))
+    async def get_document(
+        self, document_id: uuid.UUID, *, principal: Principal | None = None
+    ) -> DocumentRead:
+        return DocumentRead.model_validate(await self._load_live(document_id, principal=principal))
 
-    async def _load_live(self, document_id: uuid.UUID) -> Document:
-        document = await self.repo.get_live(document_id, utcnow())
+    async def _load_live(
+        self, document_id: uuid.UUID, *, principal: Principal | None = None
+    ) -> Document:
+        document = await self.repo.get_live(document_id, utcnow(), principal=principal)
         if document is None:
             # Identical for "does not exist", "belongs to another company" and
             # "has expired". Distinguishing them would let a caller enumerate
@@ -738,14 +747,16 @@ class DocumentService:
             raise NotFoundError("Document", document_id)
         return document
 
-    async def open_download(self, document_id: uuid.UUID) -> DocumentDownload:
+    async def open_download(
+        self, document_id: uuid.UUID, *, principal: Principal | None = None
+    ) -> DocumentDownload:
         """Locate the bytes of one document for streaming.
 
         No audit entry: this is a read, and writing a row on every GET would put
         an insert on the hottest path in the module. The request log already
         carries who fetched what.
         """
-        document = await self._load_live(document_id)
+        document = await self._load_live(document_id, principal=principal)
         path = resolve_storage_path(document.storage_key)
 
         if not await anyio.to_thread.run_sync(_exists, path):
@@ -763,9 +774,15 @@ class DocumentService:
 
     # --- deletion -----------------------------------------------------------
 
-    async def delete_document(self, document_id: uuid.UUID, *, reason: str) -> None:
+    async def delete_document(
+        self,
+        document_id: uuid.UUID,
+        *,
+        reason: str,
+        principal: Principal | None = None,
+    ) -> None:
         """Remove one document by id."""
-        document = await self.repo.get(document_id)
+        document = await self.repo.get_for_delete(document_id, principal=principal)
         if document is None:
             raise NotFoundError("Document", document_id)
         await self._delete(document, reason=reason)

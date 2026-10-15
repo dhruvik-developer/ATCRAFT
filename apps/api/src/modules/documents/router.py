@@ -21,7 +21,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 
-from src.core.deps import DbSession, Tenant, require_permission
+from src.core.deps import CurrentUser, DbSession, Tenant, require_permission
 from src.core.pagination import PageParams, SortParams, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
@@ -126,11 +126,14 @@ async def upload_document(
 async def list_documents(
     session: DbSession,
     tenant: Tenant,
+    principal: CurrentUser,
     filters: FilterDep,
     params: PageDep,
     sort: SortDep,
 ) -> PaginatedResponse[DocumentRead]:
-    items, pagination = await DocumentService(session, tenant).list_documents(filters, params, sort)
+    items, pagination = await DocumentService(session, tenant).list_documents(
+        filters, params, sort, principal=principal
+    )
     return PaginatedResponse[DocumentRead](data=items, pagination=pagination)
 
 
@@ -141,9 +144,9 @@ async def list_documents(
     dependencies=[require_permission(Permission.DOCUMENT_VIEW)],
 )
 async def get_document(
-    document_id: uuid.UUID, session: DbSession, tenant: Tenant
+    document_id: uuid.UUID, session: DbSession, tenant: Tenant, principal: CurrentUser
 ) -> ApiResponse[DocumentRead]:
-    document = await DocumentService(session, tenant).get_document(document_id)
+    document = await DocumentService(session, tenant).get_document(document_id, principal=principal)
     return ApiResponse[DocumentRead].ok(document)
 
 
@@ -159,9 +162,11 @@ async def get_document(
     dependencies=[require_permission(Permission.DOCUMENT_VIEW)],
 )
 async def download_document(
-    document_id: uuid.UUID, session: DbSession, tenant: Tenant
+    document_id: uuid.UUID, session: DbSession, tenant: Tenant, principal: CurrentUser
 ) -> StreamingResponse:
-    download = await DocumentService(session, tenant).open_download(document_id)
+    download = await DocumentService(session, tenant).open_download(
+        document_id, principal=principal
+    )
     return StreamingResponse(
         stream_file(download.path),
         media_type=download.document.mime_type,
@@ -185,9 +190,12 @@ async def delete_document(
     document_id: uuid.UUID,
     session: DbSession,
     tenant: Tenant,
+    principal: CurrentUser,
     reason: ReasonQuery,
 ) -> ApiResponse[None]:
-    await DocumentService(session, tenant).delete_document(document_id, reason=reason)
+    await DocumentService(session, tenant).delete_document(
+        document_id, reason=reason, principal=principal
+    )
     return ApiResponse[None].ok(None, "Document deleted")
 
 

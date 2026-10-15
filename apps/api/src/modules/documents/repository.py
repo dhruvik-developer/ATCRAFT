@@ -23,6 +23,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.document_access import document_read_predicates
 from src.common.repository import BaseRepository
+from src.core.deps import Principal
 from src.core.pagination import SortParams
 from src.modules.documents.models import Document
 from src.modules.documents.schemas import DocumentFilters
@@ -38,11 +39,16 @@ class DocumentRepository(BaseRepository[Document]):
 
     model = Document
 
-    def _scoped(self, *, include_deleted: bool = False) -> Select[tuple[Document]]:
+    def _scoped(
+        self,
+        *,
+        include_deleted: bool = False,
+        principal: Principal | None = None,
+    ) -> Select[tuple[Document]]:
         return (
             super()
             ._scoped(include_deleted=include_deleted)
-            .where(*document_read_predicates(self.tenant, Document.id))
+            .where(*document_read_predicates(self.tenant, Document.id, principal))
         )
 
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
@@ -62,15 +68,31 @@ class DocumentRepository(BaseRepository[Document]):
     def _not_expired(self, stmt: Select[Any], now: datetime) -> Select[Any]:
         return stmt.where((Document.expires_at.is_(None)) | (Document.expires_at > now))
 
-    async def get_live(self, document_id: uuid.UUID, now: datetime) -> Document | None:
+    async def get_live(
+        self, document_id: uuid.UUID, now: datetime, *, principal: Principal | None = None
+    ) -> Document | None:
         """Fetch a document that is in this tenant and has not expired."""
-        stmt = self._not_expired(self._scoped().where(Document.id == document_id), now)
+        stmt = self._not_expired(
+            self._scoped(principal=principal).where(Document.id == document_id), now
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def get_for_delete(
+        self, document_id: uuid.UUID, *, principal: Principal | None = None
+    ) -> Document | None:
+        """Fetch a document visible to this caller, including expired documents."""
+        stmt = self._scoped(principal=principal).where(Document.id == document_id)
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
     def build_list_stmt(
-        self, filters: DocumentFilters, sort: SortParams, *, now: datetime
+        self,
+        filters: DocumentFilters,
+        sort: SortParams,
+        *,
+        now: datetime,
+        principal: Principal | None = None,
     ) -> Select[Any]:
-        stmt = self._scoped()
+        stmt = self._scoped(principal=principal)
         stmt = self._apply_search(stmt, filters.search)
 
         if not filters.include_expired:

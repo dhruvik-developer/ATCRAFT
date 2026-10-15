@@ -16,11 +16,14 @@ wrong or unsafe - which is exactly why they are asserted here.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, date, datetime
 
 import pytest
 
+from src.core.deps import Principal
 from src.core.errors import ValidationError
+from src.core.permissions import Permission
 from src.modules.reports.models import (
     DOCUMENT_ONLY_REPORT_KEYS,
     REPORT_JOB_LIFECYCLE,
@@ -104,6 +107,25 @@ def test_the_descriptor_list_carries_a_column_set_for_every_report() -> None:
     for descriptor in descriptors():
         assert descriptor.columns, f"{descriptor.key} exposes no columns"
         assert descriptor.title and descriptor.description
+
+
+def test_production_cost_is_hidden_without_item_cost_permission() -> None:
+    base = {
+        "user_id": uuid.uuid4(),
+        "company_id": uuid.uuid4(),
+        "email": "reporter@example.test",
+        "full_name": "Report User",
+        "is_superuser": False,
+    }
+    report_reader = Principal(**base, permissions=frozenset({str(Permission.REPORT_VIEW)}))
+    cost_reader = Principal(
+        **base,
+        permissions=frozenset({str(Permission.REPORT_VIEW), str(Permission.ITEM_COST_VIEW)}),
+    )
+
+    assert Permission.ITEM_COST_VIEW is definition_for(ReportKey.PRODUCTION_COST).permission
+    assert ReportKey.PRODUCTION_COST not in {d.key for d in descriptors(report_reader)}
+    assert ReportKey.PRODUCTION_COST in {d.key for d in descriptors(cost_reader)}
 
 
 def test_a_reports_columns_are_exactly_its_row_schema() -> None:

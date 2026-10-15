@@ -738,6 +738,17 @@ negative. `actual_subcontract_cost` is based on good output actually received
 from job-work suppliers; `actual_unit_cost` divides the full actual cost by
 good production output, and is NULL when no good output exists.
 
+The `PRODUCTION_COST` report reads only CLOSED orders in the requested period.
+It filters `production_orders.updated_at` (set by the close transition), item
+and cost centre; work-centre filtering uses an `EXISTS` over tenant-owned
+`work_orders` so one order is never duplicated. Its compound
+`(company_id, status, updated_at)` index bounds the closed-period scan. The
+report is restricted to principals with `report.view` and `item.cost_view`,
+including catalogue visibility and background-job access.
+The generic document list, metadata, download, and delete routes also hide the
+generated artefact unless the caller has `item.cost_view`; a document ID cannot
+bypass the report permission.
+
 ### QC verdict to owner (`quality.owners`)
 
 Quality sits downstream of procurement, assembly, job work and production, so it may call

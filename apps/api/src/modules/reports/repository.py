@@ -260,6 +260,21 @@ class ReportSnapshotRepository(BaseRepository[ReportSnapshot]):
     """Persistence for generated reports and their job rows."""
 
     @staticmethod
+    def report_key_document_visibility(
+        tenant: TenantContext,
+        document_id: InstrumentedAttribute[Any],
+        *,
+        report_key: ReportKey,
+    ) -> ColumnElement[bool]:
+        """Hide artefacts produced by one report key."""
+        linked = select(ReportSnapshot.id).where(
+            ReportSnapshot.company_id == tenant.company_id,
+            ReportSnapshot.report_key == report_key,
+            ReportSnapshot.document_id == document_id,
+        )
+        return ~exists(linked)
+
+    @staticmethod
     def catalogue_document_visibility(
         tenant: TenantContext,
         document_id: InstrumentedAttribute[Any],
@@ -1207,6 +1222,94 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
             stmt = stmt.where(ProductionOrder.item_id == filters.item_id)
         if filters.search:
             stmt = stmt.where(ProductionOrder.code.ilike(f"%{filters.search.strip()}%"))
+        return stmt
+
+    def production_cost(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
+        """Closed production cost snapshots over the period.
+
+        ASSUMPTION: ``updated_at`` is the close-time boundary. The CLOSED
+        transition sets it in Python and closed orders cannot be edited, avoiding
+        a second timestamp that could disagree with the audit trail.
+        Work-centre filtering uses EXISTS so an order with several operations
+        remains one report row.
+        """
+        start, end = period_bounds(period)
+        stmt = (
+            select(
+                ProductionOrder.id.label("production_order_id"),
+                ProductionOrder.code.label("code"),
+                ProductionOrder.updated_at.label("closed_at"),
+                Item.id.label("item_id"),
+                Item.code.label("item_code"),
+                Item.name.label("item_name"),
+                CostCentre.id.label("cost_centre_id"),
+                CostCentre.code.label("cost_centre_code"),
+                CostCentre.name.label("cost_centre_name"),
+                ProductionOrder.produced_quantity.label("produced_quantity"),
+                ProductionOrder.total_material_cost.label("material_cost"),
+                ProductionOrder.total_operation_cost.label("operation_cost"),
+                ProductionOrder.actual_subcontract_cost.label("subcontract_cost"),
+                ProductionOrder.total_cost.label("total_cost"),
+                ProductionOrder.actual_unit_cost.label("actual_unit_cost"),
+                ProductionOrder.standard_unit_cost.label("standard_unit_cost"),
+                ProductionOrder.material_variance.label("material_variance"),
+                ProductionOrder.operation_variance.label("operation_variance"),
+                ProductionOrder.subcontract_variance.label("subcontract_variance"),
+                ProductionOrder.total_variance.label("total_variance"),
+            )
+            .join(
+                Item,
+                and_(
+                    Item.id == ProductionOrder.item_id,
+                    Item.company_id == ProductionOrder.company_id,
+                ),
+            )
+            .outerjoin(
+                CostCentre,
+                and_(
+                    CostCentre.id == ProductionOrder.cost_centre_id,
+                    CostCentre.company_id == ProductionOrder.company_id,
+                ),
+            )
+            .where(
+                ProductionOrder.company_id == self._company,
+                ProductionOrder.status == ProductionOrderStatus.CLOSED,
+                ProductionOrder.updated_at >= start,
+                ProductionOrder.updated_at < end,
+            )
+            .order_by(ProductionOrder.updated_at.desc(), ProductionOrder.id.asc())
+        )
+        if filters.item_id is not None:
+            stmt = stmt.where(ProductionOrder.item_id == filters.item_id)
+        if filters.cost_centre_id is not None:
+            stmt = stmt.where(ProductionOrder.cost_centre_id == filters.cost_centre_id)
+        if filters.work_center_id is not None:
+            has_work_center = (
+                select(WorkOrder.id)
+                .join(
+                    WorkCenter,
+                    and_(
+                        WorkCenter.id == WorkOrder.work_center_id,
+                        WorkCenter.company_id == WorkOrder.company_id,
+                    ),
+                )
+                .where(
+                    WorkOrder.company_id == self._company,
+                    WorkOrder.production_order_id == ProductionOrder.id,
+                    WorkOrder.work_center_id == filters.work_center_id,
+                )
+                .exists()
+            )
+            stmt = stmt.where(has_work_center)
+        if filters.search:
+            search = f"%{filters.search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    ProductionOrder.code.ilike(search),
+                    Item.code.ilike(search),
+                    Item.name.ilike(search),
+                )
+            )
         return stmt
 
     # --- 15. machine utilisation -------------------------------------------

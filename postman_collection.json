@@ -20746,6 +20746,18 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "status",
                   "value": ""
                 },
@@ -20841,6 +20853,18 @@
                   "description": "",
                   "disabled": true,
                   "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
@@ -20946,6 +20970,18 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "status",
                   "value": ""
                 },
@@ -21046,6 +21082,18 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "status",
                   "value": ""
                 },
@@ -21129,6 +21177,18 @@
                   "description": "",
                   "disabled": true,
                   "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
@@ -21229,6 +21289,18 @@
                   "description": "",
                   "disabled": true,
                   "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
@@ -21363,6 +21435,18 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "status",
                   "value": ""
                 },
@@ -21446,6 +21530,18 @@
                   "description": "",
                   "disabled": true,
                   "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
@@ -21546,6 +21642,18 @@
                   "description": "",
                   "disabled": true,
                   "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
@@ -21671,6 +21779,18 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "status",
                   "value": ""
                 },
@@ -21766,6 +21886,18 @@
                   "description": "",
                   "disabled": true,
                   "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
@@ -21891,6 +22023,18 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "status",
                   "value": ""
                 },
@@ -21991,6 +22135,18 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "status",
                   "value": ""
                 },
@@ -22026,6 +22182,118 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/reports/product-profitability?"
+            }
+          }
+        },
+        {
+          "name": "Production cost",
+          "request": {
+            "description": "Closed production orders costed in the selected period. Requires item-cost visibility.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "production-cost"
+              ],
+              "query": [
+                {
+                  "description": "First day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "item_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": ""
+                },
+                {
+                  "description": "Age threshold in days, where the report uses one",
+                  "disabled": true,
+                  "key": "min_days",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/reports/production-cost?"
             }
           }
         },
@@ -22086,6 +22354,18 @@
                   "description": "",
                   "disabled": true,
                   "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
@@ -22191,6 +22471,18 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "status",
                   "value": ""
                 },
@@ -22286,6 +22578,18 @@
                   "description": "",
                   "disabled": true,
                   "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
@@ -22391,6 +22695,18 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "status",
                   "value": ""
                 },
@@ -22486,6 +22802,18 @@
                   "description": "",
                   "disabled": true,
                   "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
@@ -22591,6 +22919,18 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "status",
                   "value": ""
                 },
@@ -22686,6 +23026,18 @@
                   "description": "",
                   "disabled": true,
                   "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
@@ -22791,6 +23143,18 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "status",
                   "value": ""
                 },
@@ -22874,6 +23238,18 @@
                   "description": "",
                   "disabled": true,
                   "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {
@@ -22979,6 +23355,18 @@
                 {
                   "description": "",
                   "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
                   "key": "status",
                   "value": ""
                 },
@@ -23074,6 +23462,18 @@
                   "description": "",
                   "disabled": true,
                   "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
                   "value": "00000000-0000-0000-0000-000000000000"
                 },
                 {

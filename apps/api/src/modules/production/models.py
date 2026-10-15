@@ -351,6 +351,9 @@ class ProductionOrder(TenantEntity, OptimisticLockMixin):
             postgresql_where=text(f"status IN ({sql_in_list(sorted(OPEN_PRODUCTION_STATUSES))})"),
         ),
         Index("ix_production_orders_status", "company_id", "status", "planned_start_date"),
+        Index(
+            "ix_production_orders_company_status_updated_at", "company_id", "status", "updated_at"
+        ),
         Index("ix_production_orders_item", "company_id", "item_id", "status"),
         Index("ix_production_orders_warehouse", "company_id", "warehouse_id", "status"),
         Index("ix_production_orders_plant", "company_id", "plant_id", "status"),

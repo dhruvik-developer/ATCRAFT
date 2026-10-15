@@ -2956,6 +2956,24 @@ defined in this system.
 `job_work.service.production_order_charges`, and the E7a production costing
 screen.
 
+## §E7-2. Production-cost report period
+
+**Assumed.** The report's period is the UTC date of `production_orders.updated_at`
+when the order transitions to CLOSED. That timestamp is assigned by the model's
+Python-side `onupdate`; closed orders cannot be edited, so it remains the close
+time. The report includes no open or historically estimated order.
+
+**Why.** The schema has no dedicated `closed_at` column, and using
+`actual_end_date` would report when floor work ended rather than when the order
+was formally closed. A new timestamp is not added solely for this report.
+
+**Where:** `reports.repository.production_cost`; the query is supported by
+`ix_production_orders_company_status_updated_at`.
+
+**Impact if wrong.** A close entered after midnight falls in the day it was
+closed, not the day the work physically ended. If the business wants the latter,
+the report period should use `actual_end_date` and name the report accordingly.
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant

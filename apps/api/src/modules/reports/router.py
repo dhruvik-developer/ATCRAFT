@@ -72,6 +72,7 @@ from src.modules.reports.schemas import (
     MachineUtilisationRow,
     MrpShortageRow,
     OrderDelayRow,
+    ProductionCostRow,
     ProductionEfficiencyRow,
     ProductionPendingRow,
     ProductProfitabilityRow,
@@ -129,6 +130,8 @@ def report_filters(
     vendor_id: Annotated[uuid.UUID | None, Query()] = None,
     customer_id: Annotated[uuid.UUID | None, Query()] = None,
     category_id: Annotated[uuid.UUID | None, Query()] = None,
+    work_center_id: Annotated[uuid.UUID | None, Query()] = None,
+    cost_centre_id: Annotated[uuid.UUID | None, Query()] = None,
     status_filter: Annotated[str | None, Query(alias="status", max_length=32)] = None,
     min_days: Annotated[
         int | None,
@@ -142,6 +145,8 @@ def report_filters(
         vendor_id=vendor_id,
         customer_id=customer_id,
         category_id=category_id,
+        work_center_id=work_center_id,
+        cost_centre_id=cost_centre_id,
         status=status_filter,
         min_days=min_days,
         search=search,
@@ -180,6 +185,7 @@ async def _run(
     decision between the two envelopes was already taken by the service, and this
     function does not re-take it.
     """
+    principal.require(service.definition_for(key).permission)
     result = await service.run_report(
         session,
         tenant,
@@ -223,8 +229,8 @@ async def _run(
     ),
     dependencies=[require_permission(Permission.REPORT_VIEW)],
 )
-async def list_reports() -> ApiResponse[list[ReportDescriptorRead]]:
-    return ApiResponse[list[ReportDescriptorRead]].ok(service.descriptors())
+async def list_reports(principal: CurrentUser) -> ApiResponse[list[ReportDescriptorRead]]:
+    return ApiResponse[list[ReportDescriptorRead]].ok(service.descriptors(principal))
 
 
 @router.get(
@@ -596,6 +602,30 @@ async def production_efficiency(
         period,
         filters,
         page,
+    )
+
+
+@router.get(
+    "/production-cost",
+    response_model=None,
+    summary="Production cost",
+    description=(
+        "Closed production orders costed in the selected period. Requires item-cost visibility."
+    ),
+    responses=REPORT_RESPONSES,
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def production_cost(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[ProductionCostRow] | AcceptedJobResponse:
+    return await _run(
+        session, tenant, principal, response, ReportKey.PRODUCTION_COST, period, filters, page
     )
 
 

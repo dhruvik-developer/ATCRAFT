@@ -107,6 +107,8 @@ class ReportKey(StrEnum):
     #: Rework quantity and rate per item and vendor over a period, read from
     #: decided inspections (WP E5).
     REWORK_RATE = "REWORK_RATE"
+    #: Actual and release-standard cost for closed production orders.
+    PRODUCTION_COST = "PRODUCTION_COST"
 
 
 #: Members of :class:`ReportKey` whose artefact is produced by a dedicated task

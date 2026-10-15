@@ -90,6 +90,7 @@ from src.modules.reports.schemas import (
     MachineUtilisationRow,
     MrpShortageRow,
     OrderDelayRow,
+    ProductionCostRow,
     ProductionEfficiencyRow,
     ProductionPendingRow,
     ProductProfitabilityRow,
@@ -383,6 +384,7 @@ class ReportDefinition:
     #: Whether the result may be served from Redis. False for anything derived
     #: from stock on hand - section 34.
     cacheable: bool
+    permission: Permission = Permission.REPORT_VIEW
     derive: Deriver | None = None
 
 
@@ -734,6 +736,19 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         cacheable=True,
         derive=_derive_production_efficiency,
     ),
+    ReportKey.PRODUCTION_COST: ReportDefinition(
+        key=ReportKey.PRODUCTION_COST,
+        title="Production cost",
+        description=(
+            "Closed production orders with release-standard and actual costs by item, "
+            "work centre and cost centre."
+        ),
+        row_model=ProductionCostRow,
+        build=lambda repo, ctx: repo.production_cost(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        cacheable=False,
+        permission=Permission.ITEM_COST_VIEW,
+    ),
     ReportKey.SHIFT_PRODUCTION: ReportDefinition(
         key=ReportKey.SHIFT_PRODUCTION,
         title="Daily production by shift",
@@ -871,8 +886,12 @@ def definition_for(key: ReportKey) -> ReportDefinition:
     return REPORT_CATALOGUE[key]
 
 
-def descriptors() -> list[ReportDescriptorRead]:
-    """The report catalogue, for a client that renders the picker generically."""
+def descriptors(principal: Principal | None = None) -> list[ReportDescriptorRead]:
+    """Return reports available to the principal.
+
+    Omitting the principal is reserved for internal catalogue checks. HTTP
+    callers always pass the authenticated principal.
+    """
     return [
         ReportDescriptorRead(
             key=definition.key,
@@ -882,6 +901,7 @@ def descriptors() -> list[ReportDescriptorRead]:
             columns=list(columns_for(definition.row_model)),
         )
         for definition in REPORT_CATALOGUE.values()
+        if principal is None or principal.has(definition.permission)
     ]
 
 
@@ -1365,6 +1385,12 @@ async def _accessible_job(
             _is_scoped_catalogue_report(snapshot)
             and not _catalogue_report_scope_still_accessible(snapshot, principal)
         )
+        or (
+            snapshot is not None
+            and snapshot.report_key in REPORT_CATALOGUE
+            and REPORT_CATALOGUE[snapshot.report_key].permission != Permission.REPORT_VIEW
+            and not principal.has(REPORT_CATALOGUE[snapshot.report_key].permission)
+        )
         or not (
             principal.has(Permission.REPORT_VIEW) or _owns_valuation_export(snapshot, principal)
         )
@@ -1689,7 +1715,9 @@ async def companies_with_expired_snapshots(session: AsyncSession) -> list[uuid.U
 
 
 def valuation_document_read_policy(
-    tenant: TenantContext, document_id: InstrumentedAttribute[Any]
+    tenant: TenantContext,
+    principal: Principal | None,
+    document_id: InstrumentedAttribute[Any],
 ) -> ColumnElement[bool] | None:
     if tenant.is_superuser or not tenant.allowed_warehouse_ids:
         return None
@@ -1705,7 +1733,9 @@ def valuation_document_read_policy(
 
 
 def catalogue_report_document_read_policy(
-    tenant: TenantContext, document_id: InstrumentedAttribute[Any]
+    tenant: TenantContext,
+    principal: Principal | None,
+    document_id: InstrumentedAttribute[Any],
 ) -> ColumnElement[bool] | None:
     if tenant.is_superuser or not tenant.allowed_warehouse_ids:
         return None
@@ -1718,10 +1748,23 @@ def catalogue_report_document_read_policy(
     )
 
 
+def production_cost_document_read_policy(
+    tenant: TenantContext,
+    principal: Principal | None,
+    document_id: InstrumentedAttribute[Any],
+) -> ColumnElement[bool] | None:
+    if principal is None or principal.has(Permission.ITEM_COST_VIEW):
+        return None
+    return ReportSnapshotRepository.report_key_document_visibility(
+        tenant, document_id, report_key=ReportKey.PRODUCTION_COST
+    )
+
+
 register_document_read_policy("finance_valuation", valuation_document_read_policy)
 register_document_read_policy(
     "catalogue_report_warehouse_scope", catalogue_report_document_read_policy
 )
+register_document_read_policy("production_cost_permission", production_cost_document_read_policy)
 
 
 __all__ = [

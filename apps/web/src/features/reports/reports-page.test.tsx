@@ -59,6 +59,8 @@ const routes = {
   'GET /reports/catalogue': ok([DESCRIPTOR]),
   // The warehouse filter loads its options as soon as the runner mounts.
   'GET /warehouses': page([]),
+  'GET /routing/work-centers': page([]),
+  'GET /organization/cost-centres': page([]),
 }
 
 describe('running the same report twice', () => {
@@ -169,5 +171,80 @@ describe('the cost centre statement', () => {
     expect(screen.getByText('-₹3,000.00')).toBeVisible()
     expect(asked[0]!.searchParams.get('date_from')).toBe('2026-04-01')
     expect(asked[0]!.searchParams.get('date_to')).toBe('2026-09-30')
+  })
+})
+
+describe('production cost filters', () => {
+  const PRODUCTION_COST: ReportDescriptor = {
+    key: 'PRODUCTION_COST',
+    title: 'Production cost',
+    description: 'Closed production order costs.',
+    requires_period: true,
+    columns: [
+      { name: 'actual_unit_cost', label: 'Actual unit cost', kind: 'number' },
+      { name: 'standard_unit_cost', label: 'Standard unit cost', kind: 'number' },
+      { name: 'total_variance', label: 'Total variance', kind: 'number' },
+    ],
+  }
+
+  it('sends the selected work centre and cost centre to the report route', async () => {
+    const asked: URL[] = []
+    const { user } = renderScreen(<ReportsPage />, {
+      permissions: [P.REPORT_VIEW, P.ITEM_COST_VIEW, P.WORK_CENTER_VIEW, P.COST_CENTRE_VIEW],
+      route: '/reports?report=PRODUCTION_COST&date_from=2026-09-01&date_to=2026-09-30',
+      routes: {
+        ...routes,
+        'GET /reports/catalogue': ok([PRODUCTION_COST]),
+        'GET /routing/work-centers': page([
+          {
+            id: 'wc-mill',
+            code: 'WC-MILL',
+            name: 'Milling',
+            description: null,
+            plant_id: null,
+            department_id: null,
+            cost_centre_id: null,
+            capacity_per_hour: '0',
+            cost_per_hour: '0',
+            setup_cost: '0',
+            working_hours_per_day: '8',
+            is_active: true,
+            created_at: '2026-09-01T00:00:00Z',
+            updated_at: '2026-09-01T00:00:00Z',
+          },
+        ]),
+        'GET /organization/cost-centres': page([
+          {
+            id: 'cc-production',
+            code: 'CC-PROD',
+            name: 'Production',
+            cost_centre_type: 'PRODUCTION',
+            parent_id: null,
+            plant_id: null,
+            head_user_id: null,
+            description: null,
+            is_active: true,
+            created_at: '2026-09-01T00:00:00Z',
+            updated_at: '2026-09-01T00:00:00Z',
+            deleted_at: null,
+          },
+        ]),
+        'GET /reports/production-cost': ({ url }) => {
+          asked.push(url)
+          return page([])
+        },
+      },
+    })
+
+    await user.click(await screen.findByRole('combobox', { name: 'Work centre' }))
+    await user.click(await screen.findByRole('option', { name: 'WC-MILL - Milling' }))
+    await user.click(await screen.findByRole('combobox', { name: 'Cost centre' }))
+    await user.click(await screen.findByRole('option', { name: /CC-PROD/ }))
+    await user.click(screen.getByRole('button', { name: 'Run report' }))
+    await screen.findByText('No rows for these parameters')
+
+    expect(asked).toHaveLength(1)
+    expect(asked[0]!.searchParams.get('work_center_id')).toBe('wc-mill')
+    expect(asked[0]!.searchParams.get('cost_centre_id')).toBe('cc-production')
   })
 })

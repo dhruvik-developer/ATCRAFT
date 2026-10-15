@@ -111,6 +111,8 @@ class ReportFilters(BaseModel):
     vendor_id: uuid.UUID | None = None
     customer_id: uuid.UUID | None = None
     category_id: uuid.UUID | None = None
+    work_center_id: uuid.UUID | None = None
+    cost_centre_id: uuid.UUID | None = None
     status: Annotated[str | None, Field(max_length=32)] = None
     #: Age threshold in days: dead stock older than this, delays longer than this.
     min_days: Annotated[int | None, Field(ge=0, le=3650)] = None
@@ -344,6 +346,29 @@ class ProductionEfficiencyRow(ReportRowBase):
     yield_percent: Decimal = Decimal("0")
     schedule_efficiency_percent: Decimal = Decimal("0")
     completed_on_time: bool = False
+
+
+class ProductionCostRow(ReportRowBase):
+    production_order_id: uuid.UUID
+    code: str
+    closed_at: datetime
+    item_id: uuid.UUID
+    item_code: str
+    item_name: str
+    cost_centre_id: uuid.UUID | None
+    cost_centre_code: str | None
+    cost_centre_name: str | None
+    produced_quantity: Decimal
+    material_cost: Decimal
+    operation_cost: Decimal
+    subcontract_cost: Decimal | None
+    total_cost: Decimal
+    actual_unit_cost: Decimal | None
+    standard_unit_cost: Decimal | None
+    material_variance: Decimal | None
+    operation_variance: Decimal | None
+    subcontract_variance: Decimal | None
+    total_variance: Decimal | None
 
 
 class ShiftProductionRow(ReportRowBase):
@@ -603,6 +628,7 @@ __all__ = [
     "MrpShortageRow",
     "OrderDelayRow",
     "ProductProfitabilityRow",
+    "ProductionCostRow",
     "ProductionEfficiencyRow",
     "ProductionPendingRow",
     "PurchasePendingRow",
