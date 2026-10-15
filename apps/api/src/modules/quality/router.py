@@ -33,6 +33,7 @@ from src.modules.quality.models import (
     InspectionResult,
     InspectionStatus,
     QcStage,
+    ReworkStatus,
     SamplingPlan,
 )
 from src.modules.quality.schemas import (
@@ -48,6 +49,11 @@ from src.modules.quality.schemas import (
     ItemQualityHistory,
     RecordResultsRequest,
     RecordResultsResponse,
+    ReworkCompleteRequest,
+    ReworkCreate,
+    ReworkFilters,
+    ReworkRecordRead,
+    ReworkStartRequest,
     TemplateCreate,
     TemplateDetail,
     TemplateFilters,
@@ -139,6 +145,23 @@ def inspection_filters(
 
 TemplateFilterDep = Annotated[TemplateFilters, Depends(template_filters)]
 InspectionFilterDep = Annotated[InspectionFilters, Depends(inspection_filters)]
+
+
+def rework_filters(
+    inspection_id: Annotated[uuid.UUID | None, Query()] = None,
+    rework_status: Annotated[ReworkStatus | None, Query(alias="status")] = None,
+    assigned_to: Annotated[uuid.UUID | None, Query()] = None,
+    work_center_id: Annotated[uuid.UUID | None, Query()] = None,
+) -> ReworkFilters:
+    return ReworkFilters(
+        inspection_id=inspection_id,
+        status=rework_status,
+        assigned_to=assigned_to,
+        work_center_id=work_center_id,
+    )
+
+
+ReworkFilterDep = Annotated[ReworkFilters, Depends(rework_filters)]
 
 
 # -----------------------------------------------------------------------------
@@ -466,4 +489,85 @@ async def close_inspection(
     )
     return ApiResponse[InspectionSummary].ok(
         InspectionSummary.model_validate(inspection), f"Inspection {inspection.code} closed"
+    )
+
+
+# -----------------------------------------------------------------------------
+# Rework cycles
+# -----------------------------------------------------------------------------
+
+
+@router.get(
+    "/rework",
+    response_model=PaginatedResponse[ReworkRecordRead],
+    summary="List rework cycles",
+    dependencies=[require_permission(Permission.QC_VIEW)],
+)
+async def list_rework(
+    session: DbSession,
+    tenant: Tenant,
+    filters: ReworkFilterDep,
+    params: PageDep,
+    sort: SortDep,
+) -> PaginatedResponse[ReworkRecordRead]:
+    rows, pagination = await service.list_rework(session, tenant, filters, params, sort)
+    return PaginatedResponse[ReworkRecordRead](
+        data=[ReworkRecordRead.model_validate(row) for row in rows], pagination=pagination
+    )
+
+
+@router.post(
+    "/rework",
+    response_model=ApiResponse[ReworkRecordRead],
+    status_code=status.HTTP_201_CREATED,
+    summary="Open a rework cycle",
+    description=(
+        "Send part of an inspection's rework quantity to the bench. The stock stays in QC hold "
+        "for the whole cycle; completing the cycle re-opens the inspection so the quantity is "
+        "re-decided."
+    ),
+    dependencies=[require_permission(Permission.QC_INSPECT)],
+)
+async def create_rework(
+    payload: ReworkCreate, session: DbSession, tenant: Tenant
+) -> ApiResponse[ReworkRecordRead]:
+    record = await service.create_rework(session, tenant, payload)
+    return ApiResponse[ReworkRecordRead].ok(
+        ReworkRecordRead.model_validate(record), f"Rework {record.code} opened"
+    )
+
+
+@router.post(
+    "/rework/{record_id}/start",
+    response_model=ApiResponse[ReworkRecordRead],
+    summary="Start a rework cycle",
+    dependencies=[require_permission(Permission.QC_INSPECT)],
+)
+async def start_rework(
+    record_id: uuid.UUID, payload: ReworkStartRequest, session: DbSession, tenant: Tenant
+) -> ApiResponse[ReworkRecordRead]:
+    record = await service.start_rework(session, tenant, record_id, reason=payload.reason)
+    return ApiResponse[ReworkRecordRead].ok(
+        ReworkRecordRead.model_validate(record), f"Rework {record.code} started"
+    )
+
+
+@router.post(
+    "/rework/{record_id}/complete",
+    response_model=ApiResponse[ReworkRecordRead],
+    summary="Complete a rework cycle and re-open the inspection",
+    description=(
+        "The outcome is the bench's recommendation, not a stock movement: even a SCRAPPED "
+        "outcome leaves the quantity in QC hold for the inspector to disposition on re-decision. "
+        "The inspection is re-opened so that re-decision is owed."
+    ),
+    dependencies=[require_permission(Permission.QC_DECIDE)],
+)
+async def complete_rework(
+    record_id: uuid.UUID, payload: ReworkCompleteRequest, session: DbSession, tenant: Tenant
+) -> ApiResponse[ReworkRecordRead]:
+    record = await service.complete_rework(session, tenant, record_id, payload)
+    return ApiResponse[ReworkRecordRead].ok(
+        ReworkRecordRead.model_validate(record),
+        f"Rework {record.code} completed {record.outcome}",
     )

@@ -84,6 +84,8 @@ class DocTypes:
     SCRAP_DISPOSAL = DocType("scrap_disposal", "SD", yearly=False)
     INTERNAL_ISSUE = DocType("internal_issue", "II", yearly=False)
     QC_INSPECTION = DocType("qc_inspection", "QC")
+    #: One rework cycle against a decided inspection.
+    QC_REWORK = DocType("qc_rework_record", "RW")
     PACKING_ORDER = DocType("packing_order", "PK")
     DISPATCH = DocType("dispatch", "DSP")
     VENDOR_INVOICE = DocType("vendor_invoice", "VINV")

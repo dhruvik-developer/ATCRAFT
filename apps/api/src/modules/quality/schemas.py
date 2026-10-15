@@ -37,6 +37,8 @@ from src.modules.quality.models import (
     InspectionStatus,
     ParameterType,
     QcStage,
+    ReworkOutcome,
+    ReworkStatus,
     SamplingPlan,
 )
 
@@ -522,6 +524,44 @@ class InspectionResultRead(BaseModel):
     photo_document_id: uuid.UUID | None
 
 
+class ReworkRecordRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    code: str
+    inspection_id: uuid.UUID
+    quantity: Decimal
+    assigned_to: uuid.UUID | None
+    work_center_id: uuid.UUID | None
+    status: ReworkStatus
+    outcome: ReworkOutcome | None
+    cost: Decimal | None
+    notes: str | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    created_at: datetime
+
+
+class DecisionHistoryRead(BaseModel):
+    """One verdict in an inspection's decision history, oldest first."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    inspection_id: uuid.UUID
+    sequence: int
+    result: InspectionResult
+    accepted_quantity: Decimal
+    rejected_quantity: Decimal
+    rework_quantity: Decimal
+    hold_quantity: Decimal
+    scrap_quantity: Decimal
+    reason: str
+    rejection_reason: str | None
+    inspected_at: datetime
+    created_at: datetime
+
+
 class InspectionSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -558,6 +598,12 @@ class InspectionDetail(InspectionSummary):
     closed_at: datetime | None = None
     parameters: list[TemplateParameterRead] = Field(default_factory=list)
     results: list[InspectionResultRead] = Field(default_factory=list)
+    #: Every verdict this inspection has carried, oldest first. Re-deciding a
+    #: reworked lot overwrites the five quantities above; the cycles are kept
+    #: here instead of being lost.
+    decisions: list[DecisionHistoryRead] = Field(default_factory=list)
+    #: The rework cycles raised against the held quantity, oldest first.
+    rework_records: list[ReworkRecordRead] = Field(default_factory=list)
 
 
 class ParameterEvaluationRead(BaseModel):
@@ -595,6 +641,75 @@ class DecisionResponse(BaseModel):
     scrapped_quantity: Decimal
     still_on_hold_quantity: Decimal
     return_required: bool
+
+
+# -----------------------------------------------------------------------------
+# Rework cycles
+# -----------------------------------------------------------------------------
+
+
+class ReworkCreate(BaseModel):
+    """Open a rework cycle against an inspection holding rework quantity.
+
+    The cycle covers part of the inspection's ``rework_quantity`` - the stock
+    stays in the QC hold pool for the whole cycle, so no movement is posted
+    here. Who does the work is named one of two ways: ``assigned_to`` (a user)
+    or ``work_center_id`` (a bench). One of the two is required; both set means
+    the assignee works at that centre.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    inspection_id: uuid.UUID
+    quantity: PositiveQuantity
+    assigned_to: uuid.UUID | None = None
+    work_center_id: uuid.UUID | None = None
+    notes: Remark | None = None
+    reason: Reason
+
+    @model_validator(mode="after")
+    def _somebody_owns_the_bench(self) -> Self:
+        if self.assigned_to is None and self.work_center_id is None:
+            raise ValueError(
+                "Name who does the rework: an assignee, a work centre, or both. A cycle "
+                "with nobody behind it is a quantity parked on a bench nobody owns."
+            )
+        return self
+
+
+class ReworkStartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Reason
+
+
+class ReworkCompleteRequest(BaseModel):
+    """Finish a rework cycle and hand the quantity back for re-decision.
+
+    The outcome is the bench's recommendation, not a stock movement: quality
+    owns the hold and the decision is the one release path, so even a SCRAPPED
+    outcome leaves the quantity in QC hold for the inspector to scrap on
+    re-decision. A RETURNED outcome against a named vendor flags the inspection
+    for a vendor return, the way a rejection does.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: ReworkOutcome
+    cost: Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)] | None = None
+    notes: Remark | None = None
+    reason: Reason
+
+
+class ReworkFilters(BaseModel):
+    """List filters for the rework bench's work list."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    inspection_id: uuid.UUID | None = None
+    status: ReworkStatus | None = None
+    assigned_to: uuid.UUID | None = None
+    work_center_id: uuid.UUID | None = None
 
 
 # -----------------------------------------------------------------------------

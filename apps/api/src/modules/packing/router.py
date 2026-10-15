@@ -44,6 +44,7 @@ from src.modules.packing.schemas import (
     PackingOrderCreate,
     PackingOrderDetail,
     PackingOrderFilters,
+    PackingOrderLineRead,
     PackingOrderSummary,
     PackingOrderUpdate,
     ReadyForDispatchRow,
@@ -329,6 +330,31 @@ async def hand_over(
     return ApiResponse[PackingOrderSummary].ok(
         PackingOrderSummary.model_validate(order),
         message=f"{order.code} handed over to dispatch",
+    )
+
+
+@router.post(
+    "/{order_id}/lines/{line_id}/reinspect",
+    response_model=ApiResponse[PackingOrderLineRead],
+    summary="Raise a fresh FINAL inspection for a rejected line",
+    description=(
+        "Only once the line's FINAL inspection is REJECTED: the rejected stock has moved to "
+        "DAMAGED, so the operator repacks replacement goods and this raises the inspection "
+        "that covers them."
+    ),
+    dependencies=[require_permission(Permission.PACKING_MANAGE)],
+)
+async def reinspect_line(
+    session: DbSession,
+    tenant: Tenant,
+    order_id: uuid.UUID,
+    line_id: uuid.UUID,
+    payload: ReasonRequest,
+) -> ApiResponse[PackingOrderLineRead]:
+    line = await service.reinspect_line(session, tenant, order_id, line_id, reason=payload.reason)
+    return ApiResponse[PackingOrderLineRead].ok(
+        PackingOrderLineRead.model_validate(line),
+        message=f"Line {line.line_number} re-inspected",
     )
 
 

@@ -101,6 +101,7 @@ from src.modules.reports.schemas import (
     ReportJobRead,
     ReportPeriod,
     ReportRowBase,
+    ReworkRateRow,
     SalesOrderStatusRow,
     ScrapRegisterRow,
     ShiftProductionRow,
@@ -474,6 +475,11 @@ def _derive_qc_rejection(row: dict[str, Any], ctx: ReportContext) -> dict[str, A
     return row
 
 
+def _derive_rework_rate(row: dict[str, Any], ctx: ReportContext) -> dict[str, Any]:
+    row["rework_rate_percent"] = percent(row["rework_quantity"], row["inspected_quantity"])
+    return row
+
+
 def _derive_vendor_performance(row: dict[str, Any], ctx: ReportContext) -> dict[str, Any]:
     on_time = percent(row["on_time_receipt_count"], row["receipt_count"])
     rejection = percent(row["rejected_quantity"], row["received_quantity"])
@@ -641,6 +647,16 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         requires_period=True,
         cacheable=True,
         derive=_derive_qc_rejection,
+    ),
+    ReportKey.REWORK_RATE: ReportDefinition(
+        key=ReportKey.REWORK_RATE,
+        title="Rework rate",
+        description="Rework quantity and rate per item and vendor over the period.",
+        row_model=ReworkRateRow,
+        build=lambda repo, ctx: repo.rework_rate(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        cacheable=True,
+        derive=_derive_rework_rate,
     ),
     ReportKey.VENDOR_PERFORMANCE: ReportDefinition(
         key=ReportKey.VENDOR_PERFORMANCE,

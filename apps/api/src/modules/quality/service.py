@@ -108,11 +108,11 @@ from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
-from src.core.types import ZERO, to_quantity
+from src.core.types import ZERO, to_money, to_quantity
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.inventory.models import StockState
-from src.modules.inventory.service import change_stock_state
+from src.modules.inventory.service import change_stock_state, get_balance
 from src.modules.notifications.models import NotificationSeverity, NotificationType
 from src.modules.notifications.service import notify_role
 from src.modules.quality import owners
@@ -124,17 +124,23 @@ from src.modules.quality.models import (
     InspectionStatus,
     ParameterType,
     QcInspection,
+    QcInspectionDecision,
     QcInspectionResult,
+    QcReworkRecord,
     QcStage,
     QcTemplate,
     QcTemplateParameter,
+    ReworkOutcome,
+    ReworkStatus,
     SamplingPlan,
 )
 from src.modules.quality.repository import (
     InspectableItem,
     ItemLookupRepository,
+    QcInspectionDecisionRepository,
     QcInspectionRepository,
     QcInspectionResultRepository,
+    QcReworkRepository,
     QcTemplateParameterRepository,
     QcTemplateRepository,
     QualityTotals,
@@ -146,6 +152,7 @@ from src.modules.quality.schemas import (
     MAX_REPORT_WINDOW_DAYS,
     VENDOR_ITEM_BREAKDOWN_LIMIT,
     DecideRequest,
+    DecisionHistoryRead,
     DecisionResponse,
     InspectionCreate,
     InspectionDetail,
@@ -157,6 +164,10 @@ from src.modules.quality.schemas import (
     QualityPeriodRow,
     RecordResultsRequest,
     RecordResultsResponse,
+    ReworkCompleteRequest,
+    ReworkCreate,
+    ReworkFilters,
+    ReworkRecordRead,
     TemplateCreate,
     TemplateDetail,
     TemplateFilters,
@@ -172,6 +183,7 @@ log = get_logger(__name__)
 
 AUDIT_QC_TEMPLATE = "qc_template"
 AUDIT_QC_INSPECTION = "qc_inspection"
+AUDIT_QC_REWORK = "qc_rework_record"
 
 #: What the ledger rows this module posts point back at. A bare string matching
 #: ``inventory_transactions.reference_type`` - the ledger outlives its source, so
@@ -190,6 +202,8 @@ STAGE_BY_REFERENCE_TYPE: dict[str, QcStage] = {
     "assembly_order": QcStage.ASSEMBLY,
     "production_order": QcStage.IN_PROCESS,
     "production_entry": QcStage.IN_PROCESS,
+    "work_order": QcStage.IN_PROCESS,
+    "packing_order": QcStage.FINAL,
     "purchase_return": QcStage.RETURN,
     "sales_return": QcStage.RETURN,
     "customer_return": QcStage.RETURN,
@@ -350,9 +364,48 @@ QC_INSPECTION_LIFECYCLE: StateMachine[InspectionStatus] = StateMachine(
             permission=Permission.QC_INSPECT,
             label="Start inspection",
         ),
+        # A finished rework cycle hands the lot back to QC: the bench has done
+        # what it was asked to do, and the held quantity is owed a fresh
+        # verdict. Completing the cycle moves REWORK -> IN_PROGRESS with the
+        # result back at PENDING (``status_and_result_agree`` demands the pair),
+        # and the earlier verdicts stay in the decision history. Deliberately
+        # not a decision edge: it moves no stock, and the inspector still has
+        # to re-decide before anything leaves the QC pool.
+        Transition(
+            InspectionStatus.REWORK,
+            InspectionStatus.IN_PROGRESS,
+            permission=Permission.QC_DECIDE,
+            label="Re-open for re-decision",
+        ),
         *_decision_transitions(),
     ),
     terminal=frozenset({InspectionStatus.CLOSED}),
+)
+
+
+#: One rework cycle's own lifecycle (database.md section 7). OPEN is raised,
+#: IN_PROGRESS is on the bench, DONE is finished with an outcome recorded.
+#: The cycle never reopens: a second round of work is a second record, and a
+#: DONE cycle's quantity is either re-decided on the inspection (REWORKED_OK)
+#: or dispositioned there afterwards.
+REWORK_LIFECYCLE: StateMachine[ReworkStatus] = StateMachine(
+    entity="QC rework record",
+    initial=ReworkStatus.OPEN,
+    transitions=(
+        Transition(
+            ReworkStatus.OPEN,
+            ReworkStatus.IN_PROGRESS,
+            permission=Permission.QC_INSPECT,
+            label="Start rework",
+        ),
+        Transition(
+            ReworkStatus.IN_PROGRESS,
+            ReworkStatus.DONE,
+            permission=Permission.QC_DECIDE,
+            label="Complete rework",
+        ),
+    ),
+    terminal=frozenset({ReworkStatus.DONE}),
 )
 
 
@@ -850,10 +903,15 @@ def inspection_detail(
     inspection: QcInspection,
     parameters: Sequence[QcTemplateParameter],
     results: Sequence[QcInspectionResult],
+    *,
+    decisions: Sequence[QcInspectionDecision] = (),
+    rework_records: Sequence[QcReworkRecord] = (),
 ) -> InspectionDetail:
     detail = InspectionDetail.model_validate(inspection)
     detail.parameters = [TemplateParameterRead.model_validate(row) for row in parameters]
     detail.results = [InspectionResultRead.model_validate(row) for row in results]
+    detail.decisions = [DecisionHistoryRead.model_validate(row) for row in decisions]
+    detail.rework_records = [ReworkRecordRead.model_validate(row) for row in rework_records]
     return detail
 
 
@@ -1556,6 +1614,46 @@ async def create_in_process_inspection(
     )
 
 
+async def create_final_inspection(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    item_id: uuid.UUID,
+    quantity: Decimal,
+    warehouse_id: uuid.UUID,
+    reference_type: str,
+    reference_id: uuid.UUID,
+    reference_code: str,
+    vendor_id: uuid.UUID | None = None,
+    batch_id: uuid.UUID | None = None,
+) -> QcInspection:
+    """Raise a FINAL inspection for finished goods about to be packed.
+
+    The cross-module entry point packing calls when it starts an order whose
+    line item requires final QC (docs/assumptions.md §E5-8). The goods are
+    reserved for the sales order, not held: packing completes and hands over
+    only once this inspection is ACCEPTED, and a REJECTED verdict moves the
+    stock to DAMAGED through the ordinary decision path. Nothing is held here.
+    """
+    return await _raise_inspection(
+        session,
+        tenant,
+        item_id=item_id,
+        warehouse_id=warehouse_id,
+        quantity=quantity,
+        stage=QcStage.FINAL,
+        reference_type=reference_type,
+        reference_id=reference_id,
+        reference_code=reference_code,
+        vendor_id=vendor_id,
+        batch_id=batch_id,
+        template_id=None,
+        remarks=None,
+        hold_stock=False,
+        reason=f"Final inspection raised by {reference_code}",
+    )
+
+
 async def create_inspection(
     session: AsyncSession, tenant: TenantContext, payload: InspectionCreate
 ) -> QcInspection:
@@ -1699,9 +1797,17 @@ async def record_results(
 
         results = await result_repo.list_for_inspection(inspection.id)
         evaluation = _evaluate(parameters, results)
+        decisions = await QcInspectionDecisionRepository(session, tenant).list_for_inspection(
+            inspection.id
+        )
+        rework_records = await QcReworkRepository(session, tenant).list_for_inspection(
+            inspection.id
+        )
 
     return RecordResultsResponse(
-        inspection=inspection_detail(inspection, parameters, results),
+        inspection=inspection_detail(
+            inspection, parameters, results, decisions=decisions, rework_records=rework_records
+        ),
         evaluation=evaluation_read(evaluation),
     )
 
@@ -1882,6 +1988,31 @@ async def decide_inspection(
             },
         )
 
+        # Every verdict is kept, not just the latest: re-deciding a reworked lot
+        # overwrites the five quantities above, and without this row the earlier
+        # cycles would survive only as audit diffs. The sequence is assigned
+        # under the inspection's row lock, so two concurrent verdicts cannot
+        # claim one number (docs/assumptions.md §E5-5).
+        decision_repo = QcInspectionDecisionRepository(session, tenant)
+        session.add(
+            QcInspectionDecision(
+                company_id=tenant.company_id,
+                created_by_id=tenant.user_id,
+                inspection_id=inspection.id,
+                sequence=await decision_repo.next_sequence(inspection.id),
+                result=result,
+                accepted_quantity=requested.accepted,
+                rejected_quantity=requested.rejected,
+                rework_quantity=requested.rework,
+                hold_quantity=requested.hold,
+                scrap_quantity=requested.scrap,
+                reason=payload.reason,
+                rejection_reason=payload.rejection_reason or inspection.rejection_reason,
+                inspected_at=decided_at,
+            )
+        )
+        await session.flush()
+
         if payload.close:
             await _close(session, tenant, inspection, repo=repo, reason=payload.reason)
 
@@ -1893,8 +2024,17 @@ async def decide_inspection(
 
         await _announce_failure(session, tenant, inspection, requested)
 
+        decisions = await QcInspectionDecisionRepository(session, tenant).list_for_inspection(
+            inspection.id
+        )
+        rework_records = await QcReworkRepository(session, tenant).list_for_inspection(
+            inspection.id
+        )
+
     return DecisionResponse(
-        inspection=inspection_detail(inspection, parameters, results),
+        inspection=inspection_detail(
+            inspection, parameters, results, decisions=decisions, rework_records=rework_records
+        ),
         evaluation=evaluation_read(evaluation),
         released_quantity=moved[StockState.AVAILABLE],
         damaged_quantity=moved[StockState.DAMAGED],
@@ -1913,19 +2053,34 @@ async def _post_decision_movements(
     reason: str,
     occurred_at: datetime,
 ) -> dict[StockState, Decimal]:
-    """Move the newly dispositioned quantity out of QC hold.
+    """Move the newly dispositioned quantity to the pool the verdict names.
 
     Posted one target state at a time because ``change_stock_state`` writes one
     ledger row per movement and the three destinations are genuinely three
     different events. They all touch the same balance position, which the
     inventory engine locks and re-reads for each one inside this transaction, so
     the three cannot race each other or anybody else (database.md section 4.4).
+
+    The source pool is read, not assumed: most inspections decide stock their
+    raiser put on QC hold, but a FINAL inspection covers goods that were never
+    held (packing reserves them for the sales order) and a manual inspection
+    raised without ``hold_stock`` covers available stock. What is still on hold
+    leaves the hold pool; the rest is already where an ACCEPTED verdict would
+    put it (a no-op), or leaves the available pool for DAMAGED and SCRAP.
     """
     moved: dict[StockState, Decimal] = {
         StockState.AVAILABLE: ZERO,
         StockState.DAMAGED: ZERO,
         StockState.SCRAP: ZERO,
     }
+    position = await get_balance(
+        session,
+        tenant,
+        inspection.item_id,
+        inspection.warehouse_id,
+        batch_id=inspection.batch_id,
+    )
+    held_now = to_quantity(Decimal(position.qc_hold_quantity)) if position is not None else ZERO
     for verdict, quantity in (
         (InspectionResult.ACCEPTED, delta.accepted),
         (InspectionResult.REJECTED, delta.rejected),
@@ -1934,22 +2089,44 @@ async def _post_decision_movements(
         target_state = STATE_FOR_DISPOSITION[verdict]
         if target_state is None or quantity <= ZERO:
             continue
-        await change_stock_state(
-            session,
-            tenant,
-            item_id=inspection.item_id,
-            warehouse_id=inspection.warehouse_id,
-            quantity=quantity,
-            from_state=StockState.QC_HOLD,
-            to_state=target_state,
-            reason=f"{inspection.code} {verdict}: {reason}",
-            batch_id=inspection.batch_id,
-            reference_type=MOVEMENT_REFERENCE_QC,
-            reference_id=inspection.id,
-            reference_code=inspection.code,
-            occurred_at=occurred_at,
-        )
-        moved[target_state] = to_quantity(quantity)
+        from_hold = min(quantity, held_now)
+        if from_hold > ZERO:
+            await change_stock_state(
+                session,
+                tenant,
+                item_id=inspection.item_id,
+                warehouse_id=inspection.warehouse_id,
+                quantity=from_hold,
+                from_state=StockState.QC_HOLD,
+                to_state=target_state,
+                reason=f"{inspection.code} {verdict}: {reason}",
+                batch_id=inspection.batch_id,
+                reference_type=MOVEMENT_REFERENCE_QC,
+                reference_id=inspection.id,
+                reference_code=inspection.code,
+                occurred_at=occurred_at,
+            )
+            moved[target_state] = to_quantity(moved[target_state] + from_hold)
+            held_now = to_quantity(held_now - from_hold)
+        rest = to_quantity(quantity - from_hold)
+        if rest > ZERO and target_state is not StockState.AVAILABLE:
+            # Stock the lot never held: refused goods leave the available pool.
+            await change_stock_state(
+                session,
+                tenant,
+                item_id=inspection.item_id,
+                warehouse_id=inspection.warehouse_id,
+                quantity=rest,
+                from_state=StockState.AVAILABLE,
+                to_state=target_state,
+                reason=f"{inspection.code} {verdict}: {reason}",
+                batch_id=inspection.batch_id,
+                reference_type=MOVEMENT_REFERENCE_QC,
+                reference_id=inspection.id,
+                reference_code=inspection.code,
+                occurred_at=occurred_at,
+            )
+            moved[target_state] = to_quantity(moved[target_state] + rest)
     return moved
 
 
@@ -2091,6 +2268,248 @@ async def close_inspection(
 
 
 # =============================================================================
+# Rework cycles
+# =============================================================================
+
+
+async def _lock_rework_inspection(
+    session: AsyncSession, tenant: TenantContext, inspection_id: uuid.UUID
+) -> QcInspection:
+    """The inspection a rework cycle is raised against, row-locked.
+
+    The lock serialises cycle creation against the decision that could clear
+    the rework quantity out from under it: without it, a cycle could be opened
+    for quantity the inspector has just re-decided away.
+    """
+    inspection = await QcInspectionRepository(session, tenant).lock_for_update(inspection_id)
+    if inspection is None:
+        raise NotFoundError("QC inspection", inspection_id)
+    return inspection
+
+
+async def _assert_bench(
+    session: AsyncSession, tenant: TenantContext, payload: ReworkCreate
+) -> None:
+    """The named assignee and work centre exist in this company.
+
+    A foreign key is not a tenant check: another company's user id satisfies
+    it, and the rework bench would then belong to somebody who cannot sign in
+    here. Both are read through their tenant-scoped repositories.
+    """
+    if payload.assigned_to is not None:
+        from src.modules.users.repository import UserRepository
+
+        if await UserRepository(session, tenant).get(payload.assigned_to) is None:
+            raise NotFoundError("User", payload.assigned_to)
+    if payload.work_center_id is not None:
+        from src.modules.routing.repository import WorkCenterRepository
+
+        if await WorkCenterRepository(session, tenant).get(payload.work_center_id) is None:
+            raise NotFoundError("Work centre", payload.work_center_id)
+
+
+async def create_rework(
+    session: AsyncSession, tenant: TenantContext, payload: ReworkCreate
+) -> QcReworkRecord:
+    """Open a rework cycle against an inspection holding rework quantity.
+
+    The cycle covers part of what the verdict left on the bench, and the stock
+    stays in the QC hold pool for the whole cycle: nothing is posted here, and
+    the cycle's quantity may not exceed what is still uncovered. Completing the
+    cycle re-opens the inspection so the quantity is re-decided.
+    """
+    repo = QcReworkRepository(session, tenant)
+
+    async with transaction(session):
+        inspection = await _lock_rework_inspection(session, tenant, payload.inspection_id)
+        quantity = to_quantity(payload.quantity)
+        held = to_quantity(Decimal(inspection.rework_quantity))
+        if held <= ZERO:
+            raise BusinessRuleError(
+                f"{inspection.code} holds no quantity for rework; there is nothing to send "
+                "to the bench.",
+                details={"inspection_id": str(inspection.id)},
+            )
+        open_quantity = await repo.open_quantity_for_inspection(inspection.id)
+        if quantity + open_quantity > held:
+            raise BusinessRuleError(
+                f"{inspection.code} holds {held} for rework with {open_quantity} already on "
+                f"the bench; a further {quantity} would promise the bench more material "
+                "than the inspection holds.",
+                details={
+                    "inspection_id": str(inspection.id),
+                    "rework_quantity": str(held),
+                    "open_quantity": str(open_quantity),
+                    "requested_quantity": str(quantity),
+                },
+            )
+        await _assert_bench(session, tenant, payload)
+
+        record = QcReworkRecord(
+            company_id=tenant.company_id,
+            created_by_id=tenant.user_id,
+            code=await next_document_number(session, tenant.company_id, DocTypes.QC_REWORK),
+            inspection_id=inspection.id,
+            quantity=quantity,
+            assigned_to=payload.assigned_to,
+            work_center_id=payload.work_center_id,
+            status=ReworkStatus.OPEN,
+            notes=payload.notes,
+        )
+        repo.add(record)
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.CREATE,
+            entity_type=AUDIT_QC_REWORK,
+            entity_id=record.id,
+            entity_code=record.code,
+            summary=(
+                f"Rework {record.code} opened for {quantity} of {inspection.code}"
+                + (f" against {inspection.reference_code}" if inspection.reference_code else "")
+            ),
+            user_id=tenant.user_id,
+            new_values={
+                "inspection_id": inspection.id,
+                "quantity": quantity,
+                "assigned_to": payload.assigned_to,
+                "work_center_id": payload.work_center_id,
+            },
+            context={"reason": payload.reason},
+        )
+
+    return record
+
+
+async def start_rework(
+    session: AsyncSession, tenant: TenantContext, record_id: uuid.UUID, *, reason: str
+) -> QcReworkRecord:
+    """Put an opened cycle on the bench."""
+    repo = QcReworkRepository(session, tenant)
+
+    async with transaction(session):
+        record = await repo.lock_for_update(record_id)
+        if record is None:
+            raise NotFoundError("QC rework record", record_id)
+        before = ReworkStatus(record.status)
+        REWORK_LIFECYCLE.assert_transition(before, ReworkStatus.IN_PROGRESS)
+        record.status = ReworkStatus.IN_PROGRESS
+        record.started_at = utcnow()
+        record.updated_by_id = tenant.user_id
+        repo.touch(record)
+        await session.flush()
+
+        await record_status_change(
+            session,
+            company_id=tenant.company_id,
+            entity_type=AUDIT_QC_REWORK,
+            entity_id=record.id,
+            entity_code=record.code,
+            from_status=str(before),
+            to_status=str(ReworkStatus.IN_PROGRESS),
+            user_id=tenant.user_id,
+            reason=reason,
+        )
+
+    return record
+
+
+async def complete_rework(
+    session: AsyncSession,
+    tenant: TenantContext,
+    record_id: uuid.UUID,
+    payload: ReworkCompleteRequest,
+) -> QcReworkRecord:
+    """Finish a rework cycle and hand the quantity back for re-decision.
+
+    The outcome is the bench's recommendation, never a stock movement: quality
+    owns the hold and the inspection decision is the one release path, so even
+    a SCRAPPED outcome leaves the quantity in QC hold for the inspector to
+    scrap on re-decision. The inspection is re-opened (REWORK -> IN_PROGRESS,
+    result back to PENDING) so the re-decision is owed, not optional. A
+    RETURNED outcome against a named vendor flags the inspection for a vendor
+    return the way a rejection does (docs/assumptions.md §E5-6).
+    """
+    repo = QcReworkRepository(session, tenant)
+    inspection_repo = QcInspectionRepository(session, tenant)
+
+    async with transaction(session):
+        record = await repo.lock_for_update(record_id)
+        if record is None:
+            raise NotFoundError("QC rework record", record_id)
+        REWORK_LIFECYCLE.assert_transition(ReworkStatus(record.status), ReworkStatus.DONE)
+
+        inspection = await inspection_repo.lock_for_update(record.inspection_id)
+        if inspection is None:  # pragma: no cover - the cycle holds a CASCADE FK to it
+            raise NotFoundError("QC inspection", record.inspection_id)
+        if InspectionStatus(inspection.status) is not InspectionStatus.REWORK or to_quantity(
+            Decimal(inspection.rework_quantity)
+        ) < to_quantity(Decimal(record.quantity)):
+            raise BusinessRuleError(
+                f"{inspection.code} no longer holds this cycle's quantity for rework; it "
+                "was re-decided while the cycle was open. Raise a fresh cycle against "
+                "what it holds now.",
+                details={
+                    "inspection_id": str(inspection.id),
+                    "inspection_status": str(inspection.status),
+                    "rework_quantity": str(inspection.rework_quantity),
+                    "record_quantity": str(record.quantity),
+                },
+            )
+
+        record.status = ReworkStatus.DONE
+        record.outcome = payload.outcome
+        record.cost = None if payload.cost is None else to_money(payload.cost)
+        if payload.notes is not None:
+            record.notes = payload.notes
+        record.completed_at = utcnow()
+        record.updated_by_id = tenant.user_id
+        repo.touch(record)
+        await session.flush()
+
+        if payload.outcome is ReworkOutcome.RETURNED and inspection.vendor_id is not None:
+            inspection.return_required = True
+            inspection_repo.touch(inspection)
+
+        await _transition(
+            session,
+            tenant,
+            inspection,
+            InspectionStatus.IN_PROGRESS,
+            reason=payload.reason,
+            repo=inspection_repo,
+            result=InspectionResult.PENDING,
+        )
+
+        await record_status_change(
+            session,
+            company_id=tenant.company_id,
+            entity_type=AUDIT_QC_REWORK,
+            entity_id=record.id,
+            entity_code=record.code,
+            from_status=str(ReworkStatus.IN_PROGRESS),
+            to_status=str(ReworkStatus.DONE),
+            user_id=tenant.user_id,
+            action=AuditAction.STATUS_CHANGE,
+            reason=f"{payload.reason} (outcome {payload.outcome})",
+        )
+
+    return record
+
+
+async def list_rework(
+    session: AsyncSession,
+    tenant: TenantContext,
+    filters: ReworkFilters,
+    params: PageParams,
+    sort: SortParams,
+) -> tuple[list[QcReworkRecord], OffsetPagination]:
+    return await QcReworkRepository(session, tenant).list_rework(filters, params, sort)
+
+
+# =============================================================================
 # Reads
 # =============================================================================
 
@@ -2125,7 +2544,13 @@ async def get_inspection_detail(
     repo = QcInspectionRepository(session, tenant)
     inspection = await repo.get_or_404(inspection_id)
     parameters, results = await _load_sheet(session, tenant, inspection)
-    return inspection_detail(inspection, parameters, results)
+    decisions = await QcInspectionDecisionRepository(session, tenant).list_for_inspection(
+        inspection.id
+    )
+    rework_records = await QcReworkRepository(session, tenant).list_for_inspection(inspection.id)
+    return inspection_detail(
+        inspection, parameters, results, decisions=decisions, rework_records=rework_records
+    )
 
 
 async def inspections_for_reference(

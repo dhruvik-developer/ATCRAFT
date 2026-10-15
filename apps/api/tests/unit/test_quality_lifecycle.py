@@ -12,9 +12,12 @@ SCRAP) -> CLOSED`` (database.md section 7).
 
 from __future__ import annotations
 
+import uuid
+from decimal import Decimal
 from itertools import pairwise
 
 import pytest
+from pydantic import ValidationError
 
 from src.core.errors import InvalidStateTransitionError
 from src.core.permissions import Permission
@@ -24,8 +27,12 @@ from src.modules.quality.models import (
     REOPENABLE_STATUSES,
     InspectionResult,
     InspectionStatus,
+    ReworkOutcome,
+    ReworkStatus,
 )
+from src.modules.quality.schemas import ReworkCompleteRequest, ReworkCreate
 from src.modules.quality.service import QC_INSPECTION_LIFECYCLE as FLOW
+from src.modules.quality.service import REWORK_LIFECYCLE as REWORK_FLOW
 
 HAPPY_PATH = (
     InspectionStatus.PENDING,
@@ -179,3 +186,88 @@ def test_the_open_statuses_are_exactly_the_undecided_ones() -> None:
     assert set(OPEN_STATUSES) | set(DECIDED_STATUSES) | {InspectionStatus.CLOSED} == set(
         InspectionStatus
     )
+
+
+# -----------------------------------------------------------------------------
+# Re-opening for re-decision (WP E5)
+# -----------------------------------------------------------------------------
+
+
+def test_a_finished_rework_cycle_reopens_its_inspection() -> None:
+    # The bench hands the lot back to QC; the inspector still has to re-decide
+    # before anything leaves the pool.
+    assert FLOW.can_transition(InspectionStatus.REWORK, InspectionStatus.IN_PROGRESS)
+    assert (
+        FLOW.required_permission(InspectionStatus.REWORK, InspectionStatus.IN_PROGRESS)
+        is Permission.QC_DECIDE
+    )
+
+
+@pytest.mark.parametrize(
+    "current",
+    [
+        InspectionStatus.ACCEPTED,
+        InspectionStatus.REJECTED,
+        InspectionStatus.HOLD,
+        InspectionStatus.SCRAP,
+        InspectionStatus.CLOSED,
+    ],
+)
+def test_only_rework_reopens_for_re_decision(current: InspectionStatus) -> None:
+    # HOLD carries quantity nobody was asked to rework, and everything else has
+    # left the pool - reopening any of them would erase a verdict without
+    # returning stock to a bench that owes it.
+    assert not FLOW.can_transition(current, InspectionStatus.IN_PROGRESS)
+
+
+# -----------------------------------------------------------------------------
+# The rework cycle (WP E5)
+# -----------------------------------------------------------------------------
+
+
+def test_the_rework_graph_is_structurally_sound() -> None:
+    REWORK_FLOW.validate()
+
+
+def test_a_cycle_runs_open_to_done_through_the_bench() -> None:
+    assert REWORK_FLOW.can_transition(ReworkStatus.OPEN, ReworkStatus.IN_PROGRESS)
+    assert REWORK_FLOW.can_transition(ReworkStatus.IN_PROGRESS, ReworkStatus.DONE)
+
+
+@pytest.mark.parametrize(
+    ("current", "target"),
+    [
+        (ReworkStatus.OPEN, ReworkStatus.DONE),
+        (ReworkStatus.DONE, ReworkStatus.IN_PROGRESS),
+        (ReworkStatus.IN_PROGRESS, ReworkStatus.OPEN),
+    ],
+)
+def test_a_cycle_neither_skips_the_bench_nor_reopens(
+    current: ReworkStatus, target: ReworkStatus
+) -> None:
+    # A second round of work is a second record: reopening a DONE cycle would
+    # let one row describe two trips to the bench with one outcome.
+    assert not REWORK_FLOW.can_transition(current, target)
+
+
+def test_a_cycle_names_its_bench() -> None:
+    with pytest.raises(ValidationError):
+        ReworkCreate(
+            inspection_id=uuid.uuid4(),
+            quantity=Decimal("10"),
+            reason="Nobody owns this",
+        )
+    owned = ReworkCreate(
+        inspection_id=uuid.uuid4(),
+        quantity=Decimal("10"),
+        work_center_id=uuid.uuid4(),
+        reason="Bench owns this",
+    )
+    assert owned.work_center_id is not None
+
+
+def test_a_completion_carries_an_outcome() -> None:
+    with pytest.raises(ValidationError):
+        ReworkCompleteRequest(reason="Done with no verdict")  # type: ignore[call-arg]
+    done = ReworkCompleteRequest(outcome=ReworkOutcome.SCRAPPED, reason="Beyond repair")
+    assert done.outcome is ReworkOutcome.SCRAPPED
