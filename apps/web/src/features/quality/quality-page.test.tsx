@@ -372,6 +372,26 @@ async function openInspection(
 }
 
 describe('the inspection sheet', () => {
+  it('offers damaged stock when this item cannot be scrapped and submits no scrap', async () => {
+    const { user, fetch } = await openInspection(
+      {
+        'GET /products/items/01a00000-0000-7000-8000-0000000000i1': ok({ can_scrap: false }),
+        [`GET /quality/inspections/${INSPECTION_ID}`]: ok(detail({ parameters: [] })),
+        [`POST /quality/inspections/${INSPECTION_ID}/decide`]: ok(decisionResponse()),
+      },
+      [P.QC_VIEW, P.QC_DECIDE, P.ITEM_VIEW],
+    )
+    await user.type(await screen.findByLabelText('Damaged'), '100')
+    expect(screen.queryByLabelText('Scrap')).not.toBeInTheDocument()
+    await user.type(screen.getByLabelText(/reason for this decision/i), 'Keep damaged material')
+    await user.type(screen.getByLabelText('Inspection remarks'), 'Failed fit test')
+    await user.click(screen.getByRole('button', { name: /submit inspection/i }))
+    const body = await waitFor(() =>
+      fetch.requestFor('POST', `/quality/inspections/${INSPECTION_ID}/decide`),
+    )
+    expect(body).toMatchObject({ rejected_quantity: '100', scrap_quantity: '0' })
+  })
+
   it('posts a reading into the typed column its parameter belongs in', async () => {
     const { user, fetch } = await openInspection(
       {

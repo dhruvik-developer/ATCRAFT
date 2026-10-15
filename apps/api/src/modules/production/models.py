@@ -493,8 +493,16 @@ class WorkOrder(TenantEntity):
     operator_user_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    #: Free text ("A", "GENERAL", "NIGHT"). A shift master would be an extra
-    #: table for a field no rule branches on.
+    #: The shift master row this operation is planned on, chosen from the
+    #: routing module's governed list. NULL on work orders assigned before the
+    #: master existed, which keep their typed text below and nothing invented.
+    shift_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("shifts.id", ondelete="RESTRICT"), nullable=True
+    )
+    #: The shift's CODE as it was when chosen - a snapshot, like
+    #: ``operation_code`` and the rate columns on this row, written whenever
+    #: ``shift_id`` is set and cleared with it. Reports group by it, so legacy
+    #: free-text rows and governed ones sit together. Never written directly.
     shift: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     planned_start_at: Mapped[datetime | None] = mapped_column(
@@ -567,6 +575,8 @@ class WorkOrder(TenantEntity):
         Index("ix_work_orders_order", "production_order_id", "sequence"),
         Index("ix_work_orders_operator", "company_id", "operator_user_id", "status"),
         Index("ix_work_orders_machine", "company_id", "machine_id", "status"),
+        # The work-order queue's shift filter.
+        Index("ix_work_orders_shift", "company_id", "shift_id", "status"),
         CheckConstraint("sequence > 0", name="sequence_positive"),
         CheckConstraint("planned_quantity > 0", name="planned_quantity_positive"),
         CheckConstraint("completed_quantity >= 0", name="completed_quantity_non_negative"),
@@ -761,6 +771,12 @@ class ProductionEntry(TenantEntity):
     #: Business date of the shift, which is regularly not the date the entry was
     #: keyed - night shift output is booked the following morning.
     entry_date: Mapped[date] = mapped_column(Date, nullable=False)
+    #: The shift this output was booked against. NULL on bookings made before
+    #: the shift master existed; see ``WorkOrder.shift_id``.
+    shift_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("shifts.id", ondelete="RESTRICT"), nullable=True
+    )
+    #: The shift's code snapshot - ``WorkOrder.shift`` explains why it is kept.
     shift: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     operator_user_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -796,6 +812,9 @@ class ProductionEntry(TenantEntity):
         # The daily production report, and the shift board.
         Index("ix_production_entries_date", "company_id", "entry_date", "shift"),
         Index("ix_production_entries_operator", "company_id", "operator_user_id", "entry_date"),
+        # Bookings of one shift over a period; the shift-production report groups
+        # by the code snapshot, which ``ix_production_entries_date`` covers.
+        Index("ix_production_entries_shift", "company_id", "shift_id", "entry_date"),
         CheckConstraint("produced_quantity >= 0", name="produced_quantity_non_negative"),
         CheckConstraint("rejected_quantity >= 0", name="rejected_quantity_non_negative"),
         CheckConstraint("downtime_minutes >= 0", name="downtime_non_negative"),

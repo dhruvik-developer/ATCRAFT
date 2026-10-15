@@ -80,6 +80,7 @@ const ITEM = {
   is_batch_tracked: true,
   is_serial_tracked: false,
   default_warehouse_id: null,
+  default_location_id: null,
   is_active: true,
   lifecycle_state: 'ACTIVE',
   created_at: '2026-01-05T10:00:00Z',

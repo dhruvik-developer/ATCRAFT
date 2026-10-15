@@ -25,6 +25,7 @@ from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedRes
 from src.modules.sales import service
 from src.modules.sales.models import SalesOrderStatus
 from src.modules.sales.schemas import (
+    AllocateOrderRequest,
     ApproveRequest,
     CancelRequest,
     ConfirmRequest,
@@ -55,6 +56,7 @@ ReasonQuery = Annotated[
 def order_filters(
     search: Annotated[str | None, Query(max_length=120, description="Order or customer PO")] = None,
     customer_id: Annotated[uuid.UUID | None, Query()] = None,
+    source: Annotated[str | None, Query(description="ERP or DEALER_PORTAL")] = None,
     warehouse_id: Annotated[uuid.UUID | None, Query()] = None,
     branch_id: Annotated[uuid.UUID | None, Query()] = None,
     order_status: Annotated[SalesOrderStatus | None, Query(alias="status")] = None,
@@ -68,6 +70,7 @@ def order_filters(
     return SalesOrderFilters(
         search=search,
         customer_id=customer_id,
+        source=source,
         warehouse_id=warehouse_id,
         branch_id=branch_id,
         status=order_status,
@@ -289,13 +292,40 @@ async def approve_order(
     )
 
 
+@router.post(
+    "/{order_id}/allocate",
+    response_model=ApiResponse[OrderAllocationRead],
+    summary="Allocate newly available stock to a short order",
+    description=(
+        "The allocation top-up. Reserves stock that has become free at the order's "
+        "warehouse for each line still short, in line order, and moves a CONFIRMED order "
+        "to ALLOCATED once every open line is covered. The scheduled sweep "
+        "`maintenance.allocate_short_orders` runs the same service for every short order. "
+        "Allowed on CONFIRMED and PARTIALLY_DISPATCHED orders."
+    ),
+    dependencies=[require_permission(Permission.SALES_ORDER_UPDATE)],
+)
+async def allocate_order(
+    order_id: uuid.UUID, payload: AllocateOrderRequest, session: DbSession, tenant: Tenant
+) -> ApiResponse[OrderAllocationRead]:
+    view = await service.allocate_order(session, tenant, order_id, reason=payload.reason)
+    message = (
+        "Every line is now fully reserved"
+        if view.fully_allocated
+        else f"{view.total_shortfall_lines} line(s) still short of stock"
+    )
+    return ApiResponse[OrderAllocationRead].ok(view, message)
+
+
 @router.get(
     "/{order_id}/allocation-status",
     response_model=ApiResponse[OrderAllocationRead],
-    summary="Per-line reserved versus shortfall",
+    summary="Per-line reserved, dispatchable-now and shortfall",
     description=(
-        "What each line has reserved, what it is still short of, and how much free stock "
-        "there is at the order's warehouse right now."
+        "What each line's reservation still holds live, how much a new consignment may "
+        "carry for it right now (the live reservation, less what other open consignments "
+        "already carry), what it is still short of, and how much free stock there is at "
+        "the order's warehouse."
     ),
     dependencies=[require_permission(Permission.SALES_ORDER_VIEW)],
 )
@@ -308,3 +338,18 @@ async def allocation_status(
 
 
 __all__ = ["router"]
+
+
+@router.post(
+    "/{order_id}/close",
+    response_model=ApiResponse[SalesOrderSummary],
+    summary="Close an invoiced sales order",
+    dependencies=[require_permission(Permission.SALES_ORDER_UPDATE)],
+)
+async def close_order(
+    order_id: uuid.UUID, payload: ConfirmRequest, session: DbSession, tenant: Tenant
+) -> ApiResponse[SalesOrderSummary]:
+    order = await service.close_order(session, tenant, order_id, reason=payload.reason)
+    return ApiResponse[SalesOrderSummary].ok(
+        SalesOrderSummary.model_validate(order), "Sales order closed"
+    )

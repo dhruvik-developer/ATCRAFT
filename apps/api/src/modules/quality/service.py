@@ -115,6 +115,7 @@ from src.modules.inventory.models import StockState
 from src.modules.inventory.service import change_stock_state
 from src.modules.notifications.models import NotificationSeverity, NotificationType
 from src.modules.notifications.service import notify_role
+from src.modules.quality import owners
 from src.modules.quality.models import (
     DECIDED_STATUSES,
     OPEN_STATUSES,
@@ -138,6 +139,7 @@ from src.modules.quality.repository import (
     QcTemplateRepository,
     QualityTotals,
     WarehouseLookupRepository,
+    decided_inspection_companies,
 )
 from src.modules.quality.schemas import (
     DEFAULT_REPORT_WINDOW_DAYS,
@@ -194,6 +196,17 @@ STAGE_BY_REFERENCE_TYPE: dict[str, QcStage] = {
     "dispatch": QcStage.FINAL,
 }
 DEFAULT_AUTO_STAGE = QcStage.IN_PROCESS
+
+#: The reference type procurement files incoming inspections under. A rejection
+#: on one of these is also reported to the supplying vendor's portal users.
+GOODS_RECEIPT_REFERENCE = "goods_receipt"
+
+
+def _plain_quantity(value: Decimal) -> str:
+    """A quantity as a sentence states it: ``5``, not ``5.0000``."""
+    text = format(Decimal(value).normalize(), "f")
+    return "0" if text == "-0" else text
+
 
 #: Who is told when a lot fails, and who is told a vendor return is owed. Role
 #: codes rather than user ids so the recipient list is derived from the role
@@ -1767,6 +1780,10 @@ async def decide_inspection(
             raise NotFoundError("QC inspection", inspection_id)
         before = snapshot(inspection, _INSPECTION_AUDITED_FIELDS)
         _assert_decidable(inspection)
+        # The owning document's lock comes before any balance row, so a decision
+        # locks inspection -> owner -> balances: the order the owner's own
+        # posting takes them in (owner -> balances). See ``owners``.
+        await owners.lock_owner(session, tenant, inspection)
 
         parameters, results = await _load_sheet(session, tenant, inspection)
         evaluation = _evaluate(parameters, results)
@@ -1868,6 +1885,12 @@ async def decide_inspection(
         if payload.close:
             await _close(session, tenant, inspection, repo=repo, reason=payload.reason)
 
+        # THE ONE RELEASE PATH. The stock has moved; the document that put it on
+        # hold is told in the same transaction and completes itself from this
+        # verdict without moving anything again. An owner that refuses rolls
+        # the decision back with it (``owners`` module docstring).
+        await owners.notify_owner(session, tenant, inspection, reason=payload.reason)
+
         await _announce_failure(session, tenant, inspection, requested)
 
     return DecisionResponse(
@@ -1947,6 +1970,34 @@ async def _announce_failure(
         return
 
     refused = to_quantity(disposition.rejected + disposition.scrap)
+    if (
+        inspection.vendor_id is not None
+        and inspection.reference_type == GOODS_RECEIPT_REFERENCE
+        and inspection.reference_id is not None
+    ):
+        # The supplier of an incoming lot is told too (WP C1a), through
+        # procurement - which owns which vendor users may see the receipt's
+        # order. Only goods receipts: the vendor portal shows receipts and their
+        # QC, and a job-work lot's verdict would link to nothing the vendor has.
+        from src.core.permissions import Permission
+        from src.modules.procurement.service import notify_vendor_about_receipt
+
+        await notify_vendor_about_receipt(
+            session,
+            tenant,
+            inspection.reference_id,
+            permission=Permission.VENDOR_PORTAL_QUALITY,
+            notification_type=NotificationType.QC_FAILED,
+            severity=NotificationSeverity.WARNING,
+            title=f"Quality rejection on {inspection.reference_code or inspection.code}",
+            body=(
+                f"{_plain_quantity(refused)} refused at inspection {inspection.code}. "
+                f"Reason: {inspection.rejection_reason or 'not stated'}."
+            ),
+            entity_type=AUDIT_QC_INSPECTION,
+            entity_id=inspection.id,
+            group_key=f"vendor-qc:{inspection.id}",
+        )
     await notify_role(
         session,
         company_id=tenant.company_id,
@@ -2021,13 +2072,21 @@ async def _close(
 async def close_inspection(
     session: AsyncSession, tenant: TenantContext, inspection_id: uuid.UUID, *, reason: str
 ) -> QcInspection:
-    """Close a decided inspection as a separate step."""
+    """Close a decided inspection as a separate step.
+
+    Closing settles nothing new - it is only legal once nothing is held - but
+    the owner is told again anyway. Its handler is idempotent, so for an
+    inspection decided after the callback existed this changes nothing; for one
+    decided before it, closing is the moment its stranded owner is repaired.
+    """
     repo = QcInspectionRepository(session, tenant)
     async with transaction(session):
         inspection = await repo.lock_for_update(inspection_id)
         if inspection is None:
             raise NotFoundError("QC inspection", inspection_id)
+        await owners.lock_owner(session, tenant, inspection)
         await _close(session, tenant, inspection, repo=repo, reason=reason)
+        await owners.notify_owner(session, tenant, inspection, reason=reason)
     return inspection
 
 
@@ -2070,7 +2129,10 @@ async def get_inspection_detail(
 
 
 async def inspections_for_reference(
-    session: AsyncSession, tenant: TenantContext, reference_type: str, reference_id: uuid.UUID
+    session: AsyncSession,
+    tenant: TenantContext,
+    reference_type: str,
+    reference_id: uuid.UUID | Sequence[uuid.UUID],
 ) -> list[QcInspection]:
     """Every inspection one document raised.
 
@@ -2080,6 +2142,41 @@ async def inspections_for_reference(
     return await QcInspectionRepository(session, tenant).list_for_reference(
         reference_type, reference_id
     )
+
+
+async def inspections_for_references(
+    session: AsyncSession,
+    tenant: TenantContext,
+    references: Sequence[tuple[str, uuid.UUID]],
+) -> list[QcInspection]:
+    """Every inspection a set of documents raised, in one statement.
+
+    The batched cross-module read: job work asks it for every lot of an order
+    under both reference keys a lot has had, instead of one read per lot.
+    """
+    return await QcInspectionRepository(session, tenant).list_for_references(references)
+
+
+# =============================================================================
+# Owner reconciliation (maintenance.reconcile_quality_owners)
+# =============================================================================
+
+
+async def companies_with_decided_inspections(session: AsyncSession) -> list[uuid.UUID]:
+    """Tenants holding at least one decided inspection - the sweep's work list.
+
+    Deliberately cross-tenant: a beat sweep has no principal, so it discovers the
+    companies first and then works each one under its own scope, exactly as
+    ``maintenance.release_stale_reservations`` does.
+    """
+    return await decided_inspection_companies(session)
+
+
+async def reconcile_quality_owners(
+    session: AsyncSession, tenant: TenantContext
+) -> owners.OwnerReconciliation:
+    """Repair owner documents an earlier decision left waiting - see ``owners``."""
+    return await owners.reconcile_owners(session, tenant)
 
 
 # =============================================================================
@@ -2212,6 +2309,7 @@ __all__ = [
     "aql_sample_size",
     "assert_critical_override",
     "close_inspection",
+    "companies_with_decided_inspections",
     "compute_sample_size",
     "create_in_process_inspection",
     "create_incoming_inspection",
@@ -2227,10 +2325,12 @@ __all__ = [
     "get_template_detail",
     "inspection_detail",
     "inspections_for_reference",
+    "inspections_for_references",
     "item_quality_history",
     "list_inspections",
     "list_pending",
     "list_templates",
+    "reconcile_quality_owners",
     "record_results",
     "rejection_rate",
     "retire_template",

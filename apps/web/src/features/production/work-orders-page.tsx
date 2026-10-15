@@ -54,7 +54,8 @@ import {
 import { Badge, Checkbox, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
-import { useUserOptions } from '@/hooks/use-user-options'
+import { useOperatorOptions } from '@/hooks/use-operator-options'
+import { ShiftSelect } from '@/features/shifts/shift-select'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDateTime, formatQuantity, humanise, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
@@ -80,7 +81,6 @@ import {
   workOrderKeys,
   type WorkOrder,
 } from './work-order-model'
-import type { OperatorOption } from './production-model'
 
 /**
  * Every filter key this screen owns, named once.
@@ -90,6 +90,7 @@ import type { OperatorOption } from './production-model'
  * cleared.
  */
 const FILTER_KEYS = [
+  'shift_id',
   'status',
   'work_center_id',
   'machine_id',
@@ -116,6 +117,7 @@ export default function WorkOrdersPage() {
   const canManage = can(P.WORK_ORDER_MANAGE)
 
   const tab = searchParams.get('tab') ?? 'queue'
+  const shiftId = searchParams.get('shift_id') ?? ''
   const status = searchParams.get('status') ?? ''
   const workCentreId = searchParams.get('work_center_id') ?? ''
   const machineId = searchParams.get('machine_id') ?? ''
@@ -126,7 +128,7 @@ export default function WorkOrdersPage() {
   const workCentres = useWorkCentreOptions()
   const workCentreById = useMemo(() => indexById(workCentres.data ?? []), [workCentres.data])
 
-  const operators = useUserOptions<OperatorOption>()
+  const operators = useOperatorOptions()
   const operatorById = useMemo(() => indexById(operators.data ?? []), [operators.data])
 
   // Machines only make sense inside one cell - the API refuses a machine from
@@ -160,6 +162,7 @@ export default function WorkOrdersPage() {
     // refetched for a list that is not on screen.
     enabled: tab === 'queue',
     filters: {
+      ...(shiftId ? { shift_id: shiftId } : {}),
       ...(status ? { status } : {}),
       ...(workCentreId ? { work_center_id: workCentreId } : {}),
       ...(machineId ? { machine_id: machineId } : {}),
@@ -483,6 +486,14 @@ export default function WorkOrdersPage() {
             emptyDescription="Nothing matches these filters. Operations appear when a production order is released - the release turns its routing into one work order per step."
             toolbar={
               <>
+                <div>
+                  <Label htmlFor="work-order-shift-filter">Shift</Label>
+                  <ShiftSelect
+                    id="work-order-shift-filter"
+                    value={shiftId || null}
+                    onChange={(value) => setParam('shift_id', value ?? undefined)}
+                  />
+                </div>
                 <Select
                   value={status || SELECT_ALL}
                   onValueChange={(next) =>

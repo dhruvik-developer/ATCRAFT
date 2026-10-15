@@ -315,6 +315,9 @@ class UserSessionRepository(BaseRepository[UserSession]):
         )
         if keep_session_id:
             stmt = stmt.where(UserSession.session_id != keep_session_id)
+        from src.modules.notifications.push_repository import remove_user_push_devices
+
+        await remove_user_push_devices(self.session, self.tenant.company_id, user_id)
         return [row[0] for row in (await self.session.execute(stmt)).all()]
 
     async def revoke_chain(self, root: UserSession, *, reason: str) -> list[str]:

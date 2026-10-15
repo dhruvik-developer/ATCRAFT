@@ -52,11 +52,14 @@ from src.modules.vendors.schemas import (
 #: Purchase-order statuses that still need the vendor. Anything past CLOSED or
 #: CANCELLED is history and does not block retiring the vendor record.
 #: Vocabulary from the purchase-order state machine in the database contract §7.
+#: VENDOR_DECLINED is open: the buyer still has to cancel the order or send it
+#: back to this vendor (docs/assumptions.md §C1-10).
 OPEN_PURCHASE_ORDER_STATUSES = (
     "DRAFT",
     "PENDING_APPROVAL",
     "APPROVED",
     "SENT",
+    "VENDOR_DECLINED",
     "ACKNOWLEDGED",
     "PARTIALLY_RECEIVED",
     "RECEIVED",

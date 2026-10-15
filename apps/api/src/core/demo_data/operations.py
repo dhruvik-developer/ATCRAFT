@@ -118,6 +118,7 @@ from src.modules.packing.models import Carton, CartonType, PackingOrder, Packing
 from src.modules.packing.schemas import (
     CartonContentIn,
     CartonCreate,
+    PackingFromAssemblyCreate,
     PackingOrderCreate,
     PackingOrderLineIn,
     SealCartonRequest,
@@ -162,6 +163,7 @@ from src.modules.quality.schemas import (
     MeasurementIn,
     RecordResultsRequest,
 )
+from src.modules.routing.models import Shift
 from src.modules.sales import service as sales_service
 from src.modules.sales.models import SalesOrder, SalesOrderLine, SalesOrderStatus
 from src.modules.sales.schemas import SalesOrderCreate, SalesOrderLineIn
@@ -331,6 +333,23 @@ class _Lookup:
 
     async def transporter(self, *parts: str) -> uuid.UUID | None:
         return await self._by_code("transporter", Transporter, self.ctx.code(*parts))
+
+
+async def _shift_id(ctx: DemoContext, code: str) -> uuid.UUID | None:
+    """The shift a demonstration booking names, by code.
+
+    Bookings take a shift from the master now, never typed text. The engineering
+    stage creates the master; if this stage runs on a database without it, the
+    booking is made without a shift rather than not at all.
+    """
+    known = ctx.maybe_id("shift", code)
+    if known is not None:
+        return known
+    found = await find_by_code(ctx.session, Shift, ctx.company_id, code)
+    if found is None:
+        ctx.skipped.append((STAGE, f"shift {code} not found; bookings were made without it"))
+        return None
+    return ctx.remember("shift", code, found.id)
 
 
 # -----------------------------------------------------------------------------
@@ -941,7 +960,7 @@ async def _run_the_floor(ctx: DemoContext, order: ProductionOrder, spec: _JobSpe
             ProductionEntryCreate(
                 work_order_id=work_order.id,
                 entry_date=_anchor() + timedelta(days=spec.start_offset + 1),
-                shift=booking.shift,
+                shift_id=await _shift_id(ctx, booking.shift),
                 produced_quantity=Decimal(booking.produced),
                 downtime_minutes=Decimal(booking.downtime_minutes),
                 notes=booking.note or None,
@@ -1085,7 +1104,7 @@ async def _advance_job(ctx: DemoContext, order: ProductionOrder, spec: _JobSpec)
                 rejection_reason=spec.rejection_reason,
                 entry_date=_anchor() + timedelta(days=spec.end_offset),
                 actual_end_date=_anchor() + timedelta(days=spec.end_offset),
-                shift="A",
+                shift_id=await _shift_id(ctx, "A"),
                 note="Job finished and output received",
             ),
         )
@@ -2037,6 +2056,11 @@ SALES_ORDERS: tuple[_SalesSpec, ...] = (
                 quantity="12",
                 note="Antique brass, 52 mm rose. Dealer price list.",
             ),
+            _SalesLineSpec(
+                item=("FG", "DIGILOCK"),
+                quantity="4",
+                note="Showroom display stock, priced on the dealer order.",
+            ),
         ),
     ),
     _SalesSpec(
@@ -2334,10 +2358,10 @@ async def _seed_mrp(ctx: DemoContext, look: _Lookup) -> None:
 # One shipment, boxed properly: two cartons of handle sets and a third holding
 # four digital locks by serial number.
 #
-# The locks are on the packing order without a sales-order line behind them, which
-# the module explicitly allows - a shipment routinely carries something the
-# customer did not order on a line, a sample or a replacement - and here they are
-# showroom samples for the dealer. They are also the only way a serialised unit
+# The locks are priced display stock on the same dealer sales order, reserved for
+# it at confirmation like the handle sets. Packing and despatch both name that
+# order line, so the consignment consumes the order's own reservation rather than
+# shipping free stock beside it. They are also the only way a serialised unit
 # gets into a carton in this database, which is what makes "which box is unit
 # DL900-24A0119 in?" a question with an answer.
 #
@@ -2397,6 +2421,7 @@ async def _seed_packing(
         _seen(ctx, "packing_order", tag, order.id, created=False)
     else:
         handle_line = await _sales_line(ctx, sales_order_id, handle.id)
+        lock_line = await _sales_line(ctx, sales_order_id, lock.id) if lock else None
         lines = [
             PackingOrderLineIn(
                 item_id=handle.id,
@@ -2411,8 +2436,7 @@ async def _seed_packing(
                     item_id=lock.id,
                     quantity_to_pack=Decimal("4"),
                     uom_id=lock.base_uom_id,
-                    # No order line: these are samples the dealer did not order.
-                    sales_order_line_id=None,
+                    sales_order_line_id=lock_line.id if lock_line is not None else None,
                 )
             )
         try:
@@ -2608,17 +2632,17 @@ async def _fill_cartons(
 # be able to show: one that has left with a carrier tracking number against it,
 # one that has arrived and been signed for, and one still being loaded.
 #
-# The first two draw on sales orders that were fully allocated, and that is not a
-# presentational choice: the sales lifecycle has no CONFIRMED -> DISPATCHED edge,
-# so an order that was only partly covered cannot ship until the rest of it is.
-# Trying it would be refused by the state machine, which is the correct answer -
-# a part-allocated order is a promise nobody has finished making.
+# Every line names the sales-order line it ships, which is what a consignment
+# against an order has to do: the line's live reservation is what leaves, and the
+# order line's dispatched quantity moves with it. The first two draw on orders
+# that were fully allocated. The third is a partly reserved order shipping only
+# its reserved part ahead of the rest - the K08 case - because a line may carry
+# no more than its live reservation covers.
 #
-# The samples travel on the first consignment on a line of their own with no
-# order line behind it. That is also the only way they *can* travel: a
-# reservation cannot name a serial number, so the despatch module refuses to
-# consume one for a serialised line and posts the units directly instead - one
-# ledger row per unit, each naming the object that left.
+# The digital locks travel on the first consignment on a line of their own, by
+# serial number. A reservation never names a unit, so the line does: the
+# despatch consumes the order's reservation one unit at a time, one ledger row
+# per unit, each naming the object that left.
 
 
 async def _seed_dispatches(
@@ -2634,7 +2658,7 @@ async def _seed_dispatches(
         ctx, look, packed, handle=handle, warehouse_id=warehouse_id, serials=serials
     )
     await _dispatch_delivered(ctx, look, handle=handle, warehouse_id=warehouse_id)
-    await _dispatch_being_loaded(ctx, look, warehouse_id=warehouse_id)
+    await _dispatch_being_loaded(ctx, look, handle=handle, warehouse_id=warehouse_id)
 
 
 async def _dispatch_shipped(
@@ -2656,6 +2680,7 @@ async def _dispatch_shipped(
     if existing is None:
         handle_line = await _sales_line(ctx, packed.sales_order_id, handle.id)
         lock = await look.item("FG", "DIGILOCK")
+        lock_line = await _sales_line(ctx, packed.sales_order_id, lock.id) if lock else None
         cartons = list(packed.carton_ids)
 
         lines = [
@@ -2667,14 +2692,15 @@ async def _dispatch_shipped(
                 notes="Two cartons, six sets each.",
             )
         ]
-        if lock is not None and len(serials) >= 4 and len(cartons) >= 3:
+        if lock is not None and lock_line is not None and len(serials) >= 4 and len(cartons) >= 3:
             lines.append(
                 DispatchLineIn(
                     item_id=lock.id,
                     quantity=Decimal("4"),
+                    sales_order_line_id=lock_line.id,
                     serial_ids=list(serials[:4]),
                     carton_ids=cartons[2:3],
-                    notes="Showroom samples; each unit identified by serial number.",
+                    notes="Priced showroom display stock; each unit identified by serial number.",
                 )
             )
 
@@ -2793,19 +2819,24 @@ async def _dispatch_delivered(
 
 
 async def _dispatch_being_loaded(
-    ctx: DemoContext, look: _Lookup, *, warehouse_id: uuid.UUID
+    ctx: DemoContext, look: _Lookup, *, handle: _ItemRef, warehouse_id: uuid.UUID
 ) -> None:
-    """The distributor's consignment, still on the loading plan.
+    """The Whitefield site's first tranche, still on the loading plan.
 
-    Left in ``NOT_DISPATCHED`` on purpose. Nothing has moved and nothing is
-    promised: this is the plan a despatch clerk works from in the morning, and a
-    tracking board with no such row on it hides half of what the screen is for.
+    Left in ``NOT_DISPATCHED`` on purpose. Nothing has moved yet: this is the plan
+    a despatch clerk works from in the morning, and a tracking board with no such
+    row on it hides half of what the screen is for.
+
+    It is raised against the part-allocated site order on purpose, too. The
+    order is still CONFIRMED - its locksets are not made - but the handle sets it
+    *has* reserved may ship ahead of them (K08): a consignment carries what each
+    line's live reservation covers, and nothing more. The distributor's monthly
+    order, which has nothing reserved at all, could not be loaded this way.
     """
     tag = ctx.code("DSP", "LOADING")
-    sales_order_id = ctx.maybe_id("sales_order", ctx.code("SO", "CONFIRMED"))
-    lever_ss = await look.item("FG", "LEVER-SS")
-    if sales_order_id is None or lever_ss is None:
-        _skip(ctx, f"{tag} not raised: the distributor order or its item is missing")
+    sales_order_id = ctx.maybe_id("sales_order", ctx.code("SO", "PARTIAL"))
+    if sales_order_id is None:
+        _skip(ctx, f"{tag} not raised: the site order does not exist")
         return
 
     found = await _find_tagged(ctx, Dispatch, tag)
@@ -2813,7 +2844,7 @@ async def _dispatch_being_loaded(
         _seen(ctx, "dispatch", tag, found.id, created=False)
         return
 
-    line = await _sales_line(ctx, sales_order_id, lever_ss.id)
+    line = await _sales_line(ctx, sales_order_id, handle.id)
     try:
         detail = await dispatch_service.create_dispatch(
             ctx.session,
@@ -2823,22 +2854,23 @@ async def _dispatch_being_loaded(
                 warehouse_id=warehouse_id,
                 dispatch_date=_days_after(3),
                 expected_delivery_date=_days_after(7),
-                customer_id=await look.customer("DIST", "WEST"),
+                customer_id=await look.customer("CUST", "SKYLINE"),
                 sales_order_id=sales_order_id,
                 transporter_id=await look.transporter("TRN", "VRL"),
-                total_boxes=4,
+                total_boxes=1,
                 freight_paid_by=FreightPaidBy.CONSIGNOR,
                 notes=_tagged(
                     tag,
-                    "First tranche of the distributor's monthly order. Being made up "
-                    "at the bench; no lorry booked and no LR number yet.",
+                    "First tranche of the Whitefield site release: the handle sets the "
+                    "order has reserved, going ahead of the locksets still to be made. "
+                    "Being made up at the bench; no lorry booked and no LR number yet.",
                 ),
                 lines=[
                     DispatchLineIn(
-                        item_id=lever_ss.id,
-                        quantity=Decimal("20"),
+                        item_id=handle.id,
+                        quantity=Decimal("6"),
                         sales_order_line_id=line.id if line is not None else None,
-                        notes="Part shipment against the month's order.",
+                        notes="Six of the ten reserved sets, for the second-floor east wing.",
                     )
                 ],
             ),
@@ -2977,3 +3009,289 @@ async def seed(ctx: DemoContext) -> None:
     # --- out of the door ----------------------------------------------------
     packed = await _seed_packing(ctx, look, serials)
     await _seed_dispatches(ctx, look, packed, serials)
+
+    # --- the assembly line, last ------------------------------------------
+    # After everything else on purpose: these orders draw on whatever bar and
+    # screws the floor left, so they can only ever cost themselves a skip.
+    await _seed_assembly_line(ctx, look)
+
+
+# =============================================================================
+# The assembly line (WP E4)
+# =============================================================================
+# Four more rose-plate orders, each there to put something on a screen the
+# assembly, quality and packing modules gained:
+#
+# * DM-ASM-ROSEQC    inspected and decided on the quality screen - the order
+#                    completes from that verdict without anybody touching the
+#                    assembly screen - then handed to packing for a dealer's
+#                    spares order through the assembly hand-over;
+# * DM-ASM-ROSEHOLD  completed onto QC hold with its inspection still open, so
+#                    "Record QC verdict" has an inspection to open;
+# * DM-ASM-ROSELATE  approved against a plan that has already slipped - the
+#                    board's lateness badge;
+# * DM-ASM-ROSENEXT  released for next week on the second bench at a higher
+#                    priority, its kit reserved at that priority and date.
+
+
+@dataclass(frozen=True, slots=True)
+class _AssemblySpec:
+    tag: tuple[str, str]
+    quantity: str
+    line: str
+    priority: int
+    #: Planned start and end, as days from the anchor (negative is the past).
+    start: int
+    end: int
+    requires_qc: bool
+    #: How far the order is driven: APPROVED, RELEASED, QC_PENDING (inspection
+    #: left open) or COMPLETED (inspection decided on the quality side).
+    target: AssemblyOrderStatus
+    sentence: str
+    accepted: str | None = None
+    rejected: str | None = None
+    #: The customer a packing order is raised for, through the hand-over.
+    pack_for: tuple[str, str] | None = None
+
+
+ASSEMBLY_LINE: tuple[_AssemblySpec, ...] = (
+    _AssemblySpec(
+        tag=("ASM", "ROSEQC"),
+        quantity="40",
+        line="Rose bench",
+        priority=40,
+        start=-6,
+        end=-5,
+        requires_qc=True,
+        target=AssemblyOrderStatus.COMPLETED,
+        sentence="Spare rose plates for the dealer's service stock; finish checked plate by plate.",
+        accepted="38",
+        rejected="2",
+        pack_for=("DLR", "METRO"),
+    ),
+    _AssemblySpec(
+        tag=("ASM", "ROSEHOLD"),
+        quantity="20",
+        line="Rose bench",
+        priority=60,
+        start=-2,
+        end=-1,
+        requires_qc=True,
+        target=AssemblyOrderStatus.QC_PENDING,
+        sentence="Satin batch off the bench, waiting on the finish inspection.",
+    ),
+    _AssemblySpec(
+        tag=("ASM", "ROSELATE"),
+        quantity="30",
+        line="Rose bench",
+        priority=80,
+        start=-3,
+        end=-1,
+        requires_qc=False,
+        target=AssemblyOrderStatus.APPROVED,
+        sentence="Approved but never kitted - the bar arrived late.",
+    ),
+    _AssemblySpec(
+        tag=("ASM", "ROSENEXT"),
+        quantity="25",
+        line="Second bench",
+        priority=10,
+        start=5,
+        end=6,
+        requires_qc=False,
+        target=AssemblyOrderStatus.RELEASED,
+        sentence="Rush tray for next week's handle run; kit reserved ahead of the rest.",
+    ),
+)
+
+_ASSEMBLY_STEPS: tuple[AssemblyOrderStatus, ...] = (
+    AssemblyOrderStatus.DRAFT,
+    AssemblyOrderStatus.APPROVED,
+    AssemblyOrderStatus.RELEASED,
+    AssemblyOrderStatus.COMPONENTS_ISSUED,
+    AssemblyOrderStatus.IN_PROGRESS,
+    AssemblyOrderStatus.QC_PENDING,
+    AssemblyOrderStatus.COMPLETED,
+)
+
+
+def _short_of(order: AssemblyOrder, target: AssemblyOrderStatus) -> bool:
+    """Whether the order still has to move to reach ``target``."""
+    status = AssemblyOrderStatus(order.status)
+    if status not in _ASSEMBLY_STEPS:
+        return False
+    return _ASSEMBLY_STEPS.index(status) < _ASSEMBLY_STEPS.index(target)
+
+
+async def _seed_assembly_line(ctx: DemoContext, look: _Lookup) -> None:
+    rose = await look.item("SF", "ROSE-SS")
+    warehouse_id = await look.warehouse("WH-ASM")
+    if rose is None or warehouse_id is None:
+        _skip(ctx, "no assembly line orders: no rose plate item or no assembly store")
+        return
+
+    for spec in ASSEMBLY_LINE:
+        tag = ctx.code(*spec.tag)
+        existing = await _find_tagged(ctx, AssemblyOrder, tag)
+        if existing is not None:
+            order = existing
+            _seen(ctx, "assembly_order", tag, order.id, created=False)
+        else:
+            try:
+                order, _ = await assembly_service.create_order(
+                    ctx.session,
+                    ctx.tenant,
+                    AssemblyOrderCreate(
+                        item_id=rose.id,
+                        planned_quantity=Decimal(spec.quantity),
+                        warehouse_id=warehouse_id,
+                        output_warehouse_id=warehouse_id,
+                        assembly_line=spec.line,
+                        planned_start=_at(_anchor() + timedelta(days=spec.start), 6),
+                        planned_end=_at(_anchor() + timedelta(days=spec.end), 14),
+                        priority=spec.priority,
+                        requires_qc=spec.requires_qc,
+                        notes=_tagged(tag, spec.sentence),
+                    ),
+                )
+            except (BusinessRuleError, NotFoundError, ValidationError) as exc:
+                _skip(ctx, f"{tag} not raised: {exc}")
+                continue
+            _seen(ctx, "assembly_order", tag, order.id, created=True)
+
+        # Plain values: a caught failure below rolls a savepoint back and expires
+        # the ORM row, which async code cannot refresh (CLAUDE.md).
+        order_id, order_code = order.id, order.code
+        try:
+            await _drive_assembly(ctx, order, spec)
+            await _decide_assembly(ctx, order_id, spec)
+            await _hand_to_packing(ctx, look, order_id, spec)
+        except AppError as exc:
+            _skip(ctx, f"{tag} ({order_code}) did not reach {spec.target}: {exc}")
+
+
+async def _drive_assembly(ctx: DemoContext, order: AssemblyOrder, spec: _AssemblySpec) -> None:
+    """Approve, kit, release, issue, start and complete - as far as the spec asks."""
+    order_id = order.id
+    reached = order
+
+    if _short_of(reached, spec.target) and (
+        AssemblyOrderStatus(reached.status) is AssemblyOrderStatus.DRAFT
+    ):
+        reached = await assembly_service.approve_order(
+            ctx.session, ctx.tenant, order_id, reason="Signed off against the bench plan"
+        )
+        ctx.note(STAGE, created=1)
+
+    if _short_of(reached, spec.target) and (
+        AssemblyOrderStatus(reached.status) is AssemblyOrderStatus.APPROVED
+    ):
+        components = list(
+            (
+                await ctx.session.execute(
+                    select(AssemblyOrderComponent)
+                    .where(
+                        AssemblyOrderComponent.company_id == ctx.company_id,
+                        AssemblyOrderComponent.assembly_order_id == order_id,
+                    )
+                    .order_by(AssemblyOrderComponent.line_number)
+                )
+            ).scalars()
+        )
+        if not await _stage_assembly_kit(ctx, reached, components):
+            return
+        reached, _ = await assembly_service.release_order(
+            ctx.session, ctx.tenant, order_id, reason="Released to the bench"
+        )
+        ctx.note(STAGE, created=1)
+
+    if _short_of(reached, spec.target) and (
+        AssemblyOrderStatus(reached.status) is AssemblyOrderStatus.RELEASED
+    ):
+        reached, _ = await assembly_service.issue_components(
+            ctx.session, ctx.tenant, order_id, IssueComponentsRequest(reason="Kit on the bench")
+        )
+        ctx.note(STAGE, created=1)
+
+    if _short_of(reached, spec.target) and (
+        AssemblyOrderStatus(reached.status) is AssemblyOrderStatus.COMPONENTS_ISSUED
+    ):
+        reached = await assembly_service.start_assembly(
+            ctx.session, ctx.tenant, order_id, reason="Tray started"
+        )
+        ctx.note(STAGE, created=1)
+
+    if _short_of(reached, spec.target) and (
+        AssemblyOrderStatus(reached.status) is AssemblyOrderStatus.IN_PROGRESS
+    ):
+        # Completed onto QC hold: the order requires inspection, so the plates
+        # are counted but nobody can be promised one until quality decides.
+        await assembly_service.complete_assembly(
+            ctx.session,
+            ctx.tenant,
+            order_id,
+            AssemblyCompleteRequest(
+                assembled_quantity=Decimal(spec.quantity), reason="Tray finished"
+            ),
+        )
+        ctx.note(STAGE, created=1)
+
+
+async def _decide_assembly(ctx: DemoContext, order_id: uuid.UUID, spec: _AssemblySpec) -> None:
+    """Decide the completion's inspection on the quality side - the one path.
+
+    Nothing here touches the assembly order: quality's decision moves the held
+    plates and calls the order back, which is the whole point of the package.
+    """
+    if spec.target is not AssemblyOrderStatus.COMPLETED or spec.accepted is None:
+        return
+    order = await ctx.session.get(AssemblyOrder, order_id)
+    if order is None or order.qc_inspection_id is None:
+        return
+    inspection = await ctx.session.get(QcInspection, order.qc_inspection_id)
+    if inspection is None or InspectionStatus(inspection.status) not in OPEN_STATUSES:
+        return
+    rejected = Decimal(spec.rejected or "0")
+    await quality_service.decide_inspection(
+        ctx.session,
+        ctx.tenant,
+        inspection.id,
+        DecideRequest(
+            accepted_quantity=Decimal(spec.accepted),
+            rejected_quantity=rejected,
+            reason="Finish checked plate by plate under the inspection lamp",
+            rejection_reason="Polishing marks on the face" if rejected > ZERO else None,
+        ),
+    )
+    ctx.note(STAGE, created=1)
+
+
+async def _hand_to_packing(
+    ctx: DemoContext, look: _Lookup, order_id: uuid.UUID, spec: _AssemblySpec
+) -> None:
+    """Raise the dealer's packing order from the completed assembly."""
+    if spec.pack_for is None:
+        return
+    order = await ctx.session.get(AssemblyOrder, order_id)
+    if (
+        order is None
+        or AssemblyOrderStatus(order.status) is not AssemblyOrderStatus.COMPLETED
+        or order.packing_order_id is not None
+    ):
+        return
+    customer_id = await look.customer(*spec.pack_for)
+    if customer_id is None:
+        _skip(ctx, f"{order.code} not packed: no {ctx.code(*spec.pack_for)} customer")
+        return
+    tag = ctx.code(*spec.tag)
+    await packing_service.create_order_from_assembly(
+        ctx.session,
+        ctx.tenant,
+        PackingFromAssemblyCreate(
+            assembly_order_id=order_id,
+            customer_id=customer_id,
+            planned_date=_days_after(1),
+            notes=_tagged(tag, "Spare rose plates packed straight off the assembly bench."),
+        ),
+    )
+    ctx.note(STAGE, created=1)

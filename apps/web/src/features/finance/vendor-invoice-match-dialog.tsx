@@ -194,6 +194,8 @@ export function VendorInvoiceMatchDialog({
   const invoice = invoiceQuery.data
   const match = matchQuery.data
   const currency = invoice?.currency
+  /** A job-work bill is matched against its order, not against a PO and GRN. */
+  const isJobWork = invoice?.invoice_type === 'JOB_WORK'
 
   const approve = useMutation({
     mutationFn: (overrideReason: string) =>
@@ -332,7 +334,7 @@ export function VendorInvoiceMatchDialog({
       },
       {
         id: 'ordered_unit_price',
-        header: 'PO price',
+        header: isJobWork ? 'Agreed rate' : 'PO price',
         enableSorting: false,
         meta: { align: 'right' },
         // The contract reports every optional variance figure as "absent or
@@ -340,7 +342,7 @@ export function VendorInvoiceMatchDialog({
         // omitted field fall through and render as a confident zero.
         cell: ({ row }) =>
           row.original.ordered_unit_price == null ? (
-            <span className="text-muted-foreground">No PO line</span>
+            <span className="text-muted-foreground">{isJobWork ? 'No rate' : 'No PO line'}</span>
           ) : (
             formatMoney(row.original.ordered_unit_price, { currency })
           ),
@@ -372,12 +374,14 @@ export function VendorInvoiceMatchDialog({
       },
       {
         id: 'accepted_quantity',
-        header: 'GRN accepted',
+        header: isJobWork ? 'Good output' : 'GRN accepted',
         enableSorting: false,
         meta: { align: 'right' },
         cell: ({ row }) =>
           row.original.accepted_quantity == null ? (
-            <span className="text-muted-foreground">No receipt</span>
+            <span className="text-muted-foreground">
+              {isJobWork ? 'No receipt line' : 'No receipt'}
+            </span>
           ) : (
             formatQuantity(row.original.accepted_quantity)
           ),
@@ -443,7 +447,7 @@ export function VendorInvoiceMatchDialog({
         ),
       },
     ],
-    [currency],
+    [currency, isJobWork],
   )
 
   return (
@@ -461,7 +465,9 @@ export function VendorInvoiceMatchDialog({
             </DialogTitle>
             <DialogDescription>
               {invoice
-                ? `${invoice.code} - three-way match against the purchase order and goods receipt.`
+                ? isJobWork
+                  ? `${invoice.code} - job-work match against the order rate and receipt lines.`
+                  : `${invoice.code} - three-way match against the purchase order and goods receipt.`
                 : 'Loading the invoice and its three-way match.'}
             </DialogDescription>
           </DialogHeader>
@@ -489,22 +495,34 @@ export function VendorInvoiceMatchDialog({
                     { label: 'Document', value: invoice.code },
                     { label: 'Status', value: <StatusBadge status={invoice.status} /> },
                     { label: 'Match', value: <MatchBadge status={invoice.match_status} /> },
+                    { label: 'Type', value: humanise(invoice.invoice_type) },
                     { label: 'Currency', value: invoice.currency },
                     { label: 'Invoice date', value: formatDate(invoice.invoice_date) },
                     { label: 'Due', value: formatDate(invoice.due_date) },
-                    {
-                      label: 'Purchase order',
-                      value: invoice.purchase_order_id ? (
-                        <Link
-                          to={`/procurement/purchase-orders/${invoice.purchase_order_id}`}
-                          className="hover:underline"
-                        >
-                          View order
-                        </Link>
-                      ) : (
-                        '-'
-                      ),
-                    },
+                    isJobWork
+                      ? {
+                          label: 'Job-work order',
+                          value: invoice.job_work_order_id ? (
+                            <Link to="/job-work" className="hover:underline">
+                              View orders
+                            </Link>
+                          ) : (
+                            '-'
+                          ),
+                        }
+                      : {
+                          label: 'Purchase order',
+                          value: invoice.purchase_order_id ? (
+                            <Link
+                              to={`/procurement/purchase-orders/${invoice.purchase_order_id}`}
+                              className="hover:underline"
+                            >
+                              View order
+                            </Link>
+                          ) : (
+                            '-'
+                          ),
+                        },
                     {
                       label: 'Goods receipt',
                       value: invoice.goods_receipt_id ? 'Receipted' : '-',
@@ -541,6 +559,18 @@ export function VendorInvoiceMatchDialog({
                         currency: invoice.currency,
                       }),
                     },
+                    // The excess-loss recovery posted beside a job-work bill:
+                    // the vendor's net payable is the total less this.
+                    ...(isJobWork && !toDecimal(invoice.recovered_amount).isZero()
+                      ? [
+                          {
+                            label: 'Recovered',
+                            value: formatMoney(invoice.recovered_amount, {
+                              currency: invoice.currency,
+                            }),
+                          },
+                        ]
+                      : []),
                   ]}
                 />
 
@@ -587,7 +617,9 @@ export function VendorInvoiceMatchDialog({
                   <div className="min-w-0 space-y-1.5">
                     <AlertTitle>
                       {blocked
-                        ? 'Out of tolerance - approval needs an override reason'
+                        ? match.has_overbilling
+                          ? 'Over-billed - this cannot be overridden'
+                          : 'Out of tolerance - approval needs an override reason'
                         : `Match result: ${MATCH_BADGE[match.match_status]?.label ?? humanise(match.match_status)}`}
                     </AlertTitle>
                     <AlertDescription>
@@ -682,9 +714,14 @@ export function VendorInvoiceMatchDialog({
                   <CheckCircle2 />
                   Approve invoice
                 </Button>
-                {blocked && (
+                {blocked && !match?.has_overbilling && (
                   <span className="text-2xs text-muted-foreground">
                     Approving overrides the variance and needs a reason.
+                  </span>
+                )}
+                {blocked && match?.has_overbilling && (
+                  <span className="text-2xs text-muted-foreground">
+                    Over-billing already-billed charges cannot be overridden - amend the bill.
                   </span>
                 )}
               </div>

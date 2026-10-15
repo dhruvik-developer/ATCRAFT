@@ -46,6 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
 from src.common.warehouse_scope import assert_warehouse_scope
+from src.core.actors import actor_id
 from src.core.clock import today, utcnow
 from src.core.constants import DEFAULT_CURRENCY
 from src.core.database import advisory_xact_lock, transaction
@@ -68,6 +69,9 @@ from src.modules.audit.service import record_audit, record_status_change, snapsh
 from src.modules.inventory.models import StockState, TransactionType
 from src.modules.inventory.schemas import StockBatchCreate
 from src.modules.inventory.service import MovementRequest, TraceabilityService, post_movements
+from src.modules.notifications.models import NotificationSeverity, NotificationType
+from src.modules.notifications.service import notify
+from src.modules.procurement.inbound_repository import po_is_late
 from src.modules.procurement.models import (
     DUPLICATE_REQUIRED_DATE_WINDOW_DAYS,
     EDITABLE_PO_STATUSES,
@@ -229,6 +233,7 @@ from src.modules.procurement.service_rules import (
     po_line_status_for,
     preferred_category_vendor,
     rank_offers,
+    receipt_line_qc_status,
     receipt_unit_cost,
     recommendation_reason,
     requisition_line_status_for,
@@ -497,7 +502,9 @@ async def _transition(
     machine.assert_transition(current, target)
     entity.status = target
     if hasattr(entity, "updated_by_id"):
-        entity.updated_by_id = tenant.user_id
+        # NULL for the system actor a reconciliation sweep carries - the nil
+        # placeholder is not a user (src.core.actors).
+        entity.updated_by_id = actor_id(tenant.user_id)
     await session.flush()
 
     await record_status_change(
@@ -3050,10 +3057,22 @@ async def transition_purchase_order(
             # The edge first, so an order that cannot be sent says so rather
             # than complaining about who it would have been sent to.
             PURCHASE_ORDER_LIFECYCLE.assert_transition(PurchaseOrderStatus(order.status), target)
+            if order.status == PurchaseOrderStatus.VENDOR_DECLINED:
+                # ASSUMPTION: a declined order waits for the buyer, who re-sends
+                # or cancels it (docs/assumptions.md §C1-10). A re-send goes back
+                # to a vendor that may have been suspended since approval.
+                _assert_orderable(await _load_vendor(session, tenant, order.vendor_id))
+                # The refusal is history now (its audit row keeps the reason);
+                # left on the row it would read as the answer to this send.
+                order.vendor_decline_reason = None
             order.assigned_vendor_user_id = await _send_assignee(
                 session, tenant, order, requested=assigned_vendor_user_id
             )
             order.sent_at = utcnow()
+        elif target is PurchaseOrderStatus.VENDOR_DECLINED:
+            # Recorded here rather than by the caller, so no path can decline an
+            # order without the reason the buyer needs to decide what to do.
+            order.vendor_decline_reason = reason
         elif target is PurchaseOrderStatus.ACKNOWLEDGED:
             order.acknowledged_at = utcnow()
             if expected_delivery_date is not None:
@@ -3100,6 +3119,31 @@ async def transition_purchase_order(
                 user_id=tenant.user_id,
                 old_values={"assigned_vendor_user_id": assignee_before},
                 new_values={"assigned_vendor_user_id": order.assigned_vendor_user_id},
+            )
+
+        if target is PurchaseOrderStatus.SENT:
+            # The assignee when there is one; otherwise every vendor user who may
+            # respond and can see the order (a user scoped to other categories
+            # would be told about an order their portal answers 404 for).
+            eligible = await vendor_recipients_for_order(
+                session, tenant, order, VENDOR_PO_RESPOND_PERMISSION
+            )
+            recipients = (
+                [order.assigned_vendor_user_id]
+                if order.assigned_vendor_user_id in eligible
+                else eligible
+            )
+            await notify(
+                session,
+                company_id=tenant.company_id,
+                user_ids=recipients,
+                notification_type=NotificationType.PURCHASE_ORDER_SENT,
+                title=f"New purchase order {order.code}",
+                body=f"Please review and accept {order.code}.",
+                entity_type=AUDIT_PURCHASE_ORDER,
+                entity_id=order.id,
+                action_url=vendor_order_url(order.id),
+                actor_id=tenant.user_id,
             )
 
         if target is PurchaseOrderStatus.CLOSED:
@@ -3368,6 +3412,133 @@ async def list_vendor_assignees(
     ]
 
 
+# --- telling the vendor (WP C1a) ------------------------------------------------
+
+
+def vendor_order_url(order_id: uuid.UUID) -> str:
+    """The vendor app's order page - the deep link of every vendor-facing order alert."""
+    return f"/vendor/orders/{order_id}"
+
+
+def _quantity_text(value: Decimal | None) -> str:
+    """A quantity as a sentence states it: ``20``, not ``20.0000``."""
+    text = format(Decimal(value or 0).normalize(), "f")
+    return "0" if text == "-0" else text
+
+
+async def vendor_recipients_for_order(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: PurchaseOrder,
+    permission: Permission,
+) -> list[uuid.UUID]:
+    """The order's vendor users who hold ``permission`` and can see the order.
+
+    ASSUMPTION: a vendor-facing notification reaches only users who could act on
+    it (docs/assumptions.md §C1-11).
+
+    "Can see" is ``PurchaseOrderRepository._scoped``'s rule, restated over the
+    same facts: an unrestricted user, a user whose category scope covers the
+    order's category (or an ancestor of it), or the user the order is assigned
+    to. Telling anyone else would hand them a link their portal answers "not
+    found" for. Two reads: the order's category lineage and the vendor's users
+    with their roles, folded by the request path's own rule.
+    """
+    lineage = await _category_lineage_of(session, tenant, order.item_category_id)
+    users = await VendorAssigneeRepository(session, tenant).candidates([order.vendor_id])
+    recipients: list[uuid.UUID] = []
+    for user in users:
+        if not user.is_active or user.vendor_id != order.vendor_id:
+            continue
+        granted, _ = resolve_role_grants(
+            user.roles, user.extra_permissions, user.denied_permissions
+        )
+        if not (user.is_superuser or str(permission) in granted):
+            continue
+        sees_order = (
+            not user.allowed_category_ids
+            or user.id == order.assigned_vendor_user_id
+            or scope_covers_category(user.allowed_category_ids, lineage)
+        )
+        if sees_order:
+            recipients.append(user.id)
+    return recipients
+
+
+async def notify_vendor_about_order(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: PurchaseOrder,
+    *,
+    permission: Permission,
+    notification_type: NotificationType,
+    title: str,
+    body: str,
+    entity_type: str,
+    entity_id: uuid.UUID,
+    action_url: str,
+    severity: NotificationSeverity = NotificationSeverity.INFO,
+    group_key: str | None = None,
+) -> None:
+    """Tell the order's vendor users who may act on the event, in the caller's transaction."""
+    await notify(
+        session,
+        company_id=tenant.company_id,
+        user_ids=await vendor_recipients_for_order(session, tenant, order, permission),
+        notification_type=notification_type,
+        title=title,
+        body=body,
+        severity=severity,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        action_url=action_url,
+        group_key=group_key,
+        actor_id=tenant.user_id,
+    )
+
+
+async def notify_vendor_about_receipt(
+    session: AsyncSession,
+    tenant: TenantContext,
+    receipt_id: uuid.UUID,
+    *,
+    permission: Permission,
+    notification_type: NotificationType,
+    title: str,
+    body: str,
+    entity_type: str,
+    entity_id: uuid.UUID,
+    severity: NotificationSeverity = NotificationSeverity.INFO,
+    group_key: str | None = None,
+) -> None:
+    """The same, for an event on one goods receipt (quality's verdict on it).
+
+    The deep link is the receipt's order in the vendor app (``/vendor/orders/:id``,
+    WP C2a), whose detail shows the receipts and their QC results. A receipt this
+    tenant cannot read tells nobody.
+    """
+    receipt = await GoodsReceiptRepository(session, tenant).get(receipt_id)
+    if receipt is None:
+        return
+    order = await PurchaseOrderRepository(session, tenant).get(receipt.purchase_order_id)
+    if order is None:
+        return
+    await notify_vendor_about_order(
+        session,
+        tenant,
+        order,
+        permission=permission,
+        notification_type=notification_type,
+        title=title,
+        body=body,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        action_url=vendor_order_url(order.id),
+        severity=severity,
+        group_key=group_key,
+    )
+
+
 # --- dispatch tracking (master rules section 23) ------------------------------
 
 
@@ -3439,7 +3610,12 @@ async def order_tracking(
         # Late only while something is still outstanding: an order delivered a
         # week after the promised date is a supplier performance fact, not a
         # live problem for the tracking board.
-        is_delayed=days_late > 0 and grn_pending,
+        is_delayed=po_is_late(
+            status=str(status),
+            open_quantity=pending,
+            expected_date=order.expected_delivery_date,
+            as_of=as_of,
+        ),
         days_late=days_late,
         grn_pending=grn_pending,
         qc_pending=qc_pending_lines > 0 or status is PurchaseOrderStatus.QC_PENDING,
@@ -4232,6 +4408,24 @@ async def create_goods_receipt(
             # decision can leave that state.
             if to_quantity(payload_line.accepted_quantity) <= 0:
                 requires_qc = False
+            # ASSUMPTION: goods held for incoming inspection are received at
+            # warehouse level, never into a bin. The inspection - and the
+            # decision that releases, damages or scraps the lot - has no bin
+            # of its own and moves stock at the unbinned position, so a lot held
+            # in a bin could never be decided ('Only 0 of X is in QC hold').
+            # Released stock is put away into its bin afterwards with a bin move
+            # (docs/assumptions.md §E8-7).
+            if requires_qc and payload_line.location_id is not None:
+                raise BusinessRuleError(
+                    f"Line {payload_line.line_number}: {item.code} is held for incoming "
+                    "inspection, so it is received at warehouse level. Put it away into a "
+                    "bin with a bin move once it is released.",
+                    details={
+                        "line_number": payload_line.line_number,
+                        "item_code": item.code,
+                        "location_id": str(payload_line.location_id),
+                    },
+                )
             taxable = to_money(
                 Decimal(order_line.quantity) * Decimal(order_line.unit_price)
                 - Decimal(order_line.discount)
@@ -4456,6 +4650,23 @@ async def post_goods_receipt(
         )
 
         await _advance_order_after_receipt(session, tenant, context)
+        # The proposal's "Material received" to the vendor, in this transaction:
+        # its users who may open the order, through the portal's own scope rule.
+        await notify_vendor_about_order(
+            session,
+            tenant,
+            order,
+            permission=Permission.VENDOR_PORTAL_ACCESS,
+            notification_type=NotificationType.GOODS_RECEIPT_POSTED,
+            title=f"Material received against {order.code}",
+            body=(
+                f"{receipt.code}: {_quantity_text(receipt.total_accepted_quantity)} accepted, "
+                f"{_quantity_text(receipt.total_rejected_quantity)} rejected."
+            ),
+            entity_type=AUDIT_GOODS_RECEIPT,
+            entity_id=receipt.id,
+            action_url=vendor_order_url(order.id),
+        )
 
         # The products module documents these two columns as written by goods
         # receipt posting (see ItemVendorLink.last_purchase_price). One
@@ -4707,6 +4918,195 @@ async def _advance_order_after_receipt(
         ),
         status_enum=PurchaseOrderStatus,
     )
+
+
+# =============================================================================
+# The incoming-inspection verdict - called back by quality
+# =============================================================================
+#
+# Quality decides the inspection a goods receipt raised and moves the held stock
+# itself. It then tells this module through ``quality.owners``, in the same
+# transaction, so the receipt line and the purchase order follow the verdict
+# without anything here moving stock a second time. Nothing in this module may
+# release QC_HOLD stock: the inspection is the one release path.
+
+
+class IncomingInspectionVerdict(Protocol):
+    """What procurement reads off a decided incoming inspection.
+
+    A protocol rather than quality's own type, so this module does not import
+    the module it reaches through a port.
+    """
+
+    @property
+    def inspection_id(self) -> uuid.UUID: ...
+    @property
+    def inspection_code(self) -> str: ...
+    @property
+    def reference_id(self) -> uuid.UUID | None: ...
+    @property
+    def accepted_quantity(self) -> Decimal: ...
+    @property
+    def refused_quantity(self) -> Decimal: ...
+    @property
+    def is_settled(self) -> bool: ...
+    @property
+    def reason(self) -> str: ...
+
+
+async def lock_for_incoming_inspection(
+    session: AsyncSession, tenant: TenantContext, reference_id: uuid.UUID
+) -> None:
+    """Take the purchase order's row lock before quality moves any stock.
+
+    Quality calls this right after locking the inspection, so a decision locks
+    inspection -> purchase order -> balances. Posting a second delivery takes
+    purchase order -> balances, the same order, so the two queue instead of
+    deadlocking. A reference that names no receipt (an inspection raised by hand)
+    locks nothing.
+    """
+    receipt = await GoodsReceiptRepository(session, tenant).get(reference_id)
+    if receipt is not None:
+        await PurchaseOrderRepository(session, tenant).lock_for_update(receipt.purchase_order_id)
+
+
+async def record_incoming_inspection_outcome(
+    session: AsyncSession, tenant: TenantContext, verdict: IncomingInspectionVerdict
+) -> bool:
+    """Write an incoming inspection's verdict back to its receipt line and order.
+
+    Once nothing of the lot is held any more, the line goes PASSED or FAILED
+    (:func:`~src.modules.procurement.service_rules.receipt_line_qc_status`).
+    When that leaves the purchase order with no line still PENDING, the order
+    moves QC_PENDING -> QC_COMPLETED -> GRN_COMPLETED through the state machine,
+    each hop audited. A purchase order still short of a delivery stays where it
+    is: when its last receipt posts, ``_advance_order_after_receipt`` counts the
+    lines still pending and finds none.
+
+    Moves no stock - quality already did. Idempotent: a line already decided is
+    left alone, so the reconciliation sweep can call this as often as it likes.
+    Returns whether anything changed.
+    """
+    if verdict.reference_id is None:
+        return False
+
+    order_repo = PurchaseOrderRepository(session, tenant)
+    line_repo = GoodsReceiptLineRepository(session, tenant)
+
+    async with transaction(session):
+        receipt = await GoodsReceiptRepository(session, tenant).get(verdict.reference_id)
+        if receipt is None or GoodsReceiptStatus(receipt.status) is not GoodsReceiptStatus.POSTED:
+            log.info(
+                "procurement.inspection_names_no_posted_receipt",
+                inspection_id=str(verdict.inspection_id),
+                reference_id=str(verdict.reference_id),
+            )
+            return False
+
+        # The order is the serialisation point: two inspections of one order
+        # decided at once must not both read the other's line as still pending.
+        order = await order_repo.lock_for_update(receipt.purchase_order_id)
+        if order is None:  # pragma: no cover - the foreign key guarantees the row
+            return False
+
+        changed = False
+        line = await line_repo.for_inspection(receipt.id, verdict.inspection_id)
+        new_status = receipt_line_qc_status(
+            settled=verdict.is_settled, refused_quantity=verdict.refused_quantity
+        )
+        if (
+            line is not None
+            and new_status is not None
+            and ReceiptLineQcStatus(line.qc_status) is ReceiptLineQcStatus.PENDING
+        ):
+            line.qc_status = new_status
+            line_repo.touch(line)
+            await session.flush()
+            await record_audit(
+                session,
+                company_id=tenant.company_id,
+                action=AuditAction.QC_DECISION,
+                entity_type=AUDIT_GOODS_RECEIPT,
+                entity_id=receipt.id,
+                entity_code=receipt.code,
+                summary=(
+                    f"Line {line.line_number} of {receipt.code} "
+                    f"{'passed' if new_status is ReceiptLineQcStatus.PASSED else 'failed'} "
+                    f"incoming inspection {verdict.inspection_code}"
+                ),
+                user_id=tenant.user_id,
+                old_values={"line_number": line.line_number, "qc_status": "PENDING"},
+                new_values={"line_number": line.line_number, "qc_status": str(new_status)},
+                context={
+                    "qc_inspection_id": verdict.inspection_id,
+                    "qc_inspection_code": verdict.inspection_code,
+                    "accepted_quantity": verdict.accepted_quantity,
+                    "refused_quantity": verdict.refused_quantity,
+                    "reason": verdict.reason,
+                },
+            )
+            changed = True
+
+        if await _complete_order_inspection(
+            session, tenant, order, reason=f"Inspection {verdict.inspection_code} decided"
+        ):
+            changed = True
+
+    return changed
+
+
+async def _complete_order_inspection(
+    session: AsyncSession, tenant: TenantContext, order: PurchaseOrder, *, reason: str
+) -> bool:
+    """Take a QC_PENDING order on to GRN_COMPLETED once no line awaits a verdict."""
+    if PurchaseOrderStatus(order.status) is not PurchaseOrderStatus.QC_PENDING:
+        return False
+    if await GoodsReceiptLineRepository(session, tenant).qc_pending_count(order.id):
+        return False
+
+    await _transition(
+        session,
+        tenant,
+        machine=PURCHASE_ORDER_LIFECYCLE,
+        entity=order,
+        entity_type=AUDIT_PURCHASE_ORDER,
+        entity_code=order.code,
+        target=PurchaseOrderStatus.QC_COMPLETED,
+        reason=f"{reason}; no received line awaits inspection",
+        status_enum=PurchaseOrderStatus,
+        action=AuditAction.QC_DECISION,
+    )
+    await _transition(
+        session,
+        tenant,
+        machine=PURCHASE_ORDER_LIFECYCLE,
+        entity=order,
+        entity_type=AUDIT_PURCHASE_ORDER,
+        entity_code=order.code,
+        target=PurchaseOrderStatus.GRN_COMPLETED,
+        reason="Every receipt posted and every held line inspected",
+        status_enum=PurchaseOrderStatus,
+    )
+    return True
+
+
+async def awaiting_incoming_inspections(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    after: uuid.UUID | None,
+    limit: int,
+) -> list[tuple[str, uuid.UUID]]:
+    """Receipts with a line still waiting on its inspection's verdict.
+
+    One keyset page for ``quality.owners.reconcile_owners``: the sweep reads the
+    verdicts these receipts' inspections already carry and replays them through
+    :func:`record_incoming_inspection_outcome`.
+    """
+    receipt_ids = await GoodsReceiptLineRepository(session, tenant).receipts_awaiting_inspection(
+        after=after, limit=limit
+    )
+    return [(MOVEMENT_REFERENCE_GRN, receipt_id) for receipt_id in receipt_ids]
 
 
 async def cancel_goods_receipt(
@@ -5237,7 +5637,9 @@ __all__ = [
     "AUDIT_QUOTATION",
     "AUDIT_REQUISITION",
     "AUDIT_RFQ",
+    "IncomingInspectionVerdict",
     "QualityPort",
+    "awaiting_incoming_inspections",
     "can_approve",
     "cancel_goods_receipt",
     "cancel_purchase_return",
@@ -5270,6 +5672,7 @@ __all__ = [
     "list_requisitions",
     "list_rfqs",
     "list_vendor_assignees",
+    "lock_for_incoming_inspection",
     "order_detail",
     "order_tracking",
     "pending_approvals",
@@ -5279,6 +5682,7 @@ __all__ = [
     "quotation_detail",
     "quotation_terms",
     "receipt_detail",
+    "record_incoming_inspection_outcome",
     "record_shipment",
     "requisition_detail",
     "resolve_quality_port",

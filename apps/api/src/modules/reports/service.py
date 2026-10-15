@@ -2,10 +2,10 @@
 
 Master rules section 25. Four decisions carry this module.
 
-**A report is a definition, not a handler.** Twenty reports sharing one runner
+**A report is a definition, not a handler.** Twenty-three reports sharing one runner
 means the rules that matter - the bounded period, the row ceiling, the cache
-policy, the audit entry - are applied twenty times by construction rather than
-twenty times by discipline. A new report is a :class:`ReportDefinition` and a
+policy, the audit entry - are applied consistently by construction. A new
+report is a :class:`ReportDefinition` and a
 route; it cannot forget to paginate, because it never gets the chance to.
 
 **Arithmetic lives in pure functions.** Every percentage, bucket and days-overdue
@@ -39,9 +39,11 @@ from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
-from sqlalchemy import Select
+from sqlalchemy import ColumnElement, Select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 
+from src.common.document_access import register_document_read_policy
 from src.core.cache import CacheNamespace, cache_get, cache_set, make_key
 from src.core.clock import utcnow
 from src.core.database import transaction
@@ -76,6 +78,7 @@ from src.modules.reports.repository import (
     paginate_rows,
 )
 from src.modules.reports.schemas import (
+    ConsumptionByDepartmentRow,
     CostCentreExpenseRow,
     CourierTrackingRow,
     DashboardRead,
@@ -99,6 +102,8 @@ from src.modules.reports.schemas import (
     ReportPeriod,
     ReportRowBase,
     SalesOrderStatusRow,
+    ScrapRegisterRow,
+    ShiftProductionRow,
     StockAvailabilityRow,
     VendorDispatchHistoryRow,
     VendorPerformanceRow,
@@ -306,9 +311,9 @@ def delivery_delay_days(expected: date | None, actual: date | None, as_of: date)
 def available_minutes(working_hours_per_day: Decimal, days: int) -> Decimal:
     """Capacity of one machine over a period, in minutes.
 
-    The denominator of utilisation. Calendar days, not working days: the master
-    rules define no shift calendar, and inventing one would silently inflate
-    every utilisation figure by whatever weekend assumption was chosen.
+    The historical denominator of utilisation uses calendar days. Rostered
+    minutes are a separate denominator, so adding staffing plans does not
+    silently redefine historical capacity or invent weekend assumptions.
     ASSUMPTION recorded in the module notes.
     """
     return (Decimal(working_hours_per_day) * 60 * days).quantize(
@@ -524,8 +529,18 @@ def _derive_production_efficiency(row: dict[str, Any], ctx: ReportContext) -> di
     return row
 
 
+def _derive_shift_production(row: dict[str, Any], ctx: ReportContext) -> dict[str, Any]:
+    produced = Decimal(row["produced_quantity"])
+    row["yield_percent"] = percent(produced, produced + Decimal(row["rejected_quantity"]))
+    return row
+
+
 def _derive_machine_utilisation(row: dict[str, Any], ctx: ReportContext) -> dict[str, Any]:
     capacity = available_minutes(row["working_hours_per_day"], ctx.period_days)
+    # ASSUMPTION: rostered capacity is reported beside calendar capacity, never
+    # instead of it - the calendar figure every existing reader knows does not
+    # move because a roster now exists. docs/assumptions.md §B2-7.
+    row["rostered_utilisation_percent"] = percent(row["busy_minutes"], row["rostered_minutes"])
     row["available_minutes"] = capacity
     row["utilisation_percent"] = percent(row["busy_minutes"], capacity)
     row["downtime_percent"] = percent(row["downtime_minutes"], capacity)
@@ -703,10 +718,28 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         cacheable=True,
         derive=_derive_production_efficiency,
     ),
+    ReportKey.SHIFT_PRODUCTION: ReportDefinition(
+        key=ReportKey.SHIFT_PRODUCTION,
+        title="Daily production by shift",
+        description=(
+            "Output, rejections, downtime and yield per day and shift, by work centre, "
+            "machine and operator."
+        ),
+        row_model=ShiftProductionRow,
+        build=lambda repo, ctx: repo.shift_production(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        # Read during the shift it describes, while bookings are still arriving;
+        # a cached copy would hide the last hour's output from the supervisor.
+        cacheable=False,
+        derive=_derive_shift_production,
+    ),
     ReportKey.MACHINE_UTILISATION: ReportDefinition(
         key=ReportKey.MACHINE_UTILISATION,
         title="Machine utilisation",
-        description="Busy minutes against available capacity per machine.",
+        description=(
+            "Busy minutes per machine against calendar capacity and against the minutes "
+            "the shift roster planned on it."
+        ),
         row_model=MachineUtilisationRow,
         build=lambda repo, ctx: repo.machine_utilisation(ctx.require_period(), ctx.filters),
         requires_period=True,
@@ -771,6 +804,33 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         # Not cached: a period still open takes postings - an approved bill, a
         # reversal - and a statement that lags the ledger it is read from would
         # disagree with the account statement for the same day.
+        cacheable=False,
+    ),
+    ReportKey.SCRAP_REGISTER: ReportDefinition(
+        key=ReportKey.SCRAP_REGISTER,
+        title="Scrap register",
+        description=(
+            "Every movement into the scrap pool by its source document, and every "
+            "disposal out of it, with what the scrap cost. Out is valued from the "
+            "scrap cost layers the disposal consumed."
+        ),
+        row_model=ScrapRegisterRow,
+        build=lambda repo, ctx: repo.scrap_register(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        # Not cached: read straight from the stock ledger, which a disposal or a
+        # QC scrap verdict can extend at any moment (section 34).
+        cacheable=False,
+    ),
+    ReportKey.CONSUMPTION_BY_DEPARTMENT: ReportDefinition(
+        key=ReportKey.CONSUMPTION_BY_DEPARTMENT,
+        title="Consumption by department",
+        description=(
+            "What each department and cost centre consumed through posted internal "
+            "issues over the period, item by item, at what the stock cost."
+        ),
+        row_model=ConsumptionByDepartmentRow,
+        build=lambda repo, ctx: repo.consumption_by_department(ctx.require_period(), ctx.filters),
+        requires_period=True,
         cacheable=False,
     ),
 }
@@ -1194,13 +1254,41 @@ def _is_valuation_export(snapshot: ReportSnapshot) -> bool:
     )
 
 
+VALUATION_WAREHOUSE_SCOPE_PARAMETER = "valuation_warehouse_ids"
+
+
+def valuation_warehouse_scope(snapshot: ReportSnapshot) -> tuple[uuid.UUID, ...] | None:
+    """Read a server-captured scope; missing or invalid data is never unrestricted."""
+    raw = (snapshot.parameters or {}).get(VALUATION_WAREHOUSE_SCOPE_PARAMETER)
+    if not isinstance(raw, list) or any(not isinstance(value, str) for value in raw):
+        return None
+    try:
+        return tuple(sorted({uuid.UUID(value) for value in raw}))
+    except ValueError:
+        return None
+
+
+def _valuation_scope_still_accessible(
+    snapshot: ReportSnapshot, principal: Principal | TenantContext
+) -> bool:
+    if principal.is_superuser or not principal.allowed_warehouse_ids:
+        return True
+    captured = valuation_warehouse_scope(snapshot)
+    # A whole-company or untracked artifact cannot be narrowed after generation.
+    if not captured:
+        return False
+    return set(captured).issubset(principal.allowed_warehouse_ids)
+
+
 def _owns_valuation_export(snapshot: ReportSnapshot, principal: Principal) -> bool:
     return (
         not principal.is_vendor_user
+        and not principal.is_dealer_user
         and snapshot.company_id == principal.company_id
         and snapshot.created_by_id == principal.user_id
         and principal.has_all(Permission.INVENTORY_VALUATION_VIEW, Permission.REPORT_EXPORT)
         and _is_valuation_export(snapshot)
+        and _valuation_scope_still_accessible(snapshot, principal)
     )
 
 
@@ -1211,7 +1299,12 @@ async def _accessible_job(
     if (
         snapshot is None
         or principal.is_vendor_user
+        or principal.is_dealer_user
         or snapshot.company_id != principal.company_id
+        or (
+            _is_valuation_export(snapshot)
+            and not _valuation_scope_still_accessible(snapshot, principal)
+        )
         or not (
             principal.has(Permission.REPORT_VIEW) or _owns_valuation_export(snapshot, principal)
         )
@@ -1372,8 +1465,8 @@ async def purge_expired_snapshots(
     """Delete one bounded batch of lapsed snapshots. Returns how many went.
 
     Only the snapshot row: the artefact it points at is a ``documents`` row with
-    its own retention, and deleting a file out from under that module's
-    bookkeeping would leave it with a row pointing at nothing.
+    its own retention. Valuation rows retain their captured warehouse scope
+    until that module removes the document and clears the reference.
     """
     repo = ReportSnapshotRepository(session, tenant)
     expired = await repo.list_expired(utcnow(), limit=limit)
@@ -1533,6 +1626,25 @@ async def companies_with_expired_snapshots(session: AsyncSession) -> list[uuid.U
         .distinct()
     )
     return list((await session.execute(stmt)).scalars().all())
+
+
+def valuation_document_read_policy(
+    tenant: TenantContext, document_id: InstrumentedAttribute[Any]
+) -> ColumnElement[bool] | None:
+    if tenant.is_superuser or not tenant.allowed_warehouse_ids:
+        return None
+    from src.modules.finance.service import VALUATION_TASK_NAME
+
+    return ReportSnapshotRepository.valuation_document_visibility(
+        tenant,
+        document_id,
+        task_name=VALUATION_TASK_NAME,
+        scope_key=VALUATION_WAREHOUSE_SCOPE_PARAMETER,
+        entity_type="inventory_valuation",
+    )
+
+
+register_document_read_policy("finance_valuation", valuation_document_read_policy)
 
 
 __all__ = [

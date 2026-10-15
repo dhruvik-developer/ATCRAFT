@@ -45,6 +45,7 @@ def _role(
     code: str,
     *permissions: Permission | str,
     is_vendor_role: bool = False,
+    is_dealer_role: bool = False,
     is_active: bool = True,
     deleted: bool = False,
 ) -> SimpleNamespace:
@@ -52,6 +53,7 @@ def _role(
         code=code,
         permissions=[str(p) for p in permissions],
         is_vendor_role=is_vendor_role,
+        is_dealer_role=is_dealer_role,
         is_active=is_active,
         deleted_at=utcnow() if deleted else None,
     )

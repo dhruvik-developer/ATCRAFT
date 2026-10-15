@@ -94,6 +94,7 @@ class NotificationPreferenceRead(BaseModel):
     notification_type: NotificationType
     in_app_enabled: bool
     email_enabled: bool
+    push_enabled: bool = True
     #: False when this is the module default rather than a stored choice.
     is_customised: bool = False
 
@@ -104,6 +105,7 @@ class NotificationPreferenceUpdate(BaseModel):
     notification_type: NotificationType
     in_app_enabled: bool
     email_enabled: bool
+    push_enabled: bool | None = None
 
 
 class PreferencesUpdateRequest(BaseModel):

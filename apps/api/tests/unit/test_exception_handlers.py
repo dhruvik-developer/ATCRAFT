@@ -21,6 +21,7 @@ from src.core.exception_handlers import (
     integrity_error_handler,
     validation_error_handler,
 )
+from src.core.messages import SHIFT_ASSIGNMENT_OVERLAP
 
 pytestmark = pytest.mark.unit
 
@@ -114,6 +115,35 @@ def test_classification_is_by_sqlstate(
 ) -> None:
     got_code, _, got_status = classify_integrity_error(_integrity(message, sqlstate))
     assert (got_code, got_status) == (code, status)
+
+
+ROSTER_EXCLUSION = (
+    'conflicting key value violates exclusion constraint "ex_shift_assignments_operator_window"'
+)
+
+
+async def test_a_roster_overlap_that_won_a_race_is_named_as_one() -> None:
+    """SQLSTATE 23P01 from the roster's EXCLUDE constraints is a 409 in roster words.
+
+    The service checks overlaps first, so this is what the *loser* of two
+    concurrent plans sees - and it must still say what clashed, without the
+    constraint name.
+    """
+    response = await integrity_error_handler(_request(), _integrity(ROSTER_EXCLUSION, "23P01"))
+
+    assert response.status_code == 409
+    body = _body(response)
+    assert body["error"]["code"] == ErrorCode.CONFLICT
+    assert body["error"]["message"] == SHIFT_ASSIGNMENT_OVERLAP
+    assert "ex_shift_assignments" not in response.body.decode()
+
+
+def test_another_exclusion_constraint_does_not_borrow_the_roster_sentence() -> None:
+    other = 'conflicting key value violates exclusion constraint "ex_financial_years_no_overlap"'
+    code, message, status = classify_integrity_error(_integrity(other, "23P01"))
+    assert (code, status) == (ErrorCode.CONFLICT, 409)
+    assert message != SHIFT_ASSIGNMENT_OVERLAP
+    assert "overlaps" in message
 
 
 def test_sqlstate_outranks_the_message_text() -> None:

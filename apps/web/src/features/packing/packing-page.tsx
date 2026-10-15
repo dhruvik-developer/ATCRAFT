@@ -36,6 +36,7 @@ import { staleTimes } from '@/lib/query-client'
 
 import { PackingOrderDialog } from './packing-order-dialog'
 import { PACKING_STATUSES, packingKeys, type PackingOrderRow } from './packing-types'
+import { ReadyFromAssemblyPanel } from './ready-from-assembly'
 
 /** The URL keys this screen filters on, in the order the toolbar shows them. */
 const FILTER_KEYS = [
@@ -219,6 +220,8 @@ export default function PackingPage() {
         description="Orders being made ready for despatch. Open one to build its cartons and generate the packing list that travels with the consignment."
       />
 
+      <ReadyFromAssemblyPanel />
+
       <DataTable
         columns={columns}
         data={list.data}
@@ -236,7 +239,7 @@ export default function PackingPage() {
         searchPlaceholder="Search packing order code..."
         getRowId={(row) => row.id}
         emptyTitle="No packing orders"
-        emptyDescription="Nothing matches the current filters. Confirmed sales orders raise a packing order when they are allocated."
+        emptyDescription="Nothing matches the current filters. Nothing here is created automatically: pack a completed assembly in the panel above."
         toolbar={
           <>
             <Select
@@ -313,7 +316,7 @@ export default function PackingPage() {
         emptyAction={
           <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
             <Boxes className="h-4 w-4" aria-hidden />
-            Packing orders are created from allocated sales orders
+            Pack a completed assembly above to raise its packing order
           </span>
         }
       />

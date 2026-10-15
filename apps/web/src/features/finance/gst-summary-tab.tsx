@@ -16,6 +16,7 @@
  * several slabs, so adding them would over-count documents.
  */
 
+import { salesInvoiceMessages } from '@/lib/messages'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { RefreshCw } from 'lucide-react'
@@ -150,6 +151,12 @@ export function GstSummaryTab({
         </Alert>
       )}
 
+      <p className="text-sm text-muted-foreground">{salesInvoiceMessages.gst}</p>
+      {data?.dispatched_not_invoiced && (
+        <p className="text-sm">
+          Dispatched not yet invoiced GST: {formatMoney(data.dispatched_not_invoiced.total_tax)}
+        </p>
+      )}
       <div className="grid gap-3 md:grid-cols-3">
         <StatTile
           label="Output tax"

@@ -37,7 +37,7 @@ def _warehouse_payload(**overrides: object) -> dict[str, object]:
 
 
 class TestTypeVocabularies:
-    def test_warehouse_types_are_exactly_the_eleven_from_section_9(self) -> None:
+    def test_warehouse_types_include_the_consumables_classification(self) -> None:
         assert [t.value for t in WarehouseType] == [
             "RAW_MATERIAL",
             "COMPONENT",
@@ -50,6 +50,7 @@ class TestTypeVocabularies:
             "QC_HOLD",
             "JOB_WORK",
             "IN_TRANSIT",
+            "CONSUMABLES",
         ]
 
     def test_storage_location_types_are_exactly_the_five(self) -> None:

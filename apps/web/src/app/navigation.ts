@@ -210,6 +210,12 @@ export const navigation: NavSection[] = [
         badgeKey: 'productionInProgress',
       },
       {
+        label: 'Shift roster',
+        to: '/production/shift-roster',
+        icon: Cog,
+        permissions: [P.SHIFT_ROSTER_VIEW, P.SHIFT_VIEW],
+      },
+      {
         label: 'Assembly',
         to: '/assembly',
         icon: Hammer,
@@ -264,6 +270,12 @@ export const navigation: NavSection[] = [
         to: '/finance',
         icon: Receipt,
         permissions: [P.FINANCE_VIEW],
+      },
+      {
+        label: 'Sales invoices',
+        to: '/finance/sales-invoices',
+        icon: Receipt,
+        permissions: [P.SALES_INVOICE_VIEW],
       },
       {
         label: 'Vendor Invoices',

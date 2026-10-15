@@ -92,6 +92,9 @@ class Permission(StrEnum):
     INVENTORY_RECONCILE = "inventory.reconcile"
     INVENTORY_PHYSICAL_COUNT = "inventory.physical_count"
     INVENTORY_VALUATION_VIEW = "inventory.valuation_view"
+    INVENTORY_SCRAP_DISPOSE = "inventory.scrap_dispose"
+    INTERNAL_ISSUE_CREATE = "internal_issue.create"
+    INTERNAL_ISSUE_APPROVE = "internal_issue.approve"
 
     # --- reservation / allocation ------------------------------------------
     RESERVATION_VIEW = "reservation.view"
@@ -109,6 +112,10 @@ class Permission(StrEnum):
     BOM_APPROVE = "bom.approve"
     BOM_OBSOLETE = "bom.obsolete"
     BOM_COST_VIEW = "bom.cost_view"
+    SHIFT_VIEW = "shift.view"
+    SHIFT_MANAGE = "shift.manage"
+    SHIFT_ROSTER_VIEW = "shift_roster.view"
+    SHIFT_ROSTER_MANAGE = "shift_roster.manage"
     ROUTING_VIEW = "routing.view"
     ROUTING_MANAGE = "routing.manage"
     WORK_CENTER_VIEW = "work_center.view"
@@ -124,6 +131,7 @@ class Permission(StrEnum):
     SALES_ORDER_CANCEL = "sales_order.cancel"
     SALES_INVOICE_VIEW = "sales_invoice.view"
     SALES_INVOICE_CREATE = "sales_invoice.create"
+    SALES_INVOICE_CANCEL = "sales_invoice.cancel"
 
     # --- MRP ----------------------------------------------------------------
     MRP_VIEW = "mrp.view"
@@ -150,6 +158,19 @@ class Permission(StrEnum):
     GRN_POST = "grn.post"
     PURCHASE_RETURN_VIEW = "purchase_return.view"
     PURCHASE_RETURN_CREATE = "purchase_return.create"
+
+    # --- vendor portal ------------------------------------------------------
+    VENDOR_PORTAL_ACCESS = "vendor_portal.access"
+    VENDOR_PORTAL_RESPOND = "vendor_portal.respond"
+    VENDOR_PORTAL_SHIP = "vendor_portal.ship"
+    VENDOR_PORTAL_INVOICE = "vendor_portal.invoice"
+    VENDOR_PORTAL_QUALITY = "vendor_portal.quality"
+
+    # --- dealer portal ------------------------------------------------------
+    DEALER_PORTAL_BROWSE = "dealer_portal.browse"
+    DEALER_PORTAL_ORDER = "dealer_portal.order"
+    DEALER_PORTAL_ACCOUNT = "dealer_portal.account"
+    DEALER_PORTAL_RETURN = "dealer_portal.return"
 
     # --- production ---------------------------------------------------------
     PRODUCTION_ORDER_VIEW = "production_order.view"
@@ -230,8 +251,8 @@ PERMISSION_GROUPS: dict[str, tuple[str, ...]] = {
         "price",
     ),
     "Warehouses": ("warehouse", "location"),
-    "Inventory": ("inventory", "reservation", "allocation"),
-    "Engineering": ("bom", "routing", "work_center", "machine"),
+    "Inventory": ("inventory", "reservation", "allocation", "internal_issue"),
+    "Engineering": ("bom", "routing", "work_center", "machine", "shift"),
     "Sales": ("sales_order", "sales_invoice"),
     "Planning": ("mrp",),
     "Procurement": (
@@ -242,7 +263,10 @@ PERMISSION_GROUPS: dict[str, tuple[str, ...]] = {
         "grn",
         "purchase_return",
     ),
+    "Vendor Portal": ("vendor_portal",),
+    "Dealer Portal": ("dealer_portal",),
     "Production": (
+        "shift_roster",
         "production_order",
         "work_order",
         "material_issue",
@@ -333,6 +357,9 @@ _STORE = frozenset(
         Permission.INVENTORY_VIEW,
         Permission.INVENTORY_LEDGER_VIEW,
         Permission.INVENTORY_TRANSFER,
+        Permission.INVENTORY_SCRAP_DISPOSE,
+        Permission.INTERNAL_ISSUE_CREATE,
+        Permission.DEPARTMENT_VIEW,
         Permission.INVENTORY_ADJUST,
         Permission.INVENTORY_PHYSICAL_COUNT,
         Permission.INVENTORY_RECONCILE,
@@ -399,6 +426,12 @@ _PURCHASE = frozenset(
 
 _PRODUCTION = frozenset(
     {
+        # The shop floor plans its own people: the shift register to read, the
+        # roster to read and write. Changing a shift's times is the plant
+        # manager's (see PLANT_MANAGER).
+        Permission.SHIFT_VIEW,
+        Permission.SHIFT_ROSTER_VIEW,
+        Permission.SHIFT_ROSTER_MANAGE,
         Permission.PRODUCTION_ORDER_VIEW,
         Permission.PRODUCTION_ORDER_CREATE,
         Permission.PRODUCTION_ORDER_RELEASE,
@@ -509,6 +542,7 @@ _ACCOUNTS = frozenset(
         Permission.INVENTORY_VALUATION_VIEW,
         Permission.SALES_INVOICE_VIEW,
         Permission.SALES_INVOICE_CREATE,
+        Permission.SALES_INVOICE_CANCEL,
         Permission.PURCHASE_ORDER_VIEW,
         Permission.GRN_VIEW,
         Permission.CUSTOMER_VIEW,
@@ -532,14 +566,14 @@ _ACCOUNTS = frozenset(
 # Vendor-portal roles. A vendor principal is additionally constrained to its own
 # vendor_id and assigned item categories - enforced server-side, never by the
 # permission string alone (section 16/39).
-_VENDOR_BASE = frozenset(
-    {
-        Permission.PURCHASE_ORDER_VIEW,
-        Permission.DISPATCH_VIEW,
-        Permission.DOCUMENT_VIEW,
-        Permission.NOTIFICATION_VIEW,
-    }
-)
+_VENDOR_BASE = frozenset({Permission.VENDOR_PORTAL_ACCESS, Permission.NOTIFICATION_VIEW})
+
+# Dealer-portal roles. A dealer principal is additionally constrained to its own
+# customer_id - enforced server-side, never by the permission string alone
+# (docs/assumptions.md §C3-1). None of the rights ends in ``.view``, so the
+# AUDITOR bundle (``VIEW_ONLY``) does not absorb them - the same reason the
+# vendor rights avoid that suffix.
+_DEALER_BASE = frozenset({Permission.DEALER_PORTAL_BROWSE, Permission.NOTIFICATION_VIEW})
 
 ROLE_PRESETS: dict[str, dict[str, object]] = {
     "SUPER_ADMIN": {
@@ -562,11 +596,14 @@ ROLE_PRESETS: dict[str, dict[str, object]] = {
         | _QC
         | {
             Permission.PRODUCTION_ORDER_APPROVE,
+            Permission.INTERNAL_ISSUE_APPROVE,
             Permission.PRODUCTION_ORDER_CANCEL,
             Permission.ALLOCATION_APPROVE,
             Permission.ALLOCATION_REALLOCATE,
             Permission.JOB_WORK_CLOSE,
             Permission.BOM_APPROVE,
+            # The shift master itself - its times are the plant's working day.
+            Permission.SHIFT_MANAGE,
         },
     },
     "STORE_KEEPER": {
@@ -643,6 +680,8 @@ ROLE_PRESETS: dict[str, dict[str, object]] = {
                 Permission.ALLOCATION_CREATE,
                 Permission.ALLOCATION_REALLOCATE,
                 Permission.SALES_ORDER_VIEW,
+                Permission.SHIFT_VIEW,
+                Permission.SHIFT_ROSTER_VIEW,
                 Permission.PRODUCTION_ORDER_VIEW,
                 Permission.PRODUCTION_ORDER_CREATE,
                 Permission.PURCHASE_REQUISITION_VIEW,
@@ -701,68 +740,73 @@ ROLE_PRESETS: dict[str, dict[str, object]] = {
     # --- vendor portal ------------------------------------------------------
     "VENDOR_OWNER": {
         "name": "Vendor Owner",
-        "description": "Vendor principal with full access to that vendor's records.",
+        "description": "Portal access scoped to the account vendor.",
         "is_system": True,
         "is_vendor_role": True,
         "permissions": _VENDOR_BASE
         | {
-            Permission.PURCHASE_ORDER_UPDATE,
-            Permission.DISPATCH_CREATE,
-            Permission.DISPATCH_UPDATE,
-            Permission.VENDOR_INVOICE_VIEW,
-            Permission.VENDOR_INVOICE_CREATE,
-            Permission.PAYMENT_VIEW,
-            Permission.JOB_WORK_VIEW,
-            Permission.QC_VIEW,
-            Permission.DOCUMENT_UPLOAD,
-            Permission.USER_VIEW,
+            Permission.VENDOR_PORTAL_RESPOND,
+            Permission.VENDOR_PORTAL_SHIP,
+            Permission.VENDOR_PORTAL_INVOICE,
+            Permission.VENDOR_PORTAL_QUALITY,
         },
     },
     "VENDOR_MANAGER": {
         "name": "Vendor Manager",
-        "description": "Vendor staff limited to assigned item categories.",
+        "description": "Portal access scoped to the account vendor.",
         "is_system": True,
         "is_vendor_role": True,
         "permissions": _VENDOR_BASE
-        | {
-            Permission.PURCHASE_ORDER_UPDATE,
-            Permission.DISPATCH_VIEW,
-            Permission.JOB_WORK_VIEW,
-            Permission.DOCUMENT_UPLOAD,
-        },
+        | {Permission.VENDOR_PORTAL_RESPOND, Permission.VENDOR_PORTAL_SHIP},
     },
     "VENDOR_DISPATCH_MANAGER": {
         "name": "Vendor Dispatch Manager",
-        "description": "Vendor staff who record dispatch and courier details.",
+        "description": "Portal access scoped to the account vendor.",
         "is_system": True,
         "is_vendor_role": True,
-        "permissions": _VENDOR_BASE
-        | {
-            Permission.DISPATCH_CREATE,
-            Permission.DISPATCH_UPDATE,
-            Permission.DOCUMENT_UPLOAD,
-        },
+        "permissions": _VENDOR_BASE | {Permission.VENDOR_PORTAL_SHIP},
     },
     "VENDOR_QC_CONTACT": {
-        "name": "Vendor QC Contact",
-        "description": "Vendor quality contact; sees inspection outcomes on own supplies.",
+        "name": "Vendor Qc Contact",
+        "description": "Portal access scoped to the account vendor.",
         "is_system": True,
         "is_vendor_role": True,
-        "permissions": _VENDOR_BASE | {Permission.QC_VIEW, Permission.DOCUMENT_UPLOAD},
+        "permissions": _VENDOR_BASE | {Permission.VENDOR_PORTAL_QUALITY},
     },
     "VENDOR_ACCOUNT_MANAGER": {
         "name": "Vendor Account Manager",
-        "description": "Vendor finance contact: invoices, payment status, ledger.",
+        "description": "Portal access scoped to the account vendor.",
         "is_system": True,
         "is_vendor_role": True,
-        "permissions": _VENDOR_BASE
+        "permissions": _VENDOR_BASE | {Permission.VENDOR_PORTAL_INVOICE},
+    },
+    # --- dealer portal ------------------------------------------------------
+    "DEALER_OWNER": {
+        "name": "Dealer Owner",
+        "description": "Portal access scoped to the account dealer.",
+        "is_system": True,
+        "is_dealer_role": True,
+        "permissions": _DEALER_BASE
         | {
-            Permission.VENDOR_INVOICE_VIEW,
-            Permission.VENDOR_INVOICE_CREATE,
-            Permission.PAYMENT_VIEW,
-            Permission.LEDGER_VIEW,
-            Permission.DOCUMENT_UPLOAD,
+            Permission.DEALER_PORTAL_ORDER,
+            Permission.DEALER_PORTAL_ACCOUNT,
+            Permission.DEALER_PORTAL_RETURN,
         },
+    },
+    "DEALER_BUYER": {
+        "name": "Dealer Buyer",
+        "description": "Portal access scoped to the account dealer.",
+        "is_system": True,
+        "is_dealer_role": True,
+        "permissions": _DEALER_BASE
+        | {Permission.DEALER_PORTAL_ORDER, Permission.DEALER_PORTAL_RETURN},
+    },
+    "DEALER_ACCOUNTS": {
+        "name": "Dealer Accounts",
+        "description": "Portal access scoped to the account dealer.",
+        "is_system": True,
+        "is_dealer_role": True,
+        "permissions": _DEALER_BASE | {Permission.DEALER_PORTAL_ACCOUNT},
     },
 }
 
@@ -770,10 +814,15 @@ VENDOR_ROLE_CODES: frozenset[str] = frozenset(
     code for code, spec in ROLE_PRESETS.items() if spec.get("is_vendor_role")
 )
 
+DEALER_ROLE_CODES: frozenset[str] = frozenset(
+    code for code, spec in ROLE_PRESETS.items() if spec.get("is_dealer_role")
+)
+
 ALL_PERMISSIONS: tuple[Permission, ...] = tuple(Permission)
 
 __all__ = [
     "ALL_PERMISSIONS",
+    "DEALER_ROLE_CODES",
     "PERMISSION_GROUPS",
     "ROLE_PRESETS",
     "VENDOR_ROLE_CODES",

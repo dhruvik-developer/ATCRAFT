@@ -68,6 +68,7 @@ function transfer(overrides: Partial<StockTransferRow> = {}): StockTransferRow {
 
 function adjustment(overrides: Partial<StockAdjustmentRow> = {}): StockAdjustmentRow {
   return {
+    cost_centre_id: null,
     id: 'ad000000-0000-7000-8000-000000000001',
     code: 'ADJ/2026-27/00007',
     status: 'DRAFT',
@@ -351,7 +352,12 @@ describe('adjustments', () => {
     })
 
     await screen.findByText('ADJ-WAITING')
-    expect(within(rowFor('ADJ-WAITING')).queryByRole('button')).not.toBeInTheDocument()
+    expect(
+      within(rowFor('ADJ-WAITING')).queryByRole('button', { name: /^approve$/i }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(rowFor('ADJ-WAITING')).getByRole('button', { name: /^cancel$/i }),
+    ).toBeInTheDocument()
   })
 
   it('gives the approver the approve button and nothing else', async () => {

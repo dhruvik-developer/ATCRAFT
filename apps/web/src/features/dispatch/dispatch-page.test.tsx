@@ -51,6 +51,7 @@ function promisedAhead(days: number): string {
 /** One row of `GET /dispatch` (`DispatchSummary`). */
 function dispatch(overrides: Partial<DispatchRow> = {}): DispatchRow {
   return {
+    sales_invoice_id: null,
     id: DISPATCH_ID,
     code: 'DSP-0001',
     dispatch_type: 'SALES',

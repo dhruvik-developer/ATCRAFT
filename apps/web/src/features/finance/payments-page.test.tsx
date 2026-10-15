@@ -211,7 +211,7 @@ describe('the two rights this screen spans', () => {
 
 // --------------------------------------------------- allocation is payables --
 
-describe('a receipt is never settled', () => {
+describe('a receipt settles customer invoices', () => {
   const RECEIPT_CODE = 'RCT/2026-27/00009'
   const receipt = {
     code: RECEIPT_CODE,
@@ -220,7 +220,7 @@ describe('a receipt is never settled', () => {
     allocated_amount: '0.00',
   }
 
-  it('offers no settlement affordance on a receipt row, whatever its status', async () => {
+  it('offers invoice settlement on an approved customer receipt', async () => {
     // An approved payment in this state would offer "Settle invoices". The
     // receipt's menu is otherwise identical, which is what makes the absence
     // meaningful rather than an artefact of a menu that never rendered.
@@ -232,12 +232,10 @@ describe('a receipt is never settled', () => {
     expect(await screen.findByText(RECEIPT_CODE)).toBeInTheDocument()
     const menu = await openRowMenu(user, RECEIPT_CODE)
     expect(within(menu).getByRole('menuitem', { name: 'Cancel and reverse' })).toBeInTheDocument()
-    expect(
-      within(menu).queryByRole('menuitem', { name: 'Settle invoices' }),
-    ).not.toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Settle invoices' })).toBeInTheDocument()
   })
 
-  it('reads a receipt as not-applicable rather than as an unsettled balance', async () => {
+  it('shows the receipt allocated and unallocated balances', async () => {
     // A zero in the Settled column would read as an outstanding matching job
     // that somebody has to go and do. "n/a" says the column does not apply,
     // which is the truth for a receipt.
@@ -247,10 +245,10 @@ describe('a receipt is never settled', () => {
     })
 
     await screen.findByText(RECEIPT_CODE)
-    expect(within(rowFor(RECEIPT_CODE)).getAllByText('n/a')).toHaveLength(2)
+    expect(within(rowFor(RECEIPT_CODE)).queryByText('n/a')).not.toBeInTheDocument()
   })
 
-  it('closes the door out of the reader for a receipt as well', async () => {
+  it('offers receipt settlement from the payment reader', async () => {
     const { user } = renderScreen(<PaymentsPage />, {
       permissions: [P.PAYMENT_VIEW, P.PAYMENT_RECORD],
       routes: {
@@ -261,10 +259,8 @@ describe('a receipt is never settled', () => {
 
     await user.click(await screen.findByText(RECEIPT_CODE))
     const dialog = await screen.findByRole('dialog')
-    expect(await within(dialog).findByText('Not applicable to a receipt')).toBeInTheDocument()
-    expect(
-      within(dialog).queryByRole('button', { name: 'Settle invoices' }),
-    ).not.toBeInTheDocument()
+    expect(await within(dialog).findByText('Unallocated')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Settle invoices' })).toBeInTheDocument()
   })
 })
 
@@ -593,6 +589,7 @@ describe('settling an approved payment', () => {
   const ALLOCATIONS = [
     {
       id: 'al1',
+      sales_invoice_id: null,
       vendor_invoice_id: 'vi1',
       amount: '6408.52',
       notes: null,
@@ -601,6 +598,7 @@ describe('settling an approved payment', () => {
     },
     {
       id: 'al2',
+      sales_invoice_id: null,
       vendor_invoice_id: 'vi2',
       amount: '6534.59',
       notes: null,
@@ -609,6 +607,7 @@ describe('settling an approved payment', () => {
     },
     {
       id: 'al3',
+      sales_invoice_id: null,
       vendor_invoice_id: 'vi3',
       amount: '3594.81',
       notes: 'part settlement',

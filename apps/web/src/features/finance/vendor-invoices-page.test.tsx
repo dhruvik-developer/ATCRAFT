@@ -34,7 +34,7 @@
  * correct, and the amendment path for what it *shows*.
  */
 
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
@@ -78,6 +78,8 @@ function summary(overrides: Partial<VendorInvoiceSummary> = {}): VendorInvoiceSu
     outstanding_amount: '1359.00',
     purchase_order_id: null,
     goods_receipt_id: null,
+    invoice_type: 'PURCHASE',
+    job_work_order_id: null,
     cost_centre_id: null,
     created_at: '2026-09-01T09:00:00Z',
     ...overrides,
@@ -105,6 +107,8 @@ function line(overrides: Partial<VendorInvoiceLine> = {}): VendorInvoiceLine {
     igst_amount: '0.00',
     tax_amount: '45.01',
     line_total: '295.07',
+    job_work_receipt_line_id: null,
+    recovery_amount: '0.0000',
     notes: null,
     ...overrides,
   }
@@ -121,6 +125,7 @@ function invoice(overrides: Partial<VendorInvoiceDetail> = {}): VendorInvoiceDet
     approved_at: null,
     dispute_reason: null,
     cancellation_reason: null,
+    recovered_amount: '0.0000',
     notes: 'Received with the September consignment',
     version: 1,
     lines: [line()],
@@ -135,6 +140,7 @@ function matchResult(overrides: Partial<MatchResult> = {}): MatchResult {
     vendor_id: VENDOR.id,
     purchase_order_id: null,
     goods_receipt_id: null,
+    job_work_order_id: null,
     matched: true,
     match_status: 'MATCHED',
     price_tolerance: '0.02',
@@ -144,6 +150,7 @@ function matchResult(overrides: Partial<MatchResult> = {}): MatchResult {
     total_variance: '0.00',
     worst_variance: '0.00',
     blocking_reasons: [],
+    has_overbilling: false,
     lines: [],
     ...overrides,
   }
@@ -894,6 +901,38 @@ describe('where a bill is charged', () => {
 })
 
 // ------------------------------------------------------ empty and broken -----
+
+describe('the invoice type column and filter', () => {
+  it('shows the type on every row and narrows the queue by it', async () => {
+    const seen: { url?: URL } = {}
+    const { user } = renderScreen(<VendorInvoicesPage />, {
+      permissions: [P.VENDOR_INVOICE_VIEW],
+      routes: {
+        'GET /finance/vendor-invoices': ({ url }: { url?: URL }) => {
+          seen.url = url
+          return page([
+            summary(),
+            summary({
+              id: 'vi000000-0000-7000-8000-000000000002',
+              code: 'VINV/2026-27/00032',
+              vendor_invoice_number: 'CHR/4420',
+              invoice_type: 'JOB_WORK',
+              job_work_order_id: 'jw000000-0000-7000-8000-000000000001',
+            }),
+          ])
+        },
+      },
+    })
+
+    expect(await screen.findByText('VINV/2026-27/00031')).toBeInTheDocument()
+    expect(screen.getByText('Purchase')).toBeInTheDocument()
+    expect(screen.getByText('Job Work')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('combobox', { name: 'Invoice type' }))
+    await user.click(await screen.findByRole('option', { name: 'Job Work' }))
+    await waitFor(() => expect(seen.url?.searchParams.get('invoice_type')).toBe('JOB_WORK'))
+  }, 120_000)
+})
 
 describe('the states with no rows in them', () => {
   it('says what an empty queue holds without demanding a purchase order', async () => {

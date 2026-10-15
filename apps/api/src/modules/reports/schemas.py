@@ -332,6 +332,31 @@ class ProductionEfficiencyRow(ReportRowBase):
     completed_on_time: bool = False
 
 
+class ShiftProductionRow(ReportRowBase):
+    """One date, shift, cell, machine and operator: what was booked.
+
+    ``shift`` is the code snapshot on the bookings - legacy typed text included -
+    and any of the cell, machine and operator may be empty on a booking that did
+    not name one.
+    """
+
+    entry_date: date
+    shift: str | None
+    work_center_id: uuid.UUID | None
+    work_center_code: str | None
+    machine_id: uuid.UUID | None
+    machine_code: str | None
+    operator_user_id: uuid.UUID | None
+    operator_name: str | None
+    employee_code: str | None
+    produced_quantity: Decimal
+    rejected_quantity: Decimal
+    downtime_minutes: Decimal
+    bookings: int
+    #: Good output over good plus rejected, as a percentage.
+    yield_percent: Decimal = Decimal("0")
+
+
 class MachineUtilisationRow(ReportRowBase):
     machine_id: uuid.UUID
     machine_code: str
@@ -343,6 +368,11 @@ class MachineUtilisationRow(ReportRowBase):
     downtime_minutes: Decimal
     completed_quantity: Decimal
     rejected_quantity: Decimal
+    #: Net minutes the roster planned on this machine in the period - its
+    #: PLANNED shift windows less their breaks.
+    rostered_minutes: Decimal = Decimal("0")
+    #: Busy minutes over rostered minutes. Zero when nothing was rostered.
+    rostered_utilisation_percent: Decimal = Decimal("0")
     available_minutes: Decimal = Decimal("0")
     utilisation_percent: Decimal = Decimal("0")
     downtime_percent: Decimal = Decimal("0")
@@ -432,6 +462,49 @@ class CostCentreExpenseRow(ReportRowBase):
     debit_amount: Decimal
     credit_amount: Decimal
     net_amount: Decimal
+
+
+class ScrapRegisterRow(ReportRowBase):
+    """One movement into or out of the scrap pool.
+
+    Exactly one of the two quantities is non-zero. ``source_type`` is the
+    document that moved it (``qc_inspection``, ``job_work_order``,
+    ``scrap_disposal``, ...) and ``source_code`` its number; the disposal
+    columns are filled on the way out only.
+    """
+
+    transaction_id: uuid.UUID
+    occurred_at: datetime
+    item_id: uuid.UUID
+    item_code: str
+    item_name: str
+    warehouse_code: str
+    transaction_type: str
+    source_type: str
+    source_code: str | None
+    disposal_kind: str | None
+    buyer_reference: str | None
+    scrap_in_quantity: Decimal
+    scrap_out_quantity: Decimal
+    unit_cost: Decimal
+    total_cost: Decimal
+
+
+class ConsumptionByDepartmentRow(ReportRowBase):
+    """What one department and/or cost centre consumed of one item over the period."""
+
+    department_id: uuid.UUID | None
+    department_code: str | None
+    department_name: str | None
+    cost_centre_id: uuid.UUID | None
+    cost_centre_code: str | None
+    cost_centre_name: str | None
+    item_id: uuid.UUID
+    item_code: str
+    item_name: str
+    issue_count: int
+    quantity: Decimal
+    total_cost: Decimal
 
 
 # -----------------------------------------------------------------------------

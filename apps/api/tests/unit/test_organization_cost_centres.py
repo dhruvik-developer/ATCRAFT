@@ -271,10 +271,11 @@ class TestReferenceProbes:
         assert reference_labels(probes, ["a_table", "b_table"]) == ["bees", "ays"]
         assert reference_labels(probes, []) == []
 
-    def test_the_department_guard_probes_work_centres_and_requisitions(self) -> None:
+    def test_the_department_guard_probes_every_carrier(self) -> None:
         assert {probe.table for probe in DEPARTMENT_REFERENCE_PROBES} == {
             "work_centers",
             "purchase_requisitions",
+            "internal_issues",
         }
 
     def test_the_plant_guard_probes_work_centres_and_production_orders(self) -> None:

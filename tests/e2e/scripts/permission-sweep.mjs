@@ -48,6 +48,7 @@ const GRANTED = new Set([
 
 /** route -> the permission its route guard declares (null = ungated by design). */
 const ROUTES = [
+  ['/production/shift-roster', 'shift_roster.view'],
   ['/', 'dashboard.view'],
   ['/items', 'item.view'],
   ['/warehouses', 'warehouse.view'],
@@ -84,6 +85,7 @@ const ROUTES = [
   ['/finance', 'finance.view'],
   ['/finance/payments', 'payment.view'],
   ['/finance/accounts', 'ledger.view'],
+  ['/finance/sales-invoices', 'sales_invoice.view'],
   ['/finance/vendor-invoices', 'vendor_invoice.view'],
   ['/documents', 'document.view'],
   ['/reports', 'report.view'],

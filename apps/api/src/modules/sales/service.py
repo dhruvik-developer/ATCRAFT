@@ -31,8 +31,9 @@ exercised without standing up the whole reservation engine.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from dataclasses import field as dc_field
 from datetime import date
 from decimal import Decimal
 from typing import Any, Protocol
@@ -109,6 +110,7 @@ ORDER_AUDITED_FIELDS = [
     "code",
     "customer_id",
     "customer_po_number",
+    "source",
     "order_date",
     "required_date",
     "promised_date",
@@ -191,6 +193,26 @@ SALES_ORDER_LIFECYCLE: StateMachine[SalesOrderStatus] = StateMachine(
             permission=Permission.SALES_ORDER_UPDATE,
             label="Fully allocated",
         ),
+        # A partly reserved order may ship what is reserved (K08): the reserved
+        # part of a line leaves now, and the balance waits for stock and the
+        # top-up. Each consigned line is capped at its live reservation
+        # (``dispatchable_quantity``), so this edge never ships unpromised stock.
+        Transition(
+            SalesOrderStatus.CONFIRMED,
+            SalesOrderStatus.PARTIALLY_DISPATCHED,
+            permission=Permission.DISPATCH_CREATE,
+            label="Dispatch",
+            is_irreversible=True,
+        ),
+        # ALLOCATED means every open line is fully reserved. A quantity increase
+        # the free stock cannot cover takes that away again (docs/assumptions.md
+        # section E1-3); an under-reserved order must not keep the label.
+        Transition(
+            SalesOrderStatus.ALLOCATED,
+            SalesOrderStatus.CONFIRMED,
+            permission=Permission.SALES_ORDER_UPDATE,
+            label="Allocation shortfall",
+        ),
         Transition(
             SalesOrderStatus.ALLOCATED,
             SalesOrderStatus.PARTIALLY_DISPATCHED,
@@ -218,6 +240,12 @@ SALES_ORDER_LIFECYCLE: StateMachine[SalesOrderStatus] = StateMachine(
             permission=Permission.SALES_ORDER_UPDATE,
             label="Close",
         ),
+        Transition(
+            SalesOrderStatus.INVOICED,
+            SalesOrderStatus.DISPATCHED,
+            permission=Permission.SALES_INVOICE_CANCEL,
+            label="Invoice cancelled",
+        ),
         # Cancellation is reachable only before anything has shipped
         # (database.md section 7): a document that moved stock cannot claim
         # never to have existed.
@@ -243,6 +271,16 @@ SALES_ORDER_LIFECYCLE: StateMachine[SalesOrderStatus] = StateMachine(
         ),
     ),
     terminal=frozenset({SalesOrderStatus.CLOSED, SalesOrderStatus.CANCELLED}),
+)
+
+#: Statuses the allocation top-up (:func:`allocate_order`) works on: every
+#: status that still holds reservations and may still ship. An ALLOCATED order
+#: is included because a reservation released or expired elsewhere leaves it
+#: short, and the top-up is what re-reserves it.
+TOP_UP_STATUSES: tuple[SalesOrderStatus, ...] = (
+    SalesOrderStatus.CONFIRMED,
+    SalesOrderStatus.ALLOCATED,
+    SalesOrderStatus.PARTIALLY_DISPATCHED,
 )
 
 
@@ -418,6 +456,35 @@ def reservable_quantity(demand: Decimal, available: Decimal) -> Decimal:
     return to_quantity(min(Decimal(demand), Decimal(available)))
 
 
+def dispatchable_quantity(
+    *, ordered: Decimal, dispatched: Decimal, reserved: Decimal, planned: Decimal = ZERO
+) -> Decimal:
+    """How much of one order line a new consignment may carry right now.
+
+    ``min(live reservation remaining, ordered - dispatched - already on other
+    open consignments)``, never below zero. ``reserved`` is what the line's
+    reservation still holds *live*: a released, expired or consumed reservation
+    counts as zero, so a line with no live promise is simply not dispatchable
+    yet. ``planned`` is what consignments raised but not yet sent already carry
+    for the line - counting it is what stops two plans shipping one balance.
+
+    ASSUMPTION: the live reservation is the promise, and free stock may not
+    bypass it on an order-linked line (docs/assumptions.md section E1-1).
+    Anything beyond it has to be reserved first - by the top-up - so a
+    consignment can never ship stock another order was promised.
+    """
+    outstanding = Decimal(ordered) - Decimal(dispatched) - Decimal(planned)
+    return to_quantity(max(min(Decimal(reserved), outstanding), ZERO))
+
+
+def line_shortfall(line: SalesOrderLine, reserved: Decimal) -> Decimal:
+    """What a line still needs reserved: open demand minus its live reservation."""
+    if SalesOrderLineStatus(line.status) is SalesOrderLineStatus.CANCELLED:
+        return to_quantity(ZERO)
+    outstanding = Decimal(line.quantity) - Decimal(line.dispatched_quantity)
+    return to_quantity(max(outstanding - Decimal(reserved), ZERO))
+
+
 # -----------------------------------------------------------------------------
 # Allocation seam
 # -----------------------------------------------------------------------------
@@ -548,6 +615,21 @@ class AllocationService:
         reason: str,
         quantity: Decimal | None = None,
     ) -> None:
+        """Give a line's reservation back - a no-op when it is already closed.
+
+        The allocation engine refuses to release a RELEASED, EXPIRED or CONSUMED
+        reservation, because nothing of it is outstanding. A sales path that
+        gives a line's stock back - cancelling the order, re-reserving a changed
+        line, topping one up - must not fail because the promise was already
+        returned elsewhere (from the allocation screen, by expiry), so a closed
+        reservation is treated as "no live reservation" and skipped. Keeping the
+        order line in step when allocation releases on its own is WP E2's seam.
+        """
+        live = await SalesOrderLineRepository(session, tenant).live_reservation_quantities(
+            [reservation_id]
+        )
+        if reservation_id not in live:
+            return
         await self._module().release(
             session, tenant, reservation_id=reservation_id, reason=reason, quantity=quantity
         )
@@ -555,6 +637,71 @@ class AllocationService:
 
 def _allocation(port: AllocationPort | None) -> AllocationPort:
     return port if port is not None else AllocationService()
+
+
+async def live_reservations(
+    session: AsyncSession, tenant: TenantContext, lines: Sequence[SalesOrderLine]
+) -> dict[uuid.UUID, Decimal]:
+    """What each line's reservation still holds, keyed by reservation id.
+
+    One statement for the whole line set. Only open reservations are present,
+    so :func:`live_reserved` reads a closed one as zero.
+    """
+    return await SalesOrderLineRepository(session, tenant).live_reservation_quantities(
+        [line.reservation_id for line in lines if line.reservation_id is not None]
+    )
+
+
+def live_reserved(line: SalesOrderLine, live: Mapping[uuid.UUID, Decimal]) -> Decimal:
+    """One line's live reservation: zero when it holds none, or only a closed one."""
+    if line.reservation_id is None:
+        return ZERO
+    return Decimal(live.get(line.reservation_id, ZERO))
+
+
+# -----------------------------------------------------------------------------
+# Dispatch seam - what open consignments already carry
+# -----------------------------------------------------------------------------
+
+
+class DispatchPlanPort(Protocol):
+    """The dispatch module's count of what unsent consignments carry per order line."""
+
+    async def __call__(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        sales_order_id: uuid.UUID,
+        *,
+        exclude_dispatch_id: uuid.UUID | None = None,
+    ) -> dict[uuid.UUID, Decimal]: ...
+
+
+def resolve_dispatch_plan_port() -> DispatchPlanPort | None:
+    """``dispatch.service.open_dispatch_quantities``, if dispatch is deployed.
+
+    Dispatch sits downstream of sales and imports it, so sales reaches it at
+    call time through this guarded import - the way procurement reaches quality
+    - rather than at module import. Only the module's *absence* is tolerated:
+    without dispatch there are no open consignments, which is exactly what an
+    empty answer says.
+    """
+    try:
+        from src.modules.dispatch import service as dispatch_service
+    except ImportError:  # pragma: no cover - deployment shape
+        return None
+    reader = getattr(dispatch_service, "open_dispatch_quantities", None)
+    return reader if callable(reader) else None
+
+
+async def planned_dispatch_quantities(
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
+) -> dict[uuid.UUID, Decimal]:
+    """Quantity per order line already on consignments raised but not yet sent."""
+    reader = resolve_dispatch_plan_port()
+    if reader is None:  # pragma: no cover - deployment shape
+        return {}
+    return await reader(session, tenant, order_id)
 
 
 # -----------------------------------------------------------------------------
@@ -572,6 +719,14 @@ class PricingContext:
     items: dict[uuid.UUID, SellableItem]
     variants: dict[uuid.UUID, VariantInfo]
     price_rows: dict[uuid.UUID, list[ItemPrice]]
+    #: Dealer schemes that may discount a line. Empty for a caller that priced
+    #: without them - and with no offers configured nothing changes for
+    #: existing ERP orders (docs/assumptions.md §C3-3).
+    offers: tuple = ()
+    #: Category id to itself plus its ancestors, for CATEGORY-scoped offers.
+    offer_ancestors: dict[uuid.UUID, frozenset[uuid.UUID]] = dc_field(default_factory=dict)
+    #: The customer the offers are evaluated for (negotiated schemes).
+    offer_customer_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -588,6 +743,24 @@ class PricedLine:
     amounts: LineAmounts
     is_price_override: bool
     is_below_cost: bool
+    #: The effective discount percentage: the payload's own, or the best
+    #: dealer scheme when the caller gave none (docs/assumptions.md §C3-3).
+    discount_percentage: Decimal = Decimal("0")
+    #: The scheme the discount came from, if any - stored on the line for
+    #: traceability. Explicit discounts carry none.
+    offer_id: uuid.UUID | None = None
+
+
+def _dealer_offer_functions() -> tuple[Callable[..., Any], Callable[..., Any]]:
+    """The dealer scheme matcher, imported late.
+
+    ``dealer_portal`` sits downstream of sales and imports this module's
+    service for checkout, so a top-level import would cycle. The same deferred
+    seam ``AllocationService._module`` uses for the same reason.
+    """
+    from src.modules.dealer_portal.pricing import load_pricing_offers, select_best_offer
+
+    return load_pricing_offers, select_best_offer
 
 
 def resolve_unit_price(
@@ -645,6 +818,12 @@ def price_line(
     those prices were authorised when they were written. Re-demanding
     ``price.manage`` there would mean nobody could edit a delivery date on an
     order that once carried an approved discount.
+
+    When the payload carries no explicit discount - neither a percentage nor a
+    flat amount - the line takes the best active dealer scheme as its default
+    discount, and the scheme's id is stored on the line for traceability. An
+    explicit discount always wins and carries no scheme
+    (docs/assumptions.md §C3-3).
     """
     item = context.items.get(payload.item_id)
     if item is None:
@@ -679,12 +858,36 @@ def price_line(
             price_type=context.price_type,
         )
 
+    discount_percentage = payload.discount_percentage
+    offer_id: uuid.UUID | None = None
+    if discount_percentage is None and payload.discount_amount is None and context.offers:
+        _, select_best_offer = _dealer_offer_functions()
+        if item.category_id is not None:
+            category_ids = context.offer_ancestors.get(
+                item.category_id, frozenset({item.category_id})
+            )
+        else:
+            category_ids = frozenset()
+        best = select_best_offer(
+            context.offers,
+            item_id=item.id,
+            category_ids=category_ids,
+            brand_id=item.brand_id,
+            quantity=payload.quantity,
+            price_type=context.price_type,
+            customer_id=context.offer_customer_id,
+            on_date=context.on_date,
+        )
+        if best is not None:
+            discount_percentage = Decimal(best.discount_percentage)
+            offer_id = best.id
+
     amounts = compute_line_amounts(
         quantity=payload.quantity,
         unit_price=unit_price,
         tax_rate=item.gst_rate,
         is_interstate=context.is_interstate,
-        discount_percentage=payload.discount_percentage,
+        discount_percentage=discount_percentage,
         discount_amount=payload.discount_amount,
     )
 
@@ -699,6 +902,8 @@ def price_line(
         amounts=amounts,
         is_price_override=is_override,
         is_below_cost=below_cost,
+        discount_percentage=discount_percentage or ZERO,
+        offer_id=offer_id,
     )
 
 
@@ -716,7 +921,15 @@ async def _build_pricing_context(
     is_interstate: bool,
     on_date: date,
 ) -> PricingContext:
-    """Load every fact the whole line set needs, in four statements."""
+    """Load every fact the whole line set needs, in six statements.
+
+    The last two are the dealer schemes: the active offers for this customer's
+    channel plus the category tree they match against. Batched once per order,
+    never per line (docs/assumptions.md §C3-3).
+    """
+    items_repo = ItemLookupRepository(session, tenant)
+    item_ids = [line.item_id for line in lines]
+    variant_ids = [line.item_variant_id for line in lines if line.item_variant_id is not None]
     items_repo = ItemLookupRepository(session, tenant)
     item_ids = [line.item_id for line in lines]
     variant_ids = [line.item_variant_id for line in lines if line.item_variant_id is not None]
@@ -755,6 +968,15 @@ async def _build_pricing_context(
         on_date=on_date,
     )
 
+    load_pricing_offers, _ = _dealer_offer_functions()
+    offers, ancestors = await load_pricing_offers(
+        session,
+        tenant,
+        on_date=on_date,
+        price_type=PriceType(customer.price_list_type),
+        customer_id=customer.id,
+    )
+
     return PricingContext(
         price_type=PriceType(customer.price_list_type),
         on_date=on_date,
@@ -762,6 +984,9 @@ async def _build_pricing_context(
         items=items,
         variants=variants,
         price_rows=price_rows,
+        offers=offers,
+        offer_ancestors=ancestors,
+        offer_customer_id=customer.id,
     )
 
 
@@ -845,24 +1070,32 @@ def allocation_view(
     *,
     item_codes: dict[uuid.UUID, str] | None = None,
     available: dict[uuid.UUID, Decimal] | None = None,
+    live: Mapping[uuid.UUID, Decimal] | None = None,
+    planned: Mapping[uuid.UUID, Decimal] | None = None,
 ) -> OrderAllocationRead:
     """Per-line reserved versus shortfall.
 
     ``shortfall`` is what is neither shipped nor reserved: the quantity MRP has
     to cover for this order (master rules section 72). Cancelled lines are
     reported with a zero shortfall - they are not demand any more.
+
+    ``live`` is each reservation's live remaining quantity (from
+    :func:`live_reservations`). Without it the line's own ``allocated_quantity``
+    stands in, which is exact only straight after this module reserved - the
+    confirm and top-up responses. ``planned`` is what open consignments already
+    carry per line, which ``dispatchable_quantity`` nets off.
     """
     rows: list[LineAllocationRead] = []
     short_lines = 0
 
     for line in lines:
         cancelled = SalesOrderLineStatus(line.status) is SalesOrderLineStatus.CANCELLED
-        outstanding = Decimal(line.quantity) - Decimal(line.dispatched_quantity)
-        shortfall = (
-            to_quantity(ZERO)
-            if cancelled
-            else to_quantity(max(outstanding - Decimal(line.allocated_quantity), ZERO))
+        reserved = (
+            to_quantity(Decimal(line.allocated_quantity))
+            if live is None
+            else to_quantity(live_reserved(line, live))
         )
+        shortfall = line_shortfall(line, reserved)
         if shortfall > 0:
             short_lines += 1
         rows.append(
@@ -873,6 +1106,17 @@ def allocation_view(
                 item_code=(item_codes or {}).get(line.item_id),
                 ordered_quantity=Decimal(line.quantity),
                 allocated_quantity=Decimal(line.allocated_quantity),
+                reserved_quantity=reserved,
+                dispatchable_quantity=(
+                    to_quantity(ZERO)
+                    if cancelled
+                    else dispatchable_quantity(
+                        ordered=Decimal(line.quantity),
+                        dispatched=Decimal(line.dispatched_quantity),
+                        reserved=reserved,
+                        planned=(planned or {}).get(line.id, ZERO),
+                    )
+                ),
                 dispatched_quantity=Decimal(line.dispatched_quantity),
                 shortfall_quantity=shortfall,
                 status=SalesOrderLineStatus(line.status),
@@ -923,16 +1167,26 @@ async def get_order_detail(
 async def allocation_status(
     session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
 ) -> OrderAllocationRead:
-    """Reserved versus shortfall per line, with live free stock beside it.
+    """Reserved, dispatchable-now and short per line, with live free stock beside it.
 
-    Four statements regardless of line count: the order, its lines, the item
-    codes and one grouped availability read. Asking ``inventory.get_available``
-    per line would be the N+1 section 32 forbids.
+    Six statements regardless of line count: the order, its lines, the item
+    codes, one grouped availability read, one read of the lines' live
+    reservations and one grouped read of what open consignments carry. Asking
+    ``inventory.get_available`` per line would be the N+1 section 32 forbids.
     """
     order = await SalesOrderRepository(session, tenant).get_or_404(order_id)
     lines = await SalesOrderLineRepository(session, tenant).list_for_order(order.id)
-    item_ids = [line.item_id for line in lines]
+    return await _allocation_read(session, tenant, order, lines)
 
+
+async def _allocation_read(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: SalesOrder,
+    lines: Sequence[SalesOrderLine],
+) -> OrderAllocationRead:
+    """The full allocation read of an order whose lines are already loaded."""
+    item_ids = [line.item_id for line in lines]
     items = await ItemLookupRepository(session, tenant).load(item_ids)
     available = await AvailabilityRepository(session, tenant).available_by_item(
         item_ids, order.warehouse_id
@@ -942,6 +1196,8 @@ async def allocation_status(
         lines,
         item_codes={item_id: info.code for item_id, info in items.items()},
         available=available,
+        live=await live_reservations(session, tenant, lines),
+        planned=await planned_dispatch_quantities(session, tenant, order.id),
     )
 
 
@@ -973,7 +1229,8 @@ def _apply_priced_line(line: SalesOrderLine, priced: PricedLine) -> SalesOrderLi
     line.quantity = to_quantity(payload.quantity)
     line.uom_id = priced.uom_id
     line.unit_price = priced.unit_price
-    line.discount_percentage = payload.discount_percentage or ZERO
+    line.discount_percentage = priced.discount_percentage
+    line.offer_id = priced.offer_id
     line.discount_amount = priced.amounts.discount_amount
     line.tax_rate = priced.tax_rate
     line.cgst_amount = priced.amounts.cgst_amount
@@ -1026,13 +1283,24 @@ async def create_order(
     tenant: TenantContext,
     principal: Principal,
     payload: SalesOrderCreate,
+    *,
+    source: str = "ERP",
 ) -> tuple[SalesOrder, list[SalesOrderLine]]:
     """Create a DRAFT order, priced and taxed.
 
     No stock is reserved and no credit is consumed: a draft is a quotation the
     customer has not yet committed to, and holding stock against it would let an
     unconfirmed order starve a confirmed one.
+
+    ``source`` records who raised the order and is set by the server, never by
+    a payload: the dealer-portal checkout passes ``DEALER_PORTAL``
+    (docs/assumptions.md §C3-6).
     """
+    if source not in ("ERP", "DEALER_PORTAL"):
+        raise ValidationError(
+            f"Unknown sales order source: {source}.",
+            details={"source": source},
+        )
     repo = SalesOrderRepository(session, tenant)
     line_repo = SalesOrderLineRepository(session, tenant)
     parties = OrderPartyRepository(session, tenant)
@@ -1087,6 +1355,7 @@ async def create_order(
             code=code,
             customer_id=customer.id,
             customer_po_number=payload.customer_po_number,
+            source=source,
             order_date=order_date,
             required_date=payload.required_date,
             promised_date=payload.promised_date,
@@ -1187,6 +1456,8 @@ async def update_order(
             lines = await _update_confirmed(
                 session, tenant, order=order, payload=payload, line_repo=line_repo, port=port
             )
+            if payload.lines is not None:
+                await _sync_allocation_status(session, tenant, order, lines, repo=repo)
         else:
             raise BusinessRuleError(
                 f"{order.code} is {order.status} and can no longer be edited.",
@@ -1256,6 +1527,13 @@ async def _update_draft(
     order.is_interstate = resolve_tax_treatment(seller_state, place_of_supply)
 
     existing = await line_repo.list_for_order(order.id)
+    # Snapshotted now, as plain values: the rows below are deleted and rebuilt,
+    # and reading attributes off a deleted ORM object afterwards is the expired
+    # identity-map trap. Used to keep a carried scheme citation across the
+    # rewrite when the discount is unchanged.
+    previous_offer = {
+        line.line_number: (Decimal(line.discount_percentage), line.offer_id) for line in existing
+    }
     # A header-only edit still has to re-price, because the tax treatment may
     # have moved with the shipping address - but the prices it re-prices are the
     # order's own, not the caller's, so the override authority check does not
@@ -1285,6 +1563,19 @@ async def _update_draft(
         _apply_priced_line(line_repo.add(SalesOrderLine(sales_order_id=order.id)), priced_line)
         for priced_line in priced
     ]
+    # A header-only edit re-prices the order's own stored lines, whose discount
+    # arrived as an explicit percentage - so the scheme lookup above does not
+    # run and a carried scheme reference would be dropped. When the discount is
+    # unchanged, the citation survives the rewrite.
+    for line in lines:
+        if line.offer_id is None:
+            previous = previous_offer.get(line.line_number)
+            if (
+                previous is not None
+                and previous[1] is not None
+                and Decimal(line.discount_percentage) == previous[0]
+            ):
+                line.offer_id = previous[1]
     _apply_totals(order, sum_order_totals([p.amounts for p in priced]))
     order.requires_approval = any(p.is_below_cost for p in priced)
     if not order.requires_approval:
@@ -1393,6 +1684,11 @@ async def _update_confirmed(
                 details={"line_number": sent.line_number},
             )
         new_quantity = to_quantity(sent.quantity)
+        if new_quantity < Decimal(line.invoiced_quantity):
+            raise BusinessRuleError(
+                f"Line {sent.line_number}: {line.invoiced_quantity} has already been invoiced, "
+                "so the quantity cannot be reduced below it."
+            )
         if new_quantity < Decimal(line.dispatched_quantity):
             raise BusinessRuleError(
                 f"Line {sent.line_number}: {line.dispatched_quantity} has already been "
@@ -1522,6 +1818,50 @@ async def _rereserve_changed_lines(
     await session.flush()
 
 
+async def _sync_allocation_status(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: SalesOrder,
+    lines: Sequence[SalesOrderLine],
+    *,
+    repo: SalesOrderRepository,
+) -> None:
+    """Keep ALLOCATED meaning "every open line fully reserved" after a line edit.
+
+    A quantity raised past what free stock could cover leaves demand the
+    reservations do not hold, and an ALLOCATED order in that state would read
+    as covered to everyone planning around it - so it goes back to CONFIRMED
+    (docs/assumptions.md section E1-3). The reverse holds as well: an edit that
+    leaves every line covered makes a CONFIRMED order ALLOCATED, as confirming
+    it would have. Coverage is read from the live reservations, so one returned
+    elsewhere counts as nothing. A PARTIALLY_DISPATCHED order keeps its status:
+    its next step is a consignment, not an allocation.
+    """
+    status = SalesOrderStatus(order.status)
+    if status not in (SalesOrderStatus.CONFIRMED, SalesOrderStatus.ALLOCATED):
+        return
+    live = await live_reservations(session, tenant, lines)
+    covered = all(line_shortfall(line, live_reserved(line, live)) == 0 for line in lines)
+    if status is SalesOrderStatus.ALLOCATED and not covered:
+        await _transition(
+            session,
+            tenant,
+            order,
+            SalesOrderStatus.CONFIRMED,
+            reason="A quantity change left a line short of its reservation",
+            repo=repo,
+        )
+    elif status is SalesOrderStatus.CONFIRMED and covered:
+        await _transition(
+            session,
+            tenant,
+            order,
+            SalesOrderStatus.ALLOCATED,
+            reason="Every line fully reserved after the quantity change",
+            repo=repo,
+        )
+
+
 async def delete_draft_order(
     session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID, *, reason: str
 ) -> None:
@@ -1530,6 +1870,10 @@ async def delete_draft_order(
     A hard delete, and only from DRAFT: nothing references an unconfirmed order,
     no stock was reserved against it and no number was reported to the customer.
     Anything past DRAFT is cancelled instead, so the trail survives.
+
+    A portal-sourced draft is refused outright: the dealer's own cancel route
+    is the way back, because a delete would silently drop an order the sales
+    desk may already be reviewing (docs/assumptions.md §C3-6).
     """
     repo = SalesOrderRepository(session, tenant)
 
@@ -1540,6 +1884,13 @@ async def delete_draft_order(
                 f"{order.code} is {order.status} and must be cancelled rather than deleted, "
                 "so the record of it survives.",
                 details={"order_id": str(order.id), "status": str(order.status)},
+            )
+        if str(order.source) == "DEALER_PORTAL":
+            raise BusinessRuleError(
+                f"{order.code} was raised through the dealer portal and must be "
+                "cancelled rather than deleted, so the dealer sees what happened "
+                "to it.",
+                details={"order_id": str(order.id), "source": str(order.source)},
             )
 
         await record_audit(
@@ -1612,6 +1963,192 @@ async def approve_order(
     return order
 
 
+@dataclass(frozen=True, slots=True)
+class ReservationPass:
+    """What one reserving pass over an order did, keyed by line number."""
+
+    #: Quantity each line is still short of after the pass.
+    shortfalls: dict[int, str]
+    #: Quantity this pass newly reserved per line.
+    reserved_now: dict[int, str]
+
+
+async def _reserve_available_lines(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    order: SalesOrder,
+    lines: Sequence[SalesOrderLine],
+    port: AllocationPort,
+    purpose: str,
+) -> ReservationPass:
+    """Reserve free stock for every line still short of its open demand.
+
+    The one reservation path confirmation and the top-up share. Every item is
+    advisory-locked in sorted order, so two orders reserving the same item
+    queue rather than both promising it. Free stock is read once, as one pool
+    per item drawn down line by line, so two lines for the same item are never
+    promised the same units, and lines are served in line order.
+
+    A line keeps exactly one reservation. When it already holds a live one and
+    more stock is free, the old promise is released and one reservation for the
+    whole covered quantity is taken in its place - release-then-reserve, the
+    shape a quantity change takes too - so ``reservation_id`` stays the whole
+    truth about the line. A line whose reservation was released, expired or
+    consumed elsewhere holds nothing (E1a section 4): it is reserved afresh and
+    the closed one is never released again.
+    """
+    item_ids = sorted({line.item_id for line in lines})
+    for item_id in item_ids:
+        await advisory_xact_lock(session, "sales_allocation", tenant.company_id, item_id)
+
+    live = await live_reservations(session, tenant, lines)
+    available = await AvailabilityRepository(session, tenant).available_by_item(
+        item_ids, order.warehouse_id
+    )
+    pool = {item_id: Decimal(available.get(item_id, ZERO)) for item_id in item_ids}
+
+    shortfalls: dict[int, str] = {}
+    reserved_now: dict[int, str] = {}
+    for line in sorted(lines, key=lambda row: row.line_number):
+        if SalesOrderLineStatus(line.status) is SalesOrderLineStatus.CANCELLED:
+            continue
+        held = live_reserved(line, live)
+        demand = Decimal(line.quantity) - Decimal(line.dispatched_quantity)
+        take = reservable_quantity(max(demand - held, ZERO), pool[line.item_id])
+        if take > 0:
+            line_reason = f"{purpose} of {order.code} line {line.line_number}"
+            if held > 0 and line.reservation_id is not None:
+                await port.release(
+                    session, tenant, reservation_id=line.reservation_id, reason=line_reason
+                )
+            reservation = await port.reserve(
+                session,
+                tenant,
+                item_id=line.item_id,
+                warehouse_id=order.warehouse_id,
+                quantity=to_quantity(held + take),
+                demand_id=order.id,
+                demand_line_id=line.id,
+                demand_code=order.code,
+                priority=order.priority,
+                required_date=line.required_date or order.required_date,
+                reason=line_reason,
+            )
+            line.reservation_id = reservation.id
+            held += take
+            pool[line.item_id] -= take
+            reserved_now[line.line_number] = str(to_quantity(take))
+        elif held == 0:
+            # A closed reservation is no reservation: forget it, so neither a
+            # consignment nor a later release ever reaches for it again.
+            line.reservation_id = None
+        line.allocated_quantity = to_quantity(held)
+        line.status = line_status_for(
+            quantity=Decimal(line.quantity),
+            allocated_quantity=held,
+            dispatched_quantity=Decimal(line.dispatched_quantity),
+        )
+        short = demand - held
+        if short > 0:
+            shortfalls[line.line_number] = str(to_quantity(short))
+    await session.flush()
+    return ReservationPass(shortfalls=shortfalls, reserved_now=reserved_now)
+
+
+async def allocate_order(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order_id: uuid.UUID,
+    *,
+    reason: str,
+    allocation: AllocationPort | None = None,
+) -> OrderAllocationRead:
+    """Top a short order up from stock that has become free since it was confirmed.
+
+    The allocation top-up behind ``POST /sales/{id}/allocate`` and the scheduled
+    ``maintenance.allocate_short_orders`` sweep. In one transaction: lock the
+    order header, then its lines in primary-key order (the order a consignment
+    locks them in), take the same per-item advisory locks confirmation takes,
+    and reserve newly free stock for each short line by line order through the
+    path confirmation uses.
+
+    The status follows the result. A CONFIRMED order that ends fully covered
+    moves to ALLOCATED. An ALLOCATED order can be short too, when one of its
+    reservations was released or expired elsewhere: the top-up re-reserves the
+    line (E1a section 4), and if free stock cannot cover it the order goes
+    back to CONFIRMED rather than keep a label it no longer earns. A
+    PARTIALLY_DISPATCHED order keeps its status - its next step is the
+    consignment that ships the rest.
+
+    The audit row is written only when a reservation actually changed: the
+    sweep calls this for every short order on every tick, and a row per no-op
+    would bury the ones that matter. A status change is audited by
+    ``_transition`` either way.
+    """
+    port = _allocation(allocation)
+    repo = SalesOrderRepository(session, tenant)
+    line_repo = SalesOrderLineRepository(session, tenant)
+
+    async with transaction(session):
+        order = await repo.lock_for_update(order_id)
+        if order is None:
+            raise NotFoundError(SALES_ORDER_ENTITY, order_id)
+        status = SalesOrderStatus(order.status)
+        if status not in TOP_UP_STATUSES:
+            raise BusinessRuleError(
+                f"{order.code} is {status}: only a confirmed, allocated or partially "
+                "dispatched order can have newly available stock allocated to it.",
+                details={"order_id": str(order.id), "status": str(status)},
+            )
+
+        lines = await line_repo.lock_for_order(order.id)
+        topped = await _reserve_available_lines(
+            session, tenant, order=order, lines=lines, port=port, purpose="Allocation top-up"
+        )
+        if not topped.shortfalls and status is SalesOrderStatus.CONFIRMED:
+            await _transition(
+                session,
+                tenant,
+                order,
+                SalesOrderStatus.ALLOCATED,
+                reason="Every line fully reserved by the allocation top-up",
+                repo=repo,
+            )
+        elif topped.shortfalls and status is SalesOrderStatus.ALLOCATED:
+            await _transition(
+                session,
+                tenant,
+                order,
+                SalesOrderStatus.CONFIRMED,
+                reason="A reservation was closed elsewhere and free stock cannot replace it",
+                repo=repo,
+            )
+        if topped.reserved_now:
+            await record_audit(
+                session,
+                company_id=tenant.company_id,
+                action=AuditAction.RESERVATION_CHANGE,
+                entity_type=AUDIT_SALES_ORDER,
+                entity_id=order.id,
+                entity_code=order.code,
+                summary=(
+                    f"Allocated newly available stock to {order.code}: "
+                    f"{len(topped.reserved_now)} line(s) topped up, "
+                    f"{len(topped.shortfalls)} still short"
+                ),
+                user_id=tenant.user_id,
+                new_values={
+                    "reserved_now_by_line": topped.reserved_now,
+                    "shortfall_by_line": topped.shortfalls or None,
+                },
+                context={"warehouse_id": order.warehouse_id, "reason": reason},
+            )
+        view = await _allocation_read(session, tenant, order, lines)
+
+    return view
+
+
 async def confirm_order(
     session: AsyncSession,
     tenant: TenantContext,
@@ -1670,46 +2207,11 @@ async def confirm_order(
             session, tenant, order.customer_id, Decimal(order.total_amount), lock=True
         )
 
-        item_ids = sorted({line.item_id for line in lines})
-        for item_id in item_ids:
-            await advisory_xact_lock(session, "sales_allocation", tenant.company_id, item_id)
-
-        available = await AvailabilityRepository(session, tenant).available_by_item(
-            item_ids, order.warehouse_id
-        )
-        # One pool per item, drawn down as lines take from it: two lines for the
-        # same item must not both be promised the same units.
-        pool = {item_id: Decimal(available.get(item_id, ZERO)) for item_id in item_ids}
-
-        shortfalls: dict[int, str] = {}
-        for line in sorted(lines, key=lambda row: (row.item_id, row.line_number)):
-            demand = Decimal(line.quantity) - Decimal(line.dispatched_quantity)
-            take = reservable_quantity(demand, pool[line.item_id])
-            if take > 0:
-                reservation = await port.reserve(
-                    session,
-                    tenant,
-                    item_id=line.item_id,
-                    warehouse_id=order.warehouse_id,
-                    quantity=take,
-                    demand_id=order.id,
-                    demand_line_id=line.id,
-                    demand_code=order.code,
-                    priority=order.priority,
-                    required_date=line.required_date or order.required_date,
-                    reason=f"Confirmation of {order.code} line {line.line_number}",
-                )
-                line.reservation_id = reservation.id
-                line.allocated_quantity = take
-                pool[line.item_id] -= take
-            line.status = line_status_for(
-                quantity=Decimal(line.quantity),
-                allocated_quantity=Decimal(line.allocated_quantity),
-                dispatched_quantity=Decimal(line.dispatched_quantity),
+        shortfalls = (
+            await _reserve_available_lines(
+                session, tenant, order=order, lines=lines, port=port, purpose="Confirmation"
             )
-            short = demand - take
-            if short > 0:
-                shortfalls[line.line_number] = str(to_quantity(short))
+        ).shortfalls
 
         await _transition(
             session, tenant, order, SalesOrderStatus.CONFIRMED, reason=reason, repo=repo
@@ -1785,6 +2287,10 @@ async def cancel_order(
         if order is None:
             raise NotFoundError(SALES_ORDER_ENTITY, order_id)
 
+        if await repo.has_live_invoice(order.id):
+            raise BusinessRuleError(
+                "This order has a live sales invoice. Cancel the invoice first."
+            )
         SALES_ORDER_LIFECYCLE.assert_transition(
             SalesOrderStatus(order.status), SalesOrderStatus.CANCELLED
         )
@@ -1872,13 +2378,17 @@ async def _transition(
 __all__ = [
     "AUDIT_SALES_ORDER",
     "SALES_ORDER_LIFECYCLE",
+    "TOP_UP_STATUSES",
     "AllocationPort",
     "AllocationService",
+    "DispatchPlanPort",
     "LineAmounts",
     "OrderTotals",
     "PricedLine",
     "PricingContext",
+    "ReservationPass",
     "ReservationRef",
+    "allocate_order",
     "allocation_status",
     "allocation_view",
     "approve_order",
@@ -1889,16 +2399,35 @@ __all__ = [
     "create_order",
     "delete_draft_order",
     "demand_summary",
+    "dispatchable_quantity",
     "get_order_detail",
     "is_below_cost",
+    "line_shortfall",
     "line_status_for",
     "list_orders",
+    "live_reservations",
+    "live_reserved",
     "order_detail",
+    "planned_dispatch_quantities",
     "price_line",
     "prospective_totals",
     "reservable_quantity",
+    "resolve_dispatch_plan_port",
     "resolve_tax_treatment",
     "resolve_unit_price",
     "sum_order_totals",
     "update_order",
 ]
+
+
+async def close_order(
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID, *, reason: str
+) -> SalesOrder:
+    repo = SalesOrderRepository(session, tenant)
+    async with transaction(session):
+        order = await repo.lock_for_update(order_id)
+        if order is None:
+            raise NotFoundError(SALES_ORDER_ENTITY, order_id)
+        return await _transition(
+            session, tenant, order, SalesOrderStatus.CLOSED, reason=reason, repo=repo
+        )

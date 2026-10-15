@@ -35,7 +35,25 @@ export const assemblyKeys = {
   list: (params: unknown) => ['assembly', 'list', params] as const,
   detail: (id: string) => ['assembly', 'detail', id] as const,
   components: (id: string) => ['assembly', 'detail', id, 'components'] as const,
+  availability: (id: string) => ['assembly', 'detail', id, 'availability'] as const,
+  boardLines: (params: unknown) => ['assembly', 'board', 'lines', params] as const,
+  boardOrders: (params: unknown) => ['assembly', 'board', 'orders', params] as const,
+  readyForPacking: (params: unknown) => ['assembly', 'ready-for-packing', params] as const,
 }
+
+/**
+ * Bounds that mirror the assembly schemas, owned by `lib/constants`.
+ *
+ * Re-exported so the screens above it keep one import: a priority of 100 is
+ * what a new order is stored with, and what its component reservations
+ * inherit, when the planner does not choose one.
+ */
+export {
+  ASSEMBLY_LINE_MAX_LENGTH,
+  ASSEMBLY_NOTES_MAX_LENGTH,
+  ASSEMBLY_PRIORITY_MAX,
+  DEFAULT_ASSEMBLY_PRIORITY,
+} from '@/lib/constants'
 
 // ------------------------------------------------------------ vocabulary ----
 
@@ -76,6 +94,38 @@ export type AssemblySourceType =
  */
 export const acceptsComponentIssue = (status: AssemblyStatus): boolean =>
   status === 'RELEASED' || status === 'COMPONENTS_ISSUED' || status === 'IN_PROGRESS'
+
+/**
+ * Edges of `ASSEMBLY_ORDER_LIFECYCLE`, one predicate each.
+ *
+ * A button is shown only for a status the machine can leave, and only for the
+ * permission that edge declares. Draft is the one status that is both editable
+ * and cancellable: deleting it removes the row, cancelling it keeps the trail.
+ */
+export const isEditable = (status: AssemblyStatus): boolean => status === 'DRAFT'
+export const isDeletable = (status: AssemblyStatus): boolean => status === 'DRAFT'
+export const isApprovable = (status: AssemblyStatus): boolean => status === 'DRAFT'
+export const isReleasable = (status: AssemblyStatus): boolean => status === 'APPROVED'
+export const isStartable = (status: AssemblyStatus): boolean => status === 'COMPONENTS_ISSUED'
+export const isClosable = (status: AssemblyStatus): boolean => status === 'COMPLETED'
+export const isCancellable = (status: AssemblyStatus): boolean =>
+  status === 'DRAFT' || status === 'APPROVED' || status === 'RELEASED'
+
+/**
+ * QC_PENDING leaves only through the inspection that holds the output.
+ *
+ * The button opens that inspection. An order on hold with no inspection is the
+ * older path and is settled through the order's own verdict endpoint instead.
+ */
+export const hasLinkedInspection = (order: {
+  status: AssemblyStatus
+  qc_inspection_id: string | null
+}): boolean => order.status === 'QC_PENDING' && order.qc_inspection_id !== null
+
+export const needsDirectVerdict = (order: {
+  status: AssemblyStatus
+  qc_inspection_id: string | null
+}): boolean => order.status === 'QC_PENDING' && order.qc_inspection_id === null
 
 /**
  * Only a job actually under way can be completed.
@@ -120,6 +170,9 @@ export interface AssemblyOrderRow {
   planned_end: string | null
   actual_start: string | null
   actual_end: string | null
+
+  /** Lower is more urgent. Carried onto the component reservations at release. */
+  priority: number
 
   requires_qc: boolean
   qc_inspection_id: string | null
@@ -184,6 +237,67 @@ export interface AssemblyCompletionResult {
   /** True when the output was received onto QC hold rather than into stock. */
   output_held_for_qc: boolean
   qc_inspection_created: boolean
+}
+
+/** One component's live position (`AssemblyComponentAvailability`). */
+export interface AssemblyComponentAvailability {
+  line_number: number
+  item_id: string
+  required_quantity: DecimalString
+  issued_quantity: DecimalString
+  is_reserved: boolean
+  available_quantity: DecimalString
+  shortage_quantity: DecimalString
+}
+
+/** One open order on `GET /assembly/board/orders` (`AssemblyBoardOrder`). */
+export interface AssemblyBoardOrder {
+  id: string
+  code: string
+  item_id: string
+  status: AssemblyStatus
+  assembly_line: string | null
+  warehouse_id: string
+  output_warehouse_id: string
+  priority: number
+  planned_quantity: DecimalString
+  assembled_quantity: DecimalString
+  rejected_quantity: DecimalString
+  planned_start: string | null
+  planned_end: string | null
+  actual_start: string | null
+  actual_end: string | null
+  requires_qc: boolean
+  is_late: boolean
+  start_overdue: boolean
+  days_late: number
+}
+
+/** One line's load on `GET /assembly/board/lines` (`AssemblyLineLoad`). */
+export interface AssemblyLineLoad {
+  assembly_line: string | null
+  open_orders: number
+  not_started_orders: number
+  in_progress_orders: number
+  qc_pending_orders: number
+  late_orders: number
+  planned_quantity: DecimalString
+  earliest_planned_start: string | null
+  latest_planned_end: string | null
+}
+
+/** One row of `GET /assembly/ready-for-packing` (`ReadyForPackingRow`). */
+export interface ReadyForPackingRow {
+  assembly_order_id: string
+  code: string
+  item_id: string
+  output_warehouse_id: string
+  assembled_quantity: DecimalString
+  available_quantity: DecimalString
+  completed_at: string | null
+  requires_qc: boolean
+  source_type: AssemblySourceType
+  source_id: string | null
 }
 
 /** One row of `GET /inventory/serials` (`StockSerialRead`). */

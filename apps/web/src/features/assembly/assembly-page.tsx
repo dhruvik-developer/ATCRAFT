@@ -8,12 +8,12 @@
  */
 
 import { type ColumnDef } from '@tanstack/react-table'
-import { X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Plus, X } from 'lucide-react'
+import { Suspense, lazy, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
+import { DateRangeFilter, PageHeader, PanelLoader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -21,6 +21,10 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
 } from '@/components/ui/overlays'
 import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
@@ -33,6 +37,15 @@ import { staleTimes } from '@/lib/query-client'
 
 import { AssemblyDetailDialog } from './assembly-detail-dialog'
 import { ASSEMBLY_STATUSES, assemblyKeys, type AssemblyOrderRow } from './assembly-model'
+import { AssemblyOrderFormDialog } from './assembly-order-dialog'
+
+// The board rides in the route chunk only when opened: the register is the
+// daily screen and the budget for its first load is tight. (The order form
+// cannot ride along: the detail panel imports it directly, so it is already
+// in this chunk and a second lazy copy would only warn.)
+const AssemblyBoardTab = lazy(() =>
+  import('./assembly-board').then((m) => ({ default: m.AssemblyBoardTab })),
+)
 
 /** Every URL key the toolbar owns, so "Clear" can drop them in one write. */
 const FILTER_KEYS = ['status', 'item_id', 'date_from', 'date_to'] as const
@@ -41,6 +54,8 @@ export default function AssemblyPage() {
   const { can } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const [openOrderId, setOpenOrderId] = useState<string | null>(null)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [view, setView] = useState<'orders' | 'board'>('orders')
 
   // Gating affordances only - the API authorises every write itself. Completion
   // is a different permission from the rest of the order's writes.
@@ -225,73 +240,96 @@ export default function AssemblyPage() {
       <PageHeader
         title="Assembly orders"
         description="Kits built from issued components. Where a component is serial tracked, the serials that went into each build are recorded against the order."
-      />
-
-      <DataTable
-        columns={columns}
-        data={list.data}
-        pagination={list.pagination}
-        isLoading={list.isLoading}
-        isFetching={list.isFetching}
-        error={list.error}
-        onPageChange={list.setPage}
-        onLimitChange={list.setLimit}
-        onSortChange={list.setSort}
-        onSearchChange={list.setSearch}
-        onRefresh={() => void list.refetch()}
-        searchValue={list.search}
-        searchPlaceholder="Search order code or item..."
-        getRowId={(row) => row.id}
-        onRowClick={(row) => setOpenOrderId(row.id)}
-        emptyTitle="No assembly orders found"
-        emptyDescription="Nothing matches the current filters. Widen the date window or clear a filter."
-        toolbar={
-          <>
-            <Select
-              value={status || SELECT_ALL}
-              onValueChange={(value) =>
-                setParam('status', value === SELECT_ALL ? undefined : value)
-              }
-            >
-              <SelectTrigger className="w-full sm:w-[190px]" aria-label="Filter by status">
-                <SelectValue placeholder="All statuses" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
-                {ASSEMBLY_STATUSES.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {humanise(value)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <ItemPicker
-              id="assembly-item-filter"
-              label="Item"
-              hideLabel
-              value={itemId || null}
-              onChange={(value) => setParam('item_id', value ?? undefined)}
-              placeholder="All items"
-            />
-
-            <DateRangeFilter
-              id="assembly-date"
-              from={dateFrom}
-              to={dateTo}
-              onFromChange={(value) => setParam('date_from', value || undefined)}
-              onToChange={(value) => setParam('date_to', value || undefined)}
-            />
-
-            {filterCount > 0 && (
-              <Button variant="ghost" size="sm" onClick={clearFilters}>
-                <X />
-                Clear
-              </Button>
-            )}
-          </>
+        actions={
+          canManage && (
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus />
+              New assembly order
+            </Button>
+          )
         }
       />
+
+      <Tabs value={view} onValueChange={(next) => setView(next as 'orders' | 'board')}>
+        <TabsList>
+          <TabsTrigger value="orders">Orders</TabsTrigger>
+          <TabsTrigger value="board">Board</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="orders">
+          <DataTable
+            columns={columns}
+            data={list.data}
+            pagination={list.pagination}
+            isLoading={list.isLoading}
+            isFetching={list.isFetching}
+            error={list.error}
+            onPageChange={list.setPage}
+            onLimitChange={list.setLimit}
+            onSortChange={list.setSort}
+            onSearchChange={list.setSearch}
+            onRefresh={() => void list.refetch()}
+            searchValue={list.search}
+            searchPlaceholder="Search order code or item..."
+            getRowId={(row) => row.id}
+            onRowClick={(row) => setOpenOrderId(row.id)}
+            emptyTitle="No assembly orders found"
+            emptyDescription="Nothing matches the current filters. Widen the date window or clear a filter."
+            toolbar={
+              <>
+                <Select
+                  value={status || SELECT_ALL}
+                  onValueChange={(value) =>
+                    setParam('status', value === SELECT_ALL ? undefined : value)
+                  }
+                >
+                  <SelectTrigger className="w-full sm:w-[190px]" aria-label="Filter by status">
+                    <SelectValue placeholder="All statuses" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
+                    {ASSEMBLY_STATUSES.map((value) => (
+                      <SelectItem key={value} value={value}>
+                        {humanise(value)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                <ItemPicker
+                  id="assembly-item-filter"
+                  label="Item"
+                  hideLabel
+                  value={itemId || null}
+                  onChange={(value) => setParam('item_id', value ?? undefined)}
+                  placeholder="All items"
+                />
+
+                <DateRangeFilter
+                  id="assembly-date"
+                  from={dateFrom}
+                  to={dateTo}
+                  onFromChange={(value) => setParam('date_from', value || undefined)}
+                  onToChange={(value) => setParam('date_to', value || undefined)}
+                />
+
+                {filterCount > 0 && (
+                  <Button variant="ghost" size="sm" onClick={clearFilters}>
+                    <X />
+                    Clear
+                  </Button>
+                )}
+              </>
+            }
+          />
+        </TabsContent>
+
+        <TabsContent value="board">
+          <Suspense fallback={<PanelLoader />}>
+            <AssemblyBoardTab />
+          </Suspense>
+        </TabsContent>
+      </Tabs>
 
       {openOrderId && (
         <AssemblyDetailDialog
@@ -300,6 +338,16 @@ export default function AssemblyPage() {
           orderId={openOrderId}
           canManage={canManage}
           canComplete={canComplete}
+        />
+      )}
+      {createOpen && (
+        <AssemblyOrderFormDialog
+          open
+          onOpenChange={(open) => !open && setCreateOpen(false)}
+          onSaved={(saved) => {
+            setCreateOpen(false)
+            setOpenOrderId(saved.id)
+          }}
         />
       )}
     </>

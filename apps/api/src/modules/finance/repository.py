@@ -113,6 +113,8 @@ from src.modules.finance.models import (
     Payment,
     PaymentAllocation,
     PaymentStatus,
+    SalesInvoice,
+    SalesInvoiceLine,
     SystemAccount,
     VendorInvoice,
     VendorInvoiceLine,
@@ -123,7 +125,8 @@ from src.modules.finance.schemas import (
     ValuationFilters,
     VendorInvoiceFilters,
 )
-from src.modules.inventory.models import InventoryBalance, InventoryCostLayer
+from src.modules.inventory.models import CostLayerPool, InventoryBalance, InventoryCostLayer
+from src.modules.job_work.models import JobWorkOrder, JobWorkReceipt, JobWorkReceiptLine
 from src.modules.organization.models import Company, FinancialYear
 from src.modules.procurement.models import (
     GoodsReceipt,
@@ -230,6 +233,50 @@ class GoodsReceiptLineFacts:
 
 
 @dataclass(frozen=True, slots=True)
+class JobWorkOrderFacts:
+    """The order half of the job-work match: who, at what rate, and how."""
+
+    id: uuid.UUID
+    code: str
+    vendor_id: uuid.UUID
+    status: str
+    rate_per_unit: Decimal
+    rate_basis: str
+    cost_centre_id: uuid.UUID | None
+    tax_rate: Decimal | None
+    sac_code: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class JobWorkReceiptLineFacts:
+    """One job-work receipt line: what it earned and what has been billed.
+
+    ``unbilled_charges`` is the money basis of the match - ``charges`` less
+    what approved invoices have already billed. ``pending_vendor_debit`` is the
+    recovery basis: ``vendor_debit_amount`` less what approvals already posted.
+    """
+
+    id: uuid.UUID
+    receipt_id: uuid.UUID
+    job_work_order_id: uuid.UUID
+    line_number: int
+    output_item_id: uuid.UUID
+    output_quantity: Decimal
+    charges: Decimal
+    invoiced_amount: Decimal
+    vendor_debit_amount: Decimal
+    debit_posted_amount: Decimal
+
+    @property
+    def unbilled_charges(self) -> Decimal:
+        return self.charges - self.invoiced_amount
+
+    @property
+    def pending_vendor_debit(self) -> Decimal:
+        return self.vendor_debit_amount - self.debit_posted_amount
+
+
+@dataclass(frozen=True, slots=True)
 class PostingAccount:
     """What a journal needs to know about each account it posts to."""
 
@@ -267,6 +314,10 @@ class LedgerAccountRepository(BaseRepository[LedgerAccount]):
         if filters.is_system is not None:
             stmt = stmt.where(LedgerAccount.is_system.is_(filters.is_system))
         return stmt
+
+    async def all_codes(self) -> set[str]:
+        stmt = select(LedgerAccount.code).where(LedgerAccount.company_id == self.tenant.company_id)
+        return set((await self.session.execute(stmt)).scalars().all())
 
     async def list_page(
         self,
@@ -630,9 +681,18 @@ class LedgerEntryRepository(BaseRepository[LedgerEntry]):
                 LedgerEntry.party_id.label("party_id"),
                 LedgerEntry.currency.label("currency"),
                 LedgerEntry.entry_date.label("entry_date"),
+                func.coalesce(SalesInvoice.due_date, LedgerEntry.entry_date).label("due_date"),
                 LedgerEntry.id.label("entry_id"),
                 LedgerEntry.debit_amount.label("debit_amount"),
                 LedgerEntry.credit_amount.label("credit_amount"),
+            )
+            .outerjoin(
+                SalesInvoice,
+                and_(
+                    SalesInvoice.company_id == LedgerEntry.company_id,
+                    SalesInvoice.id == LedgerEntry.reference_id,
+                    LedgerEntry.reference_type == "sales_invoice",
+                ),
             )
             .where(*scope)
             .subquery("ageing_base")
@@ -653,6 +713,7 @@ class LedgerEntryRepository(BaseRepository[LedgerEntry]):
                 base.c.party_id.label("party_id"),
                 base.c.currency.label("currency"),
                 base.c.entry_date.label("entry_date"),
+                base.c.due_date.label("due_date"),
                 base.c.debit_amount.label("debit_amount"),
                 func.sum(base.c.debit_amount)
                 .over(
@@ -677,7 +738,7 @@ class LedgerEntryRepository(BaseRepository[LedgerEntry]):
             select(
                 debits.c.party_id.label("party_id"),
                 debits.c.currency.label("currency"),
-                debits.c.entry_date.label("entry_date"),
+                debits.c.due_date.label("entry_date"),
                 open_amount.label("open_amount"),
             )
             .select_from(
@@ -752,8 +813,15 @@ class LedgerEntryRepository(BaseRepository[LedgerEntry]):
 
 
 def _outstanding() -> Any:
-    """What an invoice still owes. Written once so no query invents its own."""
-    return VendorInvoice.total_amount - VendorInvoice.paid_amount
+    """What an invoice still owes, net of any excess-loss recovery.
+
+    Written once so no query invents its own. The recovery posted beside a
+    job-work invoice already reduced the payable in the ledger, so the gross
+    figure would overstate the debt by exactly the recovery - on the
+    outstanding list, in the payables ageing, and in the open-invoice filter
+    (docs/assumptions.md §B3-2).
+    """
+    return VendorInvoice.total_amount - VendorInvoice.recovered_amount - VendorInvoice.paid_amount
 
 
 def _bucket_columns(due_column: Any, amount_column: Any, as_of: date) -> list[Any]:
@@ -918,6 +986,13 @@ class VendorInvoiceRepository(BaseRepository[VendorInvoice]):
     """Purchase invoices, the payables list and the ageing report."""
 
     model = VendorInvoice
+
+    def _scoped(self, *, include_deleted: bool = False) -> Select[Any]:
+        stmt = super()._scoped(include_deleted=include_deleted)
+        if self.tenant.vendor_id is not None:
+            stmt = stmt.where(VendorInvoice.vendor_id == self.tenant.vendor_id)
+        return stmt
+
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "code": VendorInvoice.code,
         "invoice_date": VendorInvoice.invoice_date,
@@ -934,10 +1009,14 @@ class VendorInvoiceRepository(BaseRepository[VendorInvoice]):
             stmt = stmt.where(VendorInvoice.status == filters.status)
         if filters.match_status is not None:
             stmt = stmt.where(VendorInvoice.match_status == filters.match_status)
+        if filters.invoice_type is not None:
+            stmt = stmt.where(VendorInvoice.invoice_type == filters.invoice_type)
         if filters.vendor_id is not None:
             stmt = stmt.where(VendorInvoice.vendor_id == filters.vendor_id)
         if filters.purchase_order_id is not None:
             stmt = stmt.where(VendorInvoice.purchase_order_id == filters.purchase_order_id)
+        if filters.job_work_order_id is not None:
+            stmt = stmt.where(VendorInvoice.job_work_order_id == filters.job_work_order_id)
         if filters.invoice_from is not None:
             stmt = stmt.where(VendorInvoice.invoice_date >= filters.invoice_from)
         if filters.invoice_to is not None:
@@ -1183,6 +1262,15 @@ class VendorInvoiceLineRepository(BaseRepository[VendorInvoiceLine]):
 
 class PaymentRepository(BaseRepository[Payment]):
     model = Payment
+
+    def _scoped(self, *, include_deleted: bool = False) -> Select[Any]:
+        stmt = super()._scoped(include_deleted=include_deleted)
+        if self.tenant.vendor_id is not None:
+            stmt = stmt.where(
+                Payment.party_type == PartyType.VENDOR, Payment.party_id == self.tenant.vendor_id
+            )
+        return stmt
+
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "code": Payment.code,
         "payment_date": Payment.payment_date,
@@ -1524,6 +1612,114 @@ class GoodsReceiptLineLookupRepository(BaseRepository[GoodsReceiptLine]):
         }
 
 
+class JobWorkOrderLookupRepository(BaseRepository[JobWorkOrder]):
+    """The order half of the job-work match."""
+
+    model = JobWorkOrder
+
+    async def get_facts(self, order_id: uuid.UUID) -> JobWorkOrderFacts | None:
+        stmt = select(
+            JobWorkOrder.id,
+            JobWorkOrder.code,
+            JobWorkOrder.vendor_id,
+            JobWorkOrder.status,
+            JobWorkOrder.rate_per_unit,
+            JobWorkOrder.rate_basis,
+            JobWorkOrder.cost_centre_id,
+            JobWorkOrder.tax_rate,
+            JobWorkOrder.sac_code,
+        ).where(
+            JobWorkOrder.company_id == self.tenant.company_id,
+            JobWorkOrder.id == order_id,
+        )
+        row = (await self.session.execute(stmt)).first()
+        if row is None:
+            return None
+        return JobWorkOrderFacts(
+            id=row.id,
+            code=row.code,
+            vendor_id=row.vendor_id,
+            status=str(row.status),
+            rate_per_unit=Decimal(row.rate_per_unit),
+            rate_basis=str(row.rate_basis),
+            cost_centre_id=row.cost_centre_id,
+            tax_rate=Decimal(row.tax_rate) if row.tax_rate is not None else None,
+            sac_code=row.sac_code,
+        )
+
+
+class JobWorkReceiptLineLookupRepository(BaseRepository[JobWorkReceiptLine]):
+    """The receipt half of the job-work match: what each lot earned."""
+
+    model = JobWorkReceiptLine
+
+    def _columns(self) -> Any:
+        return (
+            select(
+                JobWorkReceiptLine.id,
+                JobWorkReceiptLine.receipt_id,
+                JobWorkReceipt.job_work_order_id,
+                JobWorkReceiptLine.line_number,
+                JobWorkReceiptLine.output_item_id,
+                JobWorkReceiptLine.output_quantity,
+                JobWorkReceiptLine.charges,
+                JobWorkReceiptLine.invoiced_amount,
+                JobWorkReceiptLine.vendor_debit_amount,
+                JobWorkReceiptLine.debit_posted_amount,
+            )
+            .select_from(JobWorkReceiptLine)
+            .join(
+                JobWorkReceipt,
+                JobWorkReceipt.id == JobWorkReceiptLine.receipt_id,
+            )
+        )
+
+    def _facts(self, row: Any) -> JobWorkReceiptLineFacts:
+        return JobWorkReceiptLineFacts(
+            id=row.id,
+            receipt_id=row.receipt_id,
+            job_work_order_id=row.job_work_order_id,
+            line_number=row.line_number,
+            output_item_id=row.output_item_id,
+            output_quantity=Decimal(row.output_quantity),
+            charges=Decimal(row.charges),
+            invoiced_amount=Decimal(row.invoiced_amount),
+            vendor_debit_amount=Decimal(row.vendor_debit_amount),
+            debit_posted_amount=Decimal(row.debit_posted_amount),
+        )
+
+    async def load(self, line_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, JobWorkReceiptLineFacts]:
+        """Every job-work receipt line an invoice references, in one query."""
+        if not line_ids:
+            return {}
+        stmt = self._columns().where(
+            JobWorkReceiptLine.company_id == self.tenant.company_id,
+            JobWorkReceipt.company_id == self.tenant.company_id,
+            JobWorkReceiptLine.id.in_(set(line_ids)),
+        )
+        return {row.id: self._facts(row) for row in (await self.session.execute(stmt)).all()}
+
+    async def lock_lines(
+        self, line_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, JobWorkReceiptLine]:
+        """Lock receipt lines for the billing write, in id order.
+
+        The order matters: two invoices billing overlapping line sets in
+        opposite orders would deadlock. Sorting the set gives every caller the
+        same acquisition order (database.md section 4.4).
+        """
+        if not line_ids:
+            return {}
+        stmt = (
+            self._scoped()
+            .where(JobWorkReceiptLine.id.in_(set(line_ids)))
+            .order_by(JobWorkReceiptLine.id.asc())
+            .with_for_update()
+        )
+        rows = list((await self.session.execute(stmt)).scalars().unique().all())
+        return {row.id: row for row in rows}
+
+
 class FinancialYearRepository(BaseRepository[FinancialYear]):
     """The period a posting belongs to, and whether it is still open."""
 
@@ -1620,7 +1816,9 @@ class InventoryValuationRepository(BaseRepository[InventoryBalance]):
         quantity = func.sum(InventoryBalance.on_hand_quantity)
         # The independent half of the reconciliation: what this position's open
         # FIFO layers actually add up to, read from the layer rows and not from
-        # anything the balance says about itself.
+        # anything the balance says about itself. The on-hand queue only: the
+        # scrap queue remembers what scrapped stock cost and carries no book
+        # value (CostLayerPool), so it is no part of what the stock is worth.
         layer_value = (
             select(
                 func.coalesce(
@@ -1632,6 +1830,7 @@ class InventoryValuationRepository(BaseRepository[InventoryBalance]):
                 InventoryCostLayer.company_id == InventoryBalance.company_id,
                 InventoryCostLayer.balance_id == InventoryBalance.id,
                 InventoryCostLayer.remaining_quantity > ZERO,
+                InventoryCostLayer.pool == CostLayerPool.ON_HAND,
             )
             .correlate(InventoryBalance)
             .scalar_subquery()
@@ -1734,6 +1933,34 @@ class GstRepository(BaseRepository[VendorInvoiceLine]):
     model = VendorInvoiceLine
 
     def output_rows_stmt(self, *, date_from: date, date_to: date) -> Select[Any]:
+        return (
+            select(
+                SalesInvoiceLine.hsn_code.label("hsn_code"),
+                SalesInvoiceLine.tax_rate.label("tax_rate"),
+                func.sum(SalesInvoiceLine.taxable_amount).label("taxable_amount"),
+                func.sum(SalesInvoiceLine.cgst_amount).label("cgst_amount"),
+                func.sum(SalesInvoiceLine.sgst_amount).label("sgst_amount"),
+                func.sum(SalesInvoiceLine.igst_amount).label("igst_amount"),
+                func.count(func.distinct(SalesInvoice.id)).label("document_count"),
+            )
+            .join(
+                SalesInvoice,
+                and_(
+                    SalesInvoice.id == SalesInvoiceLine.sales_invoice_id,
+                    SalesInvoice.company_id == SalesInvoiceLine.company_id,
+                ),
+            )
+            .where(
+                SalesInvoiceLine.company_id == self.tenant.company_id,
+                SalesInvoice.status != "CANCELLED",
+                SalesInvoice.invoice_date >= date_from,
+                SalesInvoice.invoice_date <= date_to,
+            )
+            .group_by(SalesInvoiceLine.hsn_code, SalesInvoiceLine.tax_rate)
+            .order_by(SalesInvoiceLine.tax_rate, SalesInvoiceLine.hsn_code)
+        )
+
+    def dispatched_uninvoiced_rows_stmt(self, *, date_from: date, date_to: date) -> Select[Any]:
         # Share of the ordered line this consignment carried. The order line's
         # quantity is > 0 by CHECK, so the division is safe.
         share = DispatchLine.quantity / SalesOrderLine.quantity
@@ -1772,6 +1999,13 @@ class GstRepository(BaseRepository[VendorInvoiceLine]):
             )
             .where(
                 DispatchLine.company_id == self.tenant.company_id,
+                ~select(SalesInvoice.id)
+                .where(
+                    SalesInvoice.company_id == self.tenant.company_id,
+                    SalesInvoice.dispatch_id == Dispatch.id,
+                    SalesInvoice.status != "CANCELLED",
+                )
+                .exists(),
                 Dispatch.status.in_(TAXABLE_DISPATCH_STATUSES),
                 Dispatch.dispatch_date >= date_from,
                 Dispatch.dispatch_date <= date_to,

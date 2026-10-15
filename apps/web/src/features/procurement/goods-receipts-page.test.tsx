@@ -349,6 +349,25 @@ describe('what one submit achieves', () => {
 })
 
 describe('the register itself', () => {
+  it('receives QC-held stock at warehouse level without a bin picker', async () => {
+    const { user, fetch } = renderScreen(<GoodsReceiptsPage />, {
+      permissions: [...CLERK, P.LOCATION_VIEW],
+      routes: formRoutes({
+        [`GET ${ORDERS_PATH}/${PO_ID}`]: orderDetail([poLine({ requires_qc: true })]),
+        [`POST ${RECEIPTS_PATH}`]: ok({ id: NEW_RECEIPT_ID, code: 'GRN-0008' }),
+      }),
+    })
+    await openReceipt(user, fetch)
+    expect(screen.queryByRole('combobox', { name: 'Bin' })).not.toBeInTheDocument()
+    expect(screen.getByText(/receive at warehouse level for inspection/i)).toBeVisible()
+    await countLine(user, 0, '10')
+    await user.click(screen.getByRole('button', { name: 'Save draft receipt' }))
+    const body = (await waitFor(() => fetch.requestFor('POST', RECEIPTS_PATH))) as {
+      lines: Record<string, unknown>[]
+    }
+    expect(body.lines[0]).not.toHaveProperty('location_id')
+  })
+
   it('leads with whether a receipt has been posted', async () => {
     renderScreen(<GoodsReceiptsPage />, {
       permissions: READER,

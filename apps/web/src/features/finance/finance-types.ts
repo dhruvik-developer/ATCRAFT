@@ -68,6 +68,11 @@ export const financeKeys = {
 
 export type VendorInvoiceStatus = SchemaOf<'VendorInvoiceStatus'>
 
+/** What a vendor invoice bills: a purchase order, or a job-work order. */
+export type VendorInvoiceType = SchemaOf<'VendorInvoiceType'>
+
+export const VENDOR_INVOICE_TYPES: readonly VendorInvoiceType[] = ['PURCHASE', 'JOB_WORK']
+
 /**
  * One open **vendor invoice** on `GET /finance/outstanding`.
  *
@@ -242,6 +247,11 @@ export type MatchResult = SchemaOf<'MatchResult'>
  *     DRAFT            -> PENDING_APPROVAL   (vendor_invoice.create)
  *     PENDING_APPROVAL -> APPROVED | DRAFT | DISPUTED
  *     APPROVED         <-> PARTIALLY_PAID <-> PAID
+ *     DRAFT | PENDING_APPROVAL | APPROVED | DISPUTED -> CANCELLED
+ *
+ * Cancelling an invoice that reached the ledger reverses the journals it
+ * posted - the bill and, on a job-work invoice, the excess-loss recovery
+ * beside it - in the same transaction.
  *
  * The three predicates below answer three different questions and are kept
  * apart even where two of them test the same status today, because they stop

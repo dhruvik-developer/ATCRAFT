@@ -82,7 +82,6 @@ from src.modules.production.schemas import (
 )
 from src.modules.products.models import Item
 from src.modules.routing.models import WorkCenter
-from src.modules.users.models import User
 from src.modules.warehouses.models import StorageLocation, Warehouse
 
 #: Work-order statuses still occupying capacity on a work centre.
@@ -310,23 +309,6 @@ class PlantLookupRepository(BaseRepository[Plant]):
             Plant.deleted_at.is_(None),
         )
         return (await self.session.execute(stmt.limit(1))).first() is not None
-
-
-class OperatorLookupRepository(BaseRepository[User]):
-    """Existence check for an operator named on a booking or a work order."""
-
-    model = User
-
-    async def exist_in_tenant(self, user_ids: Sequence[uuid.UUID]) -> set[uuid.UUID]:
-        wanted = [uid for uid in dict.fromkeys(user_ids) if uid is not None]
-        if not wanted:
-            return set()
-        stmt = select(User.id).where(
-            User.company_id == self.tenant.company_id,
-            User.id.in_(wanted),
-            User.deleted_at.is_(None),
-        )
-        return {row.id for row in (await self.session.execute(stmt)).all()}
 
 
 class WorkCentreRateRepository(BaseRepository[WorkCenter]):
@@ -833,6 +815,14 @@ class WorkOrderRepository(BaseRepository[WorkOrder]):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def work_center_of(self, work_order_id: uuid.UUID) -> uuid.UUID | None:
+        """The cell an operation runs at - for the roster check on a booking."""
+        stmt = select(WorkOrder.work_center_id).where(
+            WorkOrder.company_id == self.tenant.company_id,
+            WorkOrder.id == work_order_id,
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     async def list_for_order(self, order_id: uuid.UUID) -> list[WorkOrder]:
         """Every operation of one job, in execution order.
 
@@ -878,6 +868,10 @@ class WorkOrderRepository(BaseRepository[WorkOrder]):
             stmt = stmt.where(WorkOrder.work_center_id == filters.work_center_id)
         if filters.machine_id is not None:
             stmt = stmt.where(WorkOrder.machine_id == filters.machine_id)
+        if filters.shift_id is not None:
+            stmt = stmt.where(WorkOrder.shift_id == filters.shift_id)
+        if filters.shift is not None:
+            stmt = stmt.where(WorkOrder.shift == filters.shift)
         if filters.operator_user_id is not None:
             stmt = stmt.where(WorkOrder.operator_user_id == filters.operator_user_id)
         return stmt
@@ -1106,6 +1100,8 @@ class ProductionEntryRepository(BaseRepository[ProductionEntry]):
             stmt = stmt.where(ProductionEntry.operator_user_id == filters.operator_user_id)
         if filters.machine_id is not None:
             stmt = stmt.where(ProductionEntry.machine_id == filters.machine_id)
+        if filters.shift_id is not None:
+            stmt = stmt.where(ProductionEntry.shift_id == filters.shift_id)
         if filters.shift is not None:
             stmt = stmt.where(ProductionEntry.shift == filters.shift)
         if filters.entry_from is not None:
@@ -1132,7 +1128,6 @@ __all__ = [
     "IssuedComponentTotals",
     "MaterialIssueLineRepository",
     "MaterialIssueRepository",
-    "OperatorLookupRepository",
     "PlantLookupRepository",
     "ProductionEntryRepository",
     "ProductionItem",

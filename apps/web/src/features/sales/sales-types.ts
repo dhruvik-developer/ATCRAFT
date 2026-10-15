@@ -74,6 +74,31 @@ export const isConfirmable = (status: SalesOrderStatus): boolean => status === '
 export const isCancellable = (status: SalesOrderStatus): boolean =>
   CANCELLABLE_STATUSES.includes(status)
 
+/**
+ * Orders a consignment may leave against - dispatch's `DISPATCHABLE_ORDER_STATUSES`,
+ * which is every status with an edge to PARTIALLY_DISPATCHED, plus that status
+ * itself. A CONFIRMED order is short somewhere but may ship what it has reserved.
+ */
+export const DISPATCHABLE_STATUSES: readonly SalesOrderStatus[] = [
+  'CONFIRMED',
+  'ALLOCATED',
+  'PARTIALLY_DISPATCHED',
+]
+export const isDispatchable = (status: SalesOrderStatus): boolean =>
+  DISPATCHABLE_STATUSES.includes(status)
+
+/**
+ * Orders the allocation top-up works on - `sales.service.TOP_UP_STATUSES`. An
+ * ALLOCATED order is included because a reservation released elsewhere leaves
+ * it short, and the top-up is what re-reserves it.
+ */
+export const TOP_UP_STATUSES: readonly SalesOrderStatus[] = [
+  'CONFIRMED',
+  'ALLOCATED',
+  'PARTIALLY_DISPATCHED',
+]
+export const canTopUp = (status: SalesOrderStatus): boolean => TOP_UP_STATUSES.includes(status)
+
 // ----------------------------------------------------------- wire shapes ----
 
 /** One row of `GET /sales` (`SalesOrderSummary`). */

@@ -121,6 +121,7 @@ class SalesOrderLineRead(BaseModel):
     invoiced_quantity: Decimal
     status: SalesOrderLineStatus
     reservation_id: uuid.UUID | None
+    offer_id: uuid.UUID | None
     notes: str | None
 
 
@@ -224,6 +225,7 @@ class SalesOrderSummary(BaseModel):
     code: str
     customer_id: uuid.UUID
     customer_po_number: str | None
+    source: str
     order_date: date
     required_date: date
     promised_date: date | None
@@ -261,6 +263,7 @@ class SalesOrderFilters(BaseModel):
 
     search: str | None = None
     customer_id: uuid.UUID | None = None
+    source: str | None = None
     warehouse_id: uuid.UUID | None = None
     branch_id: uuid.UUID | None = None
     status: SalesOrderStatus | None = None
@@ -297,6 +300,14 @@ class ApproveRequest(BaseModel):
     reason: Reason = "Below-cost pricing approved"
 
 
+class AllocateOrderRequest(BaseModel):
+    """``POST /sales/{id}/allocate``: top a short order up from free stock."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Reason = "Newly available stock allocated to the order"
+
+
 # -----------------------------------------------------------------------------
 # Allocation reporting - master rules section 72, "finished goods shortage"
 # -----------------------------------------------------------------------------
@@ -308,6 +319,12 @@ class LineAllocationRead(BaseModel):
     ``shortfall`` is the number MRP has to cover. It is reported per line on the
     confirm response so the salesperson sees it immediately rather than
     discovering it when the picking list comes up short.
+
+    ``reserved_quantity`` is what the line's reservation still holds *live* - a
+    reservation released, expired or consumed elsewhere counts as nothing, which
+    is why it can be below ``allocated_quantity`` until the order is topped up.
+    ``dispatchable_quantity`` is what a new consignment may carry for the line
+    right now (``sales.service.dispatchable_quantity``).
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -318,6 +335,8 @@ class LineAllocationRead(BaseModel):
     item_code: str | None = None
     ordered_quantity: Decimal
     allocated_quantity: Decimal
+    reserved_quantity: Decimal
+    dispatchable_quantity: Decimal
     dispatched_quantity: Decimal
     shortfall_quantity: Decimal
     status: SalesOrderLineStatus
@@ -384,6 +403,7 @@ class DemandSummaryRow(BaseModel):
 
 __all__ = [
     "MAX_LINES_PER_ORDER",
+    "AllocateOrderRequest",
     "ApproveRequest",
     "CancelRequest",
     "ConfirmRequest",

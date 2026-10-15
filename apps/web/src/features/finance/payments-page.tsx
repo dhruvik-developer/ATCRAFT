@@ -285,28 +285,15 @@ export default function PaymentsPage() {
         enableSorting: false,
         meta: { align: 'right' },
         cell: ({ row }) =>
-          row.original.payment_type === 'RECEIPT' ? (
-            // A receipt is never allocated - there is no receivable document in
-            // this contract to match it against - so a zero here would read as
-            // an outstanding job rather than as "not applicable".
-            <span className="text-2xs text-muted-foreground">n/a</span>
-          ) : (
-            formatMoney(row.original.allocated_amount, { currency: row.original.currency })
-          ),
+          formatMoney(row.original.allocated_amount, { currency: row.original.currency }),
       },
       {
         id: 'unallocated_amount',
         header: 'Unsettled',
         enableSorting: false,
         meta: { align: 'right' },
-        // Derived by the server, never by subtracting two columns here: the
-        // payables list, the ageing report and this row must agree.
         cell: ({ row }) =>
-          row.original.payment_type === 'RECEIPT' ? (
-            <span className="text-2xs text-muted-foreground">n/a</span>
-          ) : (
-            formatMoney(row.original.unallocated_amount, { currency: row.original.currency })
-          ),
+          formatMoney(row.original.unallocated_amount, { currency: row.original.currency }),
       },
       {
         accessorKey: 'status',

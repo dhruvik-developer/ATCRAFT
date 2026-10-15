@@ -17,6 +17,7 @@ import pytest
 from src.core.deps import Principal
 from src.core.errors import BusinessRuleError, PermissionDeniedError
 from src.core.permissions import Permission
+from src.modules.dealer_portal.pricing import OfferFacts
 from src.modules.products.models import ItemPrice, PriceType
 from src.modules.sales.repository import SellableItem, VariantInfo
 from src.modules.sales.schemas import SalesOrderLineIn
@@ -323,6 +324,76 @@ def test_uncosted_item_never_counts_as_below_cost():
     assert is_below_cost(Decimal("0"), Decimal("0")) is False
     assert is_below_cost(Decimal("59.99"), Decimal("60")) is True
     assert is_below_cost(Decimal("60"), Decimal("60")) is False
+
+
+# -----------------------------------------------------------------------------
+# Dealer schemes as the default discount (docs/assumptions.md §C3-3)
+# -----------------------------------------------------------------------------
+
+
+def _scheme(percentage: str) -> OfferFacts:
+    return OfferFacts(
+        id=uuid.uuid4(),
+        code=f"SCHEME-{percentage}",
+        title="Scheme",
+        scope_kind="ALL",
+        category_id=None,
+        brand_id=None,
+        item_id=None,
+        audience_price_type=None,
+        customer_id=None,
+        min_quantity=Decimal("1"),
+        discount_percentage=Decimal(percentage),
+        valid_from=None,
+        valid_to=None,
+        is_active=True,
+        sort_order=0,
+    )
+
+
+def test_a_scheme_is_the_default_discount_when_none_is_given():
+    from dataclasses import replace
+
+    item = make_item()
+    offer = _scheme("10")
+    context = replace(context_for(item, []), offers=(offer,))
+    payload = SalesOrderLineIn(line_number=1, item_id=item.id, quantity=Decimal("2"))
+
+    priced = price_line(payload, context, principal_with(Permission.SALES_ORDER_CREATE))
+
+    assert priced.discount_percentage == Decimal("10")
+    assert priced.offer_id == offer.id
+    assert priced.amounts.discount_amount == Decimal("20.00")
+
+
+def test_an_explicit_discount_wins_and_carries_no_scheme():
+    from dataclasses import replace
+
+    item = make_item()
+    offer = _scheme("10")
+    context = replace(context_for(item, []), offers=(offer,))
+    payload = SalesOrderLineIn(
+        line_number=1, item_id=item.id, quantity=Decimal("2"), discount_percentage=Decimal("5")
+    )
+
+    priced = price_line(payload, context, principal_with(Permission.SALES_ORDER_CREATE))
+
+    assert priced.discount_percentage == Decimal("5")
+    assert priced.offer_id is None
+    assert priced.amounts.discount_amount == Decimal("10.00")
+
+
+def test_no_schemes_means_no_default_discount():
+    item = make_item()
+    payload = SalesOrderLineIn(line_number=1, item_id=item.id, quantity=Decimal("2"))
+
+    priced = price_line(
+        payload, context_for(item, []), principal_with(Permission.SALES_ORDER_CREATE)
+    )
+
+    assert priced.discount_percentage == Decimal("0")
+    assert priced.offer_id is None
+    assert priced.amounts.discount_amount == Decimal("0.00")
 
 
 # -----------------------------------------------------------------------------

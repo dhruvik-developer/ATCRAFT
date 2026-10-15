@@ -86,12 +86,21 @@ class ItemGroup(StrEnum):
     Master rules section 1: no business rule may branch on this value to decide
     whether an operation is allowed. It drives reports, default capability flags
     at creation time, and nothing else.
+
+    ``SUB_ASSEMBLY`` and ``ASSEMBLY`` classify what the assembly bench builds - a
+    sub-assembly is consumed by a higher assembly or a production order, an
+    assembly (a lock set) is sold as built. Like every other member they only
+    seed defaults; an assembly order checks ``can_manufacture`` and
+    ``can_be_assembly_component``, never this value. ``items.item_group`` has no
+    CHECK, so adding a member needs no migration.
     """
 
     RAW_MATERIAL = "RAW_MATERIAL"
     COMPONENT = "COMPONENT"
     SEMI_FINISHED = "SEMI_FINISHED"
+    SUB_ASSEMBLY = "SUB_ASSEMBLY"
     FINISHED_GOOD = "FINISHED_GOOD"
+    ASSEMBLY = "ASSEMBLY"
     CONSUMABLE = "CONSUMABLE"
     PACKING_MATERIAL = "PACKING_MATERIAL"
     SPARE = "SPARE"
@@ -571,6 +580,9 @@ class Item(TenantMasterEntity):
 
     default_warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=True
+    )
+    default_location_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("storage_locations.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     # NOTE: there is deliberately no ``valuation_method`` column. Stock is
     # valued FIFO, for every item, by ``inventory.service`` - see

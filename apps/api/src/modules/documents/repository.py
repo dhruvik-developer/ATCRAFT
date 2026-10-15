@@ -21,6 +21,7 @@ from typing import Any
 from sqlalchemy import Select
 from sqlalchemy.orm import InstrumentedAttribute
 
+from src.common.document_access import document_read_predicates
 from src.common.repository import BaseRepository
 from src.core.pagination import SortParams
 from src.modules.documents.models import Document
@@ -36,6 +37,14 @@ class DocumentRepository(BaseRepository[Document]):
     """Persistence for :class:`~src.modules.documents.models.Document`."""
 
     model = Document
+
+    def _scoped(self, *, include_deleted: bool = False) -> Select[tuple[Document]]:
+        return (
+            super()
+            ._scoped(include_deleted=include_deleted)
+            .where(*document_read_predicates(self.tenant, Document.id))
+        )
+
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "file_name": Document.file_name,
         "size_bytes": Document.size_bytes,

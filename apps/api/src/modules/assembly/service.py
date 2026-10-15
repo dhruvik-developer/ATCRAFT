@@ -42,6 +42,13 @@ stock. The rules that matter, and why each lives here rather than in a caller:
    still recorded on the order (``qc_held_at`` with no ``qc_inspection_id``) and
    is queryable - the stock is held either way, which is the half that matters.
 
+6. **One hold, one release path.** Deciding that inspection is what releases
+   the held output, and quality calls :func:`record_quality_verdict` back in the
+   same transaction to complete the order from the verdict - moving nothing
+   itself. ``record_qc_result`` releases stock only for a hold no inspection
+   covers; when the order names one it refuses, or completes the order from the
+   inspection's already-recorded figures, and never posts a second movement.
+
 Allocation and quality are reached through ports. The default implementations
 delegate to ``allocation.service`` and ``quality.service`` exactly as
 database.md sections 4.5 and 8 specify; the seams exist so this module's rules
@@ -67,15 +74,20 @@ taken, named, and is changeable in one place.
   scrap into the finished-goods balance.
 * **Issued quantity may not exceed the requirement**, because the requirement is
   what was reserved; anything beyond it would be unreserved stock on the bench
-  that another document could still be promised.
+  that another document could still be promised. A top-up only ever raises the
+  issued totals (docs/assumptions.md §E4-5).
+* **An order is built from an ASSEMBLY or a PRODUCTION structure**
+  (:data:`ASSEMBLABLE_BOM_TYPES`, docs/assumptions.md §E4-4).
+* **Component reservations carry the order's priority and its planned start**
+  as their required date, read as a UTC business date (§E4-7).
 """
 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
@@ -88,34 +100,49 @@ from src.core.deps import TenantContext
 from src.core.errors import (
     BusinessRuleError,
     ErrorCode,
+    InsufficientStockError,
     NotFoundError,
     ValidationError,
 )
 from src.core.logging import get_logger
+from src.core.messages import held_for_inspection, verdict_differs_from_inspection
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, to_quantity
-from src.modules.allocation.models import DemandType, ReservationType
+from src.modules.allocation.models import (
+    DEFAULT_RESERVATION_PRIORITY,
+    DemandType,
+    ReservationType,
+)
 from src.modules.assembly.models import (
     CANCELLABLE_STATUSES,
+    COMPONENTS_HELD_STATUSES,
     MAX_COMPONENTS_PER_ORDER,
+    NOT_STARTED_STATUSES,
+    OPEN_SUPPLY_STATUSES,
     AssemblyOrder,
     AssemblyOrderComponent,
     AssemblyOrderStatus,
+    AssemblySourceType,
 )
 from src.modules.assembly.repository import (
     AssemblyComponentRepository,
     AssemblyItem,
     AssemblyOrderRepository,
+    ComponentAvailabilityRepository,
     ItemLookupRepository,
     SerialLookupRepository,
     WarehouseLookupRepository,
 )
 from src.modules.assembly.schemas import (
     READY_FOR_PACKING_MAX,
+    AssemblyBoardFilters,
+    AssemblyBoardOrder,
+    AssemblyComponentAvailability,
     AssemblyComponentRead,
+    AssemblyLineLoad,
     AssemblyOrderCreate,
     AssemblyOrderDetail,
     AssemblyOrderFilters,
@@ -142,10 +169,35 @@ log = get_logger(__name__)
 
 AUDIT_ASSEMBLY_ORDER = "assembly_order"
 
+
+class KitShortageError(InsufficientStockError):
+    """A release refused because the kit is short - every short component named.
+
+    Still an ``InsufficientStockError`` (same code, same status), so a caller
+    that handled the one-component refusal the reservation engine raises handles
+    this too; it only carries the whole list in ``details.shortages``.
+    """
+
+    def __init__(self, message: str, *, details: dict[str, Any]) -> None:
+        BusinessRuleError.__init__(self, message, details=details)
+
+
 #: What the ledger rows this module posts point back at. A bare string, matching
 #: ``inventory_transactions.reference_type`` - the ledger outlives its source, so
 #: it holds a type and an id rather than a foreign key (database.md section 4.2).
+#: It is also the reference an assembly's inspection carries, which is how
+#: quality knows to call :func:`record_quality_verdict` back.
 MOVEMENT_REFERENCE_ASSEMBLY = "assembly_order"
+
+#: The structures an assembly order may be built from.
+#:
+#: ASSUMPTION: an ``ASSEMBLY`` structure or a ``PRODUCTION`` one - a lock set
+#: whose recipe engineering filed as a production BOM is still put together on
+#: the assembly bench, and refusing it would push the planner into a production
+#: order for what is assembly work. A ``PHANTOM`` is never built, and an
+#: ``ALTERNATE`` is reached by naming it as a production structure's alternative,
+#: so neither is offered (docs/assumptions.md §E4-4).
+ASSEMBLABLE_BOM_TYPES: tuple[BomType, ...] = (BomType.ASSEMBLY, BomType.PRODUCTION)
 
 #: Draft fields an explicit ``null`` in a PATCH body legitimately clears. Every
 #: other column on the update payload backs a NOT NULL column, where a null is a
@@ -168,6 +220,7 @@ ORDER_AUDITED_FIELDS = [
     "planned_end",
     "actual_start",
     "actual_end",
+    "priority",
     "status",
     "requires_qc",
     "qc_held_at",
@@ -475,6 +528,146 @@ def build_movements(
     return movements
 
 
+def reservation_required_date(planned_start: datetime | None) -> date | None:
+    """The date a component reservation is wanted by: the order's planned start.
+
+    ASSUMPTION: read as a UTC business date, the way every business date here is
+    compared (``core.clock.today``). An order with no planned start reserves with
+    no date, as it always did (docs/assumptions.md §E4-7).
+    """
+    if planned_start is None:
+        return None
+    return planned_start.astimezone(UTC).date()
+
+
+@dataclass(frozen=True, slots=True)
+class ComponentNeed:
+    """One component line, reduced to what a release decision reads."""
+
+    line_number: int
+    item_id: uuid.UUID
+    required: Decimal
+    is_reserved: bool
+
+
+def component_shortages(
+    needs: Sequence[ComponentNeed], available: Mapping[uuid.UUID, Decimal]
+) -> dict[int, Decimal]:
+    """What a release would still lack, per component line.
+
+    Lines are walked in the order release reserves them - by item, then line -
+    and each consumes the stock it would reserve, so two lines of one item
+    cannot both be told the same shelf is theirs. A line already reserved lacks
+    nothing.
+    """
+    remaining = {item_id: max(quantity, ZERO) for item_id, quantity in available.items()}
+    shortages: dict[int, Decimal] = {}
+    for need in sorted(needs, key=lambda row: (str(row.item_id), row.line_number)):
+        if need.is_reserved:
+            shortages[need.line_number] = ZERO
+            continue
+        have = remaining.get(need.item_id, ZERO)
+        shortages[need.line_number] = to_quantity(max(need.required - have, ZERO))
+        remaining[need.item_id] = max(have - need.required, ZERO)
+    return shortages
+
+
+@dataclass(frozen=True, slots=True)
+class Lateness:
+    """How an open order stands against its own plan, at one instant."""
+
+    is_late: bool
+    start_overdue: bool
+    days_late: int
+
+
+def lateness(
+    *,
+    status: AssemblyOrderStatus,
+    planned_start: datetime | None,
+    planned_end: datetime | None,
+    actual_start: datetime | None,
+    now: datetime,
+) -> Lateness:
+    """The board's lateness badge, worked out on the server.
+
+    ASSUMPTION: an order is late once its planned end has passed while it still
+    owes finished stock - QC_PENDING included, because held output is not yet
+    usable - and its start is overdue once the planned start has passed with the
+    bench not begun. An order with no plan is never late (docs/assumptions.md
+    §E4-10).
+    """
+    is_open = status in OPEN_SUPPLY_STATUSES
+    is_late = is_open and planned_end is not None and planned_end < now
+    start_overdue = (
+        status in NOT_STARTED_STATUSES
+        and actual_start is None
+        and planned_start is not None
+        and planned_start < now
+    )
+    days_late = (now - planned_end).days if is_late and planned_end is not None else 0
+    return Lateness(is_late=is_late, start_overdue=start_overdue, days_late=days_late)
+
+
+def plan_issue(
+    components: Sequence[AssemblyOrderComponent],
+    overrides: Mapping[int, Decimal],
+    *,
+    top_up: bool,
+) -> dict[int, Decimal]:
+    """The issued total each component line ends at after one issue request.
+
+    A line the request names takes the stated total; a line it omits is issued
+    in full. Either way the total is bounded by the requirement, because only
+    the requirement was reserved.
+
+    ASSUMPTION: a top-up states new totals, like the first issue does, and may
+    only raise them - parts already on the bench are not handed back through
+    this path - and a top-up that would change nothing is refused rather than
+    recorded as an empty hand-over (docs/assumptions.md §E4-5).
+    """
+    by_line = {component.line_number: component for component in components}
+    for line_number in overrides:
+        if line_number not in by_line:
+            raise NotFoundError("Assembly order component", line_number)
+
+    plan: dict[int, Decimal] = {}
+    for component in components:
+        required = to_quantity(Decimal(component.required_quantity))
+        target = to_quantity(overrides.get(component.line_number, required))
+        if target > required:
+            raise BusinessRuleError(
+                f"Component line {component.line_number} may be issued at most "
+                f"{required}; only that much is reserved for it.",
+                details={
+                    "line_number": component.line_number,
+                    "required": str(required),
+                    "requested": str(target),
+                },
+            )
+        issued = to_quantity(Decimal(component.issued_quantity))
+        if top_up and target < issued:
+            raise BusinessRuleError(
+                f"Component line {component.line_number} already has {issued} on the bench; "
+                f"a top-up cannot lower it to {target}.",
+                details={
+                    "line_number": component.line_number,
+                    "issued": str(issued),
+                    "requested": str(target),
+                },
+            )
+        plan[component.line_number] = target
+
+    if top_up and all(
+        plan[component.line_number] == to_quantity(Decimal(component.issued_quantity))
+        for component in components
+    ):
+        raise BusinessRuleError(
+            "Every component line already has that much on the bench; there is nothing to top up."
+        )
+    return plan
+
+
 # -----------------------------------------------------------------------------
 # Cross-module ports
 # -----------------------------------------------------------------------------
@@ -497,6 +690,8 @@ class AllocationPort(Protocol):
         demand_line_id: uuid.UUID | None = None,
         demand_code: str | None = None,
         reservation_type: ReservationType = ReservationType.HARD,
+        priority: int = DEFAULT_RESERVATION_PRIORITY,
+        required_date: date | None = None,
     ) -> Any: ...
 
     async def release(
@@ -527,6 +722,8 @@ class AllocationService:
         demand_line_id: uuid.UUID | None = None,
         demand_code: str | None = None,
         reservation_type: ReservationType = ReservationType.HARD,
+        priority: int = DEFAULT_RESERVATION_PRIORITY,
+        required_date: date | None = None,
     ) -> Any:
         from src.modules.allocation.service import reserve as _reserve
 
@@ -541,6 +738,8 @@ class AllocationService:
             demand_line_id=demand_line_id,
             demand_code=demand_code,
             reservation_type=reservation_type,
+            priority=priority,
+            required_date=required_date,
             reason=reason,
         )
 
@@ -606,6 +805,33 @@ def resolve_quality_port() -> QualityPort | None:
     return factory if callable(factory) else None
 
 
+class InspectionReaderPort(Protocol):
+    """The quality module's read of every inspection one document raised."""
+
+    async def __call__(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        reference_type: str,
+        reference_id: uuid.UUID,
+    ) -> Sequence[Any]: ...
+
+
+def resolve_inspection_reader_port() -> InspectionReaderPort | None:
+    """The quality module's ``inspections_for_reference``, if it is deployed.
+
+    Read by the owner-side verdict endpoint, which must know whether a quality
+    inspection already owns the hold before it releases anything itself.
+    """
+    try:
+        from src.modules.quality import service as quality_service
+    except ImportError:
+        return None
+
+    reader = getattr(quality_service, "inspections_for_reference", None)
+    return reader if callable(reader) else None
+
+
 # -----------------------------------------------------------------------------
 # Shared helpers
 # -----------------------------------------------------------------------------
@@ -663,12 +889,13 @@ async def _resolve_bom(
     item_id: uuid.UUID,
     bom_id: uuid.UUID | None,
 ) -> Bom:
-    """The approved ``ASSEMBLY`` structure this order will consume against.
+    """The approved structure this order will consume against.
 
     An explicit id is honoured but still checked: an order built from another
     item's recipe, or from a structure an engineer is still editing, would
     consume the wrong parts and could never be reconciled against engineering's
-    view of the product (database.md section 5).
+    view of the product (database.md section 5). The structure must be one of
+    :data:`ASSEMBLABLE_BOM_TYPES`.
     """
     repo = BomRepository(session, tenant)
 
@@ -696,11 +923,15 @@ async def _resolve_bom(
             code=ErrorCode.BOM_NOT_APPROVED,
             details={"bom_id": str(bom.id), "status": str(bom.status)},
         )
-    if BomType(bom.bom_type) is not BomType.ASSEMBLY:
+    if BomType(bom.bom_type) not in ASSEMBLABLE_BOM_TYPES:
         raise BusinessRuleError(
             f"BOM {bom.code} is a {bom.bom_type} structure; an assembly order needs an "
-            "ASSEMBLY one.",
-            details={"bom_id": str(bom.id), "bom_type": str(bom.bom_type)},
+            "ASSEMBLY or PRODUCTION one.",
+            details={
+                "bom_id": str(bom.id),
+                "bom_type": str(bom.bom_type),
+                "allowed_bom_types": [str(kind) for kind in ASSEMBLABLE_BOM_TYPES],
+            },
         )
     return bom
 
@@ -833,6 +1064,69 @@ async def _assert_warehouses(session: AsyncSession, tenant: TenantContext, *ids:
             )
 
 
+async def _kit_position(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: AssemblyOrder,
+    components: Sequence[AssemblyOrderComponent],
+) -> tuple[dict[int, Decimal], dict[uuid.UUID, Decimal]]:
+    """Per-line shortages and per-item availability, in one balance read."""
+    available = await ComponentAvailabilityRepository(session, tenant).reservable_by_item(
+        [component.item_id for component in components], order.warehouse_id
+    )
+    needs = [
+        ComponentNeed(
+            line_number=component.line_number,
+            item_id=component.item_id,
+            required=to_quantity(Decimal(component.required_quantity)),
+            is_reserved=component.reservation_id is not None,
+        )
+        for component in components
+    ]
+    return component_shortages(needs, available), available
+
+
+async def _assert_kit_available(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: AssemblyOrder,
+    components: Sequence[AssemblyOrderComponent],
+) -> None:
+    """Refuse a release the kit cannot cover, naming every short component."""
+    shortages, available = await _kit_position(session, tenant, order, components)
+    short = [component for component in components if shortages[component.line_number] > ZERO]
+    if not short:
+        return
+
+    items = await ItemLookupRepository(session, tenant).load([row.item_id for row in short])
+    rows = [
+        {
+            "line_number": component.line_number,
+            "item_id": str(component.item_id),
+            "item_code": (
+                items[component.item_id].code
+                if component.item_id in items
+                else str(component.item_id)
+            ),
+            "required": str(to_quantity(Decimal(component.required_quantity))),
+            "available": str(to_quantity(max(available.get(component.item_id, ZERO), ZERO))),
+            "short": str(shortages[component.line_number]),
+        }
+        for component in sorted(short, key=lambda row: row.line_number)
+    ]
+    raise KitShortageError(
+        f"{order.code} cannot be released: {len(rows)} component(s) are short at its "
+        "component warehouse - "
+        + ", ".join(f"{row['item_code']} short {row['short']}" for row in rows)
+        + ". Nothing was reserved.",
+        details={
+            "order_code": order.code,
+            "warehouse_id": str(order.warehouse_id),
+            "shortages": rows,
+        },
+    )
+
+
 # -----------------------------------------------------------------------------
 # Reads
 # -----------------------------------------------------------------------------
@@ -903,6 +1197,155 @@ async def list_ready_for_packing(
     )
 
 
+async def component_availability(
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
+) -> list[AssemblyComponentAvailability]:
+    """Each component's live stock position against what a release would reserve.
+
+    Read before releasing, so the planner sees the kit's whole gap before the
+    release refuses it. Two statements: the components and one aggregate over
+    the balance table - never one availability read per line.
+    """
+    order = await AssemblyOrderRepository(session, tenant).get_or_404(order_id)
+    components = await AssemblyComponentRepository(session, tenant).list_for_order(order.id)
+    shortages, available = await _kit_position(session, tenant, order, components)
+    return [
+        AssemblyComponentAvailability(
+            line_number=component.line_number,
+            item_id=component.item_id,
+            required_quantity=to_quantity(Decimal(component.required_quantity)),
+            issued_quantity=to_quantity(Decimal(component.issued_quantity)),
+            is_reserved=component.reservation_id is not None,
+            available_quantity=to_quantity(max(available.get(component.item_id, ZERO), ZERO)),
+            shortage_quantity=shortages[component.line_number],
+        )
+        for component in components
+    ]
+
+
+def _board_row(order: AssemblyOrder, *, now: datetime) -> AssemblyBoardOrder:
+    status = AssemblyOrderStatus(order.status)
+    late = lateness(
+        status=status,
+        planned_start=order.planned_start,
+        planned_end=order.planned_end,
+        actual_start=order.actual_start,
+        now=now,
+    )
+    return AssemblyBoardOrder(
+        id=order.id,
+        code=order.code,
+        item_id=order.item_id,
+        status=status,
+        assembly_line=order.assembly_line,
+        warehouse_id=order.warehouse_id,
+        output_warehouse_id=order.output_warehouse_id,
+        priority=order.priority,
+        planned_quantity=Decimal(order.planned_quantity),
+        assembled_quantity=Decimal(order.assembled_quantity),
+        rejected_quantity=Decimal(order.rejected_quantity),
+        planned_start=order.planned_start,
+        planned_end=order.planned_end,
+        actual_start=order.actual_start,
+        actual_end=order.actual_end,
+        requires_qc=order.requires_qc,
+        is_late=late.is_late,
+        start_overdue=late.start_overdue,
+        days_late=late.days_late,
+    )
+
+
+async def board_orders(
+    session: AsyncSession,
+    tenant: TenantContext,
+    filters: AssemblyBoardFilters,
+    params: PageParams,
+) -> tuple[list[AssemblyBoardOrder], OffsetPagination]:
+    """The assembly board: open orders, line by line, planned against actual."""
+    now = utcnow()
+    rows, pagination = await AssemblyOrderRepository(session, tenant).board_page(
+        filters, params, now=now
+    )
+    return [_board_row(row, now=now) for row in rows], pagination
+
+
+async def board_lines(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    warehouse_id: uuid.UUID | None,
+    params: PageParams,
+) -> tuple[list[AssemblyLineLoad], OffsetPagination]:
+    """Open work per assembly line, for the board's line summary."""
+    return await AssemblyOrderRepository(session, tenant).line_load_page(
+        warehouse_id=warehouse_id, params=params, now=utcnow()
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class PackingHandoverFacts:
+    """What the packing module needs to raise a packing order from an assembly."""
+
+    assembly_order_id: uuid.UUID
+    code: str
+    item_id: uuid.UUID
+    assembled_quantity: Decimal
+    output_warehouse_id: uuid.UUID
+    source_type: AssemblySourceType
+    source_id: uuid.UUID | None
+
+
+async def packing_handover_facts(
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
+) -> PackingHandoverFacts:
+    """Lock a completed assembly for hand-over and say what it produced.
+
+    The packing module calls this before raising its packing order, inside the
+    same transaction, and :func:`mark_packed` after. Taking the row lock here
+    rather than only in ``mark_packed`` is what makes a second packer wait and
+    then be refused, instead of both raising a packing order and one of them
+    failing only at the very end.
+    """
+    async with transaction(session):
+        order = await AssemblyOrderRepository(session, tenant).lock_for_update(order_id)
+        if order is None:
+            raise NotFoundError("Assembly order", order_id)
+        _assert_packable(order)
+        assembled = to_quantity(Decimal(order.assembled_quantity))
+        if assembled <= ZERO:
+            raise BusinessRuleError(
+                f"{order.code} produced no good output, so there is nothing to pack.",
+                details={"order_id": str(order.id)},
+            )
+        return PackingHandoverFacts(
+            assembly_order_id=order.id,
+            code=order.code,
+            item_id=order.item_id,
+            assembled_quantity=assembled,
+            output_warehouse_id=order.output_warehouse_id,
+            source_type=AssemblySourceType(order.source_type),
+            source_id=order.source_id,
+        )
+
+
+def _assert_packable(order: AssemblyOrder, *, packing_order_id: uuid.UUID | None = None) -> None:
+    """A completed order that no *other* packing order has taken."""
+    if AssemblyOrderStatus(order.status) is not AssemblyOrderStatus.COMPLETED:
+        raise BusinessRuleError(
+            f"{order.code} is {order.status}; only a completed assembly can be packed.",
+            details={"order_id": str(order.id), "status": str(order.status)},
+        )
+    if order.packing_order_id is not None and order.packing_order_id != packing_order_id:
+        raise BusinessRuleError(
+            f"{order.code} has already been taken by another packing order.",
+            code=ErrorCode.CONFLICT,
+            details={
+                "order_id": str(order.id),
+                "packing_order_id": str(order.packing_order_id),
+            },
+        )
+
+
 # -----------------------------------------------------------------------------
 # Create / update / delete
 # -----------------------------------------------------------------------------
@@ -952,6 +1395,7 @@ async def create_order(
                 assembly_line=payload.assembly_line,
                 planned_start=payload.planned_start,
                 planned_end=payload.planned_end,
+                priority=payload.priority,
                 status=AssemblyOrderStatus.DRAFT,
                 requires_qc=payload.requires_qc,
                 source_type=payload.source_type,
@@ -1145,6 +1589,16 @@ async def release_order(
     component that is short refuses the whole release rather than reserving what
     it can - a half-kitted job on a bench blocks the line and cannot be finished
     either way, so the shortage is better surfaced before the parts are moved.
+
+    Every short component is named in one refusal (``details.shortages``), read
+    in one statement before anything is reserved, so the planner sees the whole
+    kit's gap rather than one part per attempt. The reservations themselves are
+    still the gate: stock taken by someone else in between is refused by the
+    reservation engine under its row lock.
+
+    Each reservation carries the order's priority and its planned start as the
+    required date, so allocation ranks this order's claim the way the planner
+    ranked the order.
     """
     port = _allocation(allocation)
     repo = AssemblyOrderRepository(session, tenant)
@@ -1159,6 +1613,9 @@ async def release_order(
         )
 
         components = await component_repo.list_for_order(order.id)
+        await _assert_kit_available(session, tenant, order, components)
+
+        required_date = reservation_required_date(order.planned_start)
         # Reserving in a fixed order across every caller of this path is what
         # stops two releases that share components from taking the same balance
         # locks in opposite orders and deadlocking.
@@ -1176,6 +1633,8 @@ async def release_order(
                 demand_line_id=component.id,
                 demand_code=order.code,
                 reservation_type=ReservationType.HARD,
+                priority=order.priority,
+                required_date=required_date,
                 reason=f"{order.code} released to the assembly line: {reason}"[:255],
             )
             component.reservation_id = reservation.id
@@ -1202,6 +1661,13 @@ async def issue_components(
     what changed is who is holding them. The ledger learns about them at
     completion, when it is known what they were turned into - see the module
     docstring. ``issued_quantity`` is what bounds that consumption.
+
+    The first issue, from RELEASED, moves the order to COMPONENTS_ISSUED. A
+    *top-up* - the balance of a short issue arriving later - is accepted while
+    the components are on the bench (COMPONENTS_ISSUED or IN_PROGRESS): it
+    raises the issued totals, is audited the same way, and leaves the status
+    where it is, because the state machine has no edge back into the state the
+    order is already in. See :func:`plan_issue` for the rules on the totals.
     """
     repo = AssemblyOrderRepository(session, tenant)
     component_repo = AssemblyComponentRepository(session, tenant)
@@ -1210,48 +1676,35 @@ async def issue_components(
         order = await repo.lock_for_update(order_id)
         if order is None:
             raise NotFoundError("Assembly order", order_id)
-        ASSEMBLY_ORDER_LIFECYCLE.assert_transition(
-            AssemblyOrderStatus(order.status), AssemblyOrderStatus.COMPONENTS_ISSUED
-        )
+        status = AssemblyOrderStatus(order.status)
+        top_up = status in COMPONENTS_HELD_STATUSES
+        if not top_up:
+            ASSEMBLY_ORDER_LIFECYCLE.assert_transition(
+                status, AssemblyOrderStatus.COMPONENTS_ISSUED
+            )
 
         components = await component_repo.list_for_order(order.id)
-        by_line = {component.line_number: component for component in components}
-
-        overrides: dict[int, Decimal] = {}
-        for line in payload.lines:
-            component = by_line.get(line.line_number)
-            if component is None:
-                raise NotFoundError("Assembly order component", line.line_number)
-            issued = to_quantity(line.issued_quantity)
-            # More than the requirement was never reserved, so it would be stock
-            # on the bench that another document could still be promised.
-            if issued > to_quantity(Decimal(component.required_quantity)):
-                raise BusinessRuleError(
-                    f"Component line {line.line_number} may be issued at most "
-                    f"{component.required_quantity}; only that much is reserved for it.",
-                    details={
-                        "line_number": line.line_number,
-                        "required": str(component.required_quantity),
-                        "requested": str(issued),
-                    },
-                )
-            overrides[line.line_number] = issued
+        before = {
+            str(component.line_number): to_quantity(Decimal(component.issued_quantity))
+            for component in components
+        }
+        overrides = {line.line_number: to_quantity(line.issued_quantity) for line in payload.lines}
+        plan = plan_issue(components, overrides, top_up=top_up)
 
         for component in components:
-            component.issued_quantity = overrides.get(
-                component.line_number, to_quantity(Decimal(component.required_quantity))
-            )
+            component.issued_quantity = plan[component.line_number]
             component_repo.touch(component)
         await session.flush()
 
-        await _transition(
-            session,
-            tenant,
-            order,
-            AssemblyOrderStatus.COMPONENTS_ISSUED,
-            reason=payload.reason,
-            repo=repo,
-        )
+        if not top_up:
+            await _transition(
+                session,
+                tenant,
+                order,
+                AssemblyOrderStatus.COMPONENTS_ISSUED,
+                reason=payload.reason,
+                repo=repo,
+            )
 
         await record_audit(
             session,
@@ -1260,15 +1713,29 @@ async def issue_components(
             entity_type=AUDIT_ASSEMBLY_ORDER,
             entity_id=order.id,
             entity_code=order.code,
-            summary=f"Issued {len(components)} component line(s) to {order.code}",
+            summary=(
+                f"Topped up the components on the bench for {order.code}"
+                if top_up
+                else f"Issued {len(components)} component line(s) to {order.code}"
+            ),
             user_id=tenant.user_id,
+            old_values={"issued": before},
             new_values={
                 "issued": {
                     str(component.line_number): component.issued_quantity
                     for component in components
                 }
             },
-            context={"reason": payload.reason, "short_issued_lines": len(overrides)},
+            context={
+                "reason": payload.reason,
+                "top_up": top_up,
+                "status": str(status),
+                "short_issued_lines": sum(
+                    1
+                    for component in components
+                    if Decimal(component.issued_quantity) < Decimal(component.required_quantity)
+                ),
+            },
         )
 
     return order, components
@@ -1565,6 +2032,280 @@ async def complete_assembly(
     )
 
 
+def _assert_verdict_covers_hold(
+    order: AssemblyOrder, *, accepted: Decimal, refused: Decimal
+) -> None:
+    held = to_quantity(Decimal(order.assembled_quantity))
+    if accepted + refused != held:
+        raise BusinessRuleError(
+            f"{order.code} is holding {held} unit(s) for inspection; the verdict accounts "
+            f"for {accepted + refused}.",
+            details={
+                "held_quantity": str(held),
+                "accepted_quantity": str(accepted),
+                "rejected_quantity": str(refused),
+            },
+        )
+
+
+async def _apply_verdict(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: AssemblyOrder,
+    *,
+    accepted: Decimal,
+    refused: Decimal,
+    reason: str,
+    repo: AssemblyOrderRepository,
+    inspection_id: uuid.UUID | None,
+    inspection_code: str | None,
+) -> AssemblyOrder:
+    """Write a verdict onto a QC_PENDING order and complete it. Moves no stock.
+
+    Shared by both ways a verdict arrives - the quality inspection's callback and
+    the owner-side endpoint for a hold no inspection covers - so the tallies are
+    written one way only. The caller has already settled the stock.
+    """
+    _assert_verdict_covers_hold(order, accepted=accepted, refused=refused)
+    before = snapshot(order, ["assembled_quantity", "rejected_quantity", "qc_inspection_id"])
+
+    # The order's own tally moves with the verdict: units that failed
+    # inspection were built but are not good output, and the header has to
+    # agree with the stock the ledger now describes.
+    order.assembled_quantity = accepted
+    order.rejected_quantity = to_quantity(Decimal(order.rejected_quantity) + refused)
+    order.qc_held_at = None
+    if inspection_id is not None:
+        order.qc_inspection_id = inspection_id
+    repo.touch(order)
+    await session.flush()
+
+    await _transition(
+        session,
+        tenant,
+        order,
+        AssemblyOrderStatus.COMPLETED,
+        reason=reason[:255],
+        repo=repo,
+        action=AuditAction.QC_DECISION,
+    )
+    await record_audit(
+        session,
+        company_id=tenant.company_id,
+        action=AuditAction.QC_DECISION,
+        entity_type=AUDIT_ASSEMBLY_ORDER,
+        entity_id=order.id,
+        entity_code=order.code,
+        summary=(
+            f"{order.code} inspection verdict applied: {accepted} accepted, {refused} refused"
+            + (f" by {inspection_code}" if inspection_code else "")
+        ),
+        user_id=tenant.user_id,
+        old_values=before,
+        new_values=snapshot(order, ["assembled_quantity", "rejected_quantity", "qc_inspection_id"]),
+        context={
+            "reason": reason,
+            "qc_inspection_code": inspection_code,
+            # Where the held stock was moved, so an auditor never has to infer
+            # which of two paths released it.
+            "stock_released_by": "qc_inspection" if inspection_code else "assembly_order",
+        },
+    )
+    return order
+
+
+# -----------------------------------------------------------------------------
+# The quality verdict - called back by quality (one release path per hold)
+# -----------------------------------------------------------------------------
+
+
+class InspectionVerdict(Protocol):
+    """What assembly reads off a decided inspection.
+
+    A protocol rather than quality's own type, so this module does not import
+    the module it reaches through a port.
+    """
+
+    @property
+    def inspection_id(self) -> uuid.UUID: ...
+    @property
+    def inspection_code(self) -> str: ...
+    @property
+    def reference_id(self) -> uuid.UUID | None: ...
+    @property
+    def accepted_quantity(self) -> Decimal: ...
+    @property
+    def refused_quantity(self) -> Decimal: ...
+    @property
+    def is_settled(self) -> bool: ...
+    @property
+    def reason(self) -> str: ...
+
+
+async def lock_for_quality_verdict(
+    session: AsyncSession, tenant: TenantContext, reference_id: uuid.UUID
+) -> None:
+    """Take the order's row lock before quality moves any of its held output."""
+    await AssemblyOrderRepository(session, tenant).lock_for_update(reference_id)
+
+
+async def record_quality_verdict(
+    session: AsyncSession, tenant: TenantContext, verdict: InspectionVerdict
+) -> bool:
+    """Complete a QC_PENDING order from the inspection its completion raised.
+
+    Quality has already moved the held output - accepted to available, rejected
+    to damaged, scrap to scrap - so this writes the tallies and moves the order
+    QC_PENDING -> COMPLETED and nothing else (:func:`_apply_verdict`). Scrapped
+    output counts as rejected: it was built and it is not good output.
+
+    Idempotent, and deliberately narrow about what it acts on: only the
+    inspection this order's completion raised, only while the order is
+    QC_PENDING, and only once nothing is left in rework or hold. Anything else -
+    a manual inspection quoting the order, a partial decision, a verdict already
+    applied - changes nothing. Returns whether the order changed.
+    """
+    if verdict.reference_id is None:
+        return False
+    repo = AssemblyOrderRepository(session, tenant)
+
+    async with transaction(session):
+        order = await repo.lock_for_update(verdict.reference_id)
+        if order is None:
+            return False
+        if order.qc_inspection_id != verdict.inspection_id:
+            log.info(
+                "assembly.verdict_not_for_this_order",
+                order_code=order.code,
+                inspection_id=str(verdict.inspection_id),
+            )
+            return False
+        if AssemblyOrderStatus(order.status) is not AssemblyOrderStatus.QC_PENDING:
+            return False
+        if not verdict.is_settled:
+            # Rework or hold still sits in QC hold; the order completes when the
+            # inspection is re-decided and nothing is left.
+            return False
+
+        await _apply_verdict(
+            session,
+            tenant,
+            order,
+            accepted=to_quantity(verdict.accepted_quantity),
+            refused=to_quantity(verdict.refused_quantity),
+            reason=f"Inspection {verdict.inspection_code}: {verdict.reason}",
+            repo=repo,
+            inspection_id=verdict.inspection_id,
+            inspection_code=verdict.inspection_code,
+        )
+    return True
+
+
+async def awaiting_quality_verdicts(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    after: uuid.UUID | None,
+    limit: int,
+) -> list[tuple[str, uuid.UUID]]:
+    """Orders on QC hold behind an inspection - one keyset page for the
+    reconciliation sweep (``quality.owners.reconcile_owners``)."""
+    order_ids = await AssemblyOrderRepository(session, tenant).awaiting_quality_verdict(
+        after=after, limit=limit
+    )
+    return [(MOVEMENT_REFERENCE_ASSEMBLY, order_id) for order_id in order_ids]
+
+
+def _inspection_figures(inspection: Any) -> tuple[bool, Decimal, Decimal]:
+    """(settled, accepted, refused) read off an inspection row without importing
+    quality's types - the same reading procurement's return rules make."""
+
+    def quantity(name: str) -> Decimal:
+        return to_quantity(Decimal(getattr(inspection, name, 0) or 0))
+
+    still_held = quantity("rework_quantity") + quantity("hold_quantity")
+    decided = str(getattr(inspection, "result", "PENDING")) != "PENDING"
+    refused = to_quantity(quantity("rejected_quantity") + quantity("scrap_quantity"))
+    return decided and still_held <= ZERO, quantity("accepted_quantity"), refused
+
+
+async def _settle_from_inspection(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order_id: uuid.UUID,
+    inspection_id: uuid.UUID,
+    payload: QcResultRequest,
+) -> AssemblyOrder:
+    """The owner-side endpoint, for an order whose hold an inspection covers.
+
+    ASSUMPTION: the inspection is the one release path for the hold it covers.
+    While it is open the request is refused and pointed at it; once it is
+    decided the stock has already moved, so the order is completed from the
+    inspection's own figures - and only if the request repeats them, because a
+    different verdict recorded here would contradict the ledger
+    (docs/assumptions.md §E4-3). Nothing is moved either way.
+    """
+    repo = AssemblyOrderRepository(session, tenant)
+    order = await repo.get_or_404(order_id)
+    order_code = order.code
+
+    reader = resolve_inspection_reader_port()
+    rows = (
+        []
+        if reader is None
+        else await reader(session, tenant, MOVEMENT_REFERENCE_ASSEMBLY, order.id)
+    )
+    inspection = next((row for row in rows if row.id == inspection_id), None)
+    if inspection is None:
+        raise BusinessRuleError(
+            f"{order_code} names inspection {inspection_id}, which cannot be read; its "
+            "verdict cannot be recorded here.",
+            details={"qc_inspection_id": str(inspection_id)},
+        )
+
+    settled, accepted, refused = _inspection_figures(inspection)
+    inspection_code = str(inspection.code)
+    if not settled:
+        raise BusinessRuleError(
+            held_for_inspection(order_code, inspection_code),
+            code=ErrorCode.INVALID_STATE_TRANSITION,
+            details={"qc_inspection_id": str(inspection_id), "qc_inspection_code": inspection_code},
+        )
+    if (to_quantity(payload.accepted_quantity), to_quantity(payload.rejected_quantity)) != (
+        accepted,
+        refused,
+    ):
+        raise BusinessRuleError(
+            verdict_differs_from_inspection(order_code, inspection_code),
+            details={
+                "qc_inspection_id": str(inspection_id),
+                "qc_inspection_code": inspection_code,
+                "inspection_accepted_quantity": str(accepted),
+                "inspection_rejected_quantity": str(refused),
+            },
+        )
+
+    async with transaction(session):
+        locked = await repo.lock_for_update(order_id)
+        if locked is None:  # pragma: no cover - read a moment ago
+            raise NotFoundError("Assembly order", order_id)
+        ASSEMBLY_ORDER_LIFECYCLE.assert_transition(
+            AssemblyOrderStatus(locked.status), AssemblyOrderStatus.COMPLETED
+        )
+        await _apply_verdict(
+            session,
+            tenant,
+            locked,
+            accepted=accepted,
+            refused=refused,
+            reason=f"Inspection {inspection_code}: {payload.reason}",
+            repo=repo,
+            inspection_id=inspection_id,
+            inspection_code=inspection_code,
+        )
+    return locked
+
+
 async def record_qc_result(
     session: AsyncSession,
     tenant: TenantContext,
@@ -1573,13 +2314,26 @@ async def record_qc_result(
 ) -> AssemblyOrder:
     """Apply an inspection verdict to output this module put on QC hold.
 
-    Accepted quantity is released back into the available pool; rejected
-    quantity is moved to the damaged pool, where it stays on hand and countable
-    but cannot be promised. The two must account for everything held: releasing
-    part of a lot and leaving the rest in limbo is how stock becomes permanently
-    unusable without anybody deciding that it should be.
+    For a hold no quality inspection covers - quality absent at completion, or
+    ``requires_qc`` set after the fact - this is the release path: accepted
+    quantity goes back to the available pool, rejected to the damaged pool,
+    and the two must account for everything held. Releasing part of a lot and
+    leaving the rest in limbo is how stock becomes permanently unusable without
+    anybody deciding that it should be.
+
+    When the order names an inspection, that inspection is the one release path
+    and this defers to it (:func:`_settle_from_inspection`): it never moves the
+    same held stock a second time.
     """
     repo = AssemblyOrderRepository(session, tenant)
+
+    # A plain read first, deliberately without the row lock: deferring to an
+    # inspection must not hold the order while quality locks the inspection and
+    # then the order, which is quality's lock order.
+    current = await repo.get_or_404(order_id)
+    inspection_id = current.qc_inspection_id
+    if inspection_id is not None:
+        return await _settle_from_inspection(session, tenant, order_id, inspection_id, payload)
 
     async with transaction(session):
         order = await repo.lock_for_update(order_id)
@@ -1588,20 +2342,15 @@ async def record_qc_result(
         ASSEMBLY_ORDER_LIFECYCLE.assert_transition(
             AssemblyOrderStatus(order.status), AssemblyOrderStatus.COMPLETED
         )
+        if order.qc_inspection_id is not None:  # pragma: no cover - raised since the read
+            raise BusinessRuleError(
+                held_for_inspection(order.code, str(order.qc_inspection_id)),
+                code=ErrorCode.INVALID_STATE_TRANSITION,
+            )
 
-        held = to_quantity(Decimal(order.assembled_quantity))
         accepted = to_quantity(payload.accepted_quantity)
         rejected = to_quantity(payload.rejected_quantity)
-        if accepted + rejected != held:
-            raise BusinessRuleError(
-                f"{order.code} is holding {held} unit(s) for inspection; the verdict accounts "
-                f"for {accepted + rejected}.",
-                details={
-                    "held_quantity": str(held),
-                    "accepted_quantity": str(accepted),
-                    "rejected_quantity": str(rejected),
-                },
-            )
+        _assert_verdict_covers_hold(order, accepted=accepted, refused=rejected)
 
         reason = f"Assembly {order.code} inspection: {payload.reason}"[:255]
         if accepted > ZERO:
@@ -1633,25 +2382,16 @@ async def record_qc_result(
                 reference_code=order.code,
             )
 
-        # The order's own tally moves with the verdict: units that failed
-        # inspection were built but are not good output, and the header has to
-        # agree with the stock the ledger now describes.
-        order.assembled_quantity = accepted
-        order.rejected_quantity = to_quantity(Decimal(order.rejected_quantity) + rejected)
-        order.qc_held_at = None
-        if payload.qc_inspection_id is not None:
-            order.qc_inspection_id = payload.qc_inspection_id
-        repo.touch(order)
-        await session.flush()
-
-        await _transition(
+        await _apply_verdict(
             session,
             tenant,
             order,
-            AssemblyOrderStatus.COMPLETED,
+            accepted=accepted,
+            refused=rejected,
             reason=payload.reason,
             repo=repo,
-            action=AuditAction.QC_DECISION,
+            inspection_id=payload.qc_inspection_id,
+            inspection_code=None,
         )
     return order
 
@@ -1757,20 +2497,7 @@ async def mark_packed(
         order = await repo.lock_for_update(order_id)
         if order is None:
             raise NotFoundError("Assembly order", order_id)
-        if AssemblyOrderStatus(order.status) is not AssemblyOrderStatus.COMPLETED:
-            raise BusinessRuleError(
-                f"{order.code} is {order.status}; only a completed assembly can be packed.",
-                details={"order_id": str(order.id), "status": str(order.status)},
-            )
-        if order.packing_order_id is not None and order.packing_order_id != packing_order_id:
-            raise BusinessRuleError(
-                f"{order.code} has already been taken by another packing order.",
-                code=ErrorCode.CONFLICT,
-                details={
-                    "order_id": str(order.id),
-                    "packing_order_id": str(order.packing_order_id),
-                },
-            )
+        _assert_packable(order, packing_order_id=packing_order_id)
 
         order.packing_order_id = packing_order_id
         order.packed_at = order.packed_at or utcnow()
@@ -1793,6 +2520,7 @@ async def mark_packed(
 
 
 __all__ = [
+    "ASSEMBLABLE_BOM_TYPES",
     "ASSEMBLY_ORDER_LIFECYCLE",
     "AUDIT_ASSEMBLY_ORDER",
     "CANCELLABLE_STATUSES",
@@ -1801,28 +2529,46 @@ __all__ = [
     "AllocationPort",
     "AllocationService",
     "ComponentConsumption",
+    "ComponentNeed",
+    "InspectionReaderPort",
+    "InspectionVerdict",
+    "KitShortageError",
+    "Lateness",
+    "PackingHandoverFacts",
     "QualityPort",
     "approve_order",
+    "awaiting_quality_verdicts",
+    "board_lines",
+    "board_orders",
     "build_movements",
     "cancel_order",
     "close_order",
     "complete_assembly",
+    "component_availability",
+    "component_shortages",
     "consumption_for",
     "create_order",
     "delete_draft_order",
     "get_order_detail",
     "is_whole_units",
     "issue_components",
+    "lateness",
     "list_components",
     "list_orders",
     "list_ready_for_packing",
+    "lock_for_quality_verdict",
     "mark_packed",
     "order_detail",
+    "packing_handover_facts",
     "plan_consumption",
+    "plan_issue",
     "ready_for_packing",
     "record_qc_result",
+    "record_quality_verdict",
     "release_order",
     "requirement_for",
+    "reservation_required_date",
+    "resolve_inspection_reader_port",
     "resolve_quality_port",
     "start_assembly",
     "update_order",

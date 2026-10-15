@@ -64,6 +64,7 @@ class WarehouseType(StrEnum):
     QC_HOLD = "QC_HOLD"
     JOB_WORK = "JOB_WORK"
     IN_TRANSIT = "IN_TRANSIT"
+    CONSUMABLES = "CONSUMABLES"
 
 
 class StorageLocationType(StrEnum):

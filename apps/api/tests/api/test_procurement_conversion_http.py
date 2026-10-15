@@ -84,7 +84,13 @@ async def setting(session: AsyncSession, tenant: TenantContext, principal: Princ
         company_id=company_id,
         code=_code("VMGR"),
         name="Vendor Manager",
-        permissions=[str(Permission.PURCHASE_ORDER_VIEW), str(Permission.PURCHASE_ORDER_UPDATE)],
+        permissions=[
+            str(Permission.PURCHASE_ORDER_VIEW),
+            str(Permission.PURCHASE_ORDER_UPDATE),
+            # Vendor assignees act through the portal: lane C moved the
+            # assignee right from PURCHASE_ORDER_UPDATE to VENDOR_PORTAL_RESPOND.
+            str(Permission.VENDOR_PORTAL_RESPOND),
+        ],
         is_system=False,
         is_vendor_role=True,
         is_active=True,

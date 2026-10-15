@@ -57,23 +57,25 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `products` | `item_categories`, `units_of_measure`, `uom_conversions`, `item_attributes`, `manufacturers`, `brands`, `items`, `item_variants`, `item_prices`, `item_vendor_links` |
 | `vendors` | `vendors`, `vendor_contacts`, `vendor_categories`, `transporters` |
 | `customers` | `customers`, `customer_addresses`, `customer_contacts` |
-| `inventory` | `inventory_transactions`, `inventory_balances`, `inventory_cost_layers`, `inventory_cost_consumptions`, `stock_batches`, `stock_serials`, `stock_transfers`, `stock_transfer_lines`, `stock_adjustments`, `stock_adjustment_lines`, `physical_counts`, `physical_count_lines` |
+| `inventory` | `inventory_transactions`, `inventory_balances`, `inventory_cost_layers`, `inventory_cost_consumptions`, `stock_batches`, `stock_serials`, `stock_transfers`, `stock_transfer_lines`, `stock_adjustments`, `stock_adjustment_lines`, `physical_counts`, `physical_count_lines`, `bin_moves`, `bin_move_lines`, `scrap_disposals`, `scrap_disposal_lines`, `internal_issues`, `internal_issue_lines` |
 | `allocation` | `stock_reservations`, `reallocation_requests` |
 | `bom` | `boms`, `bom_lines`, `bom_operations` |
-| `routing` | `work_centers`, `machines`, `routings`, `routing_operations` |
+| `routing` | `work_centers`, `machines`, `routings`, `routing_operations`, `shifts`, `shift_assignments` |
 | `sales` | `sales_orders`, `sales_order_lines` |
 | `mrp` | `mrp_runs`, `mrp_demands`, `mrp_requirements`, `mrp_suggestions` |
-| `procurement` | `purchase_requisitions`, `purchase_requisition_lines`, `rfqs`, `rfq_lines`, `vendor_quotations`, `vendor_quotation_lines`, `purchase_orders`, `purchase_order_lines`, `goods_receipts`, `goods_receipt_lines`, `purchase_returns`, `purchase_return_lines` |
+| `procurement` | `purchase_requisitions`, `purchase_requisition_lines`, `rfqs`, `rfq_lines`, `vendor_quotations`, `vendor_quotation_lines`, `purchase_orders`, `purchase_order_lines`, `goods_receipts`, `goods_receipt_lines`, `purchase_returns`, `purchase_return_lines`, `purchase_order_shipments`, `purchase_order_documents` |
 | `production` | `production_orders`, `production_order_components`, `work_orders`, `material_issues`, `material_issue_lines`, `production_entries` |
 | `assembly` | `assembly_orders`, `assembly_order_components` |
 | `job_work` | `job_work_orders`, `job_work_order_lines`, `job_work_challans`, `job_work_challan_lines`, `job_work_receipts`, `job_work_receipt_lines` |
 | `quality` | `qc_templates`, `qc_template_parameters`, `qc_inspections`, `qc_inspection_results` |
 | `packing` | `packing_orders`, `packing_order_lines`, `cartons`, `carton_contents` |
 | `dispatch` | `dispatches`, `dispatch_lines`, `dispatch_tracking_events` |
-| `finance` | `ledger_accounts`, `ledger_entries`, `vendor_invoices`, `vendor_invoice_lines`, `payments`, `payment_allocations` |
+| `finance` | `ledger_accounts`, `ledger_entries`, `vendor_invoices`, `vendor_invoice_lines`, `sales_invoices`, `sales_invoice_lines`, `payments`, `payment_allocations` |
 | `reports` | `report_snapshots`, `inventory_summary` |
 | `documents` | `documents` |
-| `notifications` | `notifications`, `notification_preferences` |
+| `notifications` | `notifications`, `notification_preferences`, `push_subscriptions` |
+| `vendor_portal` | none - a facade over procurement, finance, quality and documents, scoped by the token's vendor |
+| `dealer_portal` | `dealer_offers`, `dealer_carts`, `dealer_cart_lines`, `dealer_wishlist_items` - a facade over sales, dispatch and finance, scoped by the token's customer, plus its own schemes, carts and wishlists |
 | `common` | `document_sequences` |
 
 ### Cost centres
@@ -106,7 +108,9 @@ Rules (`docs/assumptions.md` §41 to §46):
 
 * **NULL is "unallocated"**, never "the default centre". Nothing is backfilled.
 * **Precedence is explicit value -> source document -> NULL.** A vendor invoice
-  line resolves line -> header -> NULL at approval. Production and job-work
+  line resolves line -> header -> NULL at approval, except on a job-work bill,
+  where the job-work order's centre sits between the line and the header
+  (line -> order -> header -> NULL). Production and job-work
   orders take only an explicit value: their sources (MRP, a sales order, a
   production order behind a job-work order) carry none this release.
 * **Every write validates through the organisation seam** -
@@ -122,7 +126,8 @@ Rules (`docs/assumptions.md` §41 to §46):
 * **Approving a vendor invoice splits `PURCHASE_EXPENSE` per effective line
   centre** - one leg per centre, in line order, summing exactly to the subtotal
   (`split_by_cost_centre`). An invoice naming no centre posts the single
-  unallocated leg it always did.
+  unallocated leg it always did. A `JOB_WORK` invoice splits `JOB_WORK_EXPENSE`
+  instead, with the job-work order's centre between the line and the header.
 * **Two retirement levels.** Deactivating is refused while an active child, a
   department default or a work centre still hands the centre out. Archiving is
   refused while anything at all names it - a live child, a department, a work
@@ -136,6 +141,34 @@ The cost-centre statement (`/reports/cost-centre-expense`, report key
 `COST_CENTRE_EXPENSE`) sums posted legs per (centre, account) over a period from
 `ledger_entries`, through the partial index
 `(company_id, cost_centre_id, entry_date) WHERE cost_centre_id IS NOT NULL`.
+
+---
+
+### Shifts and the roster
+
+Routing owns the immutable-code `shifts` master (local start/end times,
+midnight flag, break minutes, ordering and active lifecycle). `shift_assignments`
+records a local start date, shift, cell, optional machine and internal operator.
+UTC `starts_at`/`ends_at` are plain snapshots computed in the company timezone;
+changing the timezone never moves a stored assignment. Two partial GiST
+exclusions prevent overlapping PLANNED operator or machine windows. A composite
+(machine, work centre) foreign key keeps machines in their cell. Writes hold a
+company roster advisory lock, batch references, and return every conflict.
+
+Roster lists require a date range of at most 31 inclusive days. Bulk writes and
+copy-day writes are atomic, capped at 200 assignments. Cancelling is irreversible
+and audited. Future PLANNED assignments block shift re-timing/deactivation/retirement
+and asset retirement or movement. Times include the whole window; breaks reduce
+reported rostered capacity. Maintenance and breakdown are warnings.
+
+`work_orders.shift_id` and `production_entries.shift_id` reference a shift; their
+existing `shift` text remains a read-only code snapshot. New inputs accept only
+shift ids. Existing text is retained without inventing times or backfilling ids.
+The roster is advisory: assignment/bookings outside the plan warn and remain
+valid facts. Active internal operators have a production-readable paginated
+directory, independent of `user.view`. `SHIFT_PRODUCTION` groups bookings by
+local entry date, code snapshot, cell, machine and operator. Machine utilisation
+retains calendar capacity and adds net PLANNED roster capacity beside it.
 
 ---
 
@@ -247,7 +280,11 @@ Other required columns: `code`, `name`, `category_id`, `base_uom_id`,
 `manufacturer_id`, `manufacturer_part_number`, `production_type`
 (`MAKE | BUY | MAKE_OR_BUY | JOB_WORK`), `lead_time_days`, `reorder_level`,
 `reorder_quantity`, `min_order_quantity`, `safety_stock`, `shelf_life_days`,
-`is_batch_tracked`, `is_serial_tracked`, `default_warehouse_id`, `is_active`.
+`is_batch_tracked`, `is_serial_tracked`, `default_warehouse_id`,
+`default_location_id`, `is_active`. The optional default bin must be live,
+active, tenant-owned and in the item's default warehouse. Assignment takes
+`FOR SHARE` on the bin; retirement takes the conflicting `FOR NO KEY UPDATE`
+lock and refuses while a live item names it.
 
 There is deliberately **no `valuation_method` column**. Stock is valued **FIFO**,
 for every item, by `inventory.service` against `inventory_cost_layers` — see
@@ -304,7 +341,7 @@ Transaction-type vocabulary (§83), each with a fixed sign:
 
 - MATERIAL_ISSUE    JOB_WORK_ISSUE      DISPATCH          PURCHASE_RETURN
   ASSEMBLY_CONSUME  TRANSFER_OUT        ADJUSTMENT_DECREASE
-  SCRAP             QC_HOLD
+  SCRAP             QC_HOLD            SCRAP_DISPOSAL
 ```
 
 Reservation and allocation changes do **not** move on-hand quantity; they change
@@ -432,6 +469,54 @@ reallocation without an approved `ReallocationRequest`.
 
 ---
 
+### 4.6 Putaway, scrap and internal consumption
+
+All three documents and their lines are tenant-owned, numbered, audited and
+warehouse-scoped. Each line identifies an item, quantity, optional batch and
+bin. Lists are paginated. Posted quantities and costs are immutable.
+
+`bin_moves` pairs `TRANSFER_OUT` with `TRANSFER_IN` in the same warehouse and
+transaction. The source and destination bins must differ; NULL is the unbinned
+position. `carries_cost_of` carries the exact FIFO draws between positions.
+There is no transit quantity. Creation posts the move and requires
+`inventory.transfer`.
+
+`scrap_disposals` records `SALE`, `WRITE_OFF` or `RECYCLE`, the optional buyer or
+reference and realised amount. Creation posts `SCRAP_DISPOSAL`: a negative
+movement from SCRAP to outside ownership, with no on-hand effect. A write-off
+realises zero. `inventory.scrap_dispose` is required. Existing scrap remains
+disposable after the item's `can_scrap` flag is switched off; every new movement
+*into* SCRAP requires that flag, including QC and job-work losses. QC rejection
+uses DAMAGED when material must remain identifiable.
+
+`inventory_cost_layers.pool` separates `ON_HAND` and `SCRAP` FIFO queues at the
+same grain. Scrapping preserves the original receipt costs in the scrap queue;
+disposal consumes that queue, independently of later on-hand receipts.
+`stock_value` and average cost describe the on-hand queue. The legacy backfill
+uses recorded scrap costs, with standard cost only for uncovered history, and
+verifies that the queue covers the current scrap quantity. Ordinary valuation
+and layer reconciliation exclude the scrap queue.
+
+`internal_issues` names a department and/or cost centre and posts
+`MATERIAL_ISSUE` with `reference_type="internal_issue"`. Its machine is DRAFT to
+POSTED below the approval threshold, otherwise DRAFT to PENDING_APPROVAL to
+POSTED. Draft or pending issues may be cancelled; rejection ends CANCELLED
+with its reason. `INTERNAL_ISSUE_APPROVAL_VALUE` is 25,000 in company currency;
+the actual FIFO posting rechecks it atomically. A separate approver is required,
+with the existing superuser exception. Rights are `internal_issue.create` and
+`internal_issue.approve`. CONSUMABLES is a warehouse classification, not an
+inventory permission or a posting restriction.
+
+`SCRAP_REGISTER` reads bounded ledger movements into and out of scrap, at their
+recorded costs. `CONSUMPTION_BY_DEPARTMENT` groups only POSTED internal issues by
+department, cost centre and item over a bounded period. Both respect tenant and
+warehouse scope and participate in the report snapshot CHECK vocabulary.
+
+Incoming QC currently addresses the unbinned warehouse position. A GRN line
+held for inspection therefore refuses a bin; put accepted stock away afterwards
+with a bin move. Serial identities are added in E8b; these new documents refuse
+serial-tracked stock until they can identify the units they move.
+
 ## 5. BOM engine
 
 `boms`: `item_id`, `version` (int), `code`, `revision`, `status`
@@ -526,7 +611,13 @@ permitted to change a status column.
 
 ```
 Sales order       DRAFT -> CONFIRMED -> ALLOCATED -> PARTIALLY_DISPATCHED -> DISPATCHED -> INVOICED -> CLOSED
+                  CONFIRMED -> PARTIALLY_DISPATCHED (reserved portion may ship)
+                  ALLOCATED -> CONFIRMED (quantity increase restores a shortage)
+                  INVOICED -> DISPATCHED (invoice cancellation)
                   (CANCELLED reachable from DRAFT/CONFIRMED/ALLOCATED only)
+
+Sales invoice     ISSUED <-> PARTIALLY_PAID <-> PAID; ISSUED <-> PAID
+                  ISSUED -> CANCELLED (irreversible; unpaid, within 24 hours)
 
 Purchase          DRAFT -> PENDING_APPROVAL -> APPROVED -> CONVERTED -> CLOSED
 requisition       (REJECTED from PENDING_APPROVAL; CANCELLED from DRAFT, PENDING_APPROVAL,
@@ -535,19 +626,41 @@ requisition       (REJECTED from PENDING_APPROVAL; CANCELLED from DRAFT, PENDING
 Purchase order    DRAFT -> PENDING_APPROVAL -> APPROVED -> SENT -> ACKNOWLEDGED
                         -> PARTIALLY_RECEIVED -> RECEIVED -> QC_PENDING -> QC_COMPLETED
                         -> GRN_COMPLETED -> INVOICED -> PAID -> CLOSED
-                  (REJECTED from PENDING_APPROVAL; CANCELLED before receipt)
+                  (SENT -> VENDOR_DECLINED -> SENT or CANCELLED;
+                   REJECTED from PENDING_APPROVAL; CANCELLED before receipt)
 
 Production order  DRAFT -> APPROVED -> RELEASED -> MATERIAL_ISSUED -> IN_PROCESS
                         -> COMPLETED -> CLOSED   (CANCELLED before IN_PROCESS)
+
+Vendor invoice    DRAFT -> PENDING_APPROVAL -> APPROVED <-> PARTIALLY_PAID <-> PAID
+                        (DISPUTED from PENDING_APPROVAL/APPROVED/PARTIALLY_PAID;
+                        CANCELLED from DRAFT, PENDING_APPROVAL, APPROVED, DISPUTED -
+                        cancelling a posted bill reverses its journals)
 
 QC inspection     PENDING -> IN_PROGRESS -> (ACCEPTED | REWORK | REJECTED | HOLD | SCRAP) -> CLOSED
 
 Job work order    DRAFT -> APPROVED -> ISSUED -> PARTIALLY_RECEIVED -> RECEIVED
                         -> QC_PENDING -> COMPLETED -> CLOSED
 
+Assembly order    DRAFT -> APPROVED -> RELEASED -> COMPONENTS_ISSUED -> IN_PROGRESS
+                        -> QC_PENDING -> COMPLETED -> CLOSED
+                  (IN_PROGRESS -> COMPLETED direct when no inspection is needed;
+                  CANCELLED from DRAFT, APPROVED, RELEASED only - past issue the
+                  parts are on the bench and the order completes or closes)
+
 Dispatch          NOT_DISPATCHED -> READY_FOR_DISPATCH -> DISPATCHED -> IN_TRANSIT
                         -> DELIVERED -> QC_PENDING -> RECEIVED -> QC_COMPLETED -> GRN_COMPLETED
 ```
+
+Assembly and job-work QC_PENDING have exactly one way out: the inspection
+verdict. `POST /assembly/{id}/qc-result` and `POST /job-work/{id}/qc-result`
+serve only holds no inspection covers; when the hold names an inspection, the
+inspection is decided through quality instead, and the owner completes itself
+from that verdict in the same transaction (§8). A PO in QC_PENDING advances to
+QC_COMPLETED -> GRN_COMPLETED through
+`procurement.record_incoming_inspection_outcome` once no received line is still
+PENDING; assembly reservations taken at release carry the order's priority and
+its planned start as their required date.
 
 Master records with no status column - branch, plant, department, cost centre,
 financial year, brand and manufacturer - project `is_active` / `deleted_at` onto
@@ -559,6 +672,9 @@ them:
 Branch, plant, department, cost centre, financial year, brand, manufacturer
                   ACTIVE <-> INACTIVE;  ACTIVE | INACTIVE -> ARCHIVED (terminal; retire = soft delete)
 ```
+
+Shift             ACTIVE <-> INACTIVE; ACTIVE | INACTIVE -> ARCHIVED
+Shift assignment  PLANNED -> CANCELLED (terminal)
 
 Every transition writes an audit row via `record_status_change`.
 
@@ -573,12 +689,50 @@ Every transition writes an audit row via `record_status_change`.
 | Production completion | `post_movements` (`PRODUCTION_RECEIPT`) for output, `ASSEMBLY_CONSUME`/`MATERIAL_ISSUE` for components |
 | Job-work issue | `post_movements` (`JOB_WORK_ISSUE`) moving stock to `stock_state=JOB_WORK` — still company-owned |
 | QC rejection | `change_stock_state` to `DAMAGED`/`SCRAP`, raise return/rework |
+| QC verdict decided | `quality.owners.notify_owner` in the same transaction, after the stock moves: the owning document completes itself from the verdict and moves nothing again |
 | Dispatch | `allocation.consume`, then `post_movements` (`DISPATCH`) |
 | Sales order confirmed | `allocation.reserve` per line against available stock |
+| Stock arrives for a short sales order | `maintenance.allocate_short_orders` finds live shortfalls, then calls `sales.allocate_order` per order in its own transaction; default cadence 900 seconds, at most 200 orders per company |
+| Invoice issued | `finance.post_journal` debits AR and credits sales revenue/output GST, posts round-off, increases customer outstanding and SO-line invoiced quantities; full dispatched orders become INVOICED; queue permanent PDF after commit |
+| Invoice cancelled | Reverse its entire journal, reduce customer outstanding and SO-line invoiced quantities, restore INVOICED to DISPATCHED; dispatch cancellation stays blocked until the live invoice is cancelled |
+| Customer receipt allocated or released | Lock payment then invoice headers in id order; update invoice paid quantities and status through SALES_INVOICE_LIFECYCLE; cancelling a receipt releases its allocations before reversing its journal |
 | Requisition converted | One DRAFT purchase order per (vendor, procurement category, warehouse) through `procurement.service._create_purchase_order` (duplicate check included); `_link_source_documents` adds to each line's `ordered_quantity` and moves the requisition APPROVED → CONVERTED; one CREATE audit row per order and one "Split into …" row per requisition - all in one transaction, or nothing |
-| Vendor invoice approved | `finance.post_journal`: one `PURCHASE_EXPENSE` debit per effective line cost centre (line -> header -> none), input tax, payable |
+| Vendor invoice approved | `finance.post_journal`: one `PURCHASE_EXPENSE` debit per effective line cost centre (line -> header -> none), input tax, payable. A `JOB_WORK` invoice debits `JOB_WORK_EXPENSE` instead (line -> job-work order -> header -> none), moves each receipt line's `invoiced_amount`, and posts the excess-loss recovery (`job_work_recovery`: Dr AP / Cr job-work expense) for the still-unposted vendor debit |
+| Vendor invoice cancelled | reverse every journal the invoice posted (the bill and, on a job-work invoice, the recovery beside it) and roll the job-work tracking back, in the same transaction |
+| PO sent (also re-sent after a decline) | `notify` the assignee, else every user of that vendor holding `vendor_portal.respond` who can see the order (§C1-11) |
+| Vendor accepts, declines, moves its committed date, marks ready | `notify` the order's creator, `purchase_order.approve` holders and the ADMIN and PURCHASE_MANAGER roles (§C1-7); the committed date never moves `expected_delivery_date` |
+| Consignment recorded, corrected or delivered; LR copy or dispatch photo filed | The same buyer recipients, one collapsing row per consignment (`po-shipment:{id}`); the order header mirrors the latest consignment |
+| Goods receipt posted / incoming inspection rejects goods | Also `notify` the vendor's users holding `vendor_portal.access` / `vendor_portal.quality` who can see the order |
+| Vendor bill approved or disputed; payment to a vendor approved or allocated | Also `notify` the vendor's users holding `vendor_portal.invoice` |
+| Dealer checkout | One DRAFT `sales_orders` row with `source = DEALER_PORTAL`, server prices and scheme `offer_id`s per line, cart cleared, one `dealer_checkout` audit row, and `notify` the assigned salesperson else `sales_order.approve` holders - all in one transaction, or nothing (§C3-6) |
 | Any write naming a cost centre | `organization.service.require_cost_centre` / `require_cost_centres` (tenant, live, active) before the row is written |
 | Any status change | `audit.record_status_change` in the same transaction |
+
+### QC verdict to owner (`quality.owners`)
+
+Quality sits downstream of procurement, assembly and job work, so it may call
+them - never the reverse. `quality.owners` is a registry from
+`reference_type` to an owner handler, resolved once with lazy imports.
+`decide_inspection` (and `close_inspection`, which settles nothing new) locks
+the owner's row before touching a balance, posts its own movements, then calls
+the handler **in the same transaction** with the inspection's cumulative
+disposition: accepted, rejected, rework, hold, scrap, still-held. Handlers
+**never move stock** - quality already did. An owner that refuses rolls the
+whole decision back.
+
+| Reference type | Handler | Effect, without moving stock |
+|---|---|---|
+| `goods_receipt` | `procurement.record_incoming_inspection_outcome` | Receipt line PENDING → PASSED/FAILED once nothing is held (docs/assumptions.md §E4-2); PO QC_PENDING → QC_COMPLETED → GRN_COMPLETED when no line is PENDING |
+| `assembly_order` | `assembly.record_quality_verdict` | Tallies applied, QC_PENDING → COMPLETED |
+| `job_work_receipt` / `job_work_order` | `job_work.record_quality_verdict` | Receipt released; order completed when nothing remains held (per-receipt release while PARTIALLY_RECEIVED allowed) |
+| `production_entry` | no-op placeholder | Wired when production output goes on QC hold |
+| `sales_return` | no handler | The return document pulls via `inspections_for_reference` |
+
+A job-work lot that returns several output items raises **one inspection per
+output item**, each recorded on its receipt line (`job_work_receipt_lines.qc_inspection_id`).
+Rows stranded before the callback existed are repaired by the idempotent
+`maintenance.reconcile_quality_owners` sweep (beat start, then daily), not by
+a migration (docs/assumptions.md §E4-1).
 
 ### Requisition conversion and the purchase-order category
 
@@ -606,6 +760,96 @@ requisition lines by id, then the `po-duplicate` advisory locks sorted by
 its first order. Giving quantity back on cancel or reject locks only the lines,
 never a header, so it cannot close a cycle with that order.
 
+### Vendor portal and inbound consignments (C1a)
+
+**Purchase-order columns.** Nullable `vendor_committed_date` (the vendor's
+promise, apart from the buyer's `expected_delivery_date` that MRP nets on - a
+buyer adopts it explicitly, §C1-1), `vendor_decline_reason`,
+`ready_for_dispatch_at`, `ready_packages` and `ready_note` (the ready flag is a
+flag, not a status).
+
+**VENDOR_DECLINED.** SENT -> VENDOR_DECLINED records the vendor's reason; the
+buyer then cancels (the existing release path gives the quantity back to the
+requisition) or re-sends (the vendor is re-checked and the old reason cleared).
+A declined order still holds its requisition quantity and blocks retiring the
+vendor, but it is not expected supply: it is outside `OPEN_PO_STATUSES`, so MRP
+netting and the duplicate check ignore it and no partial-index predicate
+changes. It stays vendor-visible (§C1-10).
+
+**`purchase_order_shipments`** (TenantEntity) - one consignment, numbered 1..n
+per order (`uq_po_shipments_number`; the order's row lock serialises
+numbering): transporter (FK, tenant- and active-checked in the service) or
+courier name (a CHECK requires one), tracking and LR numbers, vehicle, driver,
+`shipped_at`, `delivered_at` (CHECK: not before dispatch), expected date,
+packages, `weight_kg` (Quantity), `freight_amount` (Money, CHECK >= 0), notes.
+Recorded and corrected only on ACKNOWLEDGED/PARTIALLY_RECEIVED orders, by the
+vendor or a buyer through one service function (§C1-2). The order header's
+`courier_name`/`tracking_reference`/`shipped_at` mirror the latest consignment
+(§C1-9).
+
+**`purchase_order_documents`** (TenantEntity) - links a `documents` row (unique)
+to an order, optionally a consignment and, for an INVOICE file, the vendor bill
+it was attached to; `kind` is one of INVOICE, DISPATCH_PHOTO, LR_COPY,
+DELIVERY_CHALLAN, OTHER (literal CHECK). The generic `documents` columns are
+unchanged. Files linked here are shared with the order's vendor; a file filed
+against the order from the generic Documents screen is not (§C1-3).
+
+**Tracking.** The derived `InboundTrackingStatus` (NOT_DISPATCHED,
+READY_FOR_DISPATCH, DISPATCHED, IN_TRANSIT, DELIVERED, RECEIVED, QC_PENDING,
+GRN_COMPLETED) is never stored. One ordered rule in
+`procurement.inbound_repository.inbound_tracking_status` is rendered as a SQL
+CASE over one projection row per order; the buyer's board, the vendor's tabs
+and the vendor dashboard all filter and count by that CASE (§C1-5). Every
+per-order figure in the projection (lines, receipts, open inspections, files,
+consignments) is a subquery correlated to the order, so a page costs what the
+caller can see, not the company's purchasing history. Open inspections are
+counted by quality's `open_inspection_count`, reached through a guarded import.
+
+**PO PDF.** `ReportKey.PURCHASE_ORDER` is document-only; the job row lives in
+`report_snapshots` and the PDF is a REPORT document filed against the order
+(`entity_type = purchase_order`) that never expires.
+A vendor's shared-file query verifies the completed PURCHASE_ORDER job's
+`document_id`; labelling an internal upload REPORT does not share it.
+
+### Dealer portal core (C3a)
+
+**Portal binding.** `users.customer_id` (nullable FK `customers` CASCADE,
+`ix_users_customer`) binds an account to the dealer portal; the CHECK
+`portal_binding_exclusive` refuses a vendor and a dealer binding together.
+`roles.is_dealer_role` marks the three system dealer roles. A binding must
+name a live DEALER/DISTRIBUTOR customer (§C3-1).
+
+**`dealer_offers`** (TenantMasterEntity) - one percentage scheme: `code`
+(unique per company), `scope_kind` (ALL, CATEGORY, BRAND, ITEM, with the
+matching id column required and the others NULL - CHECKed),
+`audience_price_type` (NULL means every channel), `customer_id` (NULL means
+the audience; set means that dealer's negotiated scheme),
+`min_quantity`, `discount_percentage` (0 < x <= 100), validity window,
+`is_active`, `sort_order`. Best single offer wins; no stacking (§C3-3).
+
+**Cart and wishlist.** `dealer_carts` (TenantEntity + optimistic locking) - one
+per dealer user (`uq` on company and user) carrying that user's dealer.
+`dealer_cart_lines` - item, variant, quantity > 0, unique per cart grain (NULL
+variant folded to the nil-UUID sentinel), no stored price. Same grain for
+`dealer_wishlist_items` per user (§C3-4).
+
+**Sales-order columns.** `sales_orders.source` (`ERP | DEALER_PORTAL`, literal
+CHECK, server default ERP, set by the server only) and
+`sales_order_lines.offer_id` (bare UUID, no FK - the sales table does not
+depend on the portal schema, §C3-3). A line with no explicit discount takes
+the best scheme as its default discount in `price_line`, on ERP orders as well
+as portal ones.
+
+### Notification devices and recovery (C1b)
+PUSH is a channel, after IN_APP and EMAIL. Preferences have constant true
+`push_enabled`; registering a device provides opt-in. Null/omitted updates preserve
+an existing push preference using COALESCE. CRITICAL only overrides an in-app mute.
+`notifications.push_delivered_at` is nullable. Both email and push have created_at
+partial recovery indexes for the channel with its delivery marker NULL.
+`push_subscriptions` is a hard-deleted TenantEntity with user CASCADE FK, globally
+unique endpoint hash, encrypted URL, P-256 public/auth keys, user agent/label,
+expiry/seen/success/failure timestamps and nonnegative failure count.
+
 ---
 
 ## 9. Reporting
@@ -621,3 +865,39 @@ aggregations on every request (§25). The order of escalation is fixed:
 6. ClickHouse only when measured volume proves the need — not before
 
 Inventory availability is **never** served from cache (§34).
+
+
+### Sales fulfilment and issued tax invoices
+
+A SALES dispatch naming an order must name a matching `sales_order_line_id` on
+ every line. Dispatchable quantity is `max(0, min(live reservation remaining,
+ordered - dispatched - other open dispatch quantities))`; closed reservations
+are zero. Planning and departure both validate it under the order lock. A SALES
+consignment without an order retains the direct free-stock movement path.
+
+`sales_invoices` and `sales_invoice_lines` belong to finance. The header snapshots
+seller/buyer identity and addresses, GST registration, place of supply, currency,
+bank details, terms and transport; lines snapshot HSN, UoM, agreed price and tax.
+A partial unique index allows one non-cancelled invoice per dispatch. Issue uses
+one transaction and the SI/financial-year/five-digit series. Flat discounts are
+shared pro rata; the last invoice takes the rounding remainder. The total rounds
+to the nearest rupee HALF_UP. Due date is invoice date plus customer credit days.
+
+An invoice can precede removal on a READY_FOR_DISPATCH consignment. Its staged
+quantity must still be reserved; invoiced quantity is capped by dispatched goods
+plus that consignment's staged quantity. Departure moves the SO to INVOICED when
+all ordered goods have both shipped and been invoiced. A free-stock dispatch
+needs an agreed priced sales order before it can issue this invoice.
+
+`payment_allocations` names exactly one nullable `vendor_invoice_id` or
+`sales_invoice_id`, with separate partial uniqueness per payment/invoice. A
+receipt only settles the same customer's issued invoices in the same currency.
+An empty replacement set releases allocations. Vendor-payment semantics stay
+unchanged. The income account `SALES_REVENUE` prefers code 4500, skipping any
+client-owned code to the next free number.
+
+Receivable ageing retains FIFO per customer/currency, but invoice debits use the
+snapshotted due date; legacy journal debits use their entry date. GST output is
+read from issued non-cancelled invoice lines by invoice date and stored HSN;
+dispatched not yet invoiced goods form a separate operational figure. Invoice
+PDF jobs and REPORT documents never expire.

@@ -54,6 +54,7 @@ import {
   type VendorInvoiceDetail,
   type VendorInvoiceStatus,
   type VendorInvoiceSummary,
+  VENDOR_INVOICE_TYPES,
 } from './finance-types'
 import { VendorInvoiceFormDialog } from './vendor-invoice-form-dialog'
 import { VendorInvoiceMatchDialog } from './vendor-invoice-match-dialog'
@@ -70,6 +71,8 @@ const INVOICE_STATUSES: VendorInvoiceStatus[] = [
 
 const MATCH_STATUSES: MatchStatus[] = ['NOT_MATCHED', 'MATCHED', 'VARIANCE', 'OVERRIDDEN']
 
+const INVOICE_TYPES = VENDOR_INVOICE_TYPES
+
 /**
  * Every filter key this screen owns, named once.
  *
@@ -79,6 +82,7 @@ const MATCH_STATUSES: MatchStatus[] = ['NOT_MATCHED', 'MATCHED', 'VARIANCE', 'OV
 const FILTER_KEYS = [
   'status',
   'match_status',
+  'invoice_type',
   'vendor_id',
   'invoice_from',
   'invoice_to',
@@ -114,6 +118,7 @@ export default function VendorInvoicesPage() {
 
   const status = searchParams.get('status') ?? ''
   const matchStatus = searchParams.get('match_status') ?? ''
+  const invoiceType = searchParams.get('invoice_type') ?? ''
   const vendorId = searchParams.get('vendor_id') ?? ''
   const invoiceFrom = searchParams.get('invoice_from') ?? ''
   const invoiceTo = searchParams.get('invoice_to') ?? ''
@@ -129,6 +134,7 @@ export default function VendorInvoicesPage() {
     filters: {
       ...(status ? { status } : {}),
       ...(matchStatus ? { match_status: matchStatus } : {}),
+      ...(invoiceType ? { invoice_type: invoiceType } : {}),
       ...(vendorId ? { vendor_id: vendorId } : {}),
       ...(invoiceFrom ? { invoice_from: invoiceFrom } : {}),
       ...(invoiceTo ? { invoice_to: invoiceTo } : {}),
@@ -192,23 +198,39 @@ export default function VendorInvoicesPage() {
         id: 'documents',
         header: 'Order / receipt',
         enableSorting: false,
+        cell: ({ row }) =>
+          row.original.invoice_type === 'JOB_WORK' ? (
+            <div className="flex flex-col gap-0.5">
+              <span className="text-xs">Job work</span>
+              <span className="text-2xs text-muted-foreground">Matched to receipt lines</span>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-0.5">
+              {row.original.purchase_order_id ? (
+                <Link
+                  to={`/procurement/purchase-orders/${row.original.purchase_order_id}`}
+                  className="text-xs hover:underline"
+                  onClick={(event) => event.stopPropagation()}
+                >
+                  Purchase order
+                </Link>
+              ) : (
+                <span className="text-2xs text-muted-foreground">No purchase order</span>
+              )}
+              <span className="text-2xs text-muted-foreground">
+                {row.original.goods_receipt_id ? 'Receipted' : 'No goods receipt'}
+              </span>
+            </div>
+          ),
+      },
+      {
+        id: 'invoice_type',
+        header: 'Type',
+        enableSorting: false,
         cell: ({ row }) => (
-          <div className="flex flex-col gap-0.5">
-            {row.original.purchase_order_id ? (
-              <Link
-                to={`/procurement/purchase-orders/${row.original.purchase_order_id}`}
-                className="text-xs hover:underline"
-                onClick={(event) => event.stopPropagation()}
-              >
-                Purchase order
-              </Link>
-            ) : (
-              <span className="text-2xs text-muted-foreground">No purchase order</span>
-            )}
-            <span className="text-2xs text-muted-foreground">
-              {row.original.goods_receipt_id ? 'Receipted' : 'No goods receipt'}
-            </span>
-          </div>
+          <Badge variant={row.original.invoice_type === 'JOB_WORK' ? 'secondary' : 'muted'}>
+            {humanise(row.original.invoice_type)}
+          </Badge>
         ),
       },
       {
@@ -337,6 +359,25 @@ export default function VendorInvoicesPage() {
               <SelectContent>
                 <SelectItem value={SELECT_ALL}>Any match result</SelectItem>
                 {MATCH_STATUSES.map((entry) => (
+                  <SelectItem key={entry} value={entry}>
+                    {humanise(entry)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={invoiceType || SELECT_ALL}
+              onValueChange={(next) =>
+                setParam('invoice_type', next === SELECT_ALL ? undefined : next)
+              }
+            >
+              <SelectTrigger className="w-full sm:w-[11rem]" aria-label="Invoice type">
+                <SelectValue placeholder="Any type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SELECT_ALL}>Any type</SelectItem>
+                {INVOICE_TYPES.map((entry) => (
                   <SelectItem key={entry} value={entry}>
                     {humanise(entry)}
                   </SelectItem>

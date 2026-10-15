@@ -52,6 +52,7 @@ interface MeResponse {
   plant_id?: string | null
   department_id?: string | null
   vendor_id?: string | null
+  customer_id?: string | null
   /** Both are omitted, not nulled, when empty - never dereference directly. */
   roles?: string[]
   permissions?: string[]
@@ -82,6 +83,7 @@ export interface CurrentUser {
   permissions: string[]
   roles: string[]
   vendor_id: string | null
+  customer_id: string | null
   must_change_password: boolean
   branch_id: string | null
   plant_id: string | null
@@ -104,6 +106,7 @@ function toCurrentUser(me: MeResponse): CurrentUser {
     permissions: me.permissions ?? [],
     roles: me.roles ?? [],
     vendor_id: me.vendor_id ?? null,
+    customer_id: me.customer_id ?? null,
     must_change_password: me.must_change_password,
     branch_id: me.branch_id ?? null,
     plant_id: me.plant_id ?? null,
@@ -162,6 +165,7 @@ interface AuthContextValue {
   canAny: (...permissions: string[]) => boolean
   canAll: (...permissions: string[]) => boolean
   isVendorUser: boolean
+  isDealerUser: boolean
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -272,6 +276,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         permissions: [],
         roles: result.user.roles ?? [],
         vendor_id: null,
+        customer_id: null,
         must_change_password: result.user.must_change_password,
         branch_id: null,
         plant_id: null,
@@ -349,6 +354,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       canAny: (...permissions) => permissions.some(can),
       canAll: (...permissions) => permissions.every(can),
       isVendorUser: Boolean(user?.vendor_id),
+      isDealerUser: Boolean(user?.customer_id),
     }),
     [user, isRestoring, login, verifyMfa, logout, refreshUser, can],
   )

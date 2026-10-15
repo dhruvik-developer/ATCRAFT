@@ -23,11 +23,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, status
 
-from src.core.deps import CurrentUser, DbSession, Tenant, require_permission
+from src.core.deps import CurrentUser, DbSession, Principal, Tenant, require_permission
 from src.core.pagination import (
     CursorParams,
     PageParams,
@@ -47,7 +47,11 @@ from src.core.responses import (
 from src.modules.inventory.models import (
     AdjustmentReason,
     AdjustmentStatus,
+    BinMoveStatus,
+    InternalIssueStatus,
     PhysicalCountStatus,
+    ScrapDisposalKind,
+    ScrapDisposalStatus,
     StockState,
     TransactionType,
     TransferStatus,
@@ -58,7 +62,15 @@ from src.modules.inventory.schemas import (
     BalanceFilters,
     BalanceRead,
     BalanceReadWithCost,
+    BinMoveCreate,
+    BinMoveFilters,
+    BinMoveRead,
+    BinMoveReadWithCost,
     DecisionRequest,
+    InternalIssueCreate,
+    InternalIssueFilters,
+    InternalIssueRead,
+    InternalIssueReadWithCost,
     ItemStockSummary,
     ItemStockSummaryWithCost,
     LedgerEntryRead,
@@ -69,8 +81,14 @@ from src.modules.inventory.schemas import (
     PhysicalCountLineRead,
     PhysicalCountRead,
     ReasonRequest,
+    RejectionRequest,
+    ScrapDisposalCreate,
+    ScrapDisposalFilters,
+    ScrapDisposalRead,
+    ScrapDisposalReadWithCost,
     StockAdjustmentCreate,
     StockAdjustmentRead,
+    StockAdjustmentUpdate,
     StockBatchCreate,
     StockBatchRead,
     StockSerialCreate,
@@ -81,8 +99,11 @@ from src.modules.inventory.schemas import (
     TransferFilters,
 )
 from src.modules.inventory.service import (
+    BinMoveService,
+    InternalIssueService,
     InventoryQueryService,
     PhysicalCountService,
+    ScrapDisposalService,
     StockAdjustmentService,
     StockTransferService,
     TraceabilityService,
@@ -205,11 +226,84 @@ def count_filters(
     )
 
 
+def bin_move_filters(
+    status_filter: Annotated[BinMoveStatus | None, Query(alias="status")] = None,
+    warehouse_id: Annotated[uuid.UUID | None, Query()] = None,
+    date_from: Annotated[date | None, Query(description="ISO date lower bound")] = None,
+    date_to: Annotated[date | None, Query(description="ISO date upper bound")] = None,
+    search: Annotated[str | None, Query(max_length=64)] = None,
+) -> BinMoveFilters:
+    return bind_query_filters(
+        BinMoveFilters,
+        status=status_filter,
+        warehouse_id=warehouse_id,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+    )
+
+
+def scrap_disposal_filters(
+    status_filter: Annotated[ScrapDisposalStatus | None, Query(alias="status")] = None,
+    warehouse_id: Annotated[uuid.UUID | None, Query()] = None,
+    disposal_kind: Annotated[ScrapDisposalKind | None, Query()] = None,
+    date_from: Annotated[date | None, Query(description="ISO date lower bound")] = None,
+    date_to: Annotated[date | None, Query(description="ISO date upper bound")] = None,
+    search: Annotated[str | None, Query(max_length=64)] = None,
+) -> ScrapDisposalFilters:
+    return bind_query_filters(
+        ScrapDisposalFilters,
+        status=status_filter,
+        warehouse_id=warehouse_id,
+        disposal_kind=disposal_kind,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+    )
+
+
+def internal_issue_filters(
+    status_filter: Annotated[InternalIssueStatus | None, Query(alias="status")] = None,
+    warehouse_id: Annotated[uuid.UUID | None, Query()] = None,
+    department_id: Annotated[uuid.UUID | None, Query()] = None,
+    cost_centre_id: Annotated[uuid.UUID | None, Query()] = None,
+    date_from: Annotated[date | None, Query(description="ISO date lower bound")] = None,
+    date_to: Annotated[date | None, Query(description="ISO date upper bound")] = None,
+    search: Annotated[str | None, Query(max_length=64)] = None,
+) -> InternalIssueFilters:
+    return bind_query_filters(
+        InternalIssueFilters,
+        status=status_filter,
+        warehouse_id=warehouse_id,
+        department_id=department_id,
+        cost_centre_id=cost_centre_id,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+    )
+
+
 BalanceFilterDep = Annotated[BalanceFilters, Depends(balance_filters)]
 LedgerFilterDep = Annotated[LedgerFilters, Depends(ledger_filters)]
 TransferFilterDep = Annotated[TransferFilters, Depends(transfer_filters)]
 AdjustmentFilterDep = Annotated[AdjustmentFilters, Depends(adjustment_filters)]
 CountFilterDep = Annotated[PhysicalCountFilters, Depends(count_filters)]
+BinMoveFilterDep = Annotated[BinMoveFilters, Depends(bin_move_filters)]
+ScrapDisposalFilterDep = Annotated[ScrapDisposalFilters, Depends(scrap_disposal_filters)]
+InternalIssueFilterDep = Annotated[InternalIssueFilters, Depends(internal_issue_filters)]
+
+
+def _sees_cost(principal: Principal) -> bool:
+    """Whether this caller is told what stock cost.
+
+    Either right answers it: ``item.cost_view`` is the per-item cost right and
+    ``inventory.valuation_view`` the stock-valuation one, and both are the rights
+    the documents below hide their FIFO values behind - the adjustment dialog's
+    unit-cost field is gated on the same pair.
+    """
+    return principal.has(Permission.ITEM_COST_VIEW) or principal.has(
+        Permission.INVENTORY_VALUATION_VIEW
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -572,10 +666,37 @@ async def list_adjustments(
     dependencies=[require_permission(Permission.INVENTORY_ADJUST)],
 )
 async def create_adjustment(
-    payload: StockAdjustmentCreate, session: DbSession, tenant: Tenant
+    payload: StockAdjustmentCreate, session: DbSession, tenant: Tenant, principal: CurrentUser
 ) -> ApiResponse[StockAdjustmentRead]:
-    created = await StockAdjustmentService(session, tenant).create(payload)
+    created = await StockAdjustmentService(session, tenant).create(
+        payload, can_enter_cost=_sees_cost(principal)
+    )
     return ApiResponse[StockAdjustmentRead].ok(created, "Stock adjustment drafted")
+
+
+@router.patch(
+    "/adjustments/{adjustment_id}",
+    response_model=ApiResponse[StockAdjustmentRead],
+    summary="Edit a draft stock adjustment",
+    description=(
+        "Replaces the draft's header and lines and re-prices it against the FIFO "
+        "layers as they stand now. Only a DRAFT can be edited. A line's unit cost "
+        "may be stated only by a caller holding item.cost_view or "
+        "inventory.valuation_view."
+    ),
+    dependencies=[require_permission(Permission.INVENTORY_ADJUST)],
+)
+async def update_adjustment(
+    adjustment_id: uuid.UUID,
+    payload: StockAdjustmentUpdate,
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+) -> ApiResponse[StockAdjustmentRead]:
+    updated = await StockAdjustmentService(session, tenant).update(
+        adjustment_id, payload, can_enter_cost=_sees_cost(principal)
+    )
+    return ApiResponse[StockAdjustmentRead].ok(updated, "Stock adjustment updated")
 
 
 @router.get(
@@ -629,7 +750,7 @@ async def approve_adjustment(
 )
 async def reject_adjustment(
     adjustment_id: uuid.UUID,
-    payload: DecisionRequest,
+    payload: RejectionRequest,
     session: DbSession,
     tenant: Tenant,
 ) -> ApiResponse[StockAdjustmentRead]:
@@ -664,6 +785,349 @@ async def cancel_adjustment(
 ) -> ApiResponse[StockAdjustmentRead]:
     updated = await StockAdjustmentService(session, tenant).cancel(adjustment_id, payload.reason)
     return ApiResponse[StockAdjustmentRead].ok(updated, "Stock adjustment cancelled")
+
+
+# -----------------------------------------------------------------------------
+# Bin moves, scrap disposals and internal issues
+#
+# Each answers with the cost-free read, or with the ``...WithCost`` read for a
+# caller who may see what stock cost - chosen per request, as ``/balances`` is.
+# ``response_model=None`` so a fixed model cannot re-widen the payload; both
+# shapes are documented through ``responses`` so the contract still names them.
+# -----------------------------------------------------------------------------
+
+_BIN_MOVE_ONE: dict[int | str, dict[str, Any]] = {
+    200: {
+        "model": ApiResponse[BinMoveRead | BinMoveReadWithCost],
+        "description": "The bin move; values only for a caller who may see costs.",
+    }
+}
+_BIN_MOVE_CREATED: dict[int | str, dict[str, Any]] = {
+    201: {
+        "model": ApiResponse[BinMoveRead | BinMoveReadWithCost],
+        "description": "The bin move, already posted.",
+    }
+}
+_BIN_MOVE_PAGE: dict[int | str, dict[str, Any]] = {
+    200: {
+        "model": PaginatedResponse[BinMoveRead | BinMoveReadWithCost],
+        "description": "Bin moves; values only for a caller who may see costs.",
+    }
+}
+_SCRAP_DISPOSAL_ONE: dict[int | str, dict[str, Any]] = {
+    200: {
+        "model": ApiResponse[ScrapDisposalRead | ScrapDisposalReadWithCost],
+        "description": "The scrap disposal; its cost only for a caller who may see costs.",
+    }
+}
+_SCRAP_DISPOSAL_CREATED: dict[int | str, dict[str, Any]] = {
+    201: {
+        "model": ApiResponse[ScrapDisposalRead | ScrapDisposalReadWithCost],
+        "description": "The scrap disposal, already posted.",
+    }
+}
+_SCRAP_DISPOSAL_PAGE: dict[int | str, dict[str, Any]] = {
+    200: {
+        "model": PaginatedResponse[ScrapDisposalRead | ScrapDisposalReadWithCost],
+        "description": "Scrap disposals; their cost only for a caller who may see costs.",
+    }
+}
+_INTERNAL_ISSUE_ONE: dict[int | str, dict[str, Any]] = {
+    200: {
+        "model": ApiResponse[InternalIssueRead | InternalIssueReadWithCost],
+        "description": "The internal issue; values only for a caller who may see costs.",
+    }
+}
+_INTERNAL_ISSUE_CREATED: dict[int | str, dict[str, Any]] = {
+    201: {
+        "model": ApiResponse[InternalIssueRead | InternalIssueReadWithCost],
+        "description": "The draft internal issue.",
+    }
+}
+_INTERNAL_ISSUE_PAGE: dict[int | str, dict[str, Any]] = {
+    200: {
+        "model": PaginatedResponse[InternalIssueRead | InternalIssueReadWithCost],
+        "description": "Internal issues; values only for a caller who may see costs.",
+    }
+}
+
+
+def _bin_move_answer(
+    read: BinMoveReadWithCost, principal: Principal, message: str | None = None
+) -> ApiResponse[BinMoveRead] | ApiResponse[BinMoveReadWithCost]:
+    if _sees_cost(principal):
+        return ApiResponse[BinMoveReadWithCost].ok(read, message)
+    return ApiResponse[BinMoveRead].ok(read, message)
+
+
+def _scrap_disposal_answer(
+    read: ScrapDisposalReadWithCost, principal: Principal, message: str | None = None
+) -> ApiResponse[ScrapDisposalRead] | ApiResponse[ScrapDisposalReadWithCost]:
+    if _sees_cost(principal):
+        return ApiResponse[ScrapDisposalReadWithCost].ok(read, message)
+    return ApiResponse[ScrapDisposalRead].ok(read, message)
+
+
+def _internal_issue_answer(
+    read: InternalIssueReadWithCost, principal: Principal, message: str | None = None
+) -> ApiResponse[InternalIssueRead] | ApiResponse[InternalIssueReadWithCost]:
+    if _sees_cost(principal):
+        return ApiResponse[InternalIssueReadWithCost].ok(read, message)
+    return ApiResponse[InternalIssueRead].ok(read, message)
+
+
+@router.get(
+    "/bin-moves",
+    response_model=None,
+    responses=_BIN_MOVE_PAGE,
+    summary="List bin moves",
+    dependencies=[require_permission(Permission.INVENTORY_VIEW)],
+)
+async def list_bin_moves(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    filters: BinMoveFilterDep,
+    params: PageDep,
+    sort: SortDep,
+) -> PaginatedResponse[BinMoveRead] | PaginatedResponse[BinMoveReadWithCost]:
+    items, pagination = await BinMoveService(session, tenant).list_moves(filters, params, sort)
+    if _sees_cost(principal):
+        return PaginatedResponse[BinMoveReadWithCost](data=items, pagination=pagination)
+    return PaginatedResponse[BinMoveRead](data=list[BinMoveRead](items), pagination=pagination)
+
+
+@router.post(
+    "/bin-moves",
+    response_model=None,
+    status_code=status.HTTP_201_CREATED,
+    responses=_BIN_MOVE_CREATED,
+    summary="Move stock between bins of one warehouse",
+    description=(
+        "Putaway and re-slotting. Posted as soon as it is raised: each line is a "
+        "TRANSFER_OUT at the source bin and a TRANSFER_IN at the destination bin, "
+        "the destination re-opening exactly the FIFO cost layers the source gave up."
+    ),
+    dependencies=[require_permission(Permission.INVENTORY_TRANSFER)],
+)
+async def create_bin_move(
+    payload: BinMoveCreate, session: DbSession, tenant: Tenant, principal: CurrentUser
+) -> ApiResponse[BinMoveRead] | ApiResponse[BinMoveReadWithCost]:
+    created = await BinMoveService(session, tenant).create(payload)
+    return _bin_move_answer(created, principal, f"Bin move {created.code} posted")
+
+
+@router.get(
+    "/bin-moves/{bin_move_id}",
+    response_model=None,
+    responses=_BIN_MOVE_ONE,
+    summary="Fetch one bin move with its lines",
+    dependencies=[require_permission(Permission.INVENTORY_VIEW)],
+)
+async def get_bin_move(
+    bin_move_id: uuid.UUID, session: DbSession, tenant: Tenant, principal: CurrentUser
+) -> ApiResponse[BinMoveRead] | ApiResponse[BinMoveReadWithCost]:
+    return _bin_move_answer(await BinMoveService(session, tenant).get_move(bin_move_id), principal)
+
+
+@router.get(
+    "/scrap-disposals",
+    response_model=None,
+    responses=_SCRAP_DISPOSAL_PAGE,
+    summary="List scrap disposals",
+    dependencies=[require_permission(Permission.INVENTORY_VIEW)],
+)
+async def list_scrap_disposals(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    filters: ScrapDisposalFilterDep,
+    params: PageDep,
+    sort: SortDep,
+) -> PaginatedResponse[ScrapDisposalRead] | PaginatedResponse[ScrapDisposalReadWithCost]:
+    items, pagination = await ScrapDisposalService(session, tenant).list_disposals(
+        filters, params, sort
+    )
+    if _sees_cost(principal):
+        return PaginatedResponse[ScrapDisposalReadWithCost](data=items, pagination=pagination)
+    return PaginatedResponse[ScrapDisposalRead](
+        data=list[ScrapDisposalRead](items), pagination=pagination
+    )
+
+
+@router.post(
+    "/scrap-disposals",
+    response_model=None,
+    status_code=status.HTTP_201_CREATED,
+    responses=_SCRAP_DISPOSAL_CREATED,
+    summary="Dispose of scrap - sell, recycle or write it off",
+    description=(
+        "Takes stock out of the SCRAP pool for good. Posted as soon as it is raised: "
+        "one SCRAP_DISPOSAL movement per line, valued from the scrap cost layers it "
+        "consumes. A WRITE_OFF realises nothing; a SALE or RECYCLE records what was "
+        "received."
+    ),
+    dependencies=[require_permission(Permission.INVENTORY_SCRAP_DISPOSE)],
+)
+async def create_scrap_disposal(
+    payload: ScrapDisposalCreate, session: DbSession, tenant: Tenant, principal: CurrentUser
+) -> ApiResponse[ScrapDisposalRead] | ApiResponse[ScrapDisposalReadWithCost]:
+    created = await ScrapDisposalService(session, tenant).create(payload)
+    return _scrap_disposal_answer(created, principal, f"Scrap disposal {created.code} posted")
+
+
+@router.get(
+    "/scrap-disposals/{disposal_id}",
+    response_model=None,
+    responses=_SCRAP_DISPOSAL_ONE,
+    summary="Fetch one scrap disposal with its lines",
+    dependencies=[require_permission(Permission.INVENTORY_VIEW)],
+)
+async def get_scrap_disposal(
+    disposal_id: uuid.UUID, session: DbSession, tenant: Tenant, principal: CurrentUser
+) -> ApiResponse[ScrapDisposalRead] | ApiResponse[ScrapDisposalReadWithCost]:
+    return _scrap_disposal_answer(
+        await ScrapDisposalService(session, tenant).get_disposal(disposal_id), principal
+    )
+
+
+@router.get(
+    "/internal-issues",
+    response_model=None,
+    responses=_INTERNAL_ISSUE_PAGE,
+    summary="List internal issues",
+    dependencies=[require_permission(Permission.INVENTORY_VIEW)],
+)
+async def list_internal_issues(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    filters: InternalIssueFilterDep,
+    params: PageDep,
+    sort: SortDep,
+) -> PaginatedResponse[InternalIssueRead] | PaginatedResponse[InternalIssueReadWithCost]:
+    items, pagination = await InternalIssueService(session, tenant).list_issues(
+        filters, params, sort
+    )
+    if _sees_cost(principal):
+        return PaginatedResponse[InternalIssueReadWithCost](data=items, pagination=pagination)
+    return PaginatedResponse[InternalIssueRead](
+        data=list[InternalIssueRead](items), pagination=pagination
+    )
+
+
+@router.post(
+    "/internal-issues",
+    response_model=None,
+    status_code=status.HTTP_201_CREATED,
+    responses=_INTERNAL_ISSUE_CREATED,
+    summary="Draft an issue of stock to a department or cost centre",
+    description=(
+        "Nothing moves until the draft is posted. Lines are valued at what the "
+        "FIFO cost layers say the stock cost; above INTERNAL_ISSUE_APPROVAL_VALUE "
+        "in the inventory service the issue must be submitted and approved by a "
+        "second person, and approving it posts it."
+    ),
+    dependencies=[require_permission(Permission.INTERNAL_ISSUE_CREATE)],
+)
+async def create_internal_issue(
+    payload: InternalIssueCreate, session: DbSession, tenant: Tenant, principal: CurrentUser
+) -> ApiResponse[InternalIssueRead] | ApiResponse[InternalIssueReadWithCost]:
+    created = await InternalIssueService(session, tenant).create(payload)
+    return _internal_issue_answer(created, principal, f"Internal issue {created.code} drafted")
+
+
+@router.get(
+    "/internal-issues/{issue_id}",
+    response_model=None,
+    responses=_INTERNAL_ISSUE_ONE,
+    summary="Fetch one internal issue with its lines",
+    dependencies=[require_permission(Permission.INVENTORY_VIEW)],
+)
+async def get_internal_issue(
+    issue_id: uuid.UUID, session: DbSession, tenant: Tenant, principal: CurrentUser
+) -> ApiResponse[InternalIssueRead] | ApiResponse[InternalIssueReadWithCost]:
+    return _internal_issue_answer(
+        await InternalIssueService(session, tenant).get_issue(issue_id), principal
+    )
+
+
+@router.post(
+    "/internal-issues/{issue_id}/submit",
+    response_model=None,
+    responses=_INTERNAL_ISSUE_ONE,
+    summary="Submit an internal issue for approval",
+    dependencies=[require_permission(Permission.INTERNAL_ISSUE_CREATE)],
+)
+async def submit_internal_issue(
+    issue_id: uuid.UUID, session: DbSession, tenant: Tenant, principal: CurrentUser
+) -> ApiResponse[InternalIssueRead] | ApiResponse[InternalIssueReadWithCost]:
+    updated = await InternalIssueService(session, tenant).submit(issue_id)
+    return _internal_issue_answer(updated, principal, "Submitted for approval")
+
+
+@router.post(
+    "/internal-issues/{issue_id}/post",
+    response_model=None,
+    responses=_INTERNAL_ISSUE_ONE,
+    summary="Post an internal issue below the approval value",
+    dependencies=[require_permission(Permission.INTERNAL_ISSUE_CREATE)],
+)
+async def post_internal_issue(
+    issue_id: uuid.UUID, session: DbSession, tenant: Tenant, principal: CurrentUser
+) -> ApiResponse[InternalIssueRead] | ApiResponse[InternalIssueReadWithCost]:
+    updated = await InternalIssueService(session, tenant).post(issue_id)
+    return _internal_issue_answer(updated, principal, "Internal issue posted")
+
+
+@router.post(
+    "/internal-issues/{issue_id}/approve",
+    response_model=None,
+    responses=_INTERNAL_ISSUE_ONE,
+    summary="Approve a pending internal issue, which posts it",
+    dependencies=[require_permission(Permission.INTERNAL_ISSUE_APPROVE)],
+)
+async def approve_internal_issue(
+    issue_id: uuid.UUID, session: DbSession, tenant: Tenant, principal: CurrentUser
+) -> ApiResponse[InternalIssueRead] | ApiResponse[InternalIssueReadWithCost]:
+    updated = await InternalIssueService(session, tenant).approve(issue_id)
+    return _internal_issue_answer(updated, principal, "Internal issue approved and posted")
+
+
+@router.post(
+    "/internal-issues/{issue_id}/reject",
+    response_model=None,
+    responses=_INTERNAL_ISSUE_ONE,
+    summary="Reject a pending internal issue",
+    dependencies=[require_permission(Permission.INTERNAL_ISSUE_APPROVE)],
+)
+async def reject_internal_issue(
+    issue_id: uuid.UUID,
+    payload: ReasonRequest,
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+) -> ApiResponse[InternalIssueRead] | ApiResponse[InternalIssueReadWithCost]:
+    updated = await InternalIssueService(session, tenant).reject(issue_id, payload.reason)
+    return _internal_issue_answer(updated, principal, "Internal issue rejected")
+
+
+@router.post(
+    "/internal-issues/{issue_id}/cancel",
+    response_model=None,
+    responses=_INTERNAL_ISSUE_ONE,
+    summary="Cancel an internal issue before it posts",
+    dependencies=[require_permission(Permission.INTERNAL_ISSUE_CREATE)],
+)
+async def cancel_internal_issue(
+    issue_id: uuid.UUID,
+    payload: ReasonRequest,
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+) -> ApiResponse[InternalIssueRead] | ApiResponse[InternalIssueReadWithCost]:
+    updated = await InternalIssueService(session, tenant).cancel(issue_id, payload.reason)
+    return _internal_issue_answer(updated, principal, "Internal issue cancelled")
 
 
 # -----------------------------------------------------------------------------

@@ -34,7 +34,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -460,6 +460,50 @@ async def test_restricted_valuation_exporter_can_watch_and_download_only_its_own
     assert (await client.get(download_url)).status_code == 403
 
 
+async def test_dealer_with_broad_grants_cannot_poll_download_or_queue_finance_export(
+    client: AsyncClient, engine: Any, tenant: TenantContext, principal: Principal
+) -> None:
+    from sqlalchemy import func, select
+
+    from src.core.clock import utcnow
+    from src.core.errors import NotFoundError
+    from src.main import app
+    from src.modules.finance.service import VALUATION_TASK_NAME
+    from src.modules.reports.models import ReportKey, ReportSnapshot
+    from src.modules.reports.repository import ReportSnapshotRepository
+
+    # The dealer is deliberately given internal permissions and owns the job.
+    # Auth is overridden, so the explicit route/service portal gates must work.
+    dealer = replace(principal, customer_id=uuid.uuid4())
+    async with _factory(engine)() as session, session.begin():
+        snapshot = reports_service.new_job_snapshot(
+            ReportKey.INVENTORY_VALUATION, {"task": VALUATION_TASK_NAME}, now=utcnow()
+        )
+        ReportSnapshotRepository(session, tenant).add(snapshot)
+        await session.flush()
+        job_id = snapshot.id
+        assert not reports_service._owns_valuation_export(snapshot, dealer)
+        with pytest.raises(NotFoundError):
+            await reports_service.get_accessible_job(session, tenant, dealer, job_id)
+
+    app.dependency_overrides[get_current_principal] = lambda: dealer
+    for url in (
+        reports_service.job_status_url(job_id),
+        reports_service.job_download_url(job_id),
+    ):
+        result = await client.get(url)
+        assert result.status_code == 403
+        assert result.json()["error"]["code"] == "SCOPE_DENIED"
+
+    async with _factory(engine)() as session:
+        before = await session.scalar(select(func.count()).select_from(ReportSnapshot))
+    queued = await client.post(f"{_prefix()}/finance/inventory-valuation/export")
+    assert queued.status_code == 403
+    assert queued.json()["error"]["code"] == "SCOPE_DENIED"
+    async with _factory(engine)() as session:
+        assert await session.scalar(select(func.count()).select_from(ReportSnapshot)) == before
+
+
 async def test_valuation_permission_does_not_open_catalogue_jobs_or_other_document_jobs(
     client: AsyncClient, engine: Any, tenant: TenantContext, principal: Principal
 ) -> None:
@@ -497,6 +541,346 @@ async def test_valuation_permission_does_not_open_catalogue_jobs_or_other_docume
         assert (await client.get(reports_service.job_status_url(job_id))).status_code == 200
 
 
+async def _stock_two_warehouses(engine, tenant):
+    """Different values make an overbroad export distinguishable from its page."""
+    warehouses = []
+    async with _factory(engine)() as session, transaction(session):
+        item = await seed_support.seed_item(
+            session, company_id=tenant.company_id, code=_code("SCOPE")
+        )
+        for quantity, cost in [("5", "2"), ("7", "11")]:
+            warehouse = await seed_support.seed_warehouse(
+                session, company_id=tenant.company_id, code=_code("SCOPE-WH")
+            )
+            warehouses.append((warehouse.id, warehouse.code))
+            await inventory_service.post_movement(
+                session,
+                tenant,
+                item_id=item.id,
+                warehouse_id=warehouse.id,
+                quantity=Decimal(quantity),
+                unit_cost=Decimal(cost),
+                transaction_type=TransactionType.OPENING_BALANCE,
+                reference_type="opening",
+                reference_id=None,
+                reference_code="SCOPE-OPEN",
+                reason="Valuation scope regression",
+            )
+    return warehouses
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+async def test_valuation_workbook_matches_inline_warehouse_scope_and_rejects_narrowing(
+    client, engine, tenant, principal, legacy
+):
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    from src.main import app
+    from src.modules.reports.models import ReportSnapshot
+    from src.modules.users.models import User
+
+    (allowed, code), (outside, _) = await _stock_two_warehouses(engine, tenant)
+    exporter = replace(
+        principal,
+        allowed_warehouse_ids=(allowed,),
+        permissions=frozenset(
+            {str(Permission.INVENTORY_VALUATION_VIEW), str(Permission.REPORT_EXPORT)}
+        ),
+    )
+    app.dependency_overrides[get_current_principal] = lambda: exporter
+    inline = await client.get(f"{_prefix()}/finance/inventory-valuation")
+    assert inline.status_code == 200
+    assert inline.json()["data"]["summary"]["row_count"] == 1
+    accepted = await client.post(f"{_prefix()}/finance/inventory-valuation/export")
+    assert accepted.status_code == 202
+    job_id = accepted.json()["data"]["job_id"]
+    scope_key = reports_service.VALUATION_WAREHOUSE_SCOPE_PARAMETER
+    async with _factory(engine)() as session, session.begin():
+        snapshot = await session.get(ReportSnapshot, uuid.UUID(job_id))
+        assert snapshot.parameters[scope_key] == [str(allowed)]
+        if legacy:
+            snapshot.parameters = {
+                key: value for key, value in snapshot.parameters.items() if key != scope_key
+            }
+            creator = await session.get(User, tenant.user_id)
+            creator.allowed_warehouse_ids = [allowed]
+    if legacy:
+        assert (await client.get(reports_service.job_status_url(job_id))).status_code == 404
+    outcome = await _run_worker(
+        report_tasks.inventory_valuation,
+        company_id=str(tenant.company_id),
+        user_id=str(tenant.user_id),
+        snapshot_id=job_id,
+        # Arbitrary broker kwargs cannot replace persisted scope OR filters.
+        warehouse_id=str(outside),
+        allowed_warehouse_ids=[str(outside)],
+    )
+    assert outcome["status"] == "COMPLETED"
+    job = await _job(client, reports_service.job_status_url(job_id))
+    document_id = job["document_id"]
+    downloaded = await client.get(reports_service.job_download_url(job_id))
+    assert downloaded.status_code == 200
+    workbook = load_workbook(BytesIO(downloaded.content), read_only=True, data_only=True)
+    rows = list(workbook["Valuation"].values)[1:]
+    assert len(rows) == 1
+    assert rows[0][2] == code
+    summary = dict(workbook["Summary"].values)
+    assert Decimal(str(summary["Total value"])) == Decimal(
+        inline.json()["data"]["summary"]["total_value"]
+    )
+    workbook.close()
+    async with _factory(engine)() as session:
+        snapshot = await session.get(ReportSnapshot, uuid.UUID(job_id))
+        assert snapshot.parameters[scope_key] == [str(allowed)]
+        document = await session.get(Document, uuid.UUID(document_id))
+        assert document.entity_type == report_tasks.VALUATION_ENTITY
+        assert document.entity_id == snapshot.id
+
+    app.dependency_overrides[get_current_principal] = lambda: replace(
+        exporter, allowed_warehouse_ids=(allowed, outside)
+    )
+    assert (await client.get(reports_service.job_download_url(job_id))).status_code == 200
+    for permissions in (exporter.permissions, principal.permissions):
+        app.dependency_overrides[get_current_principal] = lambda grants=permissions: replace(
+            exporter, allowed_warehouse_ids=(outside,), permissions=grants
+        )
+        assert (await client.get(reports_service.job_status_url(job_id))).status_code == 404
+        assert (await client.get(reports_service.job_download_url(job_id))).status_code == 404
+        if str(Permission.DOCUMENT_VIEW) in permissions:
+            assert (await client.get(f"{_prefix()}/documents/{document_id}")).status_code == 404
+            assert (
+                await client.get(f"{_prefix()}/documents/{document_id}/download")
+            ).status_code == 404
+            listed = await client.get(f"{_prefix()}/documents")
+            assert listed.status_code == 200
+            assert document_id not in {row["id"] for row in listed.json()["data"]}
+    # Existing unrestricted report/document readers still see their company artifacts.
+    app.dependency_overrides[get_current_principal] = lambda: principal
+    assert (await client.get(reports_service.job_download_url(job_id))).status_code == 200
+    assert (await client.get(f"{_prefix()}/documents/{document_id}")).status_code == 200
+    assert (await client.get(f"{_prefix()}/documents/{document_id}/download")).status_code == 200
+
+
+async def test_valuation_scope_evidence_survives_cleanup_until_document_deletion(
+    client, engine, tenant, principal
+):
+    from datetime import timedelta
+
+    from src.core.clock import utcnow
+    from src.main import app
+    from src.modules.documents.service import DocumentService
+    from src.modules.reports.models import ReportSnapshot
+
+    (allowed, _), (outside, _) = await _stock_two_warehouses(engine, tenant)
+    app.dependency_overrides[get_current_principal] = lambda: replace(
+        principal, allowed_warehouse_ids=(allowed,)
+    )
+    accepted = await client.post(f"{_prefix()}/finance/inventory-valuation/export")
+    assert accepted.status_code == 202
+    job_id = uuid.UUID(accepted.json()["data"]["job_id"])
+    await _run_worker(
+        report_tasks.inventory_valuation,
+        company_id=str(tenant.company_id),
+        user_id=str(tenant.user_id),
+        snapshot_id=str(job_id),
+    )
+    async with _factory(engine)() as session, session.begin():
+        snapshot = await session.get(ReportSnapshot, job_id)
+        document_id = snapshot.document_id
+        snapshot.expires_at = utcnow() - timedelta(days=1)
+    async with _factory(engine)() as session:
+        assert await reports_service.purge_expired_snapshots(session, tenant) == 0
+        assert await session.get(ReportSnapshot, job_id) is not None
+    app.dependency_overrides[get_current_principal] = lambda: replace(
+        principal, allowed_warehouse_ids=(outside,)
+    )
+    assert (await client.get(f"{_prefix()}/documents/{document_id}")).status_code == 404
+    assert (await client.get(f"{_prefix()}/documents/{document_id}/download")).status_code == 404
+    app.dependency_overrides[get_current_principal] = lambda: replace(
+        principal, allowed_warehouse_ids=(allowed,)
+    )
+    assert (await client.get(f"{_prefix()}/documents/{document_id}/download")).status_code == 200
+    async with _factory(engine)() as session:
+        await DocumentService(session, tenant).delete_document(
+            document_id, reason="Retention regression cleanup"
+        )
+    async with _factory(engine)() as session:
+        snapshot = await session.get(ReportSnapshot, job_id)
+        assert snapshot.document_id is None
+        assert await reports_service.purge_expired_snapshots(session, tenant) == 1
+        assert await session.get(ReportSnapshot, job_id) is None
+
+
+@pytest.mark.parametrize("legacy_attachment", [False, True])
+async def test_orphan_valuation_document_stays_hidden_from_restricted_readers(
+    client, engine, tenant, principal, legacy_attachment
+):
+    from src.main import app
+    from src.modules.reports.models import ReportSnapshot
+
+    (allowed, _), _ = await _stock_two_warehouses(engine, tenant)
+    restricted = replace(principal, allowed_warehouse_ids=(allowed,))
+    app.dependency_overrides[get_current_principal] = lambda: restricted
+    accepted = await client.post(f"{_prefix()}/finance/inventory-valuation/export")
+    assert accepted.status_code == 202
+    job_id = uuid.UUID(accepted.json()["data"]["job_id"])
+    await _run_worker(
+        report_tasks.inventory_valuation,
+        company_id=str(tenant.company_id),
+        user_id=str(tenant.user_id),
+        snapshot_id=str(job_id),
+    )
+    async with _factory(engine)() as session, session.begin():
+        snapshot = await session.get(ReportSnapshot, job_id)
+        document = await session.get(Document, snapshot.document_id)
+        document_id = document.id
+        # Model the old cleanup behavior and artifacts created before attachments.
+        if legacy_attachment:
+            document.entity_type = None
+            document.entity_id = None
+        document.file_name = f"inventory-valuation-orphan-{job_id}.xlsx"
+        file_name = document.file_name
+        await session.delete(snapshot)
+    assert (await client.get(f"{_prefix()}/documents/{document_id}")).status_code == 404
+    assert (await client.get(f"{_prefix()}/documents/{document_id}/download")).status_code == 404
+    listed = await client.get(
+        f"{_prefix()}/documents", params={"search": file_name, "with_total": "true"}
+    )
+    assert listed.status_code == 200
+    assert listed.json()["data"] == []
+    assert listed.json()["pagination"]["total"] == 0
+    for reader in (principal, replace(restricted, is_superuser=True)):
+        app.dependency_overrides[get_current_principal] = lambda current=reader: current
+        assert (await client.get(f"{_prefix()}/documents/{document_id}")).status_code == 200
+        assert (
+            await client.get(f"{_prefix()}/documents/{document_id}/download")
+        ).status_code == 200
+
+
+@pytest.mark.parametrize("scope", [None, [], "invalid"])
+async def test_restricted_owner_cannot_read_untracked_or_full_company_valuation(
+    client, engine, tenant, principal, scope
+):
+    from src.main import app
+    from src.modules.reports.models import ReportSnapshot
+
+    (allowed, _), _ = await _stock_two_warehouses(engine, tenant)
+    exporter = replace(
+        principal,
+        allowed_warehouse_ids=(allowed,),
+        permissions=frozenset(
+            {str(Permission.INVENTORY_VALUATION_VIEW), str(Permission.REPORT_EXPORT)}
+        ),
+    )
+    app.dependency_overrides[get_current_principal] = lambda: exporter
+    accepted = await client.post(f"{_prefix()}/finance/inventory-valuation/export")
+    assert accepted.status_code == 202
+    job_id = uuid.UUID(accepted.json()["data"]["job_id"])
+    await _run_worker(
+        report_tasks.inventory_valuation,
+        company_id=str(tenant.company_id),
+        user_id=str(tenant.user_id),
+        snapshot_id=str(job_id),
+    )
+    async with _factory(engine)() as session, session.begin():
+        snapshot = await session.get(ReportSnapshot, job_id)
+        document_id = snapshot.document_id
+        scope_key = reports_service.VALUATION_WAREHOUSE_SCOPE_PARAMETER
+        parameters = dict(snapshot.parameters)
+        if scope is None:
+            parameters.pop(scope_key)
+        else:
+            parameters[scope_key] = scope
+        snapshot.parameters = parameters
+    assert (await client.get(reports_service.job_status_url(job_id))).status_code == 404
+    assert (await client.get(reports_service.job_download_url(job_id))).status_code == 404
+    app.dependency_overrides[get_current_principal] = lambda: replace(
+        principal, allowed_warehouse_ids=(allowed,)
+    )
+    assert (await client.get(f"{_prefix()}/documents/{document_id}")).status_code == 404
+    assert (await client.get(f"{_prefix()}/documents/{document_id}/download")).status_code == 404
+    listed = await client.get(
+        f"{_prefix()}/documents",
+        params={"entity_type": report_tasks.VALUATION_ENTITY, "entity_id": str(job_id)},
+    )
+    assert listed.status_code == 200
+    assert listed.json()["data"] == []
+    assert listed.json()["pagination"]["total"] == 0
+
+
+@pytest.mark.parametrize("wrong_field", ["report_key", "task"])
+async def test_valuation_worker_refuses_a_job_without_finance_export_provenance(
+    client, engine, tenant, wrong_field
+):
+    from src.core.clock import utcnow
+    from src.core.errors import BusinessRuleError
+    from src.modules.finance.service import VALUATION_TASK_NAME
+    from src.modules.reports.models import ReportSnapshot
+
+    parameters = {
+        "task": VALUATION_TASK_NAME if wrong_field != "task" else "reports.generate_report",
+        reports_service.VALUATION_WAREHOUSE_SCOPE_PARAMETER: [],
+    }
+    async with _factory(engine)() as session, session.begin():
+        snapshot = reports_service.new_job_snapshot(
+            ReportKey.STOCK_AVAILABILITY
+            if wrong_field == "report_key"
+            else ReportKey.INVENTORY_VALUATION,
+            parameters,
+            now=utcnow(),
+        )
+        ReportSnapshotRepository(session, tenant).add(snapshot)
+        await session.flush()
+        job_id = snapshot.id
+        before = await session.scalar(select(func.count()).select_from(Document))
+    with pytest.raises(BusinessRuleError, match="not a finance valuation export"):
+        await _run_worker(
+            report_tasks.inventory_valuation,
+            company_id=str(tenant.company_id),
+            user_id=str(tenant.user_id),
+            snapshot_id=str(job_id),
+        )
+    async with _factory(engine)() as session:
+        snapshot = await session.get(ReportSnapshot, job_id)
+        assert snapshot.status == "FAILED"
+        assert snapshot.document_id is None
+        assert await session.scalar(select(func.count()).select_from(Document)) == before
+
+
+async def test_legacy_pending_valuation_refuses_inactive_creator(client, engine, tenant):
+    from src.core.errors import BusinessRuleError
+    from src.modules.reports.models import ReportSnapshot
+    from src.modules.users.models import User
+
+    accepted = await client.post(f"{_prefix()}/finance/inventory-valuation/export")
+    assert accepted.status_code == 202
+    job_id = accepted.json()["data"]["job_id"]
+    scope_key = reports_service.VALUATION_WAREHOUSE_SCOPE_PARAMETER
+    async with _factory(engine)() as session, session.begin():
+        snapshot = await session.get(ReportSnapshot, uuid.UUID(job_id))
+        snapshot.parameters = {
+            key: value for key, value in snapshot.parameters.items() if key != scope_key
+        }
+        creator = await session.get(User, tenant.user_id)
+        creator.is_active = False
+    with pytest.raises(BusinessRuleError, match="active internal creator"):
+        await _run_worker(
+            report_tasks.inventory_valuation,
+            company_id=str(tenant.company_id),
+            user_id=str(tenant.user_id),
+            snapshot_id=job_id,
+        )
+    async with _factory(engine)() as session:
+        snapshot = await session.get(ReportSnapshot, uuid.UUID(job_id))
+        assert snapshot.status == "FAILED"
+        assert snapshot.document_id is None
+    async with _factory(engine)() as session, session.begin():
+        creator = await session.get(User, tenant.user_id)
+        creator.is_active = True
+
+
 async def test_the_packing_list_is_a_job_that_files_a_pdf(
     client: AsyncClient, engine: Any, tenant: TenantContext
 ) -> None:
@@ -531,3 +915,140 @@ async def test_the_packing_list_is_a_job_that_files_a_pdf(
     assert document.entity_id == order_id
     assert document.file_name.endswith(".pdf")
     assert resolve_storage_path(document.storage_key).is_file()
+
+
+async def test_sales_invoice_pdf_job_files_permanent_document_and_dispatch_link(
+    client, engine, tenant
+):
+    from src.core.clock import today
+    from src.modules.allocation import service as allocation_service
+    from src.modules.allocation.models import DemandType
+    from src.modules.dispatch import service as dispatch_service
+    from src.modules.dispatch.models import Dispatch
+    from src.modules.dispatch.schemas import DispatchCreate, DispatchLineIn, DispatchRequest
+    from src.modules.finance import sales_invoice_service
+    from src.modules.finance.models import SalesInvoice
+    from src.modules.finance.sales_invoice_schemas import SalesInvoiceCreate
+    from src.modules.sales.models import SalesOrder, SalesOrderLine, SalesOrderStatus
+
+    async with _factory(engine)() as session:
+        uom = await seed_support.seed_uom(session, company_id=tenant.company_id)
+        item = await seed_support.seed_item(
+            session,
+            company_id=tenant.company_id,
+            code=_code("FG"),
+            base_uom_id=uom.id,
+            can_sell=True,
+            hsn_code="8302",
+        )
+        warehouse = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code=_code("WH")
+        )
+        customer = await seed_support.seed_customer(
+            session, company_id=tenant.company_id, credit_days=30
+        )
+        order = SalesOrder(
+            company_id=tenant.company_id,
+            code=_code("SO"),
+            customer_id=customer.id,
+            warehouse_id=warehouse.id,
+            order_date=today(),
+            required_date=today(),
+            status=SalesOrderStatus.ALLOCATED,
+            is_interstate=True,
+        )
+        session.add(order)
+        await session.flush()
+        line = SalesOrderLine(
+            company_id=tenant.company_id,
+            sales_order_id=order.id,
+            line_number=1,
+            item_id=item.id,
+            uom_id=uom.id,
+            quantity=Decimal("10"),
+            unit_price=Decimal("100"),
+            tax_rate=Decimal("18"),
+            allocated_quantity=Decimal("10"),
+        )
+        session.add(line)
+        await session.flush()
+        await inventory_service.post_movement(
+            session,
+            tenant,
+            item_id=item.id,
+            warehouse_id=warehouse.id,
+            quantity=Decimal("10"),
+            transaction_type=TransactionType.OPENING_BALANCE,
+            reference_type="opening",
+            reference_id=None,
+            reference_code="OPEN",
+            reason="PDF fixture stock",
+            unit_cost=Decimal("50"),
+        )
+        reservation = await allocation_service.reserve(
+            session,
+            tenant,
+            item_id=item.id,
+            warehouse_id=warehouse.id,
+            quantity=Decimal("10"),
+            demand_type=DemandType.SALES_ORDER,
+            demand_id=order.id,
+            demand_line_id=line.id,
+            reason="PDF fixture reservation",
+        )
+        line.reservation_id = reservation.id
+        await session.flush()
+        dispatch = await dispatch_service.create_dispatch(
+            session,
+            tenant,
+            DispatchCreate(
+                dispatch_type="SALES",
+                dispatch_date=today(),
+                customer_id=customer.id,
+                warehouse_id=warehouse.id,
+                sales_order_id=order.id,
+                lines=[
+                    DispatchLineIn(
+                        item_id=item.id, sales_order_line_id=line.id, quantity=Decimal("10")
+                    )
+                ],
+            ),
+        )
+        await dispatch_service.mark_ready(
+            session, tenant, dispatch.id, reason="Ready for invoice PDF"
+        )
+        await dispatch_service.dispatch_consignment(
+            session, tenant, dispatch.id, DispatchRequest(reason="Goods leave for PDF fixture")
+        )
+        invoice = await sales_invoice_service.issue_sales_invoice(
+            session, tenant, SalesInvoiceCreate(dispatch_id=dispatch.id)
+        )
+        invoice_id, dispatch_id = invoice.id, dispatch.id
+    accepted = await client.post(f"{_prefix()}/finance/sales-invoices/{invoice_id}/pdf")
+    assert accepted.status_code == 202, accepted.text
+    handed_off = accepted.json()["data"]
+    job_id = handed_off["job_id"]
+    _assert_queued(
+        await _job(client, handed_off["status_url"]), job_id=job_id, report_key="SALES_INVOICE"
+    )
+    outcome = await _run_worker(
+        report_tasks.generate_sales_invoice,
+        sales_invoice_id=str(invoice_id),
+        snapshot_id=job_id,
+        company_id=str(tenant.company_id),
+        user_id=str(tenant.user_id),
+    )
+    assert outcome["status"] == "COMPLETED", outcome
+    document_id = _assert_completed(
+        await _job(client, handed_off["status_url"]), job_id=job_id, report_key="SALES_INVOICE"
+    )
+    document = await _filed_document(engine, document_id)
+    assert document.entity_type == "sales_invoice"
+    assert document.entity_id == invoice_id
+    assert document.expires_at is None
+    assert resolve_storage_path(document.storage_key).read_bytes().startswith(b"%PDF")
+    async with _factory(engine)() as reader:
+        row = await reader.get(SalesInvoice, invoice_id)
+        dispatched = await reader.get(Dispatch, dispatch_id)
+        assert row.pdf_document_id == document.id
+        assert dispatched.invoice_document_id == document.id

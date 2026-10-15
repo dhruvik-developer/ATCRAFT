@@ -43,7 +43,7 @@ from src.core.errors import (
     ValidationError,
 )
 from src.core.ids import new_id
-from src.core.messages import NO_FIELDS_TO_UPDATE
+from src.core.messages import NO_FIELDS_TO_UPDATE, inactive_record
 from src.core.pagination import CursorParams, PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import CursorPagination, OffsetPagination
@@ -193,6 +193,7 @@ ITEM_AUDITED_FIELDS = [
     "is_batch_tracked",
     "is_serial_tracked",
     "default_warehouse_id",
+    "default_location_id",
     "is_active",
 ]
 
@@ -324,14 +325,21 @@ def default_capabilities(item_group: ItemGroup) -> dict[str, bool]:
             can_be_assembly_component=True,
             can_job_work=True,
         )
-    elif item_group is ItemGroup.SEMI_FINISHED:
+    elif item_group in (ItemGroup.SEMI_FINISHED, ItemGroup.SUB_ASSEMBLY):
+        # ASSUMPTION: a sub-assembly starts with the semi-finished defaults - it is
+        # built in-house and consumed by a higher assembly or a production order,
+        # which is exactly what a semi-finished item is (docs/assumptions.md
+        # §E4-6).
         base.update(
             can_manufacture=True,
             can_be_bom_component=True,
             can_be_assembly_component=True,
             can_job_work=True,
         )
-    elif item_group is ItemGroup.FINISHED_GOOD:
+    elif item_group in (ItemGroup.FINISHED_GOOD, ItemGroup.ASSEMBLY):
+        # ASSUMPTION: an assembly is a finished good that happens to be built on
+        # the assembly bench - made and sold - so it starts with the finished-good
+        # defaults (docs/assumptions.md §E4-6).
         base.update(can_manufacture=True, can_sell=True, can_be_assembly_component=True)
     elif item_group in (ItemGroup.CONSUMABLE, ItemGroup.PACKING_MATERIAL):
         base.update(can_purchase=True, can_be_bom_component=True)
@@ -1128,6 +1136,40 @@ async def _assert_default_warehouse_exists(
         raise NotFoundError("Warehouse", warehouse_id)
 
 
+async def _assert_default_location(
+    repo: ItemRepository, location_id: uuid.UUID | None, warehouse_id: uuid.UUID | None
+) -> None:
+    """An item's default bin is a live, active bin of its own default warehouse.
+
+    The foreign key is satisfied by any company's bin, in any warehouse - the
+    trap CLAUDE.md records for ``finish_id`` - so the bin is read through the
+    tenant-scoped repository. ASSUMPTION: the default bin belongs to the
+    default warehouse, so it is only ever pre-filled where the item's stock is
+    expected; an item with no default warehouse has no default bin
+    (docs/assumptions.md §E8-6).
+    """
+    if location_id is None:
+        return
+    location = await repo.lock_default_location(location_id)
+    if location is None:
+        raise NotFoundError("Storage location", location_id)
+    if not location.is_active:
+        message = inactive_record("Storage location", location.code, "cannot be a default bin")
+        raise BusinessRuleError(
+            message,
+            details={"fields": {"default_location_id": [message]}},
+        )
+    if location.warehouse_id != warehouse_id:
+        message = (
+            f"Storage location {location.code} is not in the item's default warehouse; "
+            "a default bin belongs to the default warehouse."
+        )
+        raise BusinessRuleError(
+            message,
+            details={"fields": {"default_location_id": [message]}},
+        )
+
+
 async def _require_attribute(
     session: AsyncSession,
     tenant: TenantContext,
@@ -1273,6 +1315,9 @@ async def create_item(session: AsyncSession, tenant: TenantContext, payload: Ite
             sale_uom_id=payload.sale_uom_id,
         )
         await _assert_default_warehouse_exists(repo, payload.default_warehouse_id)
+        await _assert_default_location(
+            repo, payload.default_location_id, payload.default_warehouse_id
+        )
 
         flags = resolve_capabilities(
             payload.item_group,
@@ -1317,6 +1362,7 @@ async def create_item(session: AsyncSession, tenant: TenantContext, payload: Ite
             is_batch_tracked=payload.is_batch_tracked,
             is_serial_tracked=payload.is_serial_tracked,
             default_warehouse_id=payload.default_warehouse_id,
+            default_location_id=payload.default_location_id,
             is_active=payload.is_active,
             **flags,
         )
@@ -1473,6 +1519,16 @@ async def update_item(
                 sale_uom_id=sale_uom_id,
             )
         await _assert_default_warehouse_exists(repo, scalar_updates.get("default_warehouse_id"))
+        # The default bin is re-checked whenever it, or the warehouse it has to
+        # belong to, changes - and only then, like the brand above: an item
+        # keeps the default bin it has (docs/assumptions.md §E8-6).
+        default_location_id = scalar_updates.get("default_location_id", item.default_location_id)
+        default_warehouse_id = scalar_updates.get("default_warehouse_id", item.default_warehouse_id)
+        if (default_location_id, default_warehouse_id) != (
+            item.default_location_id,
+            item.default_warehouse_id,
+        ):
+            await _assert_default_location(repo, default_location_id, default_warehouse_id)
 
         for field, value in scalar_updates.items():
             setattr(item, field, value)

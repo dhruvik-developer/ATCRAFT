@@ -4,10 +4,10 @@ Handlers bind parameters, call one service function and wrap the result in the
 standard envelope. No rule, query or audit write lives here (master rules
 section 74).
 
-Route ordering note: ``/ready-for-packing`` is declared before ``/{order_id}``.
-FastAPI matches in declaration order, and a literal segment declared after a
-path parameter of the same shape would be captured by it and rejected as a
-malformed UUID.
+Route ordering note: ``/ready-for-packing`` and ``/board/...`` are declared
+before ``/{order_id}``. FastAPI matches in declaration order, and a literal
+segment declared after a path parameter of the same shape would be captured by
+it and rejected as a malformed UUID.
 """
 
 from __future__ import annotations
@@ -19,13 +19,23 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from src.core.deps import DbSession, Tenant, require_any_permission, require_permission
-from src.core.pagination import PageParams, SortParams, page_params, sort_params
+from src.core.pagination import (
+    PageParams,
+    SortParams,
+    bind_query_filters,
+    page_params,
+    sort_params,
+)
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
 from src.modules.assembly import service
 from src.modules.assembly.models import AssemblyOrderStatus
 from src.modules.assembly.schemas import (
+    AssemblyBoardFilters,
+    AssemblyBoardOrder,
+    AssemblyComponentAvailability,
     AssemblyComponentRead,
+    AssemblyLineLoad,
     AssemblyOrderCreate,
     AssemblyOrderDetail,
     AssemblyOrderFilters,
@@ -122,6 +132,77 @@ async def ready_for_packing(
 
 
 # -----------------------------------------------------------------------------
+# The assembly board (literal paths, declared before /{order_id})
+# -----------------------------------------------------------------------------
+
+
+def board_filters(
+    assembly_line: Annotated[str | None, Query(max_length=64)] = None,
+    unassigned_line: Annotated[
+        bool, Query(description="Only open orders that are on no assembly line")
+    ] = False,
+    warehouse_id: Annotated[
+        uuid.UUID | None, Query(description="Warehouse components are drawn from")
+    ] = None,
+    late_only: Annotated[bool, Query(description="Only orders past their planned end")] = False,
+) -> AssemblyBoardFilters:
+    return bind_query_filters(
+        AssemblyBoardFilters,
+        assembly_line=assembly_line,
+        unassigned_line=unassigned_line,
+        warehouse_id=warehouse_id,
+        late_only=late_only,
+    )
+
+
+BoardFilterDep = Annotated[AssemblyBoardFilters, Depends(board_filters)]
+
+
+@router.get(
+    "/board/lines",
+    response_model=PaginatedResponse[AssemblyLineLoad],
+    summary="Open assembly work per line",
+    description=(
+        "One row per assembly line with open orders - how many are not started, on the "
+        "bench, awaiting inspection and late, and the quantity planned - aggregated in one "
+        "grouped statement. Orders on no line are the row whose line is null."
+    ),
+    dependencies=[require_permission(Permission.ASSEMBLY_ORDER_VIEW)],
+)
+async def board_lines(
+    session: DbSession,
+    tenant: Tenant,
+    params: PageDep,
+    warehouse_id: Annotated[
+        uuid.UUID | None, Query(description="Warehouse components are drawn from")
+    ] = None,
+) -> PaginatedResponse[AssemblyLineLoad]:
+    rows, pagination = await service.board_lines(
+        session, tenant, warehouse_id=warehouse_id, params=params
+    )
+    return PaginatedResponse[AssemblyLineLoad](data=rows, pagination=pagination)
+
+
+@router.get(
+    "/board/orders",
+    response_model=PaginatedResponse[AssemblyBoardOrder],
+    summary="The assembly board: open orders, planned against actual",
+    description=(
+        "Every open assembly order line by line, in schedule order, with its planned and "
+        "actual start and end and a lateness flag worked out on the server: late once the "
+        "planned end has passed while the order still owes finished stock, start overdue "
+        "once the planned start has passed with the bench not begun."
+    ),
+    dependencies=[require_permission(Permission.ASSEMBLY_ORDER_VIEW)],
+)
+async def board_orders(
+    session: DbSession, tenant: Tenant, filters: BoardFilterDep, params: PageDep
+) -> PaginatedResponse[AssemblyBoardOrder]:
+    rows, pagination = await service.board_orders(session, tenant, filters, params)
+    return PaginatedResponse[AssemblyBoardOrder](data=rows, pagination=pagination)
+
+
+# -----------------------------------------------------------------------------
 # CRUD
 # -----------------------------------------------------------------------------
 
@@ -151,9 +232,9 @@ async def list_orders(
     status_code=status.HTTP_201_CREATED,
     summary="Raise a draft assembly order",
     description=(
-        "Explodes one level of the item's approved ASSEMBLY bill of materials, scales each "
-        "component to the planned quantity with its scrap allowance and freezes the result "
-        "onto the order. No stock is reserved or consumed by a draft."
+        "Explodes one level of the item's approved ASSEMBLY or PRODUCTION bill of materials, "
+        "scales each component to the planned quantity with its scrap allowance and freezes "
+        "the result onto the order. No stock is reserved or consumed by a draft."
     ),
     dependencies=[require_permission(Permission.ASSEMBLY_ORDER_MANAGE)],
 )
@@ -234,6 +315,26 @@ async def list_components(
     )
 
 
+@router.get(
+    "/{order_id}/availability",
+    response_model=ApiResponse[list[AssemblyComponentAvailability]],
+    summary="Live stock for each component, against what a release would reserve",
+    description=(
+        "Promisable stock at the position a release reserves - the component warehouse, "
+        "no bin, no batch - read live and never cached, with what each line would still be "
+        "short of. Returned whole rather than paginated: the set is bounded when the order "
+        "is raised, and a release is decided on the whole kit."
+    ),
+    dependencies=[require_permission(Permission.ASSEMBLY_ORDER_VIEW)],
+)
+async def component_availability(
+    order_id: uuid.UUID, session: DbSession, tenant: Tenant
+) -> ApiResponse[list[AssemblyComponentAvailability]]:
+    return ApiResponse[list[AssemblyComponentAvailability]].ok(
+        await service.component_availability(session, tenant, order_id)
+    )
+
+
 # -----------------------------------------------------------------------------
 # Lifecycle
 # -----------------------------------------------------------------------------
@@ -284,7 +385,10 @@ async def release_order(
     description=(
         "Records what was physically kitted. No stock moves here - the components are still "
         "owned, still in their warehouse position and still reserved to this order. The "
-        "ledger is written at completion, when it is known what they were turned into."
+        "ledger is written at completion, when it is known what they were turned into. "
+        "From RELEASED this is the first issue; while the order is COMPONENTS_ISSUED or "
+        "IN_PROGRESS it is a top-up that raises the issued totals and leaves the status "
+        "alone. Totals never go down and never exceed the reserved requirement."
     ),
     dependencies=[require_permission(Permission.ASSEMBLY_ORDER_MANAGE)],
 )
@@ -352,8 +456,12 @@ async def complete_assembly(
     response_model=ApiResponse[AssemblyOrderSummary],
     summary="Apply an inspection verdict to held assembly output",
     description=(
-        "Accepted quantity is released into the available pool; rejected quantity is moved "
-        "to the damaged pool. The two must account for everything on hold."
+        "For a hold no quality inspection covers: accepted quantity is released into the "
+        "available pool, rejected quantity is moved to the damaged pool, and the two must "
+        "account for everything on hold. When the order names an inspection, that "
+        "inspection is the one release path: an open one refuses this call and names it; a "
+        "decided one completes the order from its own figures, which this request must "
+        "repeat, and no stock moves a second time."
     ),
     dependencies=[require_permission(Permission.QC_DECIDE)],
 )

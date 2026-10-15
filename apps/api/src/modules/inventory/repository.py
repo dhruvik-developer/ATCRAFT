@@ -34,12 +34,17 @@ from sqlalchemy.orm import InstrumentedAttribute, selectinload
 from src.common.repository import BaseRepository
 from src.common.warehouse_scope import warehouse_scope
 from src.core.clock import utcnow
-from src.core.ids import new_id
+from src.core.ids import new_id, persisted_actor
 from src.core.pagination import PageParams, SortParams
 from src.core.responses import OffsetPagination
 from src.modules.inventory.models import (
     BALANCE_GRAIN_SQL,
     SERIAL_IN_WAREHOUSE_STATUSES,
+    BinMove,
+    BinMoveLine,
+    CostLayerPool,
+    InternalIssue,
+    InternalIssueLine,
     InventoryBalance,
     InventoryCostLayer,
     InventoryCostLayerConsumption,
@@ -47,6 +52,8 @@ from src.modules.inventory.models import (
     PhysicalCount,
     PhysicalCountLine,
     PhysicalCountStatus,
+    ScrapDisposal,
+    ScrapDisposalLine,
     SerialStatus,
     StockAdjustment,
     StockAdjustmentLine,
@@ -59,8 +66,11 @@ from src.modules.inventory.models import (
 from src.modules.inventory.schemas import (
     AdjustmentFilters,
     BalanceFilters,
+    BinMoveFilters,
+    InternalIssueFilters,
     LedgerFilters,
     PhysicalCountFilters,
+    ScrapDisposalFilters,
     TransferFilters,
 )
 from src.modules.products.models import Item
@@ -115,6 +125,7 @@ class ItemFacts:
     is_active: bool
     standard_cost: Decimal
     reorder_level: Decimal
+    can_scrap: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,7 +230,9 @@ class InventoryRepository(BaseRepository[InventoryBalance]):
         """
         params: dict[str, Any] = {
             "company_id": self.tenant.company_id,
-            "user_id": self.tenant.user_id,
+            # A scheduled job's placeholder actor is stored as NULL, never as a
+            # foreign key to a user that does not exist.
+            "user_id": persisted_actor(self.tenant.user_id),
             "now": utcnow(),
         }
         rows_sql: list[str] = []
@@ -320,6 +333,7 @@ class InventoryRepository(BaseRepository[InventoryBalance]):
             InventoryBalance.available_quantity,
             InventoryBalance.in_transit_quantity,
             InventoryBalance.job_work_quantity,
+            InventoryBalance.scrap_quantity,
             InventoryBalance.stock_value,
         )
         stmt = select(*[func.coalesce(func.sum(column), 0) for column in columns]).where(
@@ -405,6 +419,7 @@ class InventoryRepository(BaseRepository[InventoryBalance]):
                 func.sum(InventoryBalance.qc_hold_quantity).label("qc_hold_quantity"),
                 func.sum(InventoryBalance.damaged_quantity).label("damaged_quantity"),
                 func.sum(InventoryBalance.job_work_quantity).label("job_work_quantity"),
+                func.sum(InventoryBalance.scrap_quantity).label("scrap_quantity"),
                 func.sum(InventoryBalance.stock_value).label("stock_value"),
             )
             .join(Warehouse, Warehouse.id == InventoryBalance.warehouse_id)
@@ -491,6 +506,7 @@ class InventoryRepository(BaseRepository[InventoryBalance]):
             Item.is_active,
             Item.standard_cost,
             Item.reorder_level,
+            Item.can_scrap,
         ).where(
             Item.company_id == self.tenant.company_id,
             Item.id.in_(list(dict.fromkeys(item_ids))),
@@ -505,6 +521,7 @@ class InventoryRepository(BaseRepository[InventoryBalance]):
                 is_active=row.is_active,
                 standard_cost=row.standard_cost,
                 reorder_level=row.reorder_level,
+                can_scrap=row.can_scrap,
             )
             for row in (await self.session.execute(stmt)).all()
         }
@@ -535,6 +552,31 @@ class InventoryRepository(BaseRepository[InventoryBalance]):
             )
             for row in (await self.session.execute(stmt)).all()
         }
+
+    async def document_position_labels(
+        self, location_ids: set[uuid.UUID], batch_ids: set[uuid.UUID]
+    ) -> tuple[dict[uuid.UUID, str], dict[uuid.UUID, str]]:
+        # Historical document labels remain readable after a bin or batch is
+        # retired. Scope both projections; never issue one query per line.
+        locations: dict[uuid.UUID, str] = {}
+        batches: dict[uuid.UUID, str] = {}
+        if location_ids:
+            rows = await self.session.execute(
+                select(StorageLocation.id, StorageLocation.code).where(
+                    StorageLocation.company_id == self.tenant.company_id,
+                    StorageLocation.id.in_(location_ids),
+                    *warehouse_scope(self.tenant, StorageLocation.warehouse_id),
+                )
+            )
+            locations = {row.id: row.code for row in rows}
+        if batch_ids:
+            rows = await self.session.execute(
+                select(StockBatch.id, StockBatch.batch_number).where(
+                    StockBatch.company_id == self.tenant.company_id, StockBatch.id.in_(batch_ids)
+                )
+            )
+            batches = {row.id: row.batch_number for row in rows}
+        return locations, batches
 
     async def location_facts(
         self, location_ids: Sequence[uuid.UUID]
@@ -795,6 +837,11 @@ class CostLayerRepository(BaseRepository[InventoryCostLayer]):
         return a neighbouring position's layers the way an item/warehouse filter
         with the exact match done in Python could.
 
+        Both of a position's queues come back - the on-hand queue and the scrap
+        queue (``pool``, see :class:`~src.modules.inventory.models.CostLayerPool`)
+        - in one acquisition, so the lock order stays a single primary-key
+        sequence. The engine splits them before anything is costed.
+
         ``ORDER BY id`` is the *lock acquisition* order and is deliberately not
         the FIFO order - primary key, like the balance lock, so the acquisition
         sequence is the same for every transaction. The rows come back sorted by
@@ -829,7 +876,10 @@ class CostLayerRepository(BaseRepository[InventoryCostLayer]):
         return layers
 
     async def open_layers_for_balances(
-        self, balance_ids: Sequence[uuid.UUID]
+        self,
+        balance_ids: Sequence[uuid.UUID],
+        *,
+        pool: CostLayerPool = CostLayerPool.ON_HAND,
     ) -> dict[uuid.UUID, list[InventoryCostLayer]]:
         """The open layers at a set of positions, in FIFO order, without a lock.
 
@@ -851,6 +901,7 @@ class CostLayerRepository(BaseRepository[InventoryCostLayer]):
             InventoryCostLayer.company_id == self.tenant.company_id,
             InventoryCostLayer.balance_id.in_(wanted),
             InventoryCostLayer.remaining_quantity > 0,
+            InventoryCostLayer.pool == pool,
         )
         rows = list((await self.session.execute(stmt)).scalars().all())
         layers: dict[uuid.UUID, list[InventoryCostLayer]] = {
@@ -862,8 +913,10 @@ class CostLayerRepository(BaseRepository[InventoryCostLayer]):
             open_layers.sort(key=fifo_sort_key)
         return layers
 
-    async def open_layers_for_balance(self, balance_id: uuid.UUID) -> list[InventoryCostLayer]:
-        """The open layers at one position, in FIFO order, without a lock.
+    async def open_layers_for_balance(
+        self, balance_id: uuid.UUID, *, pool: CostLayerPool = CostLayerPool.ON_HAND
+    ) -> list[InventoryCostLayer]:
+        """The open layers of one of a position's queues, in FIFO order, without a lock.
 
         For reads - a stock-ageing view, a valuation drill-down, a test checking
         what the engine left behind. Never use this to decide what to consume:
@@ -874,6 +927,7 @@ class CostLayerRepository(BaseRepository[InventoryCostLayer]):
             InventoryCostLayer.company_id == self.tenant.company_id,
             InventoryCostLayer.balance_id == balance_id,
             InventoryCostLayer.remaining_quantity > 0,
+            InventoryCostLayer.pool == pool,
         )
         rows = list((await self.session.execute(stmt)).scalars().all())
         rows.sort(key=fifo_sort_key)
@@ -1296,13 +1350,195 @@ class PhysicalCountLineRepository(BaseRepository[PhysicalCountLine]):
         return int((await self.session.execute(stmt)).scalar_one())
 
 
+# -----------------------------------------------------------------------------
+# Bin move, scrap disposal and internal issue
+#
+# Scoped to the principal's warehouses on reads as well as writes: a store
+# keeper assigned to one store reads that store's documents and gets "not
+# found" for the rest - the same answer ``warehouse_scope`` gives the ledger.
+# -----------------------------------------------------------------------------
+
+
+class BinMoveRepository(BaseRepository[BinMove]):
+    model = BinMove
+    searchable_fields = ("code", "reason")
+    sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
+        "code": BinMove.code,
+        "move_date": BinMove.move_date,
+        "status": BinMove.status,
+        "total_quantity": BinMove.total_quantity,
+        "created_at": BinMove.created_at,
+    }
+
+    def _scoped(self, *, include_deleted: bool = False) -> Select[tuple[BinMove]]:
+        return (
+            super()
+            ._scoped(include_deleted=include_deleted)
+            .where(*warehouse_scope(self.tenant, BinMove.warehouse_id))
+        )
+
+    def build_list_stmt(
+        self, filters: BinMoveFilters, sort: SortParams | None = None
+    ) -> Select[tuple[BinMove]]:
+        stmt = self._scoped()
+        if filters.status is not None:
+            stmt = stmt.where(BinMove.status == filters.status)
+        if filters.warehouse_id is not None:
+            stmt = stmt.where(BinMove.warehouse_id == filters.warehouse_id)
+        if filters.date_from is not None:
+            stmt = stmt.where(BinMove.move_date >= filters.date_from)
+        if filters.date_to is not None:
+            stmt = stmt.where(BinMove.move_date <= filters.date_to)
+        stmt = self._apply_search(stmt, filters.search)
+
+        if sort is not None and sort.sort_by:
+            return stmt.order_by(sort.resolve(self.sortable_fields, BinMove.id.desc()))
+        return stmt.order_by(BinMove.move_date.desc(), BinMove.id.desc())
+
+    async def get_with_lines(self, bin_move_id: uuid.UUID) -> BinMove | None:
+        """Header plus lines in two queries, never one per line."""
+        stmt = self._scoped().where(BinMove.id == bin_move_id).options(selectinload(BinMove.lines))
+        return (await self.session.execute(stmt)).unique().scalar_one_or_none()
+
+
+class ScrapDisposalRepository(BaseRepository[ScrapDisposal]):
+    model = ScrapDisposal
+    searchable_fields = ("code", "reason", "buyer_reference")
+    sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
+        "code": ScrapDisposal.code,
+        "disposal_date": ScrapDisposal.disposal_date,
+        "disposal_kind": ScrapDisposal.disposal_kind,
+        "status": ScrapDisposal.status,
+        "realised_amount": ScrapDisposal.realised_amount,
+        "created_at": ScrapDisposal.created_at,
+    }
+
+    def _scoped(self, *, include_deleted: bool = False) -> Select[tuple[ScrapDisposal]]:
+        return (
+            super()
+            ._scoped(include_deleted=include_deleted)
+            .where(*warehouse_scope(self.tenant, ScrapDisposal.warehouse_id))
+        )
+
+    def build_list_stmt(
+        self, filters: ScrapDisposalFilters, sort: SortParams | None = None
+    ) -> Select[tuple[ScrapDisposal]]:
+        stmt = self._scoped()
+        if filters.status is not None:
+            stmt = stmt.where(ScrapDisposal.status == filters.status)
+        if filters.warehouse_id is not None:
+            stmt = stmt.where(ScrapDisposal.warehouse_id == filters.warehouse_id)
+        if filters.disposal_kind is not None:
+            stmt = stmt.where(ScrapDisposal.disposal_kind == filters.disposal_kind)
+        if filters.date_from is not None:
+            stmt = stmt.where(ScrapDisposal.disposal_date >= filters.date_from)
+        if filters.date_to is not None:
+            stmt = stmt.where(ScrapDisposal.disposal_date <= filters.date_to)
+        stmt = self._apply_search(stmt, filters.search)
+
+        if sort is not None and sort.sort_by:
+            return stmt.order_by(sort.resolve(self.sortable_fields, ScrapDisposal.id.desc()))
+        return stmt.order_by(ScrapDisposal.disposal_date.desc(), ScrapDisposal.id.desc())
+
+    async def get_with_lines(self, disposal_id: uuid.UUID) -> ScrapDisposal | None:
+        stmt = (
+            self._scoped()
+            .where(ScrapDisposal.id == disposal_id)
+            .options(selectinload(ScrapDisposal.lines))
+        )
+        return (await self.session.execute(stmt)).unique().scalar_one_or_none()
+
+
+class InternalIssueRepository(BaseRepository[InternalIssue]):
+    model = InternalIssue
+    searchable_fields = ("code", "reason")
+    sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
+        "code": InternalIssue.code,
+        "issue_date": InternalIssue.issue_date,
+        "status": InternalIssue.status,
+        "total_value": InternalIssue.total_value,
+        "created_at": InternalIssue.created_at,
+    }
+
+    def _scoped(self, *, include_deleted: bool = False) -> Select[tuple[InternalIssue]]:
+        return (
+            super()
+            ._scoped(include_deleted=include_deleted)
+            .where(*warehouse_scope(self.tenant, InternalIssue.warehouse_id))
+        )
+
+    def build_list_stmt(
+        self, filters: InternalIssueFilters, sort: SortParams | None = None
+    ) -> Select[tuple[InternalIssue]]:
+        stmt = self._scoped()
+        if filters.status is not None:
+            stmt = stmt.where(InternalIssue.status == filters.status)
+        if filters.warehouse_id is not None:
+            stmt = stmt.where(InternalIssue.warehouse_id == filters.warehouse_id)
+        if filters.department_id is not None:
+            stmt = stmt.where(InternalIssue.department_id == filters.department_id)
+        if filters.cost_centre_id is not None:
+            stmt = stmt.where(InternalIssue.cost_centre_id == filters.cost_centre_id)
+        if filters.date_from is not None:
+            stmt = stmt.where(InternalIssue.issue_date >= filters.date_from)
+        if filters.date_to is not None:
+            stmt = stmt.where(InternalIssue.issue_date <= filters.date_to)
+        stmt = self._apply_search(stmt, filters.search)
+
+        if sort is not None and sort.sort_by:
+            return stmt.order_by(sort.resolve(self.sortable_fields, InternalIssue.id.desc()))
+        return stmt.order_by(InternalIssue.issue_date.desc(), InternalIssue.id.desc())
+
+    async def lock_for_update(self, issue_id: uuid.UUID) -> InternalIssue | None:
+        """Row lock on the header before its status is read.
+
+        Posting and approving are read-modify-writes over the status: without
+        the lock two simultaneous approvals both read PENDING_APPROVAL and both
+        post the issue to the ledger. See
+        :meth:`StockTransferRepository.lock_for_update`.
+        """
+        stmt = (
+            self._scoped()
+            .where(InternalIssue.id == issue_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def get_with_lines(self, issue_id: uuid.UUID) -> InternalIssue | None:
+        stmt = (
+            self._scoped()
+            .where(InternalIssue.id == issue_id)
+            .options(selectinload(InternalIssue.lines))
+        )
+        return (await self.session.execute(stmt)).unique().scalar_one_or_none()
+
+
+class BinMoveLineRepository(BaseRepository[BinMoveLine]):
+    model = BinMoveLine
+
+
+class ScrapDisposalLineRepository(BaseRepository[ScrapDisposalLine]):
+    model = ScrapDisposalLine
+
+
+class InternalIssueLineRepository(BaseRepository[InternalIssueLine]):
+    model = InternalIssueLine
+
+
 __all__ = [
     "BalanceGrain",
+    "BinMoveLineRepository",
+    "BinMoveRepository",
+    "InternalIssueLineRepository",
+    "InternalIssueRepository",
     "InventoryRepository",
     "ItemFacts",
     "LedgerRepository",
     "PhysicalCountLineRepository",
     "PhysicalCountRepository",
+    "ScrapDisposalLineRepository",
+    "ScrapDisposalRepository",
     "StockAdjustmentLineRepository",
     "StockAdjustmentRepository",
     "StockBatchRepository",

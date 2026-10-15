@@ -61,6 +61,7 @@ const SCREENS = [
   ['/quality/templates', '/quality/templates'],
   ['/packing', '/packing'],
   ['/dispatch', '/dispatch'],
+  ['/finance/sales-invoices', '/finance/sales-invoices'],
   ['/finance/vendor-invoices', '/finance/vendor-invoices'],
   ['/finance/payments', '/finance/payments'],
   ['/finance/accounts', '/finance/accounts'],

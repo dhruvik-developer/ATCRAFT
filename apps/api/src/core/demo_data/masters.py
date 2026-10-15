@@ -1130,6 +1130,42 @@ STAFF: tuple[tuple[tuple[str, ...], str, str, str, str], ...] = (
     ),
 )
 
+#: The shop-floor operators the demonstration shift roster plans, in the shape
+#: of :data:`STAFF`. An operator is a user account - there is no employee master
+#: without a login, which docs/assumptions.md lists as an open question - and no
+#: operator role exists, so they hold the production supervisor's. The employee
+#: code is what the roster prints beside the name.
+OPERATORS: tuple[tuple[tuple[str, ...], str, str, str, str], ...] = (
+    (
+        ("USER", "OP1"),
+        "Amit Shah",
+        "amit.shah@atcraft.example",
+        "PRODUCTION_SUPERVISOR",
+        "EMP-OP-001",
+    ),
+    (
+        ("USER", "OP2"),
+        "Neha Patel",
+        "neha.patel@atcraft.example",
+        "PRODUCTION_SUPERVISOR",
+        "EMP-OP-002",
+    ),
+    (
+        ("USER", "OP3"),
+        "Ravi Desai",
+        "ravi.desai@atcraft.example",
+        "PRODUCTION_SUPERVISOR",
+        "EMP-OP-003",
+    ),
+    (
+        ("USER", "OP4"),
+        "Sunita Rao",
+        "sunita.rao@atcraft.example",
+        "PRODUCTION_SUPERVISOR",
+        "EMP-OP-004",
+    ),
+)
+
 #: Which of :data:`STAFF` creates the vendor records.
 BUYER = ("USER", "BUYER")
 
@@ -1733,7 +1769,7 @@ async def _seed_prices(ctx: DemoContext, anchor: date) -> None:
 
 
 async def _seed_staff(ctx: DemoContext) -> TenantContext | None:
-    """A buyer and a sales executive, and the buyer's tenant context.
+    """A buyer, a sales executive and the operators, and the buyer's tenant context.
 
     Returns the context to create vendors under, or ``None`` when the accounts
     could not be made - in which case the caller falls back to creating vendors
@@ -1747,7 +1783,7 @@ async def _seed_staff(ctx: DemoContext) -> TenantContext | None:
     service = UserService(ctx.session, ctx.tenant)
     buyer_id: uuid.UUID | None = None
 
-    for parts, full_name, email, role_code, employee_code in STAFF:
+    for parts, full_name, email, role_code, employee_code in (*STAFF, *OPERATORS):
         code = ctx.code(*parts)
         # Users are keyed by e-mail, not by a code column, so `find_by_code` does
         # not apply to them.

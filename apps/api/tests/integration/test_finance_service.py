@@ -37,7 +37,7 @@ import src.modules.organization.models
 import src.modules.users.models  # noqa: F401 - registers `users`
 from src.core.config import settings
 from src.core.deps import Principal, TenantContext
-from src.core.errors import BusinessRuleError, NotFoundError
+from src.core.errors import BusinessRuleError, NotFoundError, ValidationError
 from src.core.models import Base
 from src.core.pagination import PageParams
 from src.core.permissions import Permission
@@ -885,7 +885,7 @@ class TestCustomerReceipt:
         receivable = next(e for e in entries if e.party_type == PartyType.CUSTOMER)
         assert receivable.credit_amount == Decimal("2000.0000")
 
-    async def test_a_receipt_has_no_invoices_to_allocate_against(self, ctx) -> None:
+    async def test_a_customer_receipt_refuses_a_vendor_invoice_reference(self, ctx) -> None:
         session, tenant, principal = ctx
         customer = Customer(
             company_id=tenant.company_id,
@@ -909,7 +909,7 @@ class TestCustomerReceipt:
         )
         await service.approve_payment(session, tenant, principal, payment.id)
 
-        with pytest.raises(BusinessRuleError):
+        with pytest.raises(ValidationError, match="sales invoices"):
             await service.allocate_payment(
                 session,
                 tenant,

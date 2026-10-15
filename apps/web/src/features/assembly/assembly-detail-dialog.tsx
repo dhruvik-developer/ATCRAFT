@@ -51,18 +51,34 @@ import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
+import type { QcInspectionDetail, QcInspectionRow } from '@/features/quality/quality-types'
+import { InspectionDialog } from '@/features/quality/inspection-dialog'
+import { packingKeys, type PackingOrderDetail } from '@/features/packing/packing-types'
+
+import { AssemblyVerdictDialog, ReasonDialog } from './assembly-lifecycle'
+
 import {
   acceptsComponentIssue,
   assemblyKeys,
+  hasLinkedInspection,
+  isApprovable,
+  isCancellable,
+  isClosable,
   isCompletable,
+  isDeletable,
+  isEditable,
+  isReleasable,
+  isStartable,
   onBenchQuantity,
   outstandingQuantity,
   remainingToAssemble,
   type AssemblyComponent,
+  type AssemblyComponentAvailability,
   type AssemblyCompletionResult,
   type AssemblyOrderDetail,
   type StockSerial,
 } from './assembly-model'
+import { AssemblyOrderFormDialog } from './assembly-order-dialog'
 
 const QUANTITY = /^\d{1,14}(\.\d{1,4})?$/
 const OPTIONAL_QUANTITY = /^(\d{1,14}(\.\d{1,4})?)?$/
@@ -741,6 +757,92 @@ function CompleteAssemblyDialog({
 
 // -------------------------------------------------------------- detail ------
 
+/**
+ * What a release would still be short of, read live.
+ *
+ * Release reserves every component at the bin-less, batch-less position and
+ * refuses the whole order when one line is short, so the shortage is shown
+ * before anything is promised. Availability is never cached and never comes
+ * from the kitting list, which carries no stock figure at all.
+ */
+function ReleaseReadiness({
+  availability,
+  isLoading,
+  error,
+  onRefresh,
+}: {
+  availability: AssemblyComponentAvailability[] | undefined
+  isLoading: boolean
+  error: Error | null
+  onRefresh: () => void
+}) {
+  if (isLoading) {
+    return (
+      <div className="space-y-2 pb-3">
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-2/3" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-2 pb-3">
+        <Alert variant="destructive">
+          <AlertDescription>{error.message}</AlertDescription>
+        </Alert>
+        <Button variant="outline" size="sm" onClick={onRefresh}>
+          Retry
+        </Button>
+      </div>
+    )
+  }
+
+  const rows = availability ?? []
+  const short = rows.filter((row) => toDecimal(row.shortage_quantity).greaterThan(0))
+  if (rows.length === 0) {
+    return (
+      <p className="pb-3 text-sm text-muted-foreground">
+        The order carries no component lines, so there is nothing to reserve.
+      </p>
+    )
+  }
+
+  if (short.length === 0) {
+    return (
+      <p className="pb-3 text-sm text-success">
+        Every component is covered at the position a release reserves. Releasing takes the
+        reservations now.
+      </p>
+    )
+  }
+
+  return (
+    <div className="space-y-2 pb-3">
+      <Alert variant="warning">
+        <AlertDescription>
+          {short.length} line{short.length === 1 ? ' is' : 's are'} short. A release is refused
+          while any line is short, so nothing below is reserved yet.
+        </AlertDescription>
+      </Alert>
+      <ul className="space-y-1.5">
+        {short.map((row) => (
+          <li
+            key={row.line_number}
+            className="flex items-baseline justify-between gap-3 rounded-md border px-2.5 py-1.5 text-sm"
+          >
+            <span className="text-muted-foreground">Line {row.line_number}</span>
+            <span className="font-medium tabular">
+              short {formatQuantity(row.shortage_quantity)} of{' '}
+              {formatQuantity(row.required_quantity)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 export function AssemblyDetailDialog({
   open,
   onOpenChange,
@@ -757,8 +859,18 @@ export function AssemblyDetailDialog({
   canComplete: boolean
 }) {
   const { can } = useAuth()
+  const queryClient = useQueryClient()
   const [issueOpen, setIssueOpen] = useState(false)
   const [completeOpen, setCompleteOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [reasonFor, setReasonFor] = useState<
+    'approve' | 'release' | 'start' | 'close' | 'cancel' | 'delete' | null
+  >(null)
+  const [directVerdictOpen, setDirectVerdictOpen] = useState(false)
+  const [openingInspection, setOpeningInspection] = useState(false)
+  // The linked inspection, opened in quality's own decide dialog. Only the id
+  // is carried: the dialog reads the sheet itself.
+  const [inspecting, setInspecting] = useState<QcInspectionRow | null>(null)
 
   const orderQuery = useQuery({
     queryKey: assemblyKeys.detail(orderId),
@@ -777,6 +889,25 @@ export function AssemblyDetailDialog({
 
   const order = orderQuery.data
   const components = useMemo(() => componentsQuery.data ?? [], [componentsQuery.data])
+
+  // Live promisable stock per component, read only while a release is being
+  // considered: it is never cached, and the shortage column is what the
+  // release dialog shows before the bench is promised anything.
+  const availabilityQuery = useQuery({
+    queryKey: assemblyKeys.availability(orderId),
+    queryFn: () => api.get<AssemblyComponentAvailability[]>(`/assembly/${orderId}/availability`),
+    staleTime: staleTimes.live,
+    enabled: open && Boolean(orderId) && reasonFor === 'release',
+  })
+
+  // The packing order that claimed this assembly's output, if one did. Read
+  // for its code only; the packing screen owns everything else about it.
+  const packingQuery = useQuery({
+    queryKey: packingKeys.detail(order?.packing_order_id ?? ''),
+    queryFn: () => api.get<PackingOrderDetail>(`/packing/${order?.packing_order_id}`),
+    staleTime: staleTimes.transactional,
+    enabled: open && Boolean(order?.packing_order_id),
+  })
 
   const columns = useMemo<ColumnDef<AssemblyComponent, unknown>[]>(
     () => [
@@ -869,6 +1000,106 @@ export function AssemblyDetailDialog({
   // manage permission every other write on the order uses, so the two are asked
   // separately rather than one standing in for the other.
   const showComplete = Boolean(order && canComplete && isCompletable(order.status))
+
+  // Every other write on the order declares `assembly_order.manage` - approve,
+  // release, start, close and cancel alike - while the verdict declares
+  // `qc.decide`. The two rights are therefore asked separately here, exactly
+  // as the routes declare them.
+  const showEdit = Boolean(order && canManage && isEditable(order.status))
+  const showDelete = Boolean(order && canManage && isDeletable(order.status))
+  const showApprove = Boolean(order && canManage && isApprovable(order.status))
+  const showRelease = Boolean(order && canManage && isReleasable(order.status))
+  const showStart = Boolean(order && canManage && isStartable(order.status))
+  const showClose = Boolean(order && canManage && isClosable(order.status))
+  const showCancel = Boolean(order && canManage && isCancellable(order.status))
+  const showVerdict = Boolean(order && can(P.QC_DECIDE) && order.status === 'QC_PENDING')
+
+  type LifecycleAction = 'approve' | 'release' | 'start' | 'close' | 'cancel' | 'delete'
+  const lifecycle = useMutation({
+    mutationFn: ({ action, reason }: { action: LifecycleAction; reason: string }) =>
+      action === 'delete'
+        ? api
+            .delete<null>(`/assembly/${orderId}`, { params: { reason } })
+            .then(() => null as AssemblyOrderDetail | null)
+        : api.post<AssemblyOrderDetail>(`/assembly/${orderId}/${action}`, { reason }),
+    onSuccess: (updated, { action }) => {
+      void queryClient.invalidateQueries({ queryKey: assemblyKeys.all })
+      // Release reserves every component and cancel gives them back, so the
+      // allocation screens have moved with the order.
+      if (action === 'release' || action === 'cancel' || action === 'close') {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.allocation.all })
+      }
+      if (action === 'delete') {
+        toast.success(success.deleted('Assembly order'), order?.code ?? '')
+        // A deleted draft has no panel anymore.
+        onOpenChange(false)
+      } else if (updated && order) {
+        const titles = {
+          approve: success.approved('Assembly order'),
+          release: success.released('Assembly order'),
+          start: 'Assembly started',
+          close: success.closed('Assembly order'),
+          cancel: success.cancelled('Assembly order'),
+        } satisfies Record<Exclude<LifecycleAction, 'delete'>, string>
+        toast.success(
+          titles[action],
+          `${updated.code} is now ${humanise(updated.status).toLowerCase()}.`,
+        )
+      }
+      setReasonFor(null)
+    },
+  })
+
+  const openReason = (action: LifecycleAction) => {
+    lifecycle.reset()
+    setReasonFor(action)
+  }
+
+  // The linked inspection's sheet, opened with the inspection itself.
+  //
+  // The sheet's header reads the row it was opened with, so the inspection is
+  // read first rather than passed as a bare id: an id alone renders a header
+  // of `undefined`s while the readings load. `InspectionDetail` carries every
+  // `InspectionSummary` field, so it opens the sheet directly.
+  const openLinkedInspection = async () => {
+    if (!order?.qc_inspection_id || openingInspection) return
+    setOpeningInspection(true)
+    try {
+      setInspecting(
+        await api.get<QcInspectionDetail>(`/quality/inspections/${order.qc_inspection_id}`),
+      )
+    } catch (error) {
+      toast.error('Could not open the inspection', (error as Error).message)
+    } finally {
+      setOpeningInspection(false)
+    }
+  }
+
+  const reasonCopy: Record<
+    LifecycleAction,
+    { title: string; confirm: string; destructive?: boolean }
+  > = {
+    approve: {
+      title: `Approve ${order?.code ?? 'order'}?`,
+      confirm: 'Approve order',
+    },
+    release: {
+      title: `Release ${order?.code ?? 'order'} to the bench?`,
+      confirm: 'Release and reserve',
+    },
+    start: { title: `Start ${order?.code ?? 'order'}?`, confirm: 'Start assembly' },
+    close: { title: `Close ${order?.code ?? 'order'}?`, confirm: 'Close order' },
+    cancel: {
+      title: `Cancel ${order?.code ?? 'order'}?`,
+      confirm: 'Cancel order',
+      destructive: true,
+    },
+    delete: {
+      title: `Delete draft ${order?.code ?? 'order'}?`,
+      confirm: 'Delete draft',
+      destructive: true,
+    },
+  }
 
   return (
     <>
@@ -979,8 +1210,27 @@ export function AssemblyDetailDialog({
                       ),
                     },
                     {
-                      label: 'Packed',
-                      value: order.packed_at ? formatDateTime(order.packed_at) : 'Not packed',
+                      // The packing order that claimed the output, when one did:
+                      // the assembly leaves the ready-for-packing list the
+                      // moment it is marked packed against that order.
+                      label: 'Packing order',
+                      value: order.packing_order_id ? (
+                        packingQuery.data ? (
+                          <Link to="/packing" className="hover:underline">
+                            {packingQuery.data.code}
+                          </Link>
+                        ) : (
+                          <span className="text-muted-foreground">
+                            {order.packed_at
+                              ? `Packed ${formatDateTime(order.packed_at)}`
+                              : 'Handed to packing'}
+                          </span>
+                        )
+                      ) : order.packed_at ? (
+                        formatDateTime(order.packed_at)
+                      ) : (
+                        'Not packed'
+                      ),
                     },
                   ]}
                 />
@@ -1012,10 +1262,58 @@ export function AssemblyDetailDialog({
             )}
           </DialogBody>
 
-          <DialogFooter>
+          <DialogFooter className="flex-wrap">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Close
             </Button>
+            {showEdit && (
+              <Button variant="outline" onClick={() => setEditOpen(true)}>
+                Edit draft
+              </Button>
+            )}
+            {showDelete && (
+              <Button variant="outline" onClick={() => openReason('delete')}>
+                Delete
+              </Button>
+            )}
+            {showApprove && (
+              <Button variant="outline" onClick={() => openReason('approve')}>
+                Approve
+              </Button>
+            )}
+            {showRelease && (
+              <Button variant="outline" onClick={() => openReason('release')}>
+                Release
+              </Button>
+            )}
+            {showStart && (
+              <Button variant="outline" onClick={() => openReason('start')}>
+                Start
+              </Button>
+            )}
+            {showClose && (
+              <Button variant="outline" onClick={() => openReason('close')}>
+                Close order
+              </Button>
+            )}
+            {showCancel && (
+              <Button variant="outline" onClick={() => openReason('cancel')}>
+                Cancel
+              </Button>
+            )}
+            {showVerdict && order && (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  hasLinkedInspection(order)
+                    ? void openLinkedInspection()
+                    : setDirectVerdictOpen(true)
+                }
+                disabled={openingInspection}
+              >
+                {openingInspection ? 'Opening inspection...' : 'Record QC verdict'}
+              </Button>
+            )}
             {canIssue && (
               <Button variant="outline" onClick={() => setIssueOpen(true)}>
                 <PackageMinus />
@@ -1051,6 +1349,64 @@ export function AssemblyDetailDialog({
           canSearchSerials={can(P.INVENTORY_VIEW)}
         />
       )}
+
+      {order && showEdit && (
+        <AssemblyOrderFormDialog open={editOpen} onOpenChange={setEditOpen} order={order} />
+      )}
+
+      {order && reasonFor && (
+        <ReasonDialog
+          open
+          onOpenChange={(next) => {
+            if (!next) setReasonFor(null)
+          }}
+          title={reasonCopy[reasonFor].title}
+          description={
+            reasonFor === 'release'
+              ? 'Takes a hard reservation for every component at the position a release reserves. A component that is short refuses the whole release.'
+              : reasonFor === 'cancel'
+                ? 'Its component reservations are given back in the same transaction, so no part stays invisible to every other document while belonging to nobody.'
+                : reasonFor === 'delete'
+                  ? 'A deleted draft leaves no trail. Anything past a draft is cancelled instead, so the record survives.'
+                  : undefined
+          }
+          confirmLabel={reasonCopy[reasonFor].confirm}
+          destructive={reasonCopy[reasonFor].destructive}
+          pending={lifecycle.isPending}
+          error={lifecycle.error}
+          onConfirm={(reason) => lifecycle.mutate({ action: reasonFor, reason })}
+        >
+          {reasonFor === 'release' && (
+            <ReleaseReadiness
+              availability={availabilityQuery.data}
+              isLoading={availabilityQuery.isLoading}
+              error={availabilityQuery.error as Error | null}
+              onRefresh={() => void availabilityQuery.refetch()}
+            />
+          )}
+        </ReasonDialog>
+      )}
+
+      {order && directVerdictOpen && (
+        <AssemblyVerdictDialog
+          open={directVerdictOpen}
+          onOpenChange={setDirectVerdictOpen}
+          order={order}
+        />
+      )}
+
+      <InspectionDialog
+        inspection={inspecting}
+        open={Boolean(inspecting)}
+        onOpenChange={(next) => {
+          if (!next) {
+            setInspecting(null)
+            // Deciding the inspection completes the order through the owner
+            // callback, so the panel re-reads it when the sheet closes.
+            void queryClient.invalidateQueries({ queryKey: assemblyKeys.all })
+          }
+        }}
+      />
     </>
   )
 }

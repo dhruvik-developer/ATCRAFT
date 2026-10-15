@@ -47,6 +47,7 @@ function assemblyOrder(overrides: Partial<AssemblyOrderRow> = {}): AssemblyOrder
     planned_end: '2026-03-03',
     actual_start: null,
     actual_end: null,
+    priority: 100,
     requires_qc: false,
     qc_inspection_id: null,
     qc_held_at: null,
@@ -229,16 +230,25 @@ describe('what the order panel offers, status by status', () => {
     expect(screen.queryByRole('button', { name: 'Complete' })).toBeNull()
   })
 
-  it('offers nothing on a DRAFT, which has nothing reserved yet', async () => {
+  it('offers the draft commands on a DRAFT, and nothing that needs stock', async () => {
+    // A draft has nothing reserved yet, so issuing and completion are absent -
+    // but the draft itself is worked here: approved, amended, cancelled, or
+    // deleted outright.
     await openOrderIn('DRAFT', [P.ASSEMBLY_ORDER_MANAGE, P.ASSEMBLY_COMPLETE])
 
+    expect(screen.getByRole('button', { name: 'Approve' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Edit draft' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeVisible()
     expect(screen.queryByRole('button', { name: /issue components/i })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Complete' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /qc verdict/i })).toBeNull()
   })
 
-  it('offers nothing on a COMPLETED order either', async () => {
+  it('offers only the close on a COMPLETED order', async () => {
     await openOrderIn('COMPLETED', [P.ASSEMBLY_ORDER_MANAGE, P.ASSEMBLY_COMPLETE])
 
+    expect(screen.getByRole('button', { name: 'Close order' })).toBeVisible()
     expect(screen.queryByRole('button', { name: /issue components/i })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Complete' })).toBeNull()
   })

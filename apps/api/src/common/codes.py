@@ -64,7 +64,7 @@ class DocType:
 
 class DocTypes:
     SALES_ORDER = DocType("sales_order", "SO")
-    SALES_INVOICE = DocType("sales_invoice", "INV")
+    SALES_INVOICE = DocType("sales_invoice", "SI", padding=5)
     PURCHASE_REQUISITION = DocType("purchase_requisition", "PR")
     RFQ = DocType("rfq", "RFQ")
     PURCHASE_ORDER = DocType("purchase_order", "PO")
@@ -80,6 +80,9 @@ class DocTypes:
     STOCK_TRANSFER = DocType("stock_transfer", "ST", yearly=False)
     STOCK_ADJUSTMENT = DocType("stock_adjustment", "ADJ", yearly=False)
     PHYSICAL_COUNT = DocType("physical_count", "PC", yearly=False)
+    BIN_MOVE = DocType("bin_move", "BM", yearly=False)
+    SCRAP_DISPOSAL = DocType("scrap_disposal", "SD", yearly=False)
+    INTERNAL_ISSUE = DocType("internal_issue", "II", yearly=False)
     QC_INSPECTION = DocType("qc_inspection", "QC")
     PACKING_ORDER = DocType("packing_order", "PK")
     DISPATCH = DocType("dispatch", "DSP")

@@ -1,3 +1,4 @@
+import type { SchemaOf } from '@/types/api'
 /**
  * Wire shapes and vocabulary for the production module.
  *
@@ -249,54 +250,10 @@ export interface ProductionComponent {
 }
 
 /** One row of `GET /production/{id}/work-orders` (`WorkOrderRead`). */
-export interface WorkOrderRow {
-  id: string
-  production_order_id: string
-  code: string
-  sequence: number
-  operation_code: string
-  operation_name: string
-  work_center_id: string
-  machine_id: string | null
-  operator_user_id: string | null
-  status: WorkOrderStatus
-  planned_quantity: DecimalString
-  completed_quantity: DecimalString
-  rejected_quantity: DecimalString
-  /** Paid once for the batch. */
-  planned_setup_minutes: DecimalString
-  /** Planned run minutes for the whole work-order quantity. */
-  planned_run_minutes: DecimalString
-  planned_start_at: string | null
-  planned_end_at: string | null
-  actual_start_at: string | null
-  actual_end_at: string | null
-  shift: string | null
-  notes: string | null
-  work_center_cost_per_hour: DecimalString
-  work_center_setup_cost: DecimalString
-  process_cost: DecimalString
-}
+export type WorkOrderRow = SchemaOf<'WorkOrderRead'>
 
 /** One row of `GET /production/{id}/entries` (`ProductionEntryRead`). */
-export interface ProductionEntryRow {
-  id: string
-  production_order_id: string
-  work_order_id: string | null
-  entry_date: string
-  shift: string | null
-  operator_user_id: string | null
-  machine_id: string | null
-  produced_quantity: DecimalString
-  rejected_quantity: DecimalString
-  rejection_reason: string | null
-  /** A decimal string like every other measured value, not a JS number. */
-  downtime_minutes: DecimalString
-  /** The inventory receipt this booking posted, when it produced good output. */
-  output_transaction_id: string | null
-  notes: string | null
-  created_at: string
-}
+export type ProductionEntryRow = SchemaOf<'ProductionEntryRead'>
 
 /** `POST /production/{id}/entries` (`ProductionEntryResult`). */
 export interface ProductionEntryResult {

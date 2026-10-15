@@ -38,6 +38,7 @@ function balance(overrides: Partial<InventoryBalanceRow> = {}): InventoryBalance
     warehouse_id: 'wh000000-0000-7000-8000-000000000001',
     warehouse_code: 'MAIN',
     location_id: null,
+    location_code: null,
     batch_id: null,
     batch_number: null,
     on_hand_quantity: '120.0000',

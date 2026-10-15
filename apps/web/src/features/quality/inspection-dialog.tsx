@@ -54,6 +54,7 @@ import {
   Textarea,
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import type { ItemDetail } from '@/features/items/item-model'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -384,6 +385,15 @@ export function InspectionDialog({
     staleTime: staleTimes.transactional,
   })
 
+  const itemId = detail.data?.item_id ?? inspection?.item_id ?? ''
+  const item = useQuery({
+    queryKey: queryKeys.items.detail(itemId),
+    queryFn: () => api.get<ItemDetail>(`/products/items/${itemId}`),
+    enabled: open && Boolean(itemId) && can(P.ITEM_VIEW),
+    staleTime: staleTimes.master,
+  })
+  const scrapForbidden = item.data?.can_scrap === false
+
   const {
     register,
     control,
@@ -408,6 +418,10 @@ export function InspectionDialog({
     reset(valuesFrom(detail.data, canDecide, canInspect))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadedId, canDecide, canInspect, reset])
+
+  useEffect(() => {
+    if (scrapForbidden) setValue('scrap_quantity', '0')
+  }, [scrapForbidden, loadedId, setValue])
 
   useEffect(() => {
     if (open) return
@@ -1012,9 +1026,15 @@ export function InspectionDialog({
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                  {DISPOSITION_FIELDS.map((entry) => (
+                  {DISPOSITION_FIELDS.filter(
+                    (entry) => entry.name !== 'scrap_quantity' || !scrapForbidden,
+                  ).map((entry) => (
                     <div key={entry.name}>
-                      <Label htmlFor={`qc-${entry.name}`}>{entry.label}</Label>
+                      <Label htmlFor={`qc-${entry.name}`}>
+                        {scrapForbidden && entry.name === 'rejected_quantity'
+                          ? 'Damaged'
+                          : entry.label}
+                      </Label>
                       <Input
                         id={`qc-${entry.name}`}
                         {...register(entry.name)}
@@ -1027,12 +1047,20 @@ export function InspectionDialog({
                         id={`qc-${entry.name}-hint`}
                         className="mt-1 text-xs text-muted-foreground"
                       >
-                        {entry.hint}
+                        {entry.name === 'rejected_quantity'
+                          ? 'Becomes damaged stock, pending return or correction'
+                          : entry.hint}
                       </p>
                       <FieldError message={errors[entry.name]?.message} />
                     </div>
                   ))}
                 </div>
+
+                {scrapForbidden && (
+                  <p className="text-sm text-muted-foreground">
+                    This item cannot be scrapped. Record unusable pieces as damaged.
+                  </p>
+                )}
 
                 {/* There is no decision to choose: the API derives the result
                     from how the quantity was split above and returns it. What

@@ -30,6 +30,8 @@ import {
 } from '@/components/ui/overlays'
 import { Checkbox, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { LocationPicker } from '@/features/inventory/location-picker'
+import { WarehouseSelect } from '@/features/inventory/pickers'
 import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
@@ -81,6 +83,8 @@ const schema = z.object({
   production_type: z.enum(PRODUCTION_TYPES),
   standard_cost: decimalField(),
   reorder_level: decimalField(),
+  default_warehouse_id: z.string(),
+  default_location_id: z.string(),
   lead_time_days: z
     .string()
     .trim()
@@ -123,6 +127,8 @@ function emptyValues(): ItemFormValues {
     production_type: 'BUY',
     standard_cost: '0',
     reorder_level: '0',
+    default_warehouse_id: '',
+    default_location_id: '',
     lead_time_days: '0',
     can_purchase: false,
     can_manufacture: false,
@@ -156,6 +162,8 @@ function valuesFrom(item: ItemDetail): ItemFormValues {
     production_type: item.production_type,
     standard_cost: item.standard_cost ?? '0',
     reorder_level: item.reorder_level,
+    default_warehouse_id: item.default_warehouse_id ?? '',
+    default_location_id: item.default_location_id ?? '',
     lead_time_days: String(item.lead_time_days),
     can_purchase: item.can_purchase,
     can_manufacture: item.can_manufacture,
@@ -196,6 +204,8 @@ function buildPayload(
     gst_rate: asDecimal(values.gst_rate),
     production_type: values.production_type,
     reorder_level: asDecimal(values.reorder_level),
+    default_warehouse_id: values.default_warehouse_id || null,
+    default_location_id: values.default_location_id || null,
     // Days are a whole count, not a monetary decimal, so an integer is correct.
     lead_time_days: Number.parseInt(values.lead_time_days || '0', 10),
     ...(includeCost ? { standard_cost: asDecimal(values.standard_cost) } : {}),
@@ -297,6 +307,8 @@ export function ItemFormDialog({
     handleSubmit,
     reset,
     setError,
+    setValue,
+    watch,
     formState: { errors },
   } = useForm<ItemFormValues>({
     resolver: zodResolver(schema),
@@ -651,6 +663,43 @@ export function ItemFormDialog({
                   />
                   <FieldError message={errors.standard_cost?.message} />
                 </div>
+              )}
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {can(P.WAREHOUSE_VIEW) && (
+                <Controller
+                  control={control}
+                  name="default_warehouse_id"
+                  render={({ field }) => (
+                    <WarehouseSelect
+                      id="item-default-warehouse"
+                      label="Default warehouse"
+                      value={field.value}
+                      includeAll
+                      allLabel="No default warehouse"
+                      onChange={(value) => {
+                        field.onChange(value)
+                        setValue('default_location_id', '')
+                      }}
+                    />
+                  )}
+                />
+              )}
+              {can(P.LOCATION_VIEW) && (
+                <Controller
+                  control={control}
+                  name="default_location_id"
+                  render={({ field }) => (
+                    <LocationPicker
+                      id="item-default-bin"
+                      label="Default bin"
+                      warehouseId={watch('default_warehouse_id')}
+                      value={field.value || null}
+                      onChange={(value) => field.onChange(value ?? '')}
+                    />
+                  )}
+                />
               )}
             </div>
 

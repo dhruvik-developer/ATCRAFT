@@ -29,6 +29,7 @@ from src.core.responses import (
     CursorPaginatedResponse,
 )
 from src.modules.notifications.models import NotificationSeverity, NotificationType
+from src.modules.notifications.push_router import router as push_router
 from src.modules.notifications.schemas import (
     MarkReadResult,
     NotificationFilters,
@@ -42,6 +43,7 @@ from src.modules.notifications.service import NotificationService
 router = APIRouter(
     prefix="/notifications", tags=["Notifications"], responses=COMMON_ERROR_RESPONSES
 )
+router.include_router(push_router)
 
 CursorDep = Annotated[CursorParams, Depends(cursor_params)]
 

@@ -73,6 +73,10 @@ class SellableItem:
     standard_cost: Decimal
     can_sell: bool
     is_active: bool
+    #: Classification for dealer-scheme matching. NULL means "no category",
+    #: which matches only ALL-scoped offers (docs/assumptions.md §C3-3).
+    category_id: uuid.UUID | None = None
+    brand_id: uuid.UUID | None = None
 
     @property
     def order_uom_id(self) -> uuid.UUID:
@@ -110,6 +114,8 @@ class ItemLookupRepository(BaseRepository[Item]):
             Item.standard_cost,
             Item.can_sell,
             Item.is_active,
+            Item.category_id,
+            Item.brand_id,
         ).where(
             Item.company_id == self.tenant.company_id,
             Item.deleted_at.is_(None),
@@ -129,6 +135,8 @@ class ItemLookupRepository(BaseRepository[Item]):
                 standard_cost=Decimal(row.standard_cost),
                 can_sell=row.can_sell,
                 is_active=row.is_active,
+                category_id=row.category_id,
+                brand_id=row.brand_id,
             )
             for row in rows
         }
@@ -364,6 +372,51 @@ class SalesOrderLineRepository(BaseRepository[SalesOrderLine]):
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
+    async def lock_for_order(self, order_id: uuid.UUID) -> list[SalesOrderLine]:
+        """Every line of one order, row-locked in primary-key order and re-read.
+
+        Primary-key order is the order a consignment locks an order's lines in,
+        so a top-up and a dispatch touching the same order queue rather than
+        deadlock; ``populate_existing`` makes the quantities the ones under the
+        lock, not whatever an earlier read left in the identity map.
+        """
+        stmt = (
+            self._scoped()
+            .where(SalesOrderLine.sales_order_id == order_id)
+            .order_by(SalesOrderLine.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def live_reservation_quantities(
+        self, reservation_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, Decimal]:
+        """What each named reservation still holds - for the open ones only.
+
+        A RELEASED, EXPIRED or CONSUMED reservation is absent from the answer,
+        which is how every caller here reads it: as no live reservation at all.
+        One statement for any number of ids.
+
+        The allocation model is imported here rather than at module import, for
+        the reason ``sales.service.AllocationService`` gives: the sales module
+        stays importable where allocation is not deployed.
+        """
+        ids = list(dict.fromkeys(reservation_ids))
+        if not ids:
+            return {}
+        from src.modules.allocation.models import OPEN_RESERVATION_STATUSES, StockReservation
+
+        stmt = select(StockReservation.id, StockReservation.remaining_quantity).where(
+            StockReservation.company_id == self.tenant.company_id,
+            StockReservation.id.in_(ids),
+            StockReservation.status.in_(sorted(OPEN_RESERVATION_STATUSES)),
+        )
+        return {
+            row.id: Decimal(row.remaining_quantity)
+            for row in (await self.session.execute(stmt)).all()
+        }
+
     async def list_for_orders(
         self, order_ids: Sequence[uuid.UUID]
     ) -> dict[uuid.UUID, list[SalesOrderLine]]:
@@ -403,6 +456,20 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
     model = SalesOrder
     entity_label = SALES_ORDER_ENTITY
     searchable_fields = ("code", "customer_po_number")
+
+    def _scoped(self, *, include_deleted: bool = False) -> Select[tuple[SalesOrder]]:
+        """Tenant scope plus the dealer-portal restriction.
+
+        A dealer principal reads only its own dealer's orders. The route
+        allow-list already keeps dealers off the staff routes, but scoping here
+        protects against any future route that forgets the ownership check
+        (docs/assumptions.md §C3-1).
+        """
+        stmt = super()._scoped(include_deleted=include_deleted)
+        if self.tenant.customer_id is not None:
+            stmt = stmt.where(SalesOrder.customer_id == self.tenant.customer_id)
+        return stmt
+
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "code": SalesOrder.code,
         "order_date": SalesOrder.order_date,
@@ -434,6 +501,8 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
         stmt = self._scoped()
         if filters.customer_id is not None:
             stmt = stmt.where(SalesOrder.customer_id == filters.customer_id)
+        if filters.source is not None:
+            stmt = stmt.where(SalesOrder.source == filters.source)
         if filters.warehouse_id is not None:
             stmt = stmt.where(SalesOrder.warehouse_id == filters.warehouse_id)
         if filters.branch_id is not None:
@@ -573,6 +642,23 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
             has_next=has_next,
             has_previous=params.page > 1,
         )
+
+    async def has_live_invoice(self, order_id: uuid.UUID) -> bool:
+        from src.core.models import Base
+
+        table = Base.metadata.tables.get("sales_invoices")
+        if table is None:
+            return False
+        stmt = (
+            select(table.c.id)
+            .where(
+                table.c.company_id == self.tenant.company_id,
+                table.c.sales_order_id == order_id,
+                table.c.status != "CANCELLED",
+            )
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).first() is not None
 
 
 __all__ = [

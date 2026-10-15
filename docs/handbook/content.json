@@ -1015,7 +1015,8 @@
             "The production type and the capabilities must agree: Make needs 'Manufacturable', Buy needs 'Purchasable', Make or buy needs both, and Job work needs 'Job work'. Otherwise planning would raise a suggestion to make something no production order can be created for.",
             "The item group is a reporting classification only. It never decides what an item is allowed to do \u2014 the capabilities do that, and nothing re-reads the group afterwards.",
             "A purchase or sale unit must be convertible to the base unit, and the conversion must already be defined under Masters. This is checked when you save, so the problem surfaces at the desk rather than at a goods receipt with the vendor's lorry at the gate.",
-            "GST rate cannot exceed 100 percent and lead time cannot exceed 3650 days."
+            "GST rate cannot exceed 100 percent and lead time cannot exceed 3650 days.",
+            "An optional default bin must belong to the item's default warehouse. Receipt and material-issue pickers prefill it only in that warehouse; you can clear or choose a different bin. Reassign the default before retiring its bin."
           ],
           "permission": "Anyone who may view items can open this screen. New item appears only for someone with the right to create items. The Standard cost column is shown only to someone with the right to see item costs \u2014 the figure is withheld by the system itself, not merely hidden. The category and unit pickers need the separate rights to view categories and to view units; without them those drop-downs simply come up empty. The brand filter, and the Brand and Manufacturer boxes on the form, need the rights to view brands and manufacturers; without them the boxes offer only 'None', and editing an item keeps whatever brand and maker it already records.",
           "notes": "Two honest gaps worth knowing before the screenshot is taken. (1) The grid deliberately carries no stock or reorder-level column \u2014 stock for one item is answered on that item's Stock tab, and putting it in a list of 50 rows would mean a separate stock look-up per row. (2) Nothing in the application deactivates an item, so the 'Inactive only' filter will normally return an empty list; items leave service by being retired, not deactivated. There is no delete on this screen. On a fresh system the capability icons on each row will look sparse, because the create form starts with every capability unticked rather than pre-ticking the ones usual for the chosen group."
@@ -1345,6 +1346,18 @@
             {
               "action": "Clear the filters",
               "how": "Clear, which appears once at least one filter is set."
+            },
+            {
+              "action": "Dispatch reserved goods",
+              "how": "Open an order, choose Dispatch, review the prefilled order lines and lower quantities if needed. Record vehicle/LR/tracking evidence, then create the consignment."
+            },
+            {
+              "action": "Allocate arriving stock",
+              "how": "For a confirmed or partially dispatched order with a shortage, choose Allocate available stock on Allocation. The scheduled sweep also checks waiting orders every fifteen minutes."
+            },
+            {
+              "action": "Read fulfilment and close",
+              "how": "Order detail lists its dispatches and invoices. Once the order is INVOICED, Close order completes it."
             }
           ],
           "flow": [
@@ -1359,7 +1372,7 @@
             "Priority is a rank from 1 to 9 (5 is normal), and urgency is a separate flag. The two are shown separately because they mean different things: priority decides who gets scarce stock first, urgency is a marker for the desk."
           ],
           "permission": "Anyone with the right to see sales orders can open this list. The New order button appears only for someone who may create them. The standard Sales Executive role has both.",
-          "notes": "There is no customer name column \u2014 the order row carries a customer reference, not a name, so the customer is offered as a filter instead. Worth saying in the caption so the client does not read it as an omission. A screenshot with a mix of statuses, one red late date and one Approval badge will carry the whole page."
+          "notes": "There is no customer name column \u2014 the order row carries a customer reference, not a name, so the customer is offered as a filter instead. Worth saying in the caption so the client does not read it as an omission. A screenshot with a mix of statuses, one red late date and one Approval badge will carry the whole page. Reserved / Dispatchable now / Short are live figures. Closed reservations do not permit shipment; short confirmed orders may dispatch their reserved part."
         },
         {
           "route": "/sales-orders/:id",
@@ -1405,6 +1418,18 @@
             {
               "action": "Take a shortfall to planning",
               "how": "Run MRP to plan the balance, in the amber box at the top of the Allocation panel."
+            },
+            {
+              "action": "Dispatch reserved goods",
+              "how": "Open an order, choose Dispatch, review the prefilled order lines and lower quantities if needed. Record vehicle/LR/tracking evidence, then create the consignment."
+            },
+            {
+              "action": "Allocate arriving stock",
+              "how": "For a confirmed or partially dispatched order with a shortage, choose Allocate available stock on Allocation. The scheduled sweep also checks waiting orders every fifteen minutes."
+            },
+            {
+              "action": "Read fulfilment and close",
+              "how": "Order detail lists its dispatches and invoices. Once the order is INVOICED, Close order completes it."
             }
           ],
           "flow": [
@@ -1421,13 +1446,14 @@
             "Reserving less than was ordered is the normal outcome, not a failure. Refusing the whole order because one line is short would hide the shortage until somebody tried to pick it. The shortfall reported here is exactly the number planning exists to cover.",
             "A line priced below the item's cost holds the order at draft until a second person approves it. The approver may not be the person who raised the order \u2014 an approval signed by the salesperson who granted the discount is not evidence of anything.",
             "Prices come from the price list that belongs to the customer's channel. Typing a price over the top is an override and needs the right to manage prices.",
+            "When no discount is typed on a line, the order takes the best dealer scheme that applies \u2014 one percentage off, never stacked \u2014 and records which scheme it came from. A typed discount always wins and keeps today's approval rules.",
             "Tax is decided once and then frozen on the order: the same state as the seller means CGST plus SGST, a different state (or an export) means IGST. The place of supply comes from the ship-to address. If the selling company or branch has no state code recorded, a taxed order cannot be raised at all \u2014 fix the state code on the company or branch first.",
             "The required date cannot be earlier than the order date, and a line quantity must be more than zero. A discount cannot be larger than the line it is discounting.",
             "Once an order is confirmed this screen offers no edits at all except cancellation. The warehouse, the branch and the two addresses are frozen because the order already holds reservations against that warehouse and the tax was settled from those addresses. If something material has to change, cancel and raise a replacement.",
             "Cancelling releases every reservation the order held back to free stock, in the same step. A cancelled order cannot be reopened, and it cannot be cancelled once anything has shipped \u2014 a document that moved stock cannot claim never to have existed."
           ],
           "permission": "Opening the order needs the right to see sales orders. Edit, Add line, and Confirm all need the right to change sales orders \u2014 the same right, so anyone who can edit an order can confirm one. Approve pricing needs the separate right to approve sales orders. Cancel order needs the right to cancel them. The standard Sales Executive role can view, create and update but cannot approve or cancel \u2014 those sit with a manager.",
-          "notes": "Two honest gaps worth knowing before the deck is written. First, there is no Delete button for a draft, even though a draft can technically be removed; in practice anything past draft must be cancelled anyway, so cancellation is the only path this screen offers. Second, the system will accept a quantity or delivery-date change on a confirmed order and will move the reservation to match, but this screen does not offer it \u2014 a confirmed order is read-only here. Also: a line shows the description that was keyed against it plus the item's reference, not an item code, because the line record does not carry one. For the screenshot, use a confirmed order with at least one short line so the Allocation panel and its amber banner are both visible; on a draft the panel is replaced by a one-line notice."
+          "notes": "Two honest gaps worth knowing before the deck is written. First, there is no Delete button for a draft, even though a draft can technically be removed; in practice anything past draft must be cancelled anyway, so cancellation is the only path this screen offers. Second, the system will accept a quantity or delivery-date change on a confirmed order and will move the reservation to match, but this screen does not offer it \u2014 a confirmed order is read-only here. Also: a line shows the description that was keyed against it plus the item's reference, not an item code, because the line record does not carry one. For the screenshot, use a confirmed order with at least one short line so the Allocation panel and its amber banner are both visible; on a draft the panel is replaced by a one-line notice. Reserved / Dispatchable now / Short are live figures. Closed reservations do not permit shipment; short confirmed orders may dispatch their reserved part."
         },
         {
           "route": "/customers",
@@ -2076,7 +2102,7 @@
             {
               "action": "Send to vendor",
               "how": "Send to vendor, top right",
-              "note": "Only on an approved order. Choose who owns it at the vendor: the list offers the vendor's portal users whose categories cover the order (or who cover every category), with the one the system suggests already chosen. This is what starts the delivery clock against the expected date."
+              "note": "On an approved order, or on one the vendor declined once a new date or price is agreed. Choose who owns it at the vendor: the list offers the vendor's portal users whose categories cover the order (or who cover every category), with the one the system suggests already chosen. This is what starts the delivery clock against the expected date."
             },
             {
               "action": "Vendor acknowledged",
@@ -2086,7 +2112,7 @@
             {
               "action": "Cancel order",
               "how": "Cancel order, top right",
-              "note": "A written reason is required. Only available before anything has been received; after that the order is short-closed instead."
+              "note": "A written reason is required. Only available before anything has been received; after that the order is short-closed instead. Cancelling an order the vendor declined gives its quantity back to the requisition, so it can be ordered from somebody else."
             },
             {
               "action": "See what has actually landed",
@@ -2119,7 +2145,10 @@
             "Approving or cancelling an order changes what the planning run treats as material on its way in.",
             "An order raised over a duplicate warning shows that warning and the reason given for it, permanently, on this page.",
             "The tax figure on this document is a single amount, not the CGST/SGST/IGST split. The statutory split lives on the vendor's invoice in the finance area, and putting a guess at it here would only give the accounts team a second number to reconcile.",
-            "The order's item category and its vendor assignee are shown on the Order card. The assignee is the vendor user who manages that category; if that person has been switched off or re-scoped since the order was raised, sending it hands it to whoever the system now suggests, or to the person you choose."
+            "The order's item category and its vendor assignee are shown on the Order card. The assignee is the vendor user who manages that category; if that person has been switched off or re-scoped since the order was raised, sending it hands it to whoever the system now suggests, or to the person you choose.",
+            "The vendor answers a sent order from its own portal: it accepts, optionally committing its own delivery date and reference, or declines with a reason. The vendor's committed date is kept beside the expected delivery date, never in place of it - the planning run keeps using the date the buyer set until a buyer adopts the vendor's.",
+            "An order the vendor declined shows Vendor declined, and the notification the buyer receives carries the vendor's reason. Nothing is expected against it any more, but it still holds the quantity it took from its requisition until it is cancelled or sent again, and its vendor cannot be retired while it is open.",
+            "Once a vendor has accepted, each consignment it records - courier or transporter, tracking and LR numbers, boxes, weight, freight - and each lorry receipt or dispatch photo it uploads is announced at once to the order's creator, its approvers and the administrators, as one notification per consignment that updates as the consignment moves."
           ],
           "permission": "The right to view purchase orders opens the page. Submit and Vendor acknowledged need the right to update purchase orders; Approve, Reject and Cancel each need their own separate right, and of the ready-made roles only a Purchase Manager and an administrator hold them. Sending to the vendor needs the right to send purchase orders.",
           "notes": "Two things the system supports but no screen currently offers: editing an order that is still a draft or awaiting approval, and short-closing a part-delivered order. If a draft is wrong, cancel it and raise a new one. The courier and consignment details on the tracking panel are read-only here \u2014 they are written by the vendor's own dispatch side. Recording the vendor's acknowledgement does not capture a revised delivery date they may have committed to, even though the system can hold one. The vendor's name is a link to the vendor list; there is no page for a single vendor."
@@ -2180,7 +2209,8 @@
             "Posting also writes the price paid back onto the item-and-vendor record as the last purchase price, so the next buyer sees what this vendor last charged.",
             "A short delivery leaves the order Partially received; a complete one moves it to Received and then straight on \u2014 to QC pending if any line is held for inspection, otherwise to receipt complete.",
             "A posted receipt is final. It can never be edited, cancelled or retracted; the way to correct it is a purchase return, which posts the opposite movement.",
-            "A receipt does not create a bill. It is the delivery half of the check the accounts team runs when the vendor's invoice arrives: the invoice is recorded in the finance area against this order and this receipt, checked against both, and only then does the order move on to Invoiced and later Paid."
+            "A receipt does not create a bill. It is the delivery half of the check the accounts team runs when the vendor's invoice arrives: the invoice is recorded in the finance area against this order and this receipt, checked against both, and only then does the order move on to Invoiced and later Paid.",
+            "A receipt line requiring incoming inspection is received at warehouse level. After acceptance, put it away with a bin move. Other lines can receive directly into their selected bin."
           ],
           "permission": "The right to view goods receipts opens the list \u2014 a Store Keeper has it. Recording a receipt needs the right to create them, which a Store Keeper also has. Posting one is a separate right, and of the ready-made roles only an administrator carries it, so out of the box a storekeeper keys the delivery and somebody else posts it. That split is deliberate and can be changed by granting the posting right to a role.",
           "notes": "There is no page for a single receipt \u2014 the register plus the receive dialog is the whole screen. The system can cancel an unposted draft receipt but no screen offers it. The receive form will not let you enter more than a line still has outstanding, so the 5% over-delivery tolerance the system allows cannot be used from this screen; a genuine over-delivery has to have the purchase order amended. The form does not record which transporter brought the goods, only the vehicle number, even though the underlying document can hold a carrier."
@@ -2562,7 +2592,7 @@
             "The costing is calculated by the system from the issues and bookings actually posted - material at what the movements were valued at, operations at the time actually clocked at the work centre's rate. The screen never re-adds them, so the figures always reconcile with the stock ledger.",
             "An operation with no rate behind it is flagged: its work centre carries no cost per hour, so the operation cost is an understatement rather than a complete figure."
           ],
-          "notes": "Three things to be careful about in the deck. First, the Record production dialog carries a line saying the first booking moves the order from material issued to in process. It does not - only the Start button does that, and the header's own confirmation text says so correctly. Do not repeat the dialog's wording. Second, backflushed components (issued automatically at completion rather than picked) exist in the system, and the kit list will label them, but the Release button on this screen never nominates any - so on orders released through the screen the kit list is always fully picked. Third, pressing Complete from this screen books no additional output and records no scrap; it finishes a job whose output was already booked shift by shift. The item and the bill of materials appear as links ('Open item master', 'View BOM') rather than as codes, because the order carries their identity but not their names."
+          "notes": "Three things to be careful about in the deck. First, the Record production dialog carries a line saying the first booking moves the order from material issued to in process. It does not - only the Start button does that, and the header's own confirmation text says so correctly. Do not repeat the dialog's wording. Second, backflushed components (issued automatically at completion rather than picked) exist in the system, and the kit list will label them, but the Release button on this screen never nominates any - so on orders released through the screen the kit list is always fully picked. Third, pressing Complete from this screen books no additional output and records no scrap; it finishes a job whose output was already booked shift by shift. The item and the bill of materials appear as links ('Open item master', 'View BOM') rather than as codes, because the order carries their identity but not their names. Shift selects use the company shift master. Operators come from the active internal directory; choose a work order for per-operation output or leave it blank for final output. Downtime-only bookings are accepted. Legacy shift codes remain visible read-only."
         },
         {
           "route": "/production/work-orders",
@@ -2636,7 +2666,7 @@
             "An operation that was completed but never clocked is costed at its planned setup plus run time; one that never happened is costed at nothing. Time that was actually clocked is charged as it was measured, including any downtime recorded against it - the machine was occupied by this job while it stood idle.",
             "The hourly rate is frozen onto the operation when the job is released, so a later change to the work centre's rate does not silently restate what an old job cost."
           ],
-          "notes": "There is no search box, because the underlying list does not offer one, and only Sequence, Status and Planned start can be sorted. There is no machine column in the grid - a row knows its machine but the grid would need one lookup per row to name it, so machines are resolved in the assignment dialog and in the machine filter instead. The load board carries no work centre names of its own; it borrows them from the work centre master, and shows 'Name unavailable' if that cannot be read. A cell with nothing on it disappears from the board rather than showing zeroes, which is worth saying out loud in the deck."
+          "notes": "There is no search box, because the underlying list does not offer one, and only Sequence, Status and Planned start can be sorted. There is no machine column in the grid - a row knows its machine but the grid would need one lookup per row to name it, so machines are resolved in the assignment dialog and in the machine filter instead. The load board carries no work centre names of its own; it borrows them from the work centre master, and shows 'Name unavailable' if that cannot be read. A cell with nothing on it disappears from the board rather than showing zeroes, which is worth saying out loud in the deck. Shift selects use the company shift master. Operators come from the active internal directory; choose a work order for per-operation output or leave it blank for final output. Downtime-only bookings are accepted. Legacy shift codes remain visible read-only."
         },
         {
           "route": "/assembly",
@@ -2658,6 +2688,31 @@
               "how": "The search box above the list"
             },
             {
+              "action": "Raise an assembly order",
+              "how": "New assembly order, top right",
+              "note": "Choose a manufacturable item - the search only offers those - optionally pick one of its approved assembly or production recipes, the quantity, the component and output warehouses, the bench, the plan, and a priority. A draft reserves and consumes nothing."
+            },
+            {
+              "action": "Amend or delete a draft",
+              "how": "Open the order, then Edit draft or Delete, with a reason for the deletion",
+              "note": "Only while it is a draft. The item and the recipe cannot be changed - that is a different order, not an edit. A deleted draft leaves no trail; anything further along is cancelled instead."
+            },
+            {
+              "action": "Approve the order",
+              "how": "Open the order, then Approve, with a reason",
+              "note": "Approval confirms the plan so the order can be scheduled and released."
+            },
+            {
+              "action": "Release to the bench",
+              "how": "Open the order, then Release, with a reason",
+              "note": "Takes a hard reservation for every component. The dialog shows what is still short before anything is promised - a short line refuses the whole release. Each reservation carries the order's priority and its planned start as the required date."
+            },
+            {
+              "action": "Start the build",
+              "how": "Open the order, then Start, with a reason",
+              "note": "Stamps when the bench actually began. Kitting and building are separate events, often hours apart, so issuing does not start the clock."
+            },
+            {
               "action": "Record the components handed to the bench",
               "how": "Open the order, then Issue components",
               "note": "No stock moves here. The parts are still owned and still reserved to this order; the ledger is written when the assembly is completed. Each figure is the running total handed over for that line, not an addition to it."
@@ -2665,7 +2720,22 @@
             {
               "action": "Complete the assembly",
               "how": "Open the order, then Complete",
-              "note": "Only offered while the order is in progress. This is the step that consumes the components and creates the finished stock."
+              "note": "Only offered while the order is in progress. This is the step that consumes the components and creates the finished stock. When the order needs inspection the output goes onto QC hold and an inspection is raised with it."
+            },
+            {
+              "action": "Record the inspection verdict",
+              "how": "Open the order, then Record QC verdict",
+              "note": "When an inspection holds the output, this opens that inspection's own sheet in Quality and the verdict is decided there - deciding it releases the stock and completes the order in one step. When no inspection covers the hold, the accepted and rejected quantities are recorded here and must account for everything held."
+            },
+            {
+              "action": "Close or cancel the order",
+              "how": "Open the order, then Close order or Cancel, with a reason",
+              "note": "Close once a completed order is done with. Cancel only before the components have been handed to the bench; its reservations are given back in the same step."
+            },
+            {
+              "action": "Read the board",
+              "how": "The Board tab on the register",
+              "note": "Open work grouped by assembly line, planned against actual, with a lateness badge where the plan has slipped - days past the planned end, or a start that never happened."
             },
             {
               "action": "Name the serials that went into the build",
@@ -2678,14 +2748,17 @@
             }
           ],
           "flow": [
-            "Open the order and check the component list: required, issued so far, and how much is on the bench.",
-            "Press Issue components and enter what was actually kitted to the bench, line by line, with a reason. Nothing moves in stock - this records the hand-over.",
-            "The build happens.",
+            "Raise the order: the item, the recipe when it is not the default, the quantity, the warehouses, the bench, the plan and the priority.",
+            "Approve it, then Release it to the bench - the release shows any shortage first and reserves every component.",
+            "Press Issue components and enter what was actually kitted to the bench, line by line, with a reason. Nothing moves in stock - this records the hand-over. Further hand-overs top the totals up.",
+            "Press Start when the build begins, so the plan and the reality can be compared on the board.",
             "Press Complete. Enter the assembled quantity and, if any failed, the rejected quantity.",
             "For every serial-tracked component, pick the exact serial numbers that went into these units.",
-            "Enter a reason and confirm. In one step the components are consumed, the finished units are received into the output store, and the serials are written against the order."
+            "Enter a reason and confirm. In one step the components are consumed and the finished units are received - into the output store, or onto QC hold with an inspection when the order needs one - and the serials are written against the order.",
+            "When the output is on hold, record the verdict: on the linked inspection's sheet, or on the order itself when no inspection covers it. Accepted output becomes saleable; the order completes.",
+            "Close the order when it is done with. A completed assembly can be packed from the Packing screen."
           ],
-          "permission": "Reading the register needs the right to view assembly orders. Issue components needs the right to manage assembly orders; Complete needs a separate right to complete an assembly, so the two are asked for independently and one does not stand in for the other. Searching for serial numbers inside the Complete dialog additionally needs the right to view inventory.",
+          "permission": "Reading the register needs the right to view assembly orders. Approve, release, issue, start, close, cancel, amend and delete all need the right to manage assembly orders; Complete needs a separate right to complete an assembly, and recording a verdict needs the right to decide inspections, so the three are asked for independently and one does not stand in for another. Searching for serial numbers inside the Complete dialog additionally needs the right to view inventory.",
           "rules": [
             "Components are committed when the order is released, handed over when they are issued, and only eaten when the assembly is completed. Nothing is written to the stock ledger until then, because only then is it known what was actually built.",
             "A line may be issued short of its requirement but never above it. Nothing beyond the requirement was ever reserved for this order, so issuing more would put unreserved stock on the bench that another document could still be promised.",
@@ -2695,15 +2768,17 @@
             "A serial identifies one physical unit, so exactly one serial is named per unit consumed. A serial another assembly has already swallowed is refused.",
             "Completing is one indivisible step. Either the components are consumed and the finished units created, or nothing happens at all - there is no path that eats a cylinder without producing a lock set.",
             "When the order is marked as needing inspection, the finished units are received onto QC hold rather than into the available pool, and an inspection is raised with them. The stock is held either way.",
+            "The verdict on held output has exactly one release path. When an inspection holds it, deciding that inspection in Quality releases the stock and completes the order in the same step; recording a different verdict over it is refused. Only a hold no inspection covers is settled on the order itself, and then the accepted and rejected quantities must account for everything held.",
             "A completed assembly cannot be reopened.",
-            "An assembly can only be cancelled before its components have been handed to the bench. Past that the parts are physically gone from the store and the order has to be completed or closed, so the trail survives."
+            "An assembly can only be cancelled before its components have been handed to the bench. Past that the parts are physically gone from the store and the order has to be completed or closed, so the trail survives.",
+            "A completed assembly whose output is packed nowhere yet is offered on the Packing screen. Packing it raises its packing order and marks it packed in one step, so it leaves the ready list the moment its order exists."
           ],
-          "notes": "This screen is thinner than the system behind it, and the deck should say so plainly. The only two things it can do are Issue components and Complete. There is no New assembly order button, and no control to approve, release, start, close or cancel an order, nor to record an inspection verdict on held output - all of those exist in the system and are reachable by other means, but not from this screen. In practice that means an assembly order has to arrive here already released. Also worth knowing: the item is shown as the first eight characters of its identifier with a link to the item master, not as its code, because the list does not carry the code."
+          "notes": "The item is shown as the first eight characters of its identifier with a link to the item master, not as its code, because the list does not carry the code."
         },
         {
           "route": "/job-work",
           "title": "Job work",
-          "purpose": "Processing done outside the factory: handles going out for PVD, castings to a machinist, finished parts out for laser marking. The single most important thing this screen exists to make visible is that material sent to a job worker is still yours. It leaves the factory on a challan but it never leaves the books - it is company stock held in a job-work state, still counted in valuation, still attributable to a vendor, a challan and an order line. What it stops being is available, so nobody can be promised it. The second tab, Pending at vendor, is where you see how much of your working capital is currently sitting outside the factory and how long it has been there.",
+          "purpose": "Processing done outside the factory: handles going out for PVD, castings to a machinist, finished parts out for laser marking. The single most important thing this screen exists to make visible is that material sent to a job worker is still yours. It leaves the factory on a challan but it never leaves the books - it is company stock held in a job-work state, still counted in valuation, still attributable to a vendor, a challan and an order line. What it stops being is available, so nobody can be promised it. The second tab, Pending at vendor, is where you see how much of your working capital is currently sitting outside the factory and how long it has been there. The third tab, Invoices, is where the vendor's bills for that work are raised and tracked against what each receipt earned.",
           "whoUses": "The planner raises and approves the order, the storekeeper issues the material and receives it back, and the plant manager approves and closes.",
           "keyActions": [
             {
@@ -2758,13 +2833,23 @@
             {
               "action": "See only orders with material currently at a vendor",
               "how": "The 'At a vendor now' button on the Orders tab"
+            },
+            {
+              "action": "Record the vendor's bill for the work",
+              "how": "The 'Invoices' tab, then Record job-work invoice: choose the vendor, then the order, tick the receipt lines and check the prefilled amounts, enter the vendor's invoice number and date, and save",
+              "note": "Each line is prefilled from what that receipt line still has unbilled, at the order's rate. Saving submits the bill, so the approver sees the match straight away. Approval is on the row, through the same match dialog the purchase bills use."
+            },
+            {
+              "action": "Read what has been billed against what was earned",
+              "how": "The 'Invoices' tab",
+              "note": "Every job-work bill with its order, its match result and its status. A bill can never charge more than the receipt lines earned - billing beyond the unbilled charges is refused, not overridden."
             }
           ],
           "flow": [
             "Press New job work order. Choose the vendor, the process (polishing, coating, PVD, laser marking, machining or other), and the date the material is due back - that date is what the ageing and the overdue flag are measured against.",
             "Choose the store the material leaves from and, if different, the store the processed output returns to.",
             "Set the rate basis - per piece, per kilo, or a flat rate for the lot - and the rate. The rate is frozen on the order, so a later rate-card change does not restate what was approved.",
-            "Tick 'Output must be inspected' if the returned goods have to go through QC.",
+            "Set the GST rate and the SAC for the processing service - 18% and 9988 unless the vendor's paperwork says otherwise.",            "Tick 'Output must be inspected' if the returned goods have to go through QC.",
             "Add the lines: the item going out, the quantity, what it comes back as (leave blank if the same item comes back), the expected output quantity if the yield is not one for one, and the agreed loss percentage.",
             "Save the draft, then Approve it. Approval reserves the material.",
             "Press Issue to vendor. Enter the challan date, the expected return, the vehicle number and the quantities going out. The challan is raised and the stock moves into the job-work state - still yours, no longer available.",
@@ -2783,11 +2868,50 @@
             "Loss inside the agreed allowance on the line is written off as scrap with the receipt's reason. Loss beyond the allowance refuses the receipt until someone with the senior job-work right accepts it, and the value of the material lost is charged back to the vendor at what the company was carrying it at - not at a price list, and not as a penalty.",
             "Rejected output the vendor is going to rework keeps the material where it is: nothing moves, the order line stays open, and the quantity keeps appearing as pending at the vendor with its true ageing.",
             "The vendor's charge accrues on good output received, at the agreed rate, on the receipt date. A short or rejected delivery therefore costs less without anyone raising a credit note. A flat lot rate is charged once, on the first receipt that brings any output back.",
+            "Give the order its GST rate and SAC when raising it - 18% and 9988 unless the vendor's paperwork says otherwise. Both are copied onto the vendor-invoice lines when the work is billed.",
+            "A job-work bill charges receipt lines, never the order in the abstract. Approving one books the processing charge to the job-work expense account, moves what each receipt line has billed, and recovers the chargeback for material the vendor lost beyond allowance against the same bill. Cancelling a posted bill reverses both postings.",
             "Where an order requires inspection, the returned output is received onto QC hold rather than into the available pool, and an inspection is raised with it.",
             "Batch-tracked and serial-tracked items cannot be sent for job work, in either direction. There is no way to name a batch or a serial on the challan, so it is refused at order entry rather than after the material has left the building.",
             "Only items flagged for job work on the item master, and still active, can be put on a line."
           ],
           "notes": "Two gaps worth flagging to whoever assembles the deck. First, there is no detail page for a job work order: the challans it travelled under, the history of lots received against it, and the issued-versus-received reconciliation report all exist in the system but have no screen. The order's lines are only visible inside the Issue and Receive dialogs. Second, the Receive dialog has no control for approving loss beyond the agreed allowance and no control for closing a line and writing off the shortfall - so a receipt where the vendor lost more than the allowance will be refused on this screen with a message saying it needs approval, and there is nowhere here to give it. Also: the row menu offers 'Issue to vendor' on orders that have already been issued, but the system only accepts an issue against an approved order, so a second challan raised from that menu will be refused. Vendor names come from the vendor master and fall back to a dash; items are shown as the first eight characters of their identifier, since the list carries no item code."
+        },
+        {
+          "route": "/production/shift-roster",
+          "title": "Shift roster",
+          "purpose": "Plan operators against local shift windows, cells and machines. Day board shows each cell and machine under active shifts; Week shows operators across seven days; Shifts maintains immutable codes and wall-clock times.",
+          "whoUses": "Production supervisors and plant managers plan staffing; planners read it.",
+          "keyActions": [
+            {
+              "action": "Assign or bulk assign",
+              "how": "Day board, choose date and work centre, then Assign or Bulk assign",
+              "note": "Bulk planning is atomic. Every overlap is named; none of the batch is saved on conflict."
+            },
+            {
+              "action": "Copy a day",
+              "how": "Copy day, source date and target date range",
+              "note": "Limit the work centre when a copy exceeds the bounded batch."
+            },
+            {
+              "action": "Manage shifts",
+              "how": "Shifts tab, New shift or Edit; activate, deactivate or retire with a reason",
+              "note": "The company timezone supplies the local times. Future planned assignments must be cancelled before re-timing or retirement."
+            }
+          ],
+          "flow": [
+            "Maintain shifts with their start/end times, break and ordering.",
+            "Choose the local start date, cell, optional machine and internal operator.",
+            "Check the day or week board. Cancel with a reason when the plan changes.",
+            "Choose a shift on work-order assignment or production booking. The booking pre-fills from the operator roster and can differ from the plan."
+          ],
+          "rules": [
+            "Night shifts belong to the date they start. Adjacent windows do not overlap.",
+            "An operator cannot hold overlapping planned windows; each machine permits one operator at a time. Use a cell assignment when tending several machines.",
+            "Maintenance and breakdown warn rather than refuse a staffing plan.",
+            "Legacy production shift text is shown read-only and retained."
+          ],
+          "permission": "shift_roster.view opens the board; shift_roster.manage plans and cancels. shift.view opens the shift register; shift.manage changes the master. Administrators must grant new rights to existing non-system roles.",
+          "notes": "Rostered capacity is displayed beside calendar capacity in Machine utilisation. Daily production by shift reports output, rejections, downtime and yield."
         }
       ]
     },
@@ -2972,6 +3096,7 @@
           "rules": [
             "Material on QC hold is in the building and on the books, but nothing can issue it, sell it or promise it to a customer. That is the entire point of the hold.",
             "A decision moves the stock in the same breath as it records the verdict, and the two commit together or not at all. Accepted quantity is released into free stock; rejected quantity moves to the damaged pool, where it is counted but unusable; scrapped quantity is written off and does not come back; rework and hold quantities deliberately stay in QC hold to be decided again later.",
+            "Deciding the inspection also settles the document that raised it, in the same step: the receipt line passes or fails and the purchase order moves on, the assembly order completes, the job-work lot is released - with no second movement and no second verdict for the same hold.",
             "The five quantities must add up to exactly the quantity inspected. Anything left over would be stock sitting in QC hold that no decision explains - which on the floor is unexplained material on a shelf.",
             "A critical characteristic that fails condemns the whole lot. None of it may be accepted or sent for rework; reject it or scrap it. The screen says so before anything is entered, and stops offering acceptance the moment a critical reading fails.",
             "Every characteristic marked as must-be-recorded needs a reading before a decision can be taken - unless a critical failure has already settled the answer, in which case no further measurement could change it and the rest of the sheet is not demanded.",
@@ -3004,6 +3129,11 @@
               "action": "Open an order",
               "how": "Click the row, or the Pack button at the end of it",
               "note": "The button reads View instead of Pack for an account that cannot change anything."
+            },
+            {
+              "action": "Pack a completed assembly",
+              "how": "The Ready from assembly panel above the list, then Pack on the row",
+              "note": "Lists completed assemblies whose output is packed nowhere yet. Packing one raises its packing order - the assembled item, from the warehouse it was received into - and marks the assembly packed against it in the same step, so it leaves the list the moment its order exists. The customer comes from the sales order when the assembly was raised for one; otherwise name it here. Nothing here is created automatically."
             },
             {
               "action": "Start packing",
@@ -3083,6 +3213,7 @@
             "A batch-tracked item must name its batch, and a serial-tracked item must name one serial per unit, before the box is closed. Once the tape is on, \"which carton held that unit\" has to be answerable.",
             "An order cannot be completed with an open carton on the bench, or with no cartons at all. It can be completed short only if you say so deliberately.",
             "An order that has been packed can no longer be cancelled - packing material has been consumed against it. It is closed instead. Cancelling is offered only before that point.",
+            "A completed assembly is packed from the Ready from assembly panel, not from the order list: raising its packing order and marking it packed happen in one step, so two packers cannot plan around the same output.",
             "A packed order can be claimed by one consignment only. A second, different consignment is refused, so two dispatchers cannot plan around the same boxes.",
             "Sealing needs the named packing material to be in stock at that warehouse. If none is, the form says so plainly, and no carton on that order can be sealed until some is."
           ],
@@ -3164,6 +3295,10 @@
               "action": "Watch inbound as well as outbound",
               "how": "The Tracking board tab",
               "note": "Both directions in one list: the party, the purchase or sales order reference, the carrier, the tracking id, the promised date, the delay and its stated reason, and whether inspection or a goods receipt is still owed at the far end."
+            },
+            {
+              "action": "Raise a GST invoice",
+              "how": "On a linked SALES dispatch that is ready or later, choose Raise invoice, review the preview and optional date, then Confirm and issue. View invoice opens its stored record."
             }
           ],
           "flow": [
@@ -3189,7 +3324,7 @@
             "Anything past its promised delivery date is picked up by an automatic sweep that raises one notification for the company - not one per consignment and not one per hour - and the tracking board is where the full list is read."
           ],
           "permission": "Seeing the dispatch list and the tracking board needs the dispatch view right. Raising a consignment and releasing it need the right to create dispatches - releasing is the act that moves stock, so it is held to the stronger right. Staging, marking in transit, cancelling and adding a tracking event need the right to update dispatches. Confirming a delivery is a right of its own again, because it is the sentence that closes a customer's expectation.",
-          "notes": "Three gaps worth knowing before the deck is assembled. First, the screen offers no way to amend a consignment after it is created and no way to delete one; the only route back is Cancel, and only before it leaves. Second, lines added on this screen are not tied to a particular sales-order line: the consignment names the order, and releasing it does mark the order partly dispatched, but the outstanding quantity on each individual order line is not reduced by a consignment raised here, and the stock comes out of free stock rather than out of what that order had reserved. Third, boxes and weight on the create form are typed by hand - they are not carried across from the packing order's own carton totals, and there is no packing-order or carton field on this form at all; the link between a packed order and a consignment is made from the Packing screen's \"Hand to dispatch\", not from here. Also minor: the delivery confirmation dialog says that anything requiring inspection on arrival moves to QC pending, but in the system that state is reached by recording a tracking event of that kind rather than automatically on confirmation, so do not repeat the claim in the caption. The delay notification points at a \"delayed\" view that is not a page in the application; the board's \"Delayed only\" filter is the equivalent. The dispatch list shows the counterparty as \"Sales order\" or \"Vendor consignment\" rather than a name - the tracking board does show party names, so it is the better screenshot for a client audience."
+          "notes": "Three gaps worth knowing before the deck is assembled. First, the screen offers no way to amend a consignment after it is created and no way to delete one; the only route back is Cancel, and only before it leaves. Second, lines added on this screen are not tied to a particular sales-order line: the consignment names the order, and releasing it does mark the order partly dispatched, but the outstanding quantity on each individual order line is not reduced by a consignment raised here, and the stock comes out of free stock rather than out of what that order had reserved. Third, boxes and weight on the create form are typed by hand - they are not carried across from the packing order's own carton totals, and there is no packing-order or carton field on this form at all; the link between a packed order and a consignment is made from the Packing screen's \"Hand to dispatch\", not from here. Also minor: the delivery confirmation dialog says that anything requiring inspection on arrival moves to QC pending, but in the system that state is reached by recording a tracking event of that kind rather than automatically on confirmation, so do not repeat the claim in the caption. The delay notification points at a \"delayed\" view that is not a page in the application; the board's \"Delayed only\" filter is the equivalent. The dispatch list shows the counterparty as \"Sales order\" or \"Vendor consignment\" rather than a name - the tracking board does show party names, so it is the better screenshot for a client audience. An order-linked line must name its order line and fit the live reservation; a live invoice blocks dispatch cancellation or amendment."
         }
       ]
     },
@@ -3256,7 +3391,8 @@
             "Stock put on QC hold does not come off On hand. The goods have not gone anywhere \u2014 they have only stopped being usable \u2014 so they stay in On hand and are subtracted from Available.",
             "In-transit stock is counted at the warehouse it is travelling to, not the one it left. That is where the question gets asked: a receiving storekeeper and a planner both want to know what is coming to them.",
             "A red mark against a line means nothing is left to promise. An amber mark means free stock has fallen below the item's reorder level.",
-            "Availability is never cached anywhere in the system, on purpose. It costs a moment more to read and it is the number the whole promise chain depends on."
+            "Availability is never cached anywhere in the system, on purpose. It costs a moment more to read and it is the number the whole promise chain depends on.",
+            "The Bin column identifies a location within the warehouse. Choose a warehouse and then its bin to filter a position. Scrap is shown separately from on-hand and available stock; it stays owned until disposed of."
           ],
           "permission": "Anyone with the right to view stock can open this screen. The Stock value column needs the separate right to see stock valuation \u2014 the standard Store Keeper role deliberately does not carry it, so a storekeeper sees quantities and not money.",
           "notes": "Two honest gaps worth knowing before the screenshot is taken. (1) The **Allocated** column will show 0.0000 on every line: the figure exists in the database but nothing in the system currently writes it, so it is always zero. Consider cropping it out of the screenshot or captioning it. (2) There is **no Location column**, although stock can be held down to bin level and the server can filter by bin \u2014 so a warehouse that racks its stock will show several lines for the same item and warehouse with no visible reason. The server also accepts filters by item and by batch that this screen does not offer."
@@ -3375,18 +3511,18 @@
         },
         {
           "route": "/inventory/movements",
-          "title": "Transfers, adjustments and stock counts",
-          "purpose": "Three kinds of paperwork share this screen because they are one job seen three ways: stock moved, and here is why. A **transfer** moves stock from one of your warehouses to another. An **adjustment** changes what the system believes without a receipt or an issue behind it \u2014 damage, theft, expiry, a correction. A **stock count** compares the shelves against the system and posts the difference. They live together because the person comparing a count's variance against the adjustment it produced should not have to walk between screens. Every button here moves real stock, so each asks you to confirm before it goes and each is fenced by the right that authorises it.",
-          "whoUses": "The storekeeper raises and posts; a second person approves. On the counts tab, whoever walks the aisles and whoever accepts what they wrote down are deliberately two different people.",
+          "title": "Transfers, adjustments, counts, putaway, scrap and internal issues",
+          "purpose": "Record why stock moved. Transfers move it between warehouses; bin moves put it away within one warehouse. Adjustments correct the book quantity and stock counts reconcile the shelves. Scrap disposals clear stock already set aside as scrap. Internal issues record what a department or cost centre consumes.",
+          "whoUses": "Storekeepers record and move stock. Separate approvers review larger adjustments and internal issues. The person who accepts a physical count needs the separate reconciliation right.",
           "keyActions": [
             {
-              "action": "Switch between the three kinds of paperwork",
-              "how": "The Transfers / Adjustments / Physical counts tabs at the top.",
-              "note": "Changing tab clears the page number, the search and the sort, because none of them mean anything on the next list."
+              "action": "Choose the stock document",
+              "how": "Use Transfers, Adjustments, Physical counts, Bin moves, Scrap disposals or Internal issues.",
+              "note": "Each tab has its own searchable, paginated register."
             },
             {
               "action": "Raise a transfer",
-              "how": "Transfers tab, \"New transfer\": choose the warehouse the stock leaves and the one it arrives at, the date, a reason, and one line per item with a quantity. Save.",
+              "how": "New transfer: choose source and destination warehouses, a reason and item quantities. Batch-tracked items require a batch. Choose source and destination bins when the stock occupies them.",
               "note": "Nothing moves on creation. The transfer is a draft waiting for approval."
             },
             {
@@ -3396,12 +3532,12 @@
             },
             {
               "action": "Raise an adjustment",
-              "how": "Adjustments tab, \"New adjustment\": choose the warehouse and date, classify the cause (damage, theft, count variance, expiry, correction, opening), describe in at least ten characters what actually happened, then key one line per item with a signed quantity \u2014 minus writes stock off, plus writes it on.",
+              "how": "New adjustment: choose the warehouse, reason code and explanation, then enter signed quantities. Choose the batch and bin for each position. A positive quantity adds stock; a negative quantity removes it. With cost-view rights you can enter the write-up unit cost; otherwise the server uses its fallback cost.",
               "note": "The reason code says what kind of loss it was; the description says what happened. Both are kept on the ledger forever. Someone who may see cost centres can also name the cost centre that bears the write-off; for anyone else the adjustment is raised unallocated."
             },
             {
               "action": "Move an adjustment along",
-              "how": "One button at the end of the row, and it is always the only step available: Submit (when the value is over the approval limit), Approve (for whoever holds that right), or Post.",
+              "how": "Edit a draft, submit a larger adjustment, approve or reject it with a reason, then post it. Cancel a draft or other cancellable document with a reason. The cost centre is shown in the register and approval dialog when you may view it.",
               "note": "Posting is what changes stock. Everything before it is paperwork."
             },
             {
@@ -3426,6 +3562,21 @@
             {
               "action": "Abandon a count",
               "how": "Cancel on a sheet that has not been confirmed, with a reason. Nothing is posted; the figures stay on record and never reach the ledger, and the warehouse is free to open a new count."
+            },
+            {
+              "action": "Put stock away",
+              "how": "Bin moves: choose one warehouse, the item, batch, source bin and destination bin, quantity and reason. Leave a bin empty for the unbinned position.",
+              "note": "Saving posts both sides immediately. Quantity and original stock cost move together."
+            },
+            {
+              "action": "Dispose of scrap",
+              "how": "Scrap disposals: choose the warehouse and scrap position, quantity, Sale, Write off or Recycle, and the reason. Add the buyer or reference and any realised amount.",
+              "note": "Saving permanently removes that quantity from scrap. A write-off realises zero. It cannot remove usable stock."
+            },
+            {
+              "action": "Issue to a department or cost centre",
+              "how": "Internal issues: name the receiving department and/or cost centre and enter the materials, positions, quantities and reason. Save the draft, then Post a smaller issue or Submit one requiring approval.",
+              "note": "Above 25,000 in company currency, another approver reviews and approves the issue. Approval posts the stock. A pending issue can be rejected with a reason; a draft or pending issue can be cancelled."
             }
           ],
           "flow": [
@@ -3447,10 +3598,15 @@
             "A count sheet covering more than 5,000 positions is refused. Count a narrower scope \u2014 which is what cycle counting means.",
             "Confirming a count posts the difference between what was counted and what the system says at that moment, not the difference from the snapshot taken when the sheet was opened. Otherwise every receipt and issue made while the count was running would be silently reversed and booked as shrinkage.",
             "A line nobody counted is left alone. It is not written down to zero.",
-            "A transfer, adjustment or count involving a warehouse you are not assigned to is refused, whatever rights you hold. Rights say whether you may adjust stock; your warehouse assignment says where."
+            "A transfer, adjustment or count involving a warehouse you are not assigned to is refused, whatever rights you hold. Rights say whether you may adjust stock; your warehouse assignment says where.",
+            "New scrap is refused for an item whose Can scrap capability is off. Record unusable inspected stock as damaged instead. Existing scrap can still be disposed of after the capability is disabled.",
+            "Scrap disposal uses what that scrap originally cost. A later, more expensive receipt does not reprice it. FIFO cost columns are visible only with cost-view rights.",
+            "Bin moves and scrap disposals post when saved. Review the positions and quantities before saving; a posted document is corrected with a further stock document.",
+            "Internal issue approval is measured against the actual oldest stock consumed. If its value rises beyond the limit at posting, nothing moves until it has approval.",
+            "The consumables warehouse is a classification. Internal issues may consume permitted stock from any warehouse you are allowed to operate."
           ],
-          "permission": "Seeing all three lists needs only the right to view stock. Raising, approving, dispatching and receiving transfers all need the right to transfer stock. Raising, submitting and posting an adjustment need the right to adjust stock; approving or rejecting one needs the separate right to approve adjustments. Opening, starting, keying and cancelling a count need the right to run a stock count; confirming it and posting the variance needs the different right to reconcile stock \u2014 whoever walks the aisles is not automatically the person who accepts what they wrote down.",
-          "notes": "The busiest screen in the chapter and worth three screenshots, one per tab. Gaps the deck should not paper over: (1) there is **no detail view** for a transfer or an adjustment \u2014 once created you can see the code, the warehouses, the line count and the total, but not the lines; (2) the transfer list has an **Expected column that will always be blank**, because the New transfer form has no field to set an expected date; (3) there is **no Cancel button on the transfers or adjustments tabs**, although the system does allow a draft or approved document to be cancelled \u2014 only counts can be cancelled from the screen; (4) neither the transfer nor the adjustment line has a place to name a **batch or a bin**, so a batch-tracked item keyed onto a transfer is refused when the transfer is saved, and onto an adjustment when it is posted; (5) the New count form always covers the **whole warehouse**, positions currently holding stock only \u2014 the system underneath can narrow a count to one bin or a chosen list of items, and the screen does not offer it, which matters given the 5,000-position ceiling."
+          "permission": "Seeing all three lists needs only the right to view stock. Raising, approving, dispatching and receiving transfers all need the right to transfer stock. Raising, submitting and posting an adjustment need the right to adjust stock; approving or rejecting one needs the separate right to approve adjustments. Opening, starting, keying and cancelling a count need the right to run a stock count; confirming it and posting the variance needs the different right to reconcile stock \u2014 whoever walks the aisles is not automatically the person who accepts what they wrote down. Bin moves use the transfer right. Scrap disposal has its own disposal right. Internal issue creation and approval have separate rights. Existing customised roles may need the administrator to grant the new rights.",
+          "notes": "The six tabs share the stock register. Batch and bin are part of the stock position: selecting the wrong position is not corrected by having enough total stock in the warehouse. Serial-tracked transfers and these new operation documents remain unavailable until the serial identity workflow can record the units."
         },
         {
           "route": "/warehouses",
@@ -3649,7 +3805,7 @@
             "Move to Inventory valuation for the closing stock value, and to GST summary for the month's return figures."
           ],
           "keyActions_note": null,
-          "notes": "Deliberately read-only: nothing on this screen creates or changes a document. Screenshot advice \u2014 take the Outstanding tab and the Ageing tab separately, since the Ageing tab is the only one with a chart. Three tabs (Ledger, Inventory valuation, GST summary) are hidden from an account that lacks their right, so a screenshot taken as a limited user will show only two tabs. Thin spots worth knowing: the Outstanding tab has no sort or search box, because the system always returns those bills oldest-due-first and offers no other order; and it has no currency selector even though rows carry their own currency. The Ageing report returns party-by-party detail for at most five currencies at a time and up to 200 parties in each, though the totals for every currency are always shown.",
+          "notes": "Deliberately read-only: nothing on this screen creates or changes a document. Screenshot advice \u2014 take the Outstanding tab and the Ageing tab separately, since the Ageing tab is the only one with a chart. Three tabs (Ledger, Inventory valuation, GST summary) are hidden from an account that lacks their right, so a screenshot taken as a limited user will show only two tabs. Thin spots worth knowing: the Outstanding tab has no sort or search box, because the system always returns those bills oldest-due-first and offers no other order; and it has no currency selector even though rows carry their own currency. The Ageing report returns party-by-party detail for at most five currencies at a time and up to 200 parties in each, though the totals for every currency are always shown. Receivable ageing uses sales-invoice due dates and legacy posting dates, FIFO within each customer/currency. GST output uses issued invoice HSN snapshots by invoice date; uninvoiced dispatch GST is shown separately.",
           "permission": "Anyone with the right to view finance can open the page and use Outstanding and Ageing. The Ledger tab needs the right to view the general ledger; Inventory valuation needs the right to view stock valuation; GST summary needs the right to view GST reports. Exporting the full valuation additionally needs the right to export reports.",
           "rules": [
             "Amounts in two different currencies are never added together, and no total spans them. There is no exchange-rate table in this system, so a combined figure would be a number with no meaning. Each currency is reported in its own block, and the screen tells you plainly when money is outstanding in a currency other than the one you are looking at.",
@@ -3661,9 +3817,41 @@
           ]
         },
         {
+          "route": "/finance/sales-invoices",
+          "title": "Sales invoices",
+          "purpose": "The issued GST invoice register, its fixed seller/buyer and line snapshots, receipt allocations, due dates and permanent PDFs.",
+          "whoUses": "Accounts and sales staff who hold sales_invoice.view.",
+          "keyActions": [
+            {
+              "action": "Filter invoices",
+              "how": "Search by number/customer or filter status, customer, date range and overdue only."
+            },
+            {
+              "action": "Inspect or print",
+              "how": "Open an invoice row to read its lines, tax totals and allocated receipts. Generate PDF queues a job; Download opens its permanent document."
+            },
+            {
+              "action": "Cancel within the window",
+              "how": "An unpaid ISSUED invoice with no credits or allocations offers Cancel invoice for twenty-four hours. Enter the reason; the journal and fulfilment counters reverse together."
+            }
+          ],
+          "flow": [
+            "Open Sales invoices under Finance.",
+            "Filter and open an issued invoice.",
+            "Review tax and receipts, then download its PDF."
+          ],
+          "rules": [
+            "Issue starts from a priced SALES dispatch in READY_FOR_DISPATCH or later. Preview allocates no number; Confirm and issue allocates an SI number and posts receivables.",
+            "Due date follows customer credit days. A live invoice prevents the dispatch from being cancelled or amended.",
+            "Paid invoices and invoices outside the cancellation window need a credit note."
+          ],
+          "permission": "View: sales_invoice.view. Issue: sales_invoice.create. Cancel: sales_invoice.cancel. Receipt allocation: payment.record. Report polling and document download retain their existing read rights.",
+          "notes": "Totals round to the nearest rupee HALF_UP. Flat discounts across partial consignments reconcile on the final invoice. Issued invoice PDFs never expire."
+        },
+        {
           "route": "/finance/vendor-invoices",
           "title": "Vendor Invoices",
-          "purpose": "This is the payables desk: every bill a supplier has sent you, recorded here and then checked against two other documents before anyone agrees to pay it. The check is the three-way match \u2014 what you ordered, what you actually accepted at the gate, and what the vendor has billed \u2014 and it is the single most valuable thing on this screen, because a quiet price increase or a bill for material that never arrived is how money leaves a manufacturer by mistake. The list is a queue you work down; opening a row shows the match line by line and is where the bill is approved.",
+          "purpose": "This is the payables desk: every bill a supplier has sent you, recorded here and then checked against two other documents before anyone agrees to pay it. The check is the three-way match \u2014 what you ordered, what you actually accepted at the gate, and what the vendor has billed \u2014 and it is the single most valuable thing on this screen, because a quiet price increase or a bill for material that never arrived is how money leaves a manufacturer by mistake. The list is a queue you work down; opening a row shows the match line by line and is where the bill is approved. Bills for job work done on your own material carry their own type: they are matched against the job-work order's rate and the receipt lines instead of against a purchase order, and they are raised from the job-work screen rather than here.",
           "whoUses": "The accounts clerk who keys the bills, and the accounts manager or owner who approves them. These are deliberately two different people.",
           "keyActions": [
             {
@@ -3678,7 +3866,7 @@
             },
             {
               "action": "Charge a bill, or one of its lines, to a cost centre",
-              "how": "Vendor invoices → Record invoice (or Amend) → the Cost centre box under the bill's details, and the cost centre box on any line that belongs somewhere else",
+              "how": "Vendor invoices \u2192 Record invoice (or Amend) \u2192 the Cost centre box under the bill's details, and the cost centre box on any line that belongs somewhere else",
               "note": "Shown only to someone who may see cost centres. A line left on \"As the invoice\" follows the bill's cost centre, decided when the bill is approved; approval then posts the purchase cost to the ledger split by cost centre, which is what the Cost centre statement reads. A bill whose cost centre was switched off after it was keyed is refused at approval until it is changed."
             },
             {
@@ -3719,6 +3907,11 @@
               "how": "Vendor invoices \u2192 tick \"Unpaid only\" or \"Overdue only\""
             },
             {
+              "action": "Show only purchase bills or only job-work bills",
+              "how": "Vendor invoices \u2192 \"Invoice type\" filter \u2192 Purchase or Job work",
+              "note": "Job-work bills are matched against the job-work order's rate and the receipt lines. The match dialog shows the agreed rate where it shows the order price on a purchase bill, and the good output where it shows the accepted quantity."
+            },
+            {
               "action": "Search by the supplier's own invoice number",
               "how": "Vendor invoices \u2192 search box"
             },
@@ -3748,6 +3941,8 @@
             "The match is re-run at the moment of approval, never taken from what was stored earlier. The order or the receipt may have moved since the bill was submitted, and approving against a stale verdict would defeat the check.",
             "Only a bill awaiting approval can be approved. Approving one twice is refused outright, because it would post the amount owed to the supplier a second time.",
             "Only a draft can be deleted, and it is deleted outright. A draft never reached the ledger, so there is nothing to correct with an offsetting entry; anything past draft leaves a trail instead.",
+            "Cancelling a bill that reached the ledger reverses the journals it posted - the bill and, on a job-work bill, the excess-loss recovery posted beside it - and rolls the job-work billing back, in the same step. Cancelling before approval moves nothing.",
+            "A job-work bill can never charge more than its receipt lines earned. Billing beyond the still-unbilled charges is refused outright, and no override reason can approve it.",
             "Each bill is shown and totalled in its own currency. Two currencies are never added together."
           ]
         },
@@ -3817,7 +4012,7 @@
             "The approver opens the row menu and presses \"Approve - post the money\". The journal is posted.",
             "Back on the row menu, press \"Settle invoices\", tick the supplier's open bills the money paid, put an amount against each, and save."
           ],
-          "notes": "A receipt from a customer is never settled against invoices \u2014 there is no customer invoice document in this system \u2014 so the Settled and Unsettled columns show \"n/a\" for receipts and the settle action is not offered on them. A receipt reduces the customer's outstanding balance at the moment it is approved, and that is the whole story. The list shows only a short form of the party's identifier, not their name, so use the party filter or open the payment when you need the name. One payment may settle at most 100 bills. There is also a debit-note and credit-note facility in the system for adjusting what a customer owes, but it has no screen \u2014 if the client needs to raise a credit note against a customer, that is a screen still to be built.",
+          "notes": "Customer receipts settle issued or partially paid sales invoices of the same customer and currency. Receipt approval already posts the money and reduces outstanding; allocation identifies which invoices were paid. Cancelling a receipt releases its allocations and reverses the journal. Vendor payments retain their existing settlement rules. Manual non-GST customer adjustments remain API-only.",
           "permission": "Anyone with the right to view payments can see the register and open a payment. Recording, amending, deleting a draft and settling against invoices need the right to record payments. Approving and cancelling need the separate right to approve payments \u2014 the same authority in both directions, because a cancellation reverses a posting.",
           "rules": [
             "A payment goes to a vendor and a receipt comes from a customer. The opposite pairing describes a refund, which is a different document with different accounting, and it is refused.",
@@ -3874,7 +4069,7 @@
             "If it is Accounts Receivable or Accounts Payable, press \"Open a customer ledger\" or \"Open a vendor ledger\" and choose the party to see the postings behind the balance.",
             "To walk the structure, press \"Accounts beneath this one\" to list the accounts filed under it."
           ],
-          "notes": "This screen and the Ledger tab on the Finance screen show the same party statement; the only difference is how you get to it. Do not describe them twice in the deck \u2014 cross-reference instead. The chart is shown as a flat, paged list rather than an indented tree, and you drill down one level at a time. A row does not name its parent account; the parent is named in the detail dialog. The company starts with eight accounts the system needs by name: Accounts Receivable (1100), Bank (1200), Cash (1210), Input GST Credit (1300), Accounts Payable (2100), Output GST Payable (2200), Purchases and Services (5100) and Rounding Differences (5900). That list is worth putting in the deck as a small table.",
+          "notes": "This screen and the Ledger tab on the Finance screen show the same party statement; the only difference is how you get to it. Do not describe them twice in the deck \u2014 cross-reference instead. The chart is shown as a flat, paged list rather than an indented tree, and you drill down one level at a time. A row does not name its parent account; the parent is named in the detail dialog. The company starts with eight accounts the system needs by name: Accounts Receivable (1100), Bank (1200), Cash (1210), Input GST Credit (1300), Accounts Payable (2100), Output GST Payable (2200), Purchases and Services (5100) and Rounding Differences (5900). That list is worth putting in the deck as a small table. Sales Revenue is an additional system income account, preferred code 4500; an occupied preferred code advances to the first free number.",
           "permission": "Needs the right to view the general ledger, which also covers the party statement reached from here. Opening the party picker additionally needs the right to view customers or vendors, so the drill-down button is only offered to someone who can use it. Creating, editing or retiring an account is a settings-management right and is not done from this screen.",
           "rules": [
             "The accounts the system posts to automatically are found by an internal system code, not by their number or name. That means you can safely rename one to suit your accountant \u2014 but you cannot retire it, because the automatic postings would then have nowhere to go.",
@@ -4015,6 +4210,16 @@
               "action": "Run Cost centre statement",
               "how": "Reports \u2192 Cost centre statement",
               "note": "What each cost centre was charged and earned over the period, account by account, read from the posted ledger - today, approved vendor invoices. Net is cost minus income, so a negative net is income. The search box finds a centre by code or name."
+            },
+            {
+              "action": "Run Scrap register",
+              "how": "Reports \u2192 Scrap register",
+              "note": "Scrap entering and leaving by source over the period, at the cost recorded when it was scrapped."
+            },
+            {
+              "action": "Run Consumption by department",
+              "how": "Reports \u2192 Consumption by department",
+              "note": "Posted internal issues grouped by department, cost centre and item over the period."
             }
           ],
           "flow": [
@@ -4026,14 +4231,16 @@
             "Read the table, page through it, or use the search box to find a row.",
             "If the result was too large to show, wait for the download strip and press Download to open the spreadsheet."
           ],
-          "notes": "Twenty reports exist and every one of them is listed above \u2014 this list is worth its own page in the deck. Two things to be accurate about. First, the six filters are the same on every report, so the screen offers a Customer filter on a machine-utilisation report where it does nothing; that is a known simplification, not a fault. Second, the filter set has no category picker even though the system would accept one, and the Status filter expects the exact status word rather than offering a dropdown. The management dashboard tiles (open orders, stock value, QC pending and so on) are a separate screen, not part of this one. The packing list PDF is produced from the Packing screen, not from here.",
+          "notes": "Twenty-three reports exist and every one of them is listed above \u2014 this list is worth its own page in the deck. Two things to be accurate about. First, the six filters are the same on every report, so the screen offers a Customer filter on a machine-utilisation report where it does nothing; that is a known simplification, not a fault. Second, the filter set has no category picker even though the system would accept one, and the Status filter expects the exact status word rather than offering a dropdown. The management dashboard tiles (open orders, stock value, QC pending and so on) are a separate screen, not part of this one. The packing list PDF is produced from the Packing screen, not from here.",
           "permission": "Needs the right to view reports \u2014 that one right opens every report in the catalogue. Producing a large report as a downloadable file additionally needs the right to export reports; without it, a report that returns too many rows is refused with a message asking you to narrow the dates or filters instead.",
           "rules": [
             "A report period may cover at most 366 days. An unbounded query over years of history is how a reporting screen takes the whole system down, so the limit is enforced rather than suggested.",
             "A result of up to 5,000 rows is shown on screen. Anything larger is prepared in the background as an Excel file, because no screen and no waiting user should sit on a query of that size.",
             "A generated file is reused for 24 hours for the same report and the same parameters. Five people opening the same link do not queue five identical exports \u2014 the later ones simply collect the file the first one produced.",
             "Stock availability is never served from a stored copy, because an allocation decision made on a five-minute-old availability figure is an allocation of stock that may already be gone. The same applies to the tracking board and the valuation.",
-            "The list of reports is served by the system itself rather than being written into the screen, so a report added later appears here without anything else changing."
+            "The list of reports is served by the system itself rather than being written into the screen, so a report added later appears here without anything else changing.",
+            "Scrap register shows scrap entering and leaving by source, at its recorded cost, over a chosen period.",
+            "Consumption by department groups only posted internal issues by department, cost centre and item over a chosen period."
           ]
         },
         {

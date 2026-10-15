@@ -21,6 +21,11 @@ What this module is responsible for, and why each rule exists:
   account and refuses an internal role on a vendor account. Checking only one
   direction leaves the other open, and either hole lets a vendor principal reach
   internal costing (section 16).
+* **The dealer-portal boundary is enforced the same way.**
+  :func:`assert_portal_role_consistency` generalises the vendor rule to both
+  bindings: dealer roles only on dealer-bound accounts, and only dealer roles
+  on them. A vendor binding and a dealer binding together are refused outright
+  (docs/assumptions.md §C3-1).
 * **Deactivating an account ends its sessions.** A refresh token that outlives
   the account it belongs to is the difference between "access revoked" and
   "access revoked in fourteen days".
@@ -196,6 +201,7 @@ _USER_AUDITED_FIELDS = [
     "allowed_warehouse_ids",
     "extra_permissions",
     "denied_permissions",
+    "customer_id",
     "is_active",
     "is_superuser",
     "must_change_password",
@@ -209,6 +215,7 @@ _ROLE_AUDITED_FIELDS = [
     "permissions",
     "is_system",
     "is_vendor_role",
+    "is_dealer_role",
     "is_active",
 ]
 
@@ -328,6 +335,7 @@ class RoleView(Protocol):
     code: str
     permissions: list[str]
     is_vendor_role: bool
+    is_dealer_role: bool
     is_active: bool
     deleted_at: datetime | None
 
@@ -472,36 +480,77 @@ def assert_grant_change_allowed(
     return frozenset(delta)
 
 
-def assert_vendor_role_consistency(vendor_id: uuid.UUID | None, roles: Iterable[RoleView]) -> None:
-    """Enforce the vendor-portal isolation boundary in both directions.
+def assert_portal_role_consistency(
+    vendor_id: uuid.UUID | None,
+    customer_id: uuid.UUID | None,
+    roles: Iterable[RoleView],
+) -> None:
+    """Enforce the portal isolation boundaries in both directions.
 
     A vendor role may be held only by an account bound to a vendor, and an
-    account bound to a vendor may hold only vendor roles (section 16).
+    account bound to a vendor may hold only vendor roles (section 16). The
+    dealer side mirrors it: dealer roles only on dealer-bound accounts, and
+    only dealer roles on them (docs/assumptions.md §C3-1). A vendor binding and
+    a dealer binding together are refused outright - one account must never see
+    two principals' data - and the database CHECK
+    (``portal_binding_exclusive``) holds the same line.
 
-    The second half is the one that is easy to forget and expensive to get
-    wrong: a vendor user who also holds ``PURCHASE_MANAGER`` sees the tenant's
-    costing, its other suppliers' prices and its whole order book, because the
-    vendor filter in the repositories is applied to the *vendor* views, not to
-    every internal screen.
+    The second half of each rule is the one that is easy to forget and
+    expensive to get wrong: a dealer user who also holds ``SALES_MANAGER`` sees
+    the tenant's costing, other dealers' prices and the whole order book,
+    because the dealer filter in the repositories is applied to the *dealer*
+    views, not to every internal screen.
     """
     role_list = list(roles)
-    if vendor_id is None:
-        offenders = sorted(role.code for role in role_list if role.is_vendor_role)
-        if offenders:
+    if vendor_id is not None and customer_id is not None:
+        raise BusinessRuleError(
+            "An account cannot be bound to a vendor and a dealer at once. "
+            "Create one account per portal.",
+            details={"vendor_id": str(vendor_id), "customer_id": str(customer_id)},
+        )
+    if vendor_id is None and customer_id is None:
+        vendor_offenders = sorted(role.code for role in role_list if role.is_vendor_role)
+        if vendor_offenders:
             raise BusinessRuleError(
                 "Vendor roles can only be assigned to an account bound to a vendor: "
-                + ", ".join(offenders),
-                details={"vendor_roles": offenders, "vendor_id": None},
+                + ", ".join(vendor_offenders),
+                details={"vendor_roles": vendor_offenders, "vendor_id": None},
+            )
+        dealer_offenders = sorted(role.code for role in role_list if role.is_dealer_role)
+        if dealer_offenders:
+            raise BusinessRuleError(
+                "Dealer roles can only be assigned to an account bound to a dealer: "
+                + ", ".join(dealer_offenders),
+                details={"dealer_roles": dealer_offenders, "customer_id": None},
             )
         return
 
-    offenders = sorted(role.code for role in role_list if not role.is_vendor_role)
+    if vendor_id is not None:
+        offenders = sorted(role.code for role in role_list if not role.is_vendor_role)
+        if offenders:
+            raise BusinessRuleError(
+                "A vendor-portal account may hold vendor roles only; these are not "
+                "vendor roles: " + ", ".join(offenders),
+                details={"internal_roles": offenders, "vendor_id": str(vendor_id)},
+            )
+        return
+
+    offenders = sorted(role.code for role in role_list if not role.is_dealer_role)
     if offenders:
         raise BusinessRuleError(
-            "A vendor-portal account may hold vendor roles only; these are internal roles: "
-            + ", ".join(offenders),
-            details={"internal_roles": offenders, "vendor_id": str(vendor_id)},
+            "A dealer-portal account may hold dealer roles only; these are not "
+            "dealer roles: " + ", ".join(offenders),
+            details={"internal_roles": offenders, "customer_id": str(customer_id)},
         )
+
+
+def assert_vendor_role_consistency(vendor_id: uuid.UUID | None, roles: Iterable[RoleView]) -> None:
+    """The vendor half of :func:`assert_portal_role_consistency`.
+
+    Kept because callers and tests name it; it delegates so the two rules
+    cannot drift apart.
+    """
+    assert_portal_role_consistency(vendor_id, None, roles)
 
 
 def assert_role_assignment_allowed(
@@ -629,6 +678,7 @@ def _role_summary(role: Role, permission_count: int) -> RoleSummary:
         description=role.description,
         is_system=role.is_system,
         is_vendor_role=role.is_vendor_role,
+        is_dealer_role=role.is_dealer_role,
         is_active=role.is_active,
         permission_count=permission_count,
         created_at=role.created_at,
@@ -651,6 +701,7 @@ def _user_detail(user: User, roles: Sequence[Role]) -> UserDetail:
         is_superuser=user.is_superuser,
         must_change_password=user.must_change_password,
         vendor_id=user.vendor_id,
+        customer_id=user.customer_id,
         branch_id=user.branch_id,
         plant_id=user.plant_id,
         department_id=user.department_id,
@@ -668,6 +719,7 @@ def _user_detail(user: User, roles: Sequence[Role]) -> UserDetail:
         denied_permissions=sorted(user.denied_permissions or []),
         preferences=user.preferences,
         is_vendor_user=user.vendor_id is not None,
+        is_dealer_user=user.customer_id is not None,
         updated_at=user.updated_at,
         roles=[_role_summary(role, len(role.permissions or [])) for role in roles],
     )
@@ -723,6 +775,7 @@ class UserService:
                 is_superuser=row.is_superuser,
                 must_change_password=row.must_change_password,
                 vendor_id=row.vendor_id,
+                customer_id=row.customer_id,
                 branch_id=row.branch_id,
                 plant_id=row.plant_id,
                 department_id=row.department_id,
@@ -798,12 +851,13 @@ class UserService:
                 plant_id=payload.plant_id,
                 department_id=payload.department_id,
                 vendor_id=payload.vendor_id,
+                customer_id=payload.customer_id,
             )
             self._assert_scope_is_meaningful(payload.vendor_id, payload.allowed_category_ids)
             await self._assert_category_scope(payload.vendor_id, payload.allowed_category_ids)
 
             roles = await self._load_assignable_roles(payload.role_ids)
-            assert_vendor_role_consistency(payload.vendor_id, roles)
+            assert_portal_role_consistency(payload.vendor_id, payload.customer_id, roles)
             assert_role_assignment_allowed(principal, roles, [])
 
             user = User(
@@ -821,6 +875,7 @@ class UserService:
                 plant_id=payload.plant_id,
                 department_id=payload.department_id,
                 vendor_id=payload.vendor_id,
+                customer_id=payload.customer_id,
                 # NULL rather than an empty array: "no restriction" and "an empty
                 # restriction list" must not be two different encodings of the
                 # same state, or a later query has to test for both.
@@ -867,7 +922,8 @@ class UserService:
         clear_plant = bool(changes.pop("clear_plant", False))
         clear_department = bool(changes.pop("clear_department", False))
         clear_vendor = bool(changes.pop("clear_vendor", False))
-        clears = clear_branch or clear_plant or clear_department or clear_vendor
+        clear_customer = bool(changes.pop("clear_customer", False))
+        clears = clear_branch or clear_plant or clear_department or clear_vendor or clear_customer
 
         if not changes and not clears and password is None:
             raise BusinessRuleError(NO_FIELDS_TO_UPDATE)
@@ -931,6 +987,7 @@ class UserService:
                 plant_id=changes.get("plant_id"),
                 department_id=changes.get("department_id"),
                 vendor_id=changes.get("vendor_id"),
+                customer_id=changes.get("customer_id"),
             )
 
             for field, value in changes.items():
@@ -946,11 +1003,13 @@ class UserService:
                 user.department_id = None
             if clear_vendor:
                 user.vendor_id = None
+            if clear_customer:
+                user.customer_id = None
 
             # Re-checked after the assignment because moving an account into or
-            # out of the vendor portal changes which of its existing roles are
+            # out of either portal changes which of its existing roles are
             # legal - in both directions.
-            assert_vendor_role_consistency(user.vendor_id, roles)
+            assert_portal_role_consistency(user.vendor_id, user.customer_id, roles)
             self._assert_scope_is_meaningful(user.vendor_id, user.allowed_category_ids)
             # Only when this edit touches the scope or the vendor: a stored scope
             # that has since drifted (a qualification revoked) must not block an
@@ -1085,7 +1144,7 @@ class UserService:
             added = [role for role in target if role.id not in current_ids]
             removed = [role for role in current if role.id not in target_ids]
 
-            assert_vendor_role_consistency(user.vendor_id, target)
+            assert_portal_role_consistency(user.vendor_id, user.customer_id, target)
             assert_role_assignment_allowed(principal, added, removed)
 
             if holds_super_admin(user.is_superuser, current) and not holds_super_admin(
@@ -1360,6 +1419,7 @@ class UserService:
         plant_id: uuid.UUID | None,
         department_id: uuid.UUID | None,
         vendor_id: uuid.UUID | None,
+        customer_id: uuid.UUID | None = None,
     ) -> None:
         """Every organisational reference must be a live record of this tenant.
 
@@ -1375,6 +1435,34 @@ class UserService:
             raise NotFoundError("Department", department_id)
         if vendor_id is not None and not await self.repo.vendor_exists(vendor_id):
             raise NotFoundError("Vendor", vendor_id)
+        if customer_id is not None:
+            await self._assert_dealer_customer(customer_id)
+
+    async def _assert_dealer_customer(self, customer_id: uuid.UUID) -> None:
+        """A portal binding must name a live dealer-channel customer.
+
+        A foreign key is not a tenant check and not a kind check: a UUID from
+        another company, or a plain CUSTOMER or OEM account, would satisfy the
+        constraint while giving the account a principal whose orders, prices and
+        statement belong to someone else's book (docs/assumptions.md §C3-1).
+        """
+        customer = await self.repo.dealer_customer(customer_id)
+        if customer is None:
+            raise NotFoundError("Customer", customer_id)
+        if customer.customer_type not in ("DEALER", "DISTRIBUTOR"):
+            raise BusinessRuleError(
+                f"Customer {customer.code} is a {customer.customer_type}, not a dealer "
+                "or distributor, so no portal account may be bound to it.",
+                details={
+                    "customer_id": str(customer.id),
+                    "customer_type": str(customer.customer_type),
+                },
+            )
+        if customer.deleted_at is not None or not customer.is_active:
+            raise BusinessRuleError(
+                f"Customer {customer.code} is not active and cannot take portal accounts.",
+                details={"customer_id": str(customer.id)},
+            )
 
     @staticmethod
     def _assert_scope_is_meaningful(
@@ -1545,6 +1633,7 @@ class RoleService:
                 # claiming the flag would be undeletable for no traceable reason.
                 is_system=False,
                 is_vendor_role=payload.is_vendor_role,
+                is_dealer_role=payload.is_dealer_role,
                 is_active=payload.is_active,
             )
             self.repo.add(role)
@@ -1725,6 +1814,7 @@ class RoleService:
             description=role.description,
             is_system=role.is_system,
             is_vendor_role=role.is_vendor_role,
+            is_dealer_role=role.is_dealer_role,
             is_active=role.is_active,
             permission_count=len(role.permissions or []),
             created_at=role.created_at,
@@ -1759,6 +1849,7 @@ __all__ = [
     "assert_can_grant",
     "assert_grant_change_allowed",
     "assert_may_set_password_for",
+    "assert_portal_role_consistency",
     "assert_role_assignment_allowed",
     "assert_vendor_role_consistency",
     "caller_holds_super_admin",

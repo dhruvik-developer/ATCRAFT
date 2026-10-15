@@ -51,6 +51,7 @@ const QualityPage = lazy(routeLoaders['/quality'])
 const PackingPage = lazy(routeLoaders['/packing'])
 const DispatchPage = lazy(routeLoaders['/dispatch'])
 const FinancePage = lazy(routeLoaders['/finance'])
+const SalesInvoicesPage = lazy(routeLoaders['/finance/sales-invoices'])
 const VendorInvoicesPage = lazy(routeLoaders['/finance/vendor-invoices'])
 const ReportsPage = lazy(routeLoaders['/reports'])
 const AuditPage = lazy(routeLoaders['/audit'])
@@ -64,6 +65,7 @@ const RfqDetailPage = lazy(routeLoaders['/procurement/rfqs/:rfqId'])
 const QuotationsPage = lazy(routeLoaders['/procurement/quotations'])
 const PurchaseReturnsPage = lazy(routeLoaders['/procurement/purchase-returns'])
 const TransportersPage = lazy(routeLoaders['/transporters'])
+const ShiftRosterPage = lazy(routeLoaders['/production/shift-roster'])
 const WorkOrdersPage = lazy(routeLoaders['/production/work-orders'])
 const QcTemplatesPage = lazy(routeLoaders['/quality/templates'])
 const DocumentsPage = lazy(routeLoaders['/documents'])
@@ -311,6 +313,11 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
     element: <ProductionDetailPage />,
     permissions: [P.PRODUCTION_ORDER_VIEW],
   },
+  {
+    path: '/production/shift-roster',
+    element: <ShiftRosterPage />,
+    permissions: [P.SHIFT_ROSTER_VIEW, P.SHIFT_VIEW],
+  },
   { path: '/assembly', element: <AssemblyPage />, permissions: [P.ASSEMBLY_ORDER_VIEW] },
   { path: '/job-work', element: <JobWorkPage />, permissions: [P.JOB_WORK_VIEW] },
 
@@ -319,6 +326,11 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
   { path: '/dispatch', element: <DispatchPage />, permissions: [P.DISPATCH_VIEW] },
 
   { path: '/finance', element: <FinancePage />, permissions: [P.FINANCE_VIEW] },
+  {
+    path: '/finance/sales-invoices',
+    element: <SalesInvoicesPage />,
+    permissions: [P.SALES_INVOICE_VIEW],
+  },
   {
     path: '/finance/vendor-invoices',
     element: <VendorInvoicesPage />,

@@ -24,6 +24,7 @@ import threading
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
@@ -351,6 +352,23 @@ class TestQueuePackingList:
 
 
 class TestQueueInventoryValuation:
+    @pytest.mark.parametrize("superuser", [False, True])
+    async def test_the_queue_captures_verified_scope_with_superuser_exemption(
+        self, dispatched, audits, superuser
+    ) -> None:
+        first, second = uuid.uuid4(), uuid.uuid4()
+        tenant = replace(
+            _tenant(),
+            allowed_warehouse_ids=(second, first, second),
+            is_superuser=superuser,
+        )
+        session = _Session()
+        await finance_service.queue_inventory_valuation(session, tenant, ValuationFilters())
+        [snapshot] = session.added
+        assert snapshot.parameters[reports_service.VALUATION_WAREHOUSE_SCOPE_PARAMETER] == (
+            [] if superuser else sorted((str(first), str(second)))
+        )
+
     async def test_the_job_is_a_snapshot_row_created_with_its_audit_entry(
         self,
         dispatched: list[tuple[ReportSnapshot, dict[str, Any]]],
@@ -374,7 +392,9 @@ class TestQueueInventoryValuation:
         assert snapshot.report_key is ReportKey.INVENTORY_VALUATION
         assert snapshot.status is ReportJobStatus.QUEUED
         assert snapshot.company_id == tenant.company_id
-        assert snapshot.parameters == finance_service.valuation_export_parameters(filters)
+        assert snapshot.parameters == finance_service.valuation_export_parameters(
+            filters, tenant=tenant
+        )
         assert snapshot.parameters["filters"] == {"warehouse_id": str(warehouse_id)}
 
         assert dispatched == [
@@ -401,7 +421,9 @@ class TestQueueInventoryValuation:
         # over the same filters must hash apart from the catalogue report.
         warehouse_id = uuid.uuid4()
         export = reports_service.parameters_hash(
-            finance_service.valuation_export_parameters(ValuationFilters(warehouse_id=warehouse_id))
+            finance_service.valuation_export_parameters(
+                ValuationFilters(warehouse_id=warehouse_id), tenant=_tenant()
+            )
         )
         definition = reports_service.definition_for(ReportKey.INVENTORY_VALUATION)
         ctx = reports_service.build_context(
@@ -411,7 +433,9 @@ class TestQueueInventoryValuation:
         assert export != tabular
 
     def test_unset_filters_are_dropped_from_the_stored_parameters(self) -> None:
-        parameters = finance_service.valuation_export_parameters(ValuationFilters())
+        parameters = finance_service.valuation_export_parameters(
+            ValuationFilters(), tenant=_tenant()
+        )
         assert parameters["filters"] == {}
         assert parameters["report_key"] == "INVENTORY_VALUATION"
         assert parameters["task"] == finance_service.VALUATION_TASK_NAME

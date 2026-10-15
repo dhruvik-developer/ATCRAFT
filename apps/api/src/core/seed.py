@@ -145,6 +145,7 @@ WAREHOUSES: tuple[dict[str, str], ...] = (
     {"code": "WH-JW", "name": "Job Work (at vendor)", "warehouse_type": "JOB_WORK"},
     {"code": "WH-SCR", "name": "Scrap Yard", "warehouse_type": "SCRAP"},
     {"code": "WH-RET", "name": "Sales Return Store", "warehouse_type": "RETURN"},
+    {"code": "WH-CNS", "name": "Consumables Store", "warehouse_type": "CONSUMABLES"},
 )
 
 ITEM_CATEGORIES: tuple[tuple[str, str, str | None], ...] = (
@@ -237,6 +238,7 @@ async def _seed_roles(session: AsyncSession, company: Company) -> dict[str, Role
             permissions=wanted,
             is_system=bool(spec.get("is_system")),
             is_vendor_role=bool(spec.get("is_vendor_role")),
+            is_dealer_role=bool(spec.get("is_dealer_role")),
             is_active=True,
         )
         session.add(role)

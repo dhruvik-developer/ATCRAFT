@@ -39,7 +39,14 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import StreamingResponse
 
-from src.core.deps import CurrentUser, DbSession, Tenant, forbid_vendor_users, require_permission
+from src.core.deps import (
+    CurrentUser,
+    DbSession,
+    Tenant,
+    forbid_dealer_users,
+    forbid_vendor_users,
+    require_permission,
+)
 from src.core.errors import ValidationError
 from src.core.pagination import PageParams, page_params
 from src.core.permissions import Permission
@@ -53,6 +60,7 @@ from src.modules.documents.service import DOWNLOAD_HEADERS, content_disposition,
 from src.modules.reports import service
 from src.modules.reports.models import ReportKey
 from src.modules.reports.schemas import (
+    ConsumptionByDepartmentRow,
     CostCentreExpenseRow,
     CourierTrackingRow,
     DashboardRead,
@@ -74,6 +82,8 @@ from src.modules.reports.schemas import (
     ReportJobRead,
     ReportPeriod,
     SalesOrderStatusRow,
+    ScrapRegisterRow,
+    ShiftProductionRow,
     StockAvailabilityRow,
     VendorDispatchHistoryRow,
     VendorPerformanceRow,
@@ -243,6 +253,7 @@ async def dashboard(session: DbSession, tenant: Tenant) -> ApiResponse[Dashboard
     dependencies=[
         require_permission(Permission.REPORT_VIEW, Permission.INVENTORY_VALUATION_VIEW, mode="any"),
         Depends(forbid_vendor_users),
+        Depends(forbid_dealer_users),
     ],
 )
 async def get_job(
@@ -260,6 +271,7 @@ async def get_job(
     dependencies=[
         require_permission(Permission.REPORT_VIEW, Permission.INVENTORY_VALUATION_VIEW, mode="any"),
         Depends(forbid_vendor_users),
+        Depends(forbid_dealer_users),
     ],
 )
 async def download_job(
@@ -593,7 +605,8 @@ async def production_efficiency(
     description=(
         "Busy minutes against available capacity per machine. Capacity is the work "
         "centre's working hours across the calendar days of the period - the system "
-        "holds no shift calendar, so no weekend or holiday assumption is made."
+        "makes no weekend or holiday assumption. Separate rostered minutes and "
+        "rostered utilisation use planned shift assignments less their breaks."
     ),
     responses=REPORT_RESPONSES,
     dependencies=[require_permission(Permission.REPORT_VIEW)],
@@ -609,6 +622,33 @@ async def machine_utilisation(
 ) -> PaginatedResponse[MachineUtilisationRow] | AcceptedJobResponse:
     return await _run(
         session, tenant, principal, response, ReportKey.MACHINE_UTILISATION, period, filters, page
+    )
+
+
+@router.get(
+    "/shift-production",
+    response_model=None,
+    summary="Daily production by shift",
+    description=(
+        "Bookings grouped by business date, shift code, work centre, machine and "
+        "operator, with produced, rejected, downtime, the number of bookings and the "
+        "yield. The shift is the code recorded on each booking, so bookings made before "
+        "the shift master existed appear under the code that was typed."
+    ),
+    responses=REPORT_RESPONSES,
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def shift_production(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[ShiftProductionRow] | AcceptedJobResponse:
+    return await _run(
+        session, tenant, principal, response, ReportKey.SHIFT_PRODUCTION, period, filters, page
     )
 
 
@@ -768,6 +808,53 @@ async def cost_centre_expense(
 ) -> PaginatedResponse[CostCentreExpenseRow] | AcceptedJobResponse:
     return await _run(
         session, tenant, principal, response, ReportKey.COST_CENTRE_EXPENSE, period, filters, page
+    )
+
+
+@router.get(
+    "/scrap-register",
+    response_model=None,
+    responses=REPORT_RESPONSES,
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def scrap_register(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[ScrapRegisterRow] | AcceptedJobResponse:
+    return await _run(
+        session, tenant, principal, response, ReportKey.SCRAP_REGISTER, period, filters, page
+    )
+
+
+@router.get(
+    "/consumption-by-department",
+    response_model=None,
+    responses=REPORT_RESPONSES,
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def consumption_by_department(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[ConsumptionByDepartmentRow] | AcceptedJobResponse:
+    return await _run(
+        session,
+        tenant,
+        principal,
+        response,
+        ReportKey.CONSUMPTION_BY_DEPARTMENT,
+        period,
+        filters,
+        page,
     )
 
 

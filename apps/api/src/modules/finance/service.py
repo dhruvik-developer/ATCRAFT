@@ -108,6 +108,7 @@ from src.modules.finance.models import (
     COST_CENTRE_ACCOUNT_TYPES,
     CURRENCY_CODE_LENGTH,
     EDITABLE_INVOICE_STATUSES,
+    JOB_WORK_ALLOW_FREE_LINES,
     MAX_JOURNAL_LINES,
     MAX_PAYMENT_ALLOCATIONS,
     PAYABLE_INVOICE_STATUSES,
@@ -129,6 +130,7 @@ from src.modules.finance.models import (
     VendorInvoice,
     VendorInvoiceLine,
     VendorInvoiceStatus,
+    VendorInvoiceType,
 )
 from src.modules.finance.repository import (
     AGEING_TOTAL_COLUMNS,
@@ -140,6 +142,10 @@ from src.modules.finance.repository import (
     GstRepository,
     InventoryValuationRepository,
     ItemLookupRepository,
+    JobWorkOrderFacts,
+    JobWorkOrderLookupRepository,
+    JobWorkReceiptLineFacts,
+    JobWorkReceiptLineLookupRepository,
     LedgerAccountRepository,
     LedgerEntryRepository,
     PartyFacts,
@@ -218,6 +224,11 @@ AUDIT_PAYMENT = "payment"
 #: holds a type and an id rather than a foreign key.
 REFERENCE_VENDOR_INVOICE = "vendor_invoice"
 REFERENCE_PAYMENT = "payment"
+#: The excess-loss recovery posted beside a job-work invoice: Dr AP against the
+#: vendor, Cr JOB_WORK_EXPENSE. Its own reference type so cancelling the invoice
+#: finds exactly the two journals it posted - the bill and its recovery - and
+#: reverses both. docs/assumptions.md §B3-2.
+REFERENCE_JOB_WORK_RECOVERY = "job_work_recovery"
 #: A debit or credit note raised against a customer by hand - the journal *is*
 #: the document, so ``reference_id`` is the journal id.
 REFERENCE_CUSTOMER_ADJUSTMENT = "customer_adjustment"
@@ -268,8 +279,10 @@ INVOICE_AUDITED_FIELDS = [
     "vendor_invoice_number",
     "invoice_date",
     "due_date",
+    "invoice_type",
     "purchase_order_id",
     "goods_receipt_id",
+    "job_work_order_id",
     "cost_centre_id",
     "currency",
     "subtotal",
@@ -277,6 +290,7 @@ INVOICE_AUDITED_FIELDS = [
     "round_off_amount",
     "total_amount",
     "paid_amount",
+    "recovered_amount",
     "status",
     "match_status",
     "notes",
@@ -422,6 +436,18 @@ VENDOR_INVOICE_LIFECYCLE: StateMachine[VendorInvoiceStatus] = StateMachine(
             permission=Permission.VENDOR_INVOICE_APPROVE,
             label="Cancel",
         ),
+        # An approved invoice has posted its journal, and cancelling it reverses
+        # that journal in the same transaction - see cancel_invoice. Without
+        # this edge the only way out of APPROVED with a posted journal was
+        # APPROVED -> DISPUTED -> CANCELLED, which cancelled without reversing
+        # anything (docs/assumptions.md §B3-5).
+        Transition(
+            VendorInvoiceStatus.APPROVED,
+            VendorInvoiceStatus.CANCELLED,
+            permission=Permission.VENDOR_INVOICE_APPROVE,
+            label="Cancel and reverse",
+            is_irreversible=True,
+        ),
     ),
     terminal=frozenset({VendorInvoiceStatus.CANCELLED}),
 )
@@ -498,6 +524,20 @@ DEFAULT_CHART: tuple[ChartSeed, ...] = (
     ChartSeed(
         SystemAccount.PURCHASE_EXPENSE, "5100", "Purchases and Services", LedgerAccountType.EXPENSE
     ),
+    # ASSUMPTION: processing bought on material the company issued is an expense
+    # of its own rather than part of purchases. A job-work invoice debits this
+    # account where a purchase bill debits PURCHASE_EXPENSE, so the cost of
+    # bought-in processing is readable without unpicking the purchases ledger.
+    # Preferred code 5150, inside the 5xxx expense range beside purchases; when
+    # that code is taken ``ensure_system_accounts`` walks upward to the next
+    # free one. docs/assumptions.md §B3-4.
+    ChartSeed(
+        SystemAccount.JOB_WORK_EXPENSE,
+        "5150",
+        "Job Work Charges",
+        LedgerAccountType.EXPENSE,
+    ),
+    ChartSeed(SystemAccount.SALES_REVENUE, "4500", "Sales Revenue", LedgerAccountType.INCOME),
     ChartSeed(SystemAccount.ROUND_OFF, "5900", "Rounding Differences", LedgerAccountType.EXPENSE),
 )
 
@@ -757,6 +797,11 @@ class MatchLineInput:
     Prices here are *net* unit prices - discount already applied on both sides -
     because a vendor who bills the list price and omits the agreed discount has
     overbilled, and comparing gross prices would not notice.
+
+    On a JOB_WORK invoice the purchase-order half is empty and the job-work
+    half is filled instead: the agreed price is the order's ``rate_per_unit``,
+    the accepted quantity is the receipt line's good ``output_quantity``, and
+    the expected amount is the line's unbilled charges.
     """
 
     line_number: int
@@ -773,6 +818,15 @@ class MatchLineInput:
     #: What the store actually took in. ``None`` means nothing has been received
     #: against this line yet, which is itself a finding.
     accepted_quantity: Decimal | None = None
+    job_work_receipt_line_id: uuid.UUID | None = None
+    #: The order's agreed rate, and how it applies.
+    job_work_rate_per_unit: Decimal | None = None
+    job_work_rate_basis: str | None = None
+    #: Good output the receipt line delivered - the quantity basis.
+    job_work_output_quantity: Decimal | None = None
+    #: ``charges - invoiced_amount``: what may still be billed. ``None`` means
+    #: the receipt line could not be read.
+    job_work_unbilled_charges: Decimal | None = None
 
 
 def evaluate_match(
@@ -786,6 +840,8 @@ def evaluate_match(
     price_tolerance: Decimal = PRICE_VARIANCE_TOLERANCE,
     quantity_tolerance: Decimal = QUANTITY_VARIANCE_TOLERANCE,
     header_findings: Sequence[str] = (),
+    invoice_type: VendorInvoiceType = VendorInvoiceType.PURCHASE,
+    job_work_order_id: uuid.UUID | None = None,
 ) -> MatchResult:
     """The three-way match itself: pure, and therefore thoroughly testable.
 
@@ -802,14 +858,30 @@ def evaluate_match(
     with a recorded reason takes one action. For the same reason an invoice with
     no purchase order at all is reported as unmatched: non-order spend is
     approved deliberately, not by default.
+
+    A JOB_WORK invoice takes a different branch: the expected line amount
+    follows ``rate_basis`` - for PER_PIECE and PER_KG it is the receipt line's
+    unbilled charges (``charges - invoiced_amount``), and for LOT the charge
+    applies once per order, which the receipt line's own ``charges`` already
+    encode through ``receipt_charge`` semantics. Price is compared with the
+    order's ``rate_per_unit`` under the same tolerance, quantity with the good
+    ``output_quantity``, and billing beyond the unbilled charges is a hard
+    block rather than a variance (docs/assumptions.md §B3-1, §B3-2).
     """
     results: list[MatchLineVariance] = []
     blocking: list[str] = list(header_findings)
     total_invoiced = ZERO
     total_expected = ZERO
     worst = ZERO
+    overbilled = False
 
-    if purchase_order_id is None:
+    if invoice_type is VendorInvoiceType.JOB_WORK:
+        if job_work_order_id is None:
+            blocking.append(
+                "The job-work invoice names no job-work order, so there is no agreed rate to "
+                "match against."
+            )
+    elif purchase_order_id is None:
         blocking.append(
             "The invoice is not linked to a purchase order, so there is no agreed price to "
             "match against."
@@ -826,7 +898,20 @@ def evaluate_match(
         price_variance: Decimal | None = None
         price_ratio: Decimal | None = None
 
-        if line.purchase_order_line_id is None:
+        if invoice_type is VendorInvoiceType.JOB_WORK:
+            line_overbilled = _evaluate_job_work_line(
+                line,
+                invoiced_amount=invoiced_amount,
+                price_tolerance=price_tolerance,
+                findings=findings,
+            )
+            overbilled = overbilled or line_overbilled
+            if line.job_work_unbilled_charges is not None:
+                expected_amount = to_money(line.job_work_unbilled_charges)
+                total_expected += expected_amount
+            quantity_variance, quantity_ratio = _job_work_quantity_figures(line)
+            price_variance, price_ratio = _job_work_price_figures(line)
+        elif line.purchase_order_line_id is None:
             findings.append(
                 f"Line {line.line_number} is not billed against any purchase order line."
             )
@@ -889,6 +974,7 @@ def evaluate_match(
                 item_code=line.item_code,
                 description=line.description,
                 purchase_order_line_id=line.purchase_order_line_id,
+                job_work_receipt_line_id=line.job_work_receipt_line_id,
                 invoiced_quantity=to_quantity(line.invoiced_quantity),
                 accepted_quantity=(
                     to_quantity(line.accepted_quantity)
@@ -926,6 +1012,7 @@ def evaluate_match(
         vendor_id=vendor_id,
         purchase_order_id=purchase_order_id,
         goods_receipt_id=goods_receipt_id,
+        job_work_order_id=job_work_order_id,
         matched=matched,
         match_status=MatchStatus.MATCHED if matched else MatchStatus.VARIANCE,
         price_tolerance=price_tolerance,
@@ -936,6 +1023,7 @@ def evaluate_match(
         worst_variance=to_money(worst),
         lines=results,
         blocking_reasons=blocking,
+        has_overbilling=overbilled,
     )
 
 
@@ -943,20 +1031,108 @@ def _as_percent(ratio: Decimal) -> str:
     return f"{to_money(ratio * Decimal(100))}%"
 
 
+def _evaluate_job_work_line(
+    line: MatchLineInput,
+    *,
+    invoiced_amount: Decimal,
+    price_tolerance: Decimal,
+    findings: list[str],
+) -> bool:
+    """Match one job-work invoice line against its order and receipt line.
+
+    Price is compared with the order's ``rate_per_unit`` under the purchase
+    price tolerance, quantity with the receipt line's good ``output_quantity``,
+    and the billed amount with the unbilled charges. Returns True when the line
+    bills beyond the unbilled charges: that is a hard block, not a variance -
+    no override can approve it (docs/assumptions.md §B3-2).
+    """
+    if line.job_work_receipt_line_id is None:
+        findings.append(f"Line {line.line_number} is not billed against any job-work receipt line.")
+        return False
+    if (
+        line.job_work_rate_per_unit is None
+        or line.job_work_output_quantity is None
+        or line.job_work_unbilled_charges is None
+    ):
+        findings.append(
+            f"Line {line.line_number} names a job-work receipt line that could not be read."
+        )
+        return False
+
+    agreed = to_unit_price(line.job_work_rate_per_unit)
+    billed = to_unit_price(line.invoiced_unit_price)
+    ratio = variance_ratio(billed, agreed)
+    if ratio is None:
+        if billed != agreed:
+            findings.append(
+                f"Line {line.line_number} is billed at {billed} against an agreed rate of zero."
+            )
+    elif abs(ratio) > price_tolerance:
+        findings.append(
+            f"Line {line.line_number} price {billed} differs from the agreed "
+            f"{agreed} by {_as_percent(ratio)}, beyond the "
+            f"{_as_percent(price_tolerance)} tolerance."
+        )
+
+    good = to_quantity(line.job_work_output_quantity)
+    billed_quantity = to_quantity(line.invoiced_quantity)
+    if billed_quantity > good:
+        findings.append(
+            f"Line {line.line_number} bills {billed_quantity} against {good} good output delivered."
+        )
+
+    unbilled = to_money(line.job_work_unbilled_charges)
+    if invoiced_amount > unbilled:
+        findings.append(
+            f"Line {line.line_number} bills {invoiced_amount} against {unbilled} still "
+            "unbilled on the receipt line. Billing beyond the unbilled charges is refused."
+        )
+        return True
+    return False
+
+
+def _job_work_quantity_figures(
+    line: MatchLineInput,
+) -> tuple[Decimal | None, Decimal | None]:
+    """The quantity variance columns for a job-work line, or blanks."""
+    if line.job_work_output_quantity is None:
+        return None, None
+    good = to_quantity(line.job_work_output_quantity)
+    billed_quantity = to_quantity(line.invoiced_quantity)
+    return billed_quantity - good, variance_ratio(billed_quantity, good)
+
+
+def _job_work_price_figures(line: MatchLineInput) -> tuple[Decimal | None, Decimal | None]:
+    """The price variance columns for a job-work line, or blanks."""
+    if line.job_work_rate_per_unit is None:
+        return None, None
+    agreed = to_unit_price(line.job_work_rate_per_unit)
+    billed = to_unit_price(line.invoiced_unit_price)
+    return billed - agreed, variance_ratio(billed, agreed)
+
+
 def invoice_status_after_payment(
-    current: VendorInvoiceStatus, *, total_amount: Decimal, paid_amount: Decimal
+    current: VendorInvoiceStatus,
+    *,
+    total_amount: Decimal,
+    paid_amount: Decimal,
+    recovered_amount: Decimal = ZERO,
 ) -> VendorInvoiceStatus:
     """Where an invoice sits once its paid total changes.
 
     Derived from the money rather than set independently, so an invoice can
-    never claim to be PAID while it still owes something. A disputed invoice
-    keeps its status: settling part of a disputed bill does not end the dispute.
+    never claim to be PAID while it still owes something. "What is owed" is
+    net of the excess-loss recovery posted beside a job-work invoice: the
+    recovery already reduced the payable in the ledger, so paying the gross
+    total would overpay the vendor by exactly the recovery
+    (docs/assumptions.md §B3-2). A disputed invoice keeps its status:
+    settling part of a disputed bill does not end the dispute.
     """
     if current in (VendorInvoiceStatus.DISPUTED, VendorInvoiceStatus.CANCELLED):
         return current
     paid = to_money(paid_amount)
-    total = to_money(total_amount)
-    if paid >= total and total > ZERO:
+    net = to_money(to_money(total_amount) - to_money(recovered_amount))
+    if paid >= net and net > ZERO:
         return VendorInvoiceStatus.PAID
     if paid > ZERO:
         return VendorInvoiceStatus.PARTIALLY_PAID
@@ -992,6 +1168,38 @@ def statement_direction(party_type: PartyType) -> int:
 # -----------------------------------------------------------------------------
 
 
+#: How far upward the control-account picker walks before giving up. A chart
+#: holding a hundred consecutive taken codes past a seed's preference is not a
+#: chart with a gap to fill - it is a numbering plan the seed does not fit, and
+#: failing loudly beats quietly landing far away from it.
+MAX_CODE_PICKER_STEPS = 100
+
+
+def pick_free_chart_code(preferred: str, taken: set[str]) -> str:
+    """The preferred chart code, or the next free one above it. Pure.
+
+    Chart codes here are zero-padded numerics (``5100``), so "above" is numeric
+    order and the width is preserved: 5150, 5151, ... A non-numeric preference
+    cannot walk anywhere and is used as-is - the unique index remains the final
+    guarantee, and its error names the collision.
+    """
+    if preferred not in taken:
+        return preferred
+    if not preferred.isdigit():
+        return preferred
+    width = len(preferred)
+    candidate = int(preferred) + 1
+    for _ in range(MAX_CODE_PICKER_STEPS):
+        text = str(candidate).zfill(width)
+        if len(text) == width and text not in taken:
+            return text
+        candidate += 1
+    raise BusinessRuleError(
+        f"No free chart code near {preferred}; the control account cannot be provisioned.",
+        details={"preferred_code": preferred},
+    )
+
+
 async def ensure_system_accounts(
     session: AsyncSession, tenant: TenantContext
 ) -> dict[str, LedgerAccount]:
@@ -1015,10 +1223,20 @@ async def ensure_system_accounts(
         existing = await repo.by_system_codes([seed.system_code for seed in DEFAULT_CHART])
         missing = [seed for seed in DEFAULT_CHART if str(seed.system_code) not in existing]
 
+        # A seed's preferred code may already belong to a hand-built account -
+        # the demo chart holds 4000, 4100 and 4200, and a client chart may hold
+        # anything. The system code is what postings resolve, so a taken
+        # preferred code moves upward to the next free one rather than failing
+        # on the unique index (docs/assumptions.md §B3-4). Retired rows count as
+        # taken: the (company_id, code) unique index covers them, so reusing
+        # one's code would fail on insert.
+        taken = await repo.all_codes() if missing else set()
         for seed in missing:
+            code = pick_free_chart_code(seed.code, taken)
+            taken.add(code)
             account = repo.add(
                 LedgerAccount(
-                    code=seed.code,
+                    code=code,
                     name=seed.name,
                     account_type=seed.account_type,
                     is_active=True,
@@ -1552,6 +1770,10 @@ def invoice_summary(invoice: VendorInvoice) -> VendorInvoiceSummary:
 
     Derived here rather than in the browser so the payables list, the ageing
     report and the allocation path cannot disagree about what is still owed.
+    The figure is net of the excess-loss recovery posted beside a job-work
+    invoice (``total - recovered - paid``): the recovery already reduced the
+    payable in the ledger, and showing the gross would guide the next payment
+    to overpay the vendor by exactly the recovery (docs/assumptions.md §B3-2).
     """
     return VendorInvoiceSummary(
         id=invoice.id,
@@ -1567,9 +1789,13 @@ def invoice_summary(invoice: VendorInvoice) -> VendorInvoiceSummary:
         tax_amount=invoice.tax_amount,
         total_amount=invoice.total_amount,
         paid_amount=invoice.paid_amount,
-        outstanding_amount=to_money(invoice.total_amount - invoice.paid_amount),
+        outstanding_amount=to_money(
+            invoice.total_amount - invoice.recovered_amount - invoice.paid_amount
+        ),
         purchase_order_id=invoice.purchase_order_id,
         goods_receipt_id=invoice.goods_receipt_id,
+        invoice_type=VendorInvoiceType(invoice.invoice_type),
+        job_work_order_id=invoice.job_work_order_id,
         cost_centre_id=invoice.cost_centre_id,
         created_at=invoice.created_at,
     )
@@ -1588,6 +1814,7 @@ def invoice_detail(
         approved_at=invoice.approved_at,
         dispute_reason=invoice.dispute_reason,
         cancellation_reason=invoice.cancellation_reason,
+        recovered_amount=invoice.recovered_amount,
         notes=invoice.notes,
         version=invoice.version,
         lines=[VendorInvoiceLineRead.model_validate(line) for line in lines],
@@ -1634,12 +1861,18 @@ async def _resolve_invoice_lines(
     lines: Sequence[VendorInvoiceLineIn],
     *,
     purchase_order_id: uuid.UUID | None,
+    job_work_order_id: uuid.UUID | None = None,
 ) -> list[_ResolvedLine]:
     """Validate and price a whole line set in a handful of batched queries.
 
     Everything a line refers to - item, unit, order line, receipt line - is
     looked up for the entire set at once. A twenty-line invoice validated with a
     lookup per line would be eighty round trips on the write path (section 32).
+
+    On a job-work bill every line must name a receipt line of the invoice's
+    order (unless ``JOB_WORK_ALLOW_FREE_LINES`` permits free lines), and no
+    line may bill beyond that receipt line's unbilled charges. The over-bill is
+    re-checked under a row lock at approval, when the money actually moves.
     """
     item_ids = [line.item_id for line in lines if line.item_id is not None]
     uom_ids = [line.uom_id for line in lines if line.uom_id is not None]
@@ -1649,11 +1882,17 @@ async def _resolve_invoice_lines(
     receipt_line_ids = [
         line.goods_receipt_line_id for line in lines if line.goods_receipt_line_id is not None
     ]
+    jw_receipt_line_ids = [
+        line.job_work_receipt_line_id for line in lines if line.job_work_receipt_line_id is not None
+    ]
 
     items = await ItemLookupRepository(session, tenant).load(item_ids)
     known_uoms = await UomLookupRepository(session, tenant).existing(uom_ids)
     order_lines = await PurchaseOrderLineLookupRepository(session, tenant).load(order_line_ids)
     receipt_lines = await GoodsReceiptLineLookupRepository(session, tenant).load(receipt_line_ids)
+    jw_receipt_lines = await JobWorkReceiptLineLookupRepository(session, tenant).load(
+        jw_receipt_line_ids
+    )
 
     resolved: list[_ResolvedLine] = []
     for number, payload in enumerate(lines, start=1):
@@ -1692,6 +1931,40 @@ async def _resolve_invoice_lines(
                     details={"line_number": number},
                 )
 
+        if job_work_order_id is not None:
+            if payload.job_work_receipt_line_id is None:
+                if not JOB_WORK_ALLOW_FREE_LINES:
+                    raise BusinessRuleError(
+                        f"Line {number} of a job-work invoice must name the job-work receipt "
+                        "line it bills.",
+                        details={"line_number": number},
+                    )
+            else:
+                jw_line = jw_receipt_lines.get(payload.job_work_receipt_line_id)
+                if jw_line is None:
+                    raise NotFoundError("Job work receipt line", payload.job_work_receipt_line_id)
+                if jw_line.job_work_order_id != job_work_order_id:
+                    raise BusinessRuleError(
+                        f"Line {number} bills a receipt line of another job-work order. "
+                        "Resend the invoice lines when moving it to another order.",
+                        details={
+                            "line_number": number,
+                            "job_work_order_id": str(job_work_order_id),
+                            "job_work_receipt_line_id": str(payload.job_work_receipt_line_id),
+                        },
+                    )
+                if item is not None and item.id != jw_line.output_item_id:
+                    raise BusinessRuleError(
+                        f"Line {number} bills {item.code} against a receipt line for a "
+                        "different processed item.",
+                        details={"line_number": number, "item_code": item.code},
+                    )
+        elif payload.job_work_receipt_line_id is not None:
+            raise BusinessRuleError(
+                f"Line {number} bills a job-work receipt line on a purchase invoice.",
+                details={"line_number": number},
+            )
+
         pricing = price_invoice_line(
             quantity=payload.quantity,
             unit_price=payload.unit_price,
@@ -1699,6 +1972,21 @@ async def _resolve_invoice_lines(
             tax_rate=payload.tax_rate,
             is_interstate=payload.is_interstate,
         )
+        if job_work_order_id is not None and payload.job_work_receipt_line_id is not None:
+            # Fail fast; the same comparison runs again under a row lock at
+            # approval, when the money actually moves.
+            jw_facts = jw_receipt_lines[payload.job_work_receipt_line_id]
+            if pricing.taxable_amount > to_money(jw_facts.unbilled_charges):
+                raise BusinessRuleError(
+                    f"Line {number} bills {pricing.taxable_amount} against "
+                    f"{to_money(jw_facts.unbilled_charges)} still unbilled on the receipt "
+                    "line. Billing beyond the unbilled charges is refused.",
+                    details={
+                        "line_number": number,
+                        "billed_amount": str(pricing.taxable_amount),
+                        "unbilled_charges": str(to_money(jw_facts.unbilled_charges)),
+                    },
+                )
         resolved.append(
             _ResolvedLine(
                 payload=payload,
@@ -1785,6 +2073,39 @@ async def _assert_invoice_references(
             )
 
 
+async def _assert_job_work_references(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    vendor: PartyFacts,
+    job_work_order_id: uuid.UUID | None,
+) -> JobWorkOrderFacts | None:
+    """The job-work order must be the billed vendor's, and billable.
+
+    A DRAFT order has no receipts and a CANCELLED one is dead: neither can be
+    billed. Checked at entry rather than only at match time, for the same
+    reason the purchase references are - an invoice pointing at another
+    vendor's order is a data-entry error worth catching immediately.
+    """
+    if job_work_order_id is None:
+        return None
+    order = await JobWorkOrderLookupRepository(session, tenant).get_facts(job_work_order_id)
+    if order is None:
+        raise NotFoundError("Job work order", job_work_order_id)
+    if order.vendor_id != vendor.id:
+        raise BusinessRuleError(
+            f"Job work order {order.code} belongs to another vendor.",
+            details={"job_work_order_id": str(job_work_order_id), "vendor": vendor.code},
+        )
+    if order.status in ("DRAFT", "CANCELLED"):
+        raise BusinessRuleError(
+            f"Job work order {order.code} is {order.status}; only an issued order with "
+            "receipts can be billed.",
+            details={"job_work_order_id": str(job_work_order_id), "status": order.status},
+        )
+    return order
+
+
 async def _assert_lines_belong_to_order(
     session: AsyncSession, tenant: TenantContext, invoice: VendorInvoice
 ) -> None:
@@ -1826,6 +2147,50 @@ async def _assert_lines_belong_to_order(
                 },
             )
 
+    await _assert_jw_lines_belong_to_order(session, tenant, invoice)
+
+
+async def _assert_jw_lines_belong_to_order(
+    session: AsyncSession, tenant: TenantContext, invoice: VendorInvoice
+) -> None:
+    """Every line's receipt-line link must sit on the invoice's own order.
+
+    The job-work half of :func:`_assert_lines_belong_to_order`, for the path
+    that repoints the header at a different order and leaves the existing lines
+    in place.
+    """
+    if VendorInvoiceType(invoice.invoice_type) is not VendorInvoiceType.JOB_WORK:
+        return
+    lines = await VendorInvoiceLineRepository(session, tenant).list_for_invoice(invoice.id)
+    linked = [
+        (line.line_number, line.job_work_receipt_line_id)
+        for line in lines
+        if line.job_work_receipt_line_id is not None
+    ]
+    if not linked:
+        return
+    if invoice.job_work_order_id is None:
+        raise BusinessRuleError(
+            f"{invoice.code} has lines billed against job-work receipt lines, so it cannot be "
+            "unlinked from its job-work order. Resend the lines without those links instead.",
+            details={"invoice_id": str(invoice.id), "line_count": len(linked)},
+        )
+    receipt_lines = await JobWorkReceiptLineLookupRepository(session, tenant).load(
+        [receipt_line_id for _, receipt_line_id in linked]
+    )
+    for line_number, receipt_line_id in linked:
+        facts = receipt_lines.get(receipt_line_id)
+        if facts is None or facts.job_work_order_id != invoice.job_work_order_id:
+            raise BusinessRuleError(
+                f"Line {line_number} is billed against a receipt line of a different job-work "
+                "order. Resend the invoice lines when moving it to another order.",
+                details={
+                    "line_number": line_number,
+                    "job_work_order_id": str(invoice.job_work_order_id),
+                    "job_work_receipt_line_id": str(receipt_line_id),
+                },
+            )
+
 
 async def create_invoice(
     session: AsyncSession, tenant: TenantContext, payload: VendorInvoiceCreate
@@ -1833,6 +2198,8 @@ async def create_invoice(
     """Record a bill in DRAFT. Nothing posts to the ledger until approval."""
     repo = VendorInvoiceRepository(session, tenant)
     line_repo = VendorInvoiceLineRepository(session, tenant)
+    if tenant.vendor_id is not None and payload.vendor_id != tenant.vendor_id:
+        raise NotFoundError("Vendor", payload.vendor_id)
 
     async with transaction(session):
         vendor = await VendorLookupRepository(session, tenant).get_facts(payload.vendor_id)
@@ -1861,8 +2228,15 @@ async def create_invoice(
             purchase_order_id=payload.purchase_order_id,
             goods_receipt_id=payload.goods_receipt_id,
         )
+        await _assert_job_work_references(
+            session, tenant, vendor=vendor, job_work_order_id=payload.job_work_order_id
+        )
         resolved = await _resolve_invoice_lines(
-            session, tenant, payload.lines, purchase_order_id=payload.purchase_order_id
+            session,
+            tenant,
+            payload.lines,
+            purchase_order_id=payload.purchase_order_id,
+            job_work_order_id=payload.job_work_order_id,
         )
         await _assert_invoice_cost_centres(
             session, tenant, header=payload.cost_centre_id, lines=payload.lines
@@ -1885,6 +2259,8 @@ async def create_invoice(
                 due_date=_resolve_due_date(payload.due_date, payload.invoice_date, vendor),
                 purchase_order_id=payload.purchase_order_id,
                 goods_receipt_id=payload.goods_receipt_id,
+                invoice_type=payload.invoice_type,
+                job_work_order_id=payload.job_work_order_id,
                 cost_centre_id=payload.cost_centre_id,
                 currency=denomination,
                 subtotal=subtotal,
@@ -1937,6 +2313,7 @@ def _persist_lines(
                 line_number=line.line_number,
                 purchase_order_line_id=line.payload.purchase_order_line_id,
                 goods_receipt_line_id=line.payload.goods_receipt_line_id,
+                job_work_receipt_line_id=line.payload.job_work_receipt_line_id,
                 item_id=line.payload.item_id,
                 cost_centre_id=line.payload.cost_centre_id,
                 description=line.description,
@@ -2007,7 +2384,18 @@ async def update_invoice(
                 setattr(invoice, attribute, changes[attribute])
 
         order_before = invoice.purchase_order_id
+        jw_order_before = invoice.job_work_order_id
+        is_job_work = VendorInvoiceType(invoice.invoice_type) is VendorInvoiceType.JOB_WORK
         if "purchase_order_id" in changes or "goods_receipt_id" in changes:
+            if is_job_work and (
+                changes.get("purchase_order_id") is not None
+                or changes.get("goods_receipt_id") is not None
+            ):
+                raise BusinessRuleError(
+                    f"{invoice.code} is a job-work invoice; it is matched against its "
+                    "job-work order, not against a purchase order or a goods receipt.",
+                    details={"invoice_id": str(invoice.id)},
+                )
             invoice.purchase_order_id = changes.get("purchase_order_id", invoice.purchase_order_id)
             invoice.goods_receipt_id = changes.get("goods_receipt_id", invoice.goods_receipt_id)
             await _assert_invoice_references(
@@ -2017,6 +2405,18 @@ async def update_invoice(
                 purchase_order_id=invoice.purchase_order_id,
                 goods_receipt_id=invoice.goods_receipt_id,
             )
+        if "job_work_order_id" in changes:
+            if not is_job_work and changes["job_work_order_id"] is not None:
+                raise BusinessRuleError(
+                    f"{invoice.code} is a purchase invoice; only a job-work invoice may name "
+                    "a job-work order.",
+                    details={"invoice_id": str(invoice.id)},
+                )
+            if is_job_work:
+                invoice.job_work_order_id = changes["job_work_order_id"]
+                await _assert_job_work_references(
+                    session, tenant, vendor=vendor, job_work_order_id=invoice.job_work_order_id
+                )
 
         if invoice.due_date < invoice.invoice_date:
             raise ValidationError(date_before("due date", "invoice date"))
@@ -2048,7 +2448,11 @@ async def update_invoice(
             if not payload.lines:
                 raise ValidationError("An invoice needs at least one line.")
             resolved = await _resolve_invoice_lines(
-                session, tenant, payload.lines, purchase_order_id=invoice.purchase_order_id
+                session,
+                tenant,
+                payload.lines,
+                purchase_order_id=invoice.purchase_order_id,
+                job_work_order_id=invoice.job_work_order_id if is_job_work else None,
             )
             await line_repo.delete_for_invoice(invoice.id)
             _persist_lines(line_repo, invoice.id, resolved)
@@ -2063,7 +2467,10 @@ async def update_invoice(
                 invoice.subtotal + invoice.tax_amount + invoice.round_off_amount
             )
 
-        if payload.lines is None and invoice.purchase_order_id != order_before:
+        if payload.lines is None and (
+            invoice.purchase_order_id != order_before
+            or invoice.job_work_order_id != jw_order_before
+        ):
             # Moving the header to another order without resending the lines
             # would leave every line still pointing at the previous order's
             # lines. The matcher reads the price from those links, so the
@@ -2128,6 +2535,89 @@ async def delete_draft_invoice(
         await repo.hard_delete(invoice)
 
 
+#: The bill outcomes a vendor's portal users are told about (WP C1a).
+VENDOR_TOLD_INVOICE_STATUSES: frozenset[VendorInvoiceStatus] = frozenset(
+    {VendorInvoiceStatus.APPROVED, VendorInvoiceStatus.DISPUTED}
+)
+
+#: The vendor app's bills page (WP C2a) - it has no per-bill route.
+VENDOR_INVOICES_URL = "/vendor/invoices"
+VENDOR_PAYMENTS_URL = "/vendor/payments"
+
+
+async def _tell_vendor_about_invoice(
+    session: AsyncSession,
+    tenant: TenantContext,
+    invoice: VendorInvoice,
+    target: VendorInvoiceStatus,
+    reason: str | None,
+) -> None:
+    """Tell the vendor's invoice contacts their bill was approved or disputed.
+
+    A dispute carries its reason - the vendor has to act on it. An approval does
+    not: whatever the approver noted (an override of a price variance, say) is
+    the buyer's own record, not a message to the supplier.
+    """
+    from src.core.permissions import Permission
+    from src.modules.notifications.models import NotificationSeverity, NotificationType
+    from src.modules.notifications.service import notify_vendor
+
+    disputed = target is VendorInvoiceStatus.DISPUTED
+    await notify_vendor(
+        session,
+        company_id=tenant.company_id,
+        vendor_id=invoice.vendor_id,
+        permission=Permission.VENDOR_PORTAL_INVOICE,
+        notification_type=NotificationType.VENDOR_INVOICE_STATUS,
+        severity=NotificationSeverity.WARNING if disputed else NotificationSeverity.INFO,
+        title=(
+            f"Invoice {invoice.vendor_invoice_number} "
+            f"{'is disputed' if disputed else 'was approved'}"
+        ),
+        body=(
+            f"Reason: {reason or 'not stated'}."
+            if disputed
+            else f"Recorded as {invoice.code}, due {invoice.due_date.isoformat()}."
+        ),
+        entity_type=AUDIT_VENDOR_INVOICE,
+        entity_id=invoice.id,
+        action_url=VENDOR_INVOICES_URL,
+        group_key=f"vendor-invoice:{invoice.id}",
+        actor_id=tenant.user_id,
+    )
+
+
+async def _tell_vendor_about_payment(
+    session: AsyncSession, tenant: TenantContext, payment: Payment, *, title: str, body: str
+) -> None:
+    """Tell the paid vendor's invoice contacts, when the money is a payment *to* a vendor.
+
+    A customer receipt shares this code path and its ``party_id`` is a customer
+    id - which no vendor user is bound to, but which must not be looked up as a
+    vendor either. One collapsing row per payment: approval, then allocation.
+    """
+    if payment.party_type != PartyType.VENDOR or payment.payment_type != PaymentType.PAYMENT:
+        return
+    from src.core.permissions import Permission
+    from src.modules.notifications.models import NotificationType
+    from src.modules.notifications.service import notify_vendor
+
+    await notify_vendor(
+        session,
+        company_id=tenant.company_id,
+        vendor_id=payment.party_id,
+        permission=Permission.VENDOR_PORTAL_INVOICE,
+        notification_type=NotificationType.VENDOR_PAYMENT_RECORDED,
+        title=title,
+        body=body,
+        entity_type=AUDIT_PAYMENT,
+        entity_id=payment.id,
+        action_url=VENDOR_PAYMENTS_URL,
+        group_key=f"vendor-payment:{payment.id}",
+        actor_id=tenant.user_id,
+    )
+
+
 async def _transition_invoice(
     session: AsyncSession,
     tenant: TenantContext,
@@ -2149,6 +2639,8 @@ async def _transition_invoice(
     VENDOR_INVOICE_LIFECYCLE.assert_transition(current, target)
     invoice.status = target
     await session.flush()
+    if target in VENDOR_TOLD_INVOICE_STATUSES:
+        await _tell_vendor_about_invoice(session, tenant, invoice, target, reason)
     await record_status_change(
         session,
         company_id=tenant.company_id,
@@ -2212,6 +2704,9 @@ async def _match(
     invoice: VendorInvoice,
     lines: Sequence[VendorInvoiceLine],
 ) -> MatchResult:
+    if VendorInvoiceType(invoice.invoice_type) is VendorInvoiceType.JOB_WORK:
+        return await _match_job_work(session, tenant, invoice, lines)
+
     order_line_ids = [
         line.purchase_order_line_id for line in lines if line.purchase_order_line_id is not None
     ]
@@ -2267,6 +2762,87 @@ async def _match(
         purchase_order_id=invoice.purchase_order_id,
         goods_receipt_id=invoice.goods_receipt_id,
     )
+
+
+async def _match_job_work(
+    session: AsyncSession,
+    tenant: TenantContext,
+    invoice: VendorInvoice,
+    lines: Sequence[VendorInvoiceLine],
+) -> MatchResult:
+    """Compare a job-work bill against its order and receipt lines.
+
+    Price is matched against the order's agreed rate, quantity against the good
+    output each receipt line delivered, and the billed amount against the
+    charges still unbilled on it. A bill that matches needs no override: unlike
+    a purchase bill with no order, a job-work bill always names its order.
+    """
+    order = None
+    if invoice.job_work_order_id is not None:
+        order = await JobWorkOrderLookupRepository(session, tenant).get_facts(
+            invoice.job_work_order_id
+        )
+
+    receipt_line_ids = [
+        line.job_work_receipt_line_id for line in lines if line.job_work_receipt_line_id is not None
+    ]
+    receipt_lines = await JobWorkReceiptLineLookupRepository(session, tenant).load(receipt_line_ids)
+
+    item_ids = [line.item_id for line in lines if line.item_id is not None]
+    items = await ItemLookupRepository(session, tenant).load(item_ids)
+
+    inputs = [
+        MatchLineInput(
+            line_number=line.line_number,
+            invoice_line_id=line.id,
+            item_id=line.item_id,
+            item_code=items[line.item_id].code if line.item_id in items else None,
+            description=line.description,
+            invoiced_quantity=Decimal(line.quantity),
+            invoiced_unit_price=_net_unit_price(
+                Decimal(line.taxable_amount), Decimal(line.quantity)
+            ),
+            invoiced_amount=Decimal(line.taxable_amount),
+            # The shared columns carry the job-work figures too, so the match
+            # dialog renders the agreed rate and the good output where it
+            # renders the PO price and the accepted quantity.
+            ordered_unit_price=Decimal(order.rate_per_unit) if order is not None else None,
+            accepted_quantity=_receipt_output(receipt_lines, line.job_work_receipt_line_id),
+            job_work_receipt_line_id=line.job_work_receipt_line_id,
+            job_work_rate_per_unit=Decimal(order.rate_per_unit) if order is not None else None,
+            job_work_rate_basis=order.rate_basis if order is not None else None,
+            job_work_output_quantity=_receipt_output(receipt_lines, line.job_work_receipt_line_id),
+            job_work_unbilled_charges=_receipt_unbilled(
+                receipt_lines, line.job_work_receipt_line_id
+            ),
+        )
+        for line in lines
+    ]
+
+    return evaluate_match(
+        inputs,
+        invoice_id=invoice.id,
+        invoice_code=invoice.code,
+        vendor_id=invoice.vendor_id,
+        purchase_order_id=None,
+        goods_receipt_id=None,
+        invoice_type=VendorInvoiceType.JOB_WORK,
+        job_work_order_id=invoice.job_work_order_id,
+    )
+
+
+def _receipt_output(
+    receipt_lines: dict[uuid.UUID, JobWorkReceiptLineFacts], line_id: uuid.UUID | None
+) -> Decimal | None:
+    facts = receipt_lines.get(line_id) if line_id is not None else None
+    return facts.output_quantity if facts is not None else None
+
+
+def _receipt_unbilled(
+    receipt_lines: dict[uuid.UUID, JobWorkReceiptLineFacts], line_id: uuid.UUID | None
+) -> Decimal | None:
+    facts = receipt_lines.get(line_id) if line_id is not None else None
+    return facts.unbilled_charges if facts is not None else None
 
 
 def _net_unit_price(taxable_amount: Decimal, quantity: Decimal) -> Decimal:
@@ -2379,6 +2955,18 @@ async def approve_invoice(
             )
 
         result = await _run_and_store_match(session, tenant, invoice)
+        if result.has_overbilling:
+            # A job-work line billing beyond its receipt line's unbilled
+            # charges. A hard block, not a variance: no override reason can
+            # approve billing the same charges twice (docs/assumptions.md §B3-2).
+            raise BusinessRuleError(
+                f"{invoice.code} bills charges that have already been billed: "
+                + "; ".join(result.blocking_reasons),
+                details={
+                    "invoice_id": str(invoice.id),
+                    "blocking_reasons": result.blocking_reasons,
+                },
+            )
         if not result.matched:
             if payload.override_reason is None:
                 raise MatchVarianceError(result)
@@ -2445,25 +3033,45 @@ async def _post_invoice_journal(
     (:func:`split_by_cost_centre`). An invoice that names no centre anywhere
     posts the single unallocated leg it always did. The tax and payable legs
     never carry one - they are balance-sheet accounts (§44).
+
+    A JOB_WORK invoice debits ``JOB_WORK_EXPENSE`` instead, defaulting each
+    line's centre to the job-work order's, and additionally moves the billing
+    tracking (``invoiced_amount``) and posts the excess-loss recovery beside
+    the bill - see :func:`_post_job_work_billing`.
     """
+    is_job_work = VendorInvoiceType(invoice.invoice_type) is VendorInvoiceType.JOB_WORK
     accounts = await ensure_system_accounts(session, tenant)
     invoice_lines = await VendorInvoiceLineRepository(session, tenant).list_for_invoice(invoice.id)
-    # ASSUMPTION: a line's centre is its own, else the invoice's, else none -
-    # resolved here, at approval, so a header-only edit moves every line that
-    # names no centre of its own; and none means unallocated, never a default
-    # centre. docs/assumptions.md §41 and §42.
+    order_centre_id: uuid.UUID | None = None
+    if is_job_work and invoice.job_work_order_id is not None:
+        order = await JobWorkOrderLookupRepository(session, tenant).get_facts(
+            invoice.job_work_order_id
+        )
+        order_centre_id = order.cost_centre_id if order is not None else None
+    # ASSUMPTION: a line's centre is its own, else the job-work order's on a
+    # job-work bill, else the invoice's, else none - resolved here, at
+    # approval, so a header-only edit moves every line that names no centre of
+    # its own; and none means unallocated, never a default centre.
+    # docs/assumptions.md §41 and §42.
     expense = split_by_cost_centre(
         [
-            (line.cost_centre_id or invoice.cost_centre_id, Decimal(line.taxable_amount))
+            (
+                line.cost_centre_id or order_centre_id or invoice.cost_centre_id,
+                Decimal(line.taxable_amount),
+            )
             for line in invoice_lines
         ],
         total=invoice.subtotal,
     )
+    expense_account = (
+        SystemAccount.JOB_WORK_EXPENSE if is_job_work else SystemAccount.PURCHASE_EXPENSE
+    )
+    narration = f"Job work on {invoice.code}" if is_job_work else f"Purchases on {invoice.code}"
     lines = [
         JournalLine(
-            account_id=accounts[str(SystemAccount.PURCHASE_EXPENSE)].id,
+            account_id=accounts[str(expense_account)].id,
             debit=amount,
-            narration=f"Purchases on {invoice.code}",
+            narration=narration,
             cost_centre_id=cost_centre_id,
         )
         for cost_centre_id, amount in expense
@@ -2496,7 +3104,7 @@ async def _post_invoice_journal(
         )
     )
 
-    return await post_journal(
+    posted = await post_journal(
         session,
         tenant,
         lines,
@@ -2507,6 +3115,129 @@ async def _post_invoice_journal(
         narration=f"Vendor invoice {invoice.code}",
         currency=invoice.currency,
     )
+
+    if is_job_work:
+        await _post_job_work_billing(
+            session, tenant, invoice, invoice_lines, accounts, order_centre_id=order_centre_id
+        )
+
+    return posted
+
+
+async def _post_job_work_billing(
+    session: AsyncSession,
+    tenant: TenantContext,
+    invoice: VendorInvoice,
+    invoice_lines: Sequence[VendorInvoiceLine],
+    accounts: dict[str, LedgerAccount],
+    *,
+    order_centre_id: uuid.UUID | None,
+) -> None:
+    """Move the billing tracking and post the excess-loss recovery.
+
+    Runs inside the approval's transaction, after the bill's own journal:
+
+    * each receipt line's ``invoiced_amount`` grows by what this invoice's
+      lines bill against it - re-checked here under a row lock, because the
+      match ran before the lock and a second invoice may have won the race;
+    * for the receipt lines being invoiced, the still-unposted vendor debit
+      (``vendor_debit_amount - debit_posted_amount``) posts as a second
+      journal, Dr AP against the vendor / Cr JOB_WORK_EXPENSE, and
+      ``debit_posted_amount`` grows by it - so a later invoice recovers only
+      the remainder.
+
+    The invoice's ``recovered_amount`` is the recovery posted beside it, and
+    each line's ``recovery_amount`` is its share: when several lines bill one
+    receipt line the whole share sits on the first of them, so cancelling the
+    invoice removes exactly what it added. The vendor's net payable is the
+    invoice minus the recoveries (docs/assumptions.md §B3-2).
+    """
+    billed = [line for line in invoice_lines if line.job_work_receipt_line_id is not None]
+    if not billed:
+        return
+    receipt_ids = [
+        line.job_work_receipt_line_id for line in billed if line.job_work_receipt_line_id
+    ]
+    locked = await JobWorkReceiptLineLookupRepository(session, tenant).lock_lines(receipt_ids)
+
+    by_receipt: dict[uuid.UUID, list[VendorInvoiceLine]] = {}
+    for line in billed:
+        assert line.job_work_receipt_line_id is not None
+        by_receipt.setdefault(line.job_work_receipt_line_id, []).append(line)
+
+    recovery_pairs: list[tuple[uuid.UUID | None, Decimal]] = []
+    recovered_total = ZERO
+    for receipt_id in sorted(by_receipt, key=str):
+        receipt_line = locked.get(receipt_id)
+        if receipt_line is None:
+            raise NotFoundError("Job work receipt line", receipt_id)
+        lines_here = by_receipt[receipt_id]
+        billed_here = to_money(sum((Decimal(line.taxable_amount) for line in lines_here), ZERO))
+        unbilled = to_money(Decimal(receipt_line.charges) - Decimal(receipt_line.invoiced_amount))
+        if billed_here > unbilled:
+            raise BusinessRuleError(
+                f"{invoice.code} bills {billed_here} against {unbilled} still unbilled on "
+                "the receipt line. Another invoice billed it first; re-run the match.",
+                details={
+                    "job_work_receipt_line_id": str(receipt_id),
+                    "billed_amount": str(billed_here),
+                    "unbilled_charges": str(unbilled),
+                },
+            )
+        receipt_line.invoiced_amount = to_money(Decimal(receipt_line.invoiced_amount) + billed_here)
+
+        pending = to_money(
+            Decimal(receipt_line.vendor_debit_amount) - Decimal(receipt_line.debit_posted_amount)
+        )
+        if pending > ZERO:
+            receipt_line.debit_posted_amount = to_money(
+                Decimal(receipt_line.debit_posted_amount) + pending
+            )
+            # The whole share sits on the first line billing this receipt
+            # line; the rest carry zero. ``invoice_lines`` arrive ordered by
+            # line number, and so does each group.
+            first = lines_here[0]
+            first.recovery_amount = to_money(Decimal(first.recovery_amount) + pending)
+            recovery_pairs.append(
+                (
+                    first.cost_centre_id or order_centre_id or invoice.cost_centre_id,
+                    pending,
+                )
+            )
+            recovered_total += pending
+
+    if recovered_total > ZERO:
+        expense = split_by_cost_centre(recovery_pairs, total=recovered_total)
+        recovery_lines = [
+            JournalLine(
+                account_id=accounts[str(SystemAccount.ACCOUNTS_PAYABLE)].id,
+                debit=recovered_total,
+                party_type=PartyType.VENDOR,
+                party_id=invoice.vendor_id,
+                narration=f"Excess-loss recovery on {invoice.code}",
+            )
+        ] + [
+            JournalLine(
+                account_id=accounts[str(SystemAccount.JOB_WORK_EXPENSE)].id,
+                credit=amount,
+                narration=f"Excess-loss recovery on {invoice.code}",
+                cost_centre_id=cost_centre_id,
+            )
+            for cost_centre_id, amount in expense
+        ]
+        await post_journal(
+            session,
+            tenant,
+            recovery_lines,
+            entry_date=invoice.invoice_date,
+            reference_type=REFERENCE_JOB_WORK_RECOVERY,
+            reference_id=invoice.id,
+            reference_code=invoice.code,
+            narration=f"Excess-loss recovery for vendor invoice {invoice.code}",
+            currency=invoice.currency,
+        )
+    invoice.recovered_amount = to_money(Decimal(invoice.recovered_amount) + recovered_total)
+    await session.flush()
 
 
 async def dispute_invoice(
@@ -2548,6 +3279,7 @@ async def resolve_dispute(
             VendorInvoiceStatus.APPROVED,
             total_amount=invoice.total_amount,
             paid_amount=invoice.paid_amount,
+            recovered_amount=invoice.recovered_amount,
         )
         await _transition_invoice(session, tenant, invoice, settled, reason=reason)
         invoice.dispute_reason = None
@@ -2565,8 +3297,16 @@ async def cancel_invoice(
 
     Refused once anything has been allocated against it: money that has moved
     cannot be un-billed, and the correction is a reversal, not a cancellation.
+
+    Cancelling an invoice that reached the ledger reverses every journal it
+    posted - the bill and, on a job-work invoice, the excess-loss recovery
+    beside it - and rolls the job-work billing tracking back. Cancelling
+    without reversing is the defect that left the payable and the input GST on
+    the ledger while the invoice vanished from ageing and the GST summary
+    (docs/assumptions.md §B3-5).
     """
     repo = VendorInvoiceRepository(session, tenant)
+    entry_repo = LedgerEntryRepository(session, tenant)
 
     async with transaction(session):
         invoice = await repo.lock_for_update(invoice_id)
@@ -2589,8 +3329,63 @@ async def cancel_invoice(
             action=AuditAction.CANCEL,
         )
 
+        posted = await entry_repo.entries_for_reference(REFERENCE_VENDOR_INVOICE, invoice.id)
+        posted += await entry_repo.entries_for_reference(REFERENCE_JOB_WORK_RECOVERY, invoice.id)
+        already_reversed = {entry.reverses_entry_id for entry in posted if entry.reverses_entry_id}
+        originals: dict[uuid.UUID, list[LedgerEntry]] = {}
+        for entry in posted:
+            if not entry.is_reversal:
+                originals.setdefault(entry.journal_id, []).append(entry)
+
+        reversed_any = False
+        for journal_id in sorted(originals, key=str):
+            # Skip a journal somebody has already reversed: reversing it
+            # twice would restate the invoice rather than undo it.
+            if all(entry.id in already_reversed for entry in originals[journal_id]):
+                continue
+            await reverse_journal(
+                session, tenant, journal_id, reason=f"{invoice.code} cancelled: {reason}"
+            )
+            reversed_any = True
+
+        if reversed_any and (VendorInvoiceType(invoice.invoice_type) is VendorInvoiceType.JOB_WORK):
+            await _roll_back_job_work_billing(session, tenant, invoice)
+
     lines = await VendorInvoiceLineRepository(session, tenant).list_for_invoice(invoice.id)
     return invoice_detail(invoice, lines)
+
+
+async def _roll_back_job_work_billing(
+    session: AsyncSession, tenant: TenantContext, invoice: VendorInvoice
+) -> None:
+    """Undo what the approval's billing move wrote, in the same transaction.
+
+    Each line gives back exactly what it took: the billed amount leaves the
+    receipt line's ``invoiced_amount``, and the line's recovery share leaves
+    ``debit_posted_amount``. Running only when journals were reversed means a
+    bill cancelled before approval - which moved nothing - rolls nothing back.
+    """
+    lines = await VendorInvoiceLineRepository(session, tenant).list_for_invoice(invoice.id)
+    billed = [line for line in lines if line.job_work_receipt_line_id is not None]
+    if not billed:
+        return
+    locked = await JobWorkReceiptLineLookupRepository(session, tenant).lock_lines(
+        [line.job_work_receipt_line_id for line in billed if line.job_work_receipt_line_id]
+    )
+    for line in billed:
+        assert line.job_work_receipt_line_id is not None
+        receipt_line = locked.get(line.job_work_receipt_line_id)
+        if receipt_line is None:
+            raise NotFoundError("Job work receipt line", line.job_work_receipt_line_id)
+        receipt_line.invoiced_amount = to_money(
+            Decimal(receipt_line.invoiced_amount) - Decimal(line.taxable_amount)
+        )
+        receipt_line.debit_posted_amount = to_money(
+            Decimal(receipt_line.debit_posted_amount) - Decimal(line.recovery_amount)
+        )
+        line.recovery_amount = ZERO
+    invoice.recovered_amount = ZERO
+    await session.flush()
 
 
 # -----------------------------------------------------------------------------
@@ -2635,10 +3430,15 @@ def payment_detail(
             PaymentAllocationRead(
                 id=allocation.id,
                 vendor_invoice_id=allocation.vendor_invoice_id,
-                invoice_code=invoice_codes.get(allocation.vendor_invoice_id, (None, None))[0],
-                vendor_invoice_number=invoice_codes.get(allocation.vendor_invoice_id, (None, None))[
-                    1
-                ],
+                sales_invoice_id=allocation.sales_invoice_id,
+                invoice_code=invoice_codes.get(
+                    allocation.vendor_invoice_id or allocation.sales_invoice_id or uuid.UUID(int=0),
+                    (None, None),
+                )[0],
+                vendor_invoice_number=invoice_codes.get(
+                    allocation.vendor_invoice_id or allocation.sales_invoice_id or uuid.UUID(int=0),
+                    (None, None),
+                )[1],
                 amount=allocation.amount,
                 notes=allocation.notes,
             )
@@ -2673,8 +3473,17 @@ async def _payment_detail(
     allocation_repo = PaymentAllocationRepository(session, tenant)
     allocations = await allocation_repo.list_for_payment(payment.id)
     codes = await allocation_repo.invoice_codes(
-        [allocation.vendor_invoice_id for allocation in allocations]
+        [
+            allocation.vendor_invoice_id
+            for allocation in allocations
+            if allocation.vendor_invoice_id is not None
+        ]
     )
+    from src.modules.finance.sales_invoice_repository import SalesInvoiceRepository
+
+    sales_ids = [row.sales_invoice_id for row in allocations if row.sales_invoice_id is not None]
+    for invoice in await SalesInvoiceRepository(session, tenant).get_many(sales_ids):
+        codes[invoice.id] = (invoice.code, "")
     return payment_detail(payment, allocations, codes)
 
 
@@ -2863,6 +3672,16 @@ async def approve_payment(
         )
 
         await _post_payment_journal(session, tenant, payment)
+        await _tell_vendor_about_payment(
+            session,
+            tenant,
+            payment,
+            title=f"Payment {payment.code} approved",
+            body=(
+                f"{payment.currency} {to_money(payment.amount)} approved for payment"
+                + (f" (ref {payment.reference_number})." if payment.reference_number else ".")
+            ),
+        )
 
         if PaymentType(payment.payment_type) is PaymentType.RECEIPT:
             await apply_outstanding_delta(
@@ -2974,6 +3793,15 @@ async def cancel_payment(
                 f"{payment.code} is already cancelled.",
                 details={"payment_id": str(payment.id), "status": str(current)},
             )
+        if PaymentType(payment.payment_type) is PaymentType.RECEIPT:
+            await get_customer_for_order(session, tenant, payment.party_id, lock=True)
+        if (
+            to_money(payment.allocated_amount) > ZERO
+            and PaymentType(payment.payment_type) is PaymentType.RECEIPT
+        ):
+            from src.modules.finance.sales_invoice_service import release_sales_receipt
+
+            await release_sales_receipt(session, tenant, payment)
         if to_money(payment.allocated_amount) > ZERO:
             raise BusinessRuleError(
                 f"{payment.code} still has {payment.allocated_amount} allocated to invoices. "
@@ -3149,23 +3977,30 @@ async def allocate_payment(
                 f"{payment.code} is {status}; only an approved payment can settle invoices.",
                 details={"status": str(status)},
             )
-        if PaymentType(payment.payment_type) is not PaymentType.PAYMENT:
-            raise BusinessRuleError(
-                "A customer receipt has no invoice to allocate against: it reduces the "
-                "customer's outstanding balance directly.",
-                details={"payment_type": str(payment.payment_type)},
-            )
+        if PaymentType(payment.payment_type) is PaymentType.RECEIPT:
+            from src.modules.finance.sales_invoice_service import allocate_sales_receipt
+
+            await allocate_sales_receipt(session, tenant, payment, payload)
+            return await _payment_detail(session, tenant, payment)
+        if any(row.sales_invoice_id is not None for row in payload.allocations):
+            raise ValidationError("A vendor payment must allocate to vendor invoices.")
 
         existing_rows = await allocation_repo.list_for_payment(payment.id)
-        existing_by_invoice = {row.vendor_invoice_id: row for row in existing_rows}
+        existing_by_invoice = {
+            row.vendor_invoice_id: row for row in existing_rows if row.vendor_invoice_id is not None
+        }
         existing_amounts = {
             invoice_id: to_money(row.amount) for invoice_id, row in existing_by_invoice.items()
         }
         requested = {
-            request.vendor_invoice_id: to_money(request.amount) for request in payload.allocations
+            request.vendor_invoice_id: to_money(request.amount)
+            for request in payload.allocations
+            if request.vendor_invoice_id is not None
         }
         requested_notes = {
-            request.vendor_invoice_id: request.notes for request in payload.allocations
+            request.vendor_invoice_id: request.notes
+            for request in payload.allocations
+            if request.vendor_invoice_id is not None
         }
         plan = plan_allocation(
             existing=existing_amounts, requested=requested, replace=payload.replace
@@ -3188,7 +4023,10 @@ async def allocate_payment(
             # amount and a replace removes it outright, so in both cases it is
             # about to stop counting against the invoice's outstanding.
             already = existing_amounts.get(invoice_id, ZERO)
-            outstanding = to_money(invoice.total_amount - invoice.paid_amount) + already
+            outstanding = (
+                to_money(invoice.total_amount - invoice.recovered_amount - invoice.paid_amount)
+                + already
+            )
             if amount > outstanding:
                 raise BusinessRuleError(
                     f"{invoice.code} owes {outstanding}; {amount} cannot be allocated to it.",
@@ -3250,6 +4088,16 @@ async def allocate_payment(
                 },
             },
             context={"replace": payload.replace},
+        )
+        await _tell_vendor_about_payment(
+            session,
+            tenant,
+            payment,
+            title=f"Payment {payment.code} allocated to your invoices",
+            body=(
+                f"{payment.currency} {to_money(new_allocated)} allocated across "
+                f"{len(plan.final)} invoice(s)."
+            ),
         )
 
     return await _payment_detail(session, tenant, payment)
@@ -3344,6 +4192,7 @@ async def _apply_allocation_plan(
             VendorInvoiceStatus(invoice.status),
             total_amount=invoice.total_amount,
             paid_amount=invoice.paid_amount,
+            recovered_amount=invoice.recovered_amount,
         )
         await _transition_invoice(
             session,
@@ -3907,7 +4756,9 @@ def valuation_row(row: Any) -> InventoryValuationRow:
     )
 
 
-def valuation_export_parameters(filters: ValuationFilters) -> dict[str, Any]:
+def valuation_export_parameters(
+    filters: ValuationFilters, *, tenant: TenantContext
+) -> dict[str, Any]:
     """What a valuation export job is a workbook *of*, as stored on its job row.
 
     Carries the task name as well as the filters so its hash can never collide
@@ -3919,6 +4770,11 @@ def valuation_export_parameters(filters: ValuationFilters) -> dict[str, Any]:
     return {
         "report_key": str(ReportKey.INVENTORY_VALUATION),
         "task": VALUATION_TASK_NAME,
+        reports_service.VALUATION_WAREHOUSE_SCOPE_PARAMETER: (
+            []
+            if tenant.is_superuser
+            else sorted(str(value) for value in set(tenant.allowed_warehouse_ids))
+        ),
         "filters": {
             key: str(value)
             for key, value in (
@@ -3948,7 +4804,9 @@ async def queue_inventory_valuation(
     snapshots = ReportSnapshotRepository(session, tenant)
     async with transaction(session):
         job = reports_service.new_job_snapshot(
-            ReportKey.INVENTORY_VALUATION, valuation_export_parameters(filters), now=utcnow()
+            ReportKey.INVENTORY_VALUATION,
+            valuation_export_parameters(filters, tenant=tenant),
+            now=utcnow(),
         )
         snapshots.add(job)
         await session.flush()
@@ -4006,6 +4864,13 @@ async def gst_summary(
         date_from=date_from,
         date_to=date_to,
         output=output,
+        dispatched_not_invoiced=summarise_gst_rows(
+            await _bounded_gst_rows(
+                session,
+                repo.dispatched_uninvoiced_rows_stmt(date_from=date_from, date_to=date_to),
+                "dispatched not invoiced",
+            )
+        ),
         input=purchases,
         net_cgst=to_money(output.cgst_amount - purchases.cgst_amount),
         net_sgst=to_money(output.sgst_amount - purchases.sgst_amount),
@@ -4086,10 +4951,12 @@ __all__ = [
     "DEFAULT_CHART",
     "MAX_AGEING_PARTIES",
     "MAX_AGEING_ROW_CURRENCIES",
+    "MAX_CODE_PICKER_STEPS",
     "MAX_GST_ROWS",
     "NOT_DUE_LABEL",
     "PAYMENT_LIFECYCLE",
     "REFERENCE_CUSTOMER_ADJUSTMENT",
+    "REFERENCE_JOB_WORK_RECOVERY",
     "REFERENCE_PAYMENT",
     "REFERENCE_VENDOR_INVOICE",
     "VALUATION_QUEUE",
@@ -4143,6 +5010,7 @@ __all__ = [
     "payment_detail",
     "payment_status_after_allocation",
     "payment_summary",
+    "pick_free_chart_code",
     "plan_allocation",
     "post_customer_adjustment",
     "post_journal",

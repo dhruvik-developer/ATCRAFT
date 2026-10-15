@@ -95,7 +95,6 @@ from src.modules.production.repository import (
     IssuedComponentTotals,
     MaterialIssueLineRepository,
     MaterialIssueRepository,
-    OperatorLookupRepository,
     PlantLookupRepository,
     ProductionEntryRepository,
     ProductionItem,
@@ -149,13 +148,23 @@ from src.modules.production.schemas import (
     WorkOrderTransitionRequest,
     WorkOrderUpdate,
 )
-from src.modules.routing.models import Routing, RoutingStatus
+from src.modules.routing.models import MachineStatus, Routing, RoutingStatus
 from src.modules.routing.repository import (
+    OPERATOR_ENTITY,
     MachineRepository,
+    RosterOperatorRepository,
     RoutingOperationRepository,
     RoutingRepository,
 )
-from src.modules.routing.service import MINUTES_PER_HOUR, calculate_operation_time
+from src.modules.routing.service import (
+    MINUTES_PER_HOUR,
+    calculate_operation_time,
+    company_today,
+    company_zone,
+    local_date,
+    require_shift,
+    roster_mismatch,
+)
 
 # =============================================================================
 # Constants
@@ -163,6 +172,20 @@ from src.modules.routing.service import MINUTES_PER_HOUR, calculate_operation_ti
 
 AUDIT_PRODUCTION_ORDER = "production_order"
 AUDIT_WORK_ORDER = "work_order"
+
+#: ASSUMPTION: the shift roster is advisory. It is a plan; a work-order
+#: assignment and a booking record what is actually happening, so a person or a
+#: shift the roster did not plan is reported in the response message and never
+#: refused - refusing a booking would hide output that was really made.
+#: docs/assumptions.md §B2-4.
+ROSTER_MISMATCH_WARNING = (
+    "Warning: the shift roster does not plan this operator on this shift here on that "
+    "date. It was recorded anyway."
+)
+
+#: A PATCH touching one of these is a staffing decision worth checking against
+#: the roster; one that only edits the notes is not.
+_ROSTER_FIELDS = frozenset({"operator_user_id", "shift_id", "machine_id", "planned_start_at"})
 AUDIT_MATERIAL_ISSUE = "material_issue"
 AUDIT_PRODUCTION_ENTRY = "production_entry"
 
@@ -958,13 +981,43 @@ async def _assert_line_positions(
             )
 
 
+async def _assert_shift(
+    session: AsyncSession, tenant: TenantContext, shift_id: uuid.UUID | None
+) -> str | None:
+    """The code snapshot for a newly chosen shift, or ``None`` when it is cleared.
+
+    Tenant-scoped and active-on-the-way-in through the routing module's seam. It
+    must run before any blind ``setattr`` over a payload: the foreign key alone is
+    satisfied by another company's shift (CLAUDE.md, the ``finish_id`` trap).
+    """
+    if shift_id is None:
+        return None
+    return (await require_shift(session, tenant, shift_id)).code
+
+
 async def _assert_operator(
     session: AsyncSession, tenant: TenantContext, user_id: uuid.UUID | None
 ) -> None:
+    """An operator must be an active internal account of this company.
+
+    A deactivated login, or a vendor-portal user - who shares the users table -
+    cannot be put on a machine or credited with output.
+    """
     if user_id is None:
         return
-    if user_id not in await OperatorLookupRepository(session, tenant).exist_in_tenant([user_id]):
-        raise NotFoundError("User", user_id)
+    operator = (await RosterOperatorRepository(session, tenant).facts([user_id])).get(user_id)
+    if operator is None:
+        raise NotFoundError(OPERATOR_ENTITY, user_id)
+    if operator.is_vendor_user:
+        raise BusinessRuleError(
+            f"{operator.full_name} is a vendor-portal account and cannot be an operator.",
+            details={"operator_user_id": str(user_id)},
+        )
+    if not operator.is_active:
+        raise BusinessRuleError(
+            f"{operator.full_name}'s account is inactive and cannot be assigned work.",
+            details={"operator_user_id": str(user_id)},
+        )
 
 
 async def _assert_machine(
@@ -974,10 +1027,14 @@ async def _assert_machine(
     *,
     work_center_id: uuid.UUID | None = None,
 ) -> None:
-    """A machine must exist in this tenant and, when a centre is named, in it.
+    """A machine must exist in this tenant, still be in service and, when a centre
+    is named, sit in it.
 
-    The composite foreign key already refuses the mismatch; checking here turns
-    an opaque integrity error into a message naming the machine.
+    A retired machine - ``change_status(RETIRED)`` clears ``is_active`` without
+    deleting the row, so the repository still returns it - cannot take work.
+    Maintenance and breakdown are allowed: a booking records what happened, and
+    an assignment may be made for after the repair. The composite foreign key
+    already refuses the centre mismatch; checking here names the machine.
     """
     if machine_id is None:
         return
@@ -985,6 +1042,11 @@ async def _assert_machine(
     machine = machines.get(machine_id)
     if machine is None:
         raise NotFoundError("Machine", machine_id)
+    if machine.status is MachineStatus.RETIRED or not machine.is_active:
+        raise BusinessRuleError(
+            f"Machine {machine.code} is retired or inactive and cannot take work.",
+            details={"machine_id": str(machine_id)},
+        )
     if work_center_id is not None and machine.work_center_id != work_center_id:
         raise BusinessRuleError(
             f"Machine {machine.code} does not belong to this operation's work centre.",
@@ -1801,15 +1863,16 @@ async def complete_order(
         )
 
         output_movement: PostedMovement | None = None
+        roster_note = ""
         if payload.produced_quantity > ZERO or payload.rejected_quantity > ZERO:
-            _, movement = await _book_entry(
+            entry, movement = await _book_entry(
                 session,
                 tenant,
                 order,
                 ProductionEntryCreate(
                     work_order_id=payload.work_order_id,
                     entry_date=payload.entry_date,
-                    shift=payload.shift,
+                    shift_id=payload.shift_id,
                     operator_user_id=payload.operator_user_id,
                     machine_id=payload.machine_id,
                     produced_quantity=payload.produced_quantity,
@@ -1820,6 +1883,7 @@ async def complete_order(
                 force_output=True,
             )
             output_movement = movement
+            roster_note = await _booking_roster_note(session, tenant, entry)
 
         components = await ProductionOrderComponentRepository(session, tenant).lock_for_order(
             order.id
@@ -1878,7 +1942,8 @@ async def complete_order(
             backflush_issue_code=backflush_code,
             backflush_movements=backflush_movements,
             consumed_component_count=consumed,
-            message=(f"{order.code} completed with {order.produced_quantity} good output."),
+            message=f"{order.code} completed with {order.produced_quantity} good output."
+            + roster_note,
         )
     return result
 
@@ -2916,6 +2981,7 @@ async def _book_entry(
         payload.machine_id,
         work_center_id=work_order.work_center_id if work_order else None,
     )
+    shift_code = await _assert_shift(session, tenant, payload.shift_id)
 
     produced = to_quantity(payload.produced_quantity)
     rejected = to_quantity(payload.rejected_quantity)
@@ -2937,7 +3003,8 @@ async def _book_entry(
         production_order_id=order.id,
         work_order_id=work_order.id if work_order else None,
         entry_date=payload.entry_date or today(),
-        shift=payload.shift,
+        shift_id=payload.shift_id,
+        shift=shift_code,
         operator_user_id=payload.operator_user_id,
         machine_id=payload.machine_id,
         produced_quantity=produced,
@@ -2997,6 +3064,7 @@ async def _book_entry(
             "production_order_code": order.code,
             "work_order_id": entry.work_order_id,
             "entry_date": entry.entry_date,
+            "shift_id": entry.shift_id,
             "shift": entry.shift,
             "produced_quantity": produced,
             "rejected_quantity": rejected,
@@ -3079,14 +3147,52 @@ async def create_production_entry(
             entry=ProductionEntryRead.model_validate(entry),
             order=_order_read(order),
             output_movement=movement,
-            message=(
-                f"Booked {entry.produced_quantity} on {order.code}."
-                if movement is not None
-                else f"Booked {entry.produced_quantity} at an intermediate operation "
-                f"on {order.code}; no stock was received."
-            ),
+            message=_booking_message(order.code, entry, movement)
+            + await _booking_roster_note(session, tenant, entry),
         )
     return result
+
+
+def _booking_message(
+    order_code: str, entry: ProductionEntry, movement: PostedMovement | None
+) -> str:
+    """Say what a booking actually did - a receipt, a step's progress, or neither."""
+    if movement is not None:
+        return f"Booked {entry.produced_quantity} on {order_code} and received it into stock."
+    if entry.produced_quantity > ZERO:
+        return (
+            f"Booked {entry.produced_quantity} at an intermediate operation on {order_code}; "
+            "no stock was received."
+        )
+    if entry.rejected_quantity > ZERO:
+        return f"Booked {entry.rejected_quantity} rejected on {order_code}; no stock was received."
+    return f"Booked {entry.downtime_minutes} minutes of downtime on {order_code}."
+
+
+async def _booking_roster_note(
+    session: AsyncSession, tenant: TenantContext, entry: ProductionEntry
+) -> str:
+    """The advisory roster warning for a booking, or nothing.
+
+    ``entry_date`` is the business date of the shift - the date it started, which
+    is what a roster date is - so the two compare directly. The work centre is
+    the operation's when the booking names one.
+    """
+    work_center_id: uuid.UUID | None = None
+    if entry.work_order_id is not None:
+        work_center_id = await WorkOrderRepository(session, tenant).work_center_of(
+            entry.work_order_id
+        )
+    mismatch = await roster_mismatch(
+        session,
+        tenant,
+        operator_user_id=entry.operator_user_id,
+        shift_id=entry.shift_id,
+        roster_date=entry.entry_date,
+        work_center_id=work_center_id,
+        machine_id=entry.machine_id,
+    )
+    return f" {ROSTER_MISMATCH_WARNING}" if mismatch else ""
 
 
 async def list_production_entries(
@@ -3193,6 +3299,11 @@ async def update_work_order(
                 session, tenant, changes["machine_id"], work_center_id=work_order.work_center_id
             )
 
+        if "shift_id" in changes:
+            # The snapshot travels with the id - written when one is chosen,
+            # cleared when it is - and is checked before the blind setattr below.
+            before["shift"] = work_order.shift
+            changes["shift"] = await _assert_shift(session, tenant, changes["shift_id"])
         for key, value in changes.items():
             setattr(work_order, key, value)
         if (
@@ -3220,6 +3331,42 @@ async def update_work_order(
             new_values=changes,
         )
     return work_order
+
+
+async def assign_work_order(
+    session: AsyncSession,
+    tenant: TenantContext,
+    work_order_id: uuid.UUID,
+    payload: WorkOrderUpdate,
+) -> tuple[WorkOrder, str]:
+    """``update_work_order``, plus the advisory roster check the PATCH reports.
+
+    The check runs only when the PATCH made a staffing decision - an operator, a
+    shift, a machine or a planned start - and the operation then names both an
+    operator and a shift. The roster date is the local date of the planned start,
+    or today's where the company is when none is planned.
+    """
+    work_order = await update_work_order(session, tenant, work_order_id, payload)
+    message = f"{work_order.code} updated."
+    if not _ROSTER_FIELDS & payload.model_fields_set:
+        return work_order, message
+    if work_order.operator_user_id is None or work_order.shift_id is None:
+        return work_order, message
+
+    if work_order.planned_start_at is not None:
+        roster_date = local_date(work_order.planned_start_at, await company_zone(session, tenant))
+    else:
+        roster_date = await company_today(session, tenant)
+    mismatch = await roster_mismatch(
+        session,
+        tenant,
+        operator_user_id=work_order.operator_user_id,
+        shift_id=work_order.shift_id,
+        roster_date=roster_date,
+        work_center_id=work_order.work_center_id,
+        machine_id=work_order.machine_id,
+    )
+    return work_order, f"{message} {ROSTER_MISMATCH_WARNING}" if mismatch else message
 
 
 async def transition_work_order(
@@ -3466,6 +3613,7 @@ __all__ = [
     "MATERIAL_ISSUE_FLOW",
     "MAX_COMPONENTS_PER_ORDER",
     "PRODUCTION_ORDER_FLOW",
+    "ROSTER_MISMATCH_WARNING",
     "WORK_ORDER_FLOW",
     "ComponentPlan",
     "OperationCostInput",
@@ -3474,6 +3622,7 @@ __all__ = [
     "approve_order",
     "assert_within_over_issue_tolerance",
     "assert_within_over_production_tolerance",
+    "assign_work_order",
     "backflush_quantity",
     "can_approve",
     "cancel_material_issue",

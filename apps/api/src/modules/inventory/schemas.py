@@ -40,7 +40,11 @@ from src.modules.inventory.models import (
     AdjustmentReason,
     AdjustmentStatus,
     BatchStatus,
+    BinMoveStatus,
+    InternalIssueStatus,
     PhysicalCountStatus,
+    ScrapDisposalKind,
+    ScrapDisposalStatus,
     SerialStatus,
     StockState,
     TransactionType,
@@ -54,6 +58,7 @@ NonZeroQuantity = Annotated[
     Decimal, Field(ge=Decimal("-99999999999999"), le=Decimal("99999999999999"))
 ]
 UnitCost = Annotated[Decimal, Field(ge=0, le=Decimal("99999999999999"))]
+NonNegativeMoney = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)]
 
 #: A single request may not post more lines than this. An unbounded document
 #: would hold row locks on an unbounded number of balances for an unbounded
@@ -107,6 +112,7 @@ class BalanceRead(BaseModel):
     location_id: uuid.UUID | None = None
     batch_id: uuid.UUID | None = None
     batch_number: str | None = None
+    location_code: str | None = None
 
     on_hand_quantity: Decimal
     reserved_quantity: Decimal
@@ -148,6 +154,7 @@ class WarehouseStockRow(BaseModel):
     qc_hold_quantity: Decimal
     damaged_quantity: Decimal
     job_work_quantity: Decimal
+    scrap_quantity: Decimal
 
 
 class WarehouseStockRowWithCost(WarehouseStockRow):
@@ -173,6 +180,9 @@ class ItemStockSummary(BaseModel):
     total_available: Decimal
     total_in_transit: Decimal
     total_job_work: Decimal
+    #: Set aside as scrap and not yet disposed of. Owned, but not part of
+    #: ``total_owned_quantity``: nobody can use it or plan with it.
+    total_scrap: Decimal
     total_owned_quantity: Decimal
     warehouses: Sequence[WarehouseStockRow] = Field(default_factory=list)
 
@@ -504,6 +514,10 @@ class StockAdjustmentLineRead(BaseModel):
     notes: str | None
 
 
+class StockAdjustmentUpdate(StockAdjustmentCreate):
+    """Replace a draft adjustment; posted and submitted documents are immutable."""
+
+
 class StockAdjustmentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -540,11 +554,30 @@ class AdjustmentFilters(BaseModel):
 
 
 class DecisionRequest(BaseModel):
-    """Approval or rejection note, recorded on the document and in the audit log."""
+    """Approval note, recorded on the document and in the audit log."""
 
     note: str | None = Field(default=None, max_length=255)
 
     _clean = field_validator("note")(clean_text)
+
+
+class RejectionRequest(BaseModel):
+    """Why an approver refused a document.
+
+    Required, unlike an approval note: a rejection ends the document, and the
+    person who raised it can only act on the refusal if it says what was wrong
+    (section 83 - a reason for every irreversible action).
+    """
+
+    note: Reason
+
+    @field_validator("note")
+    @classmethod
+    def _collapse(cls, value: str) -> str:
+        cleaned = " ".join(value.split())
+        if len(cleaned) < 3:
+            raise ValueError("Record why the document is rejected, in at least three characters.")
+        return cleaned
 
 
 class ReasonRequest(BaseModel):
@@ -643,13 +676,346 @@ class PhysicalCountFilters(BaseModel):
     search: str | None = Field(default=None, max_length=64)
 
 
+# -----------------------------------------------------------------------------
+# Bin move, scrap disposal and internal issue
+#
+# Each has a cost-free read and a ``...WithCost`` read, chosen per request the
+# way ``BalanceRead`` is: what these documents moved is stock-level information,
+# what it was worth is what ``item.cost_view`` / ``inventory.valuation_view``
+# exist to gate.
+# -----------------------------------------------------------------------------
+
+
+def _one_line_per_position(
+    positions: Sequence[tuple[uuid.UUID, uuid.UUID | None, uuid.UUID | None]], noun: str
+) -> None:
+    """Refuse a document naming one stock position on two lines.
+
+    Two lines for the same position would take the same row lock twice and
+    split one quantity across two ledger rows nobody can tell apart; the lines
+    should be merged before the document is raised.
+    """
+    if len(set(positions)) != len(positions):
+        raise ValueError(f"The same item, batch and {noun} appears on two lines.")
+
+
+def _within_line_limit(count: int, document: str) -> None:
+    if count > MAX_DOCUMENT_LINES:
+        raise ValueError(f"{document} may not exceed {MAX_DOCUMENT_LINES} lines.")
+
+
+class BinMoveLineCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: uuid.UUID
+    quantity: PositiveQuantity
+    batch_id: uuid.UUID | None = None
+    #: Where the stock is now. ``None`` is the warehouse's unbinned position.
+    from_location_id: uuid.UUID | None = None
+    #: Where it goes. ``None`` takes it back to the unbinned position.
+    to_location_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def _bins_differ(self) -> BinMoveLineCreate:
+        if self.from_location_id == self.to_location_id:
+            raise ValueError("The source and destination bins must differ.")
+        return self
+
+
+class BinMoveCreate(BaseModel):
+    """A putaway: posted the moment it is raised (docs/assumptions.md §E8-1)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    warehouse_id: uuid.UUID
+    reason: Reason
+    move_date: date | None = None
+    notes: str | None = None
+    lines: Annotated[list[BinMoveLineCreate], Field(min_length=1)]
+
+    @model_validator(mode="after")
+    def _validate(self) -> BinMoveCreate:
+        _within_line_limit(len(self.lines), "A bin move")
+        _one_line_per_position(
+            [(line.item_id, line.batch_id, line.from_location_id) for line in self.lines],
+            "source bin",
+        )
+        return self
+
+
+class BinMoveLineRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    line_number: int
+    item_id: uuid.UUID
+    item_code: str | None = None
+    item_name: str | None = None
+    batch_id: uuid.UUID | None
+    batch_code: str | None = None
+    from_location_id: uuid.UUID | None
+    from_location_code: str | None = None
+    to_location_id: uuid.UUID | None
+    to_location_code: str | None = None
+    quantity: Decimal
+
+
+class BinMoveLineReadWithCost(BinMoveLineRead):
+    unit_cost: Decimal
+    total_cost: Decimal
+
+
+class BinMoveRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    code: str
+    status: BinMoveStatus
+    warehouse_id: uuid.UUID
+    warehouse_code: str | None = None
+    move_date: date
+    reason: str
+    notes: str | None
+    line_count: int
+    total_quantity: Decimal
+    posted_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    created_by_id: uuid.UUID | None = None
+    lines: Sequence[BinMoveLineRead] = Field(default_factory=list)
+
+
+class BinMoveReadWithCost(BinMoveRead):
+    total_value: Decimal
+    lines: Sequence[BinMoveLineReadWithCost] = Field(default_factory=list)
+
+
+class BinMoveFilters(BaseModel):
+    status: BinMoveStatus | None = None
+    warehouse_id: uuid.UUID | None = None
+    date_from: date | None = Field(default=None, description="ISO date lower bound")
+    date_to: date | None = Field(default=None, description="ISO date upper bound")
+    search: str | None = Field(default=None, max_length=64)
+
+
+class ScrapDisposalLineCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: uuid.UUID
+    quantity: PositiveQuantity
+    batch_id: uuid.UUID | None = None
+    location_id: uuid.UUID | None = None
+
+
+class ScrapDisposalCreate(BaseModel):
+    """Stock out of the SCRAP pool for good. Posted the moment it is raised."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    warehouse_id: uuid.UUID
+    disposal_kind: ScrapDisposalKind
+    reason: Reason
+    disposal_date: date | None = None
+    buyer_reference: str | None = Field(default=None, max_length=255)
+    realised_amount: NonNegativeMoney = Decimal("0")
+    notes: str | None = None
+    lines: Annotated[list[ScrapDisposalLineCreate], Field(min_length=1)]
+
+    _clean_reference = field_validator("buyer_reference")(clean_text)
+
+    @model_validator(mode="after")
+    def _validate(self) -> ScrapDisposalCreate:
+        # ASSUMPTION: a write-off realises nothing; money received for scrap is
+        # a sale or a recycling credit. docs/assumptions.md §E8-4.
+        if self.disposal_kind is ScrapDisposalKind.WRITE_OFF and self.realised_amount != 0:
+            raise ValueError("A write-off realises nothing; record a sale or a recycle instead.")
+        _within_line_limit(len(self.lines), "A scrap disposal")
+        _one_line_per_position(
+            [(line.item_id, line.batch_id, line.location_id) for line in self.lines], "bin"
+        )
+        return self
+
+
+class ScrapDisposalLineRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    line_number: int
+    item_id: uuid.UUID
+    item_code: str | None = None
+    item_name: str | None = None
+    batch_id: uuid.UUID | None
+    batch_code: str | None = None
+    location_id: uuid.UUID | None
+    location_code: str | None = None
+    quantity: Decimal
+
+
+class ScrapDisposalLineReadWithCost(ScrapDisposalLineRead):
+    unit_cost: Decimal
+    total_cost: Decimal
+
+
+class ScrapDisposalRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    code: str
+    status: ScrapDisposalStatus
+    warehouse_id: uuid.UUID
+    warehouse_code: str | None = None
+    disposal_date: date
+    disposal_kind: ScrapDisposalKind
+    buyer_reference: str | None
+    #: What the company was paid. A sale price, not a cost, so it is shown to
+    #: everyone who can see the document.
+    realised_amount: Decimal
+    currency: str
+    reason: str
+    notes: str | None
+    line_count: int
+    total_quantity: Decimal
+    posted_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    created_by_id: uuid.UUID | None = None
+    lines: Sequence[ScrapDisposalLineRead] = Field(default_factory=list)
+
+
+class ScrapDisposalReadWithCost(ScrapDisposalRead):
+    total_value: Decimal
+    lines: Sequence[ScrapDisposalLineReadWithCost] = Field(default_factory=list)
+
+
+class ScrapDisposalFilters(BaseModel):
+    status: ScrapDisposalStatus | None = None
+    warehouse_id: uuid.UUID | None = None
+    disposal_kind: ScrapDisposalKind | None = None
+    date_from: date | None = Field(default=None, description="ISO date lower bound")
+    date_to: date | None = Field(default=None, description="ISO date upper bound")
+    search: str | None = Field(default=None, max_length=64)
+
+
+class InternalIssueLineCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: uuid.UUID
+    quantity: PositiveQuantity
+    batch_id: uuid.UUID | None = None
+    location_id: uuid.UUID | None = None
+    notes: str | None = None
+
+
+class InternalIssueCreate(BaseModel):
+    """A draft issue to a department and/or a cost centre. Nothing moves until it posts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    warehouse_id: uuid.UUID
+    reason: Reason
+    issue_date: date | None = None
+    department_id: uuid.UUID | None = None
+    cost_centre_id: uuid.UUID | None = None
+    notes: str | None = None
+    lines: Annotated[list[InternalIssueLineCreate], Field(min_length=1)]
+
+    @model_validator(mode="after")
+    def _validate(self) -> InternalIssueCreate:
+        if self.department_id is None and self.cost_centre_id is None:
+            raise ValueError("Name the department or the cost centre the stock is issued to.")
+        _within_line_limit(len(self.lines), "An internal issue")
+        _one_line_per_position(
+            [(line.item_id, line.batch_id, line.location_id) for line in self.lines], "bin"
+        )
+        return self
+
+
+class InternalIssueLineRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    line_number: int
+    item_id: uuid.UUID
+    item_code: str | None = None
+    item_name: str | None = None
+    batch_id: uuid.UUID | None
+    batch_code: str | None = None
+    location_id: uuid.UUID | None
+    location_code: str | None = None
+    quantity: Decimal
+    notes: str | None
+
+
+class InternalIssueLineReadWithCost(InternalIssueLineRead):
+    unit_cost: Decimal
+    total_cost: Decimal
+
+
+class InternalIssueRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    code: str
+    status: InternalIssueStatus
+    warehouse_id: uuid.UUID
+    warehouse_code: str | None = None
+    issue_date: date
+    department_id: uuid.UUID | None
+    cost_centre_id: uuid.UUID | None
+    reason: str
+    notes: str | None
+    line_count: int
+    total_quantity: Decimal
+    #: Whether the issue is over the approval threshold - what decides between
+    #: posting it directly and sending it for approval. The value itself is on
+    #: the ``...WithCost`` read only.
+    requires_approval: bool
+    approved_by_id: uuid.UUID | None
+    approved_at: datetime | None
+    posted_at: datetime | None
+    decision_note: str | None
+    created_at: datetime
+    updated_at: datetime
+    created_by_id: uuid.UUID | None = None
+    lines: Sequence[InternalIssueLineRead] = Field(default_factory=list)
+
+
+class InternalIssueReadWithCost(InternalIssueRead):
+    total_value: Decimal
+    lines: Sequence[InternalIssueLineReadWithCost] = Field(default_factory=list)
+
+
+class InternalIssueFilters(BaseModel):
+    status: InternalIssueStatus | None = None
+    warehouse_id: uuid.UUID | None = None
+    department_id: uuid.UUID | None = None
+    cost_centre_id: uuid.UUID | None = None
+    date_from: date | None = Field(default=None, description="ISO date lower bound")
+    date_to: date | None = Field(default=None, description="ISO date upper bound")
+    search: str | None = Field(default=None, max_length=64)
+
+
 __all__ = [
     "MAX_DOCUMENT_LINES",
     "AdjustmentFilters",
     "AvailabilityRead",
     "BalanceFilters",
     "BalanceRead",
+    "BinMoveCreate",
+    "BinMoveFilters",
+    "BinMoveLineCreate",
+    "BinMoveLineRead",
+    "BinMoveLineReadWithCost",
+    "BinMoveRead",
+    "BinMoveReadWithCost",
     "DecisionRequest",
+    "InternalIssueCreate",
+    "InternalIssueFilters",
+    "InternalIssueLineCreate",
+    "InternalIssueLineRead",
+    "InternalIssueLineReadWithCost",
+    "InternalIssueRead",
+    "InternalIssueReadWithCost",
     "ItemStockSummary",
     "LedgerEntryRead",
     "LedgerFilters",
@@ -660,10 +1026,19 @@ __all__ = [
     "PhysicalCountLineRead",
     "PhysicalCountRead",
     "ReasonRequest",
+    "RejectionRequest",
+    "ScrapDisposalCreate",
+    "ScrapDisposalFilters",
+    "ScrapDisposalLineCreate",
+    "ScrapDisposalLineRead",
+    "ScrapDisposalLineReadWithCost",
+    "ScrapDisposalRead",
+    "ScrapDisposalReadWithCost",
     "StockAdjustmentCreate",
     "StockAdjustmentLineCreate",
     "StockAdjustmentLineRead",
     "StockAdjustmentRead",
+    "StockAdjustmentUpdate",
     "StockBatchCreate",
     "StockBatchRead",
     "StockSerialCreate",

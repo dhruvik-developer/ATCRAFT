@@ -65,7 +65,7 @@ dev-web: ## Run the Vite dev server locally
 	cd $(WEB_DIR) && npm run dev
 
 dev-worker: ## Run a Celery worker locally against Dockerised Redis/Postgres
-	cd $(API_DIR) && celery -A src.workers.celery_app:celery_app worker --loglevel=INFO --pool=solo
+	cd $(API_DIR) && celery -A src.workers.celery_app:celery_app worker -Q default,mrp,reports --loglevel=INFO --pool=solo
 
 dev-docker: ## Full Docker development environment (nginx, web, api, pg, redis, worker)
 	$(DC_DEV) up --build

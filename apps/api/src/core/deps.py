@@ -26,6 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from src.core.actors import SYSTEM_ACTOR_ID
 from src.core.cache import cache_get, cache_set, make_key
 from src.core.clock import utcnow
 from src.core.config import settings
@@ -63,6 +64,37 @@ def password_change_route_allowed(path: str) -> bool:
     return path.rstrip("/") in allowed
 
 
+def vendor_route_allowed(path: str) -> bool:
+    """The complete authenticated surface available to a vendor account."""
+    prefix = settings.api_v1_prefix.rstrip("/")
+    path = path.rstrip("/")
+    roots = ("vendor-portal", "notifications", "auth/sessions", "auth/mfa")
+    return any(
+        path == f"{prefix}/{root}" or path.startswith(f"{prefix}/{root}/") for root in roots
+    ) or path in {
+        f"{prefix}/auth/{name}" for name in ("me", "logout", "logout-all", "change-password")
+    }
+
+
+def dealer_route_allowed(path: str) -> bool:
+    """The complete authenticated surface available to a dealer account.
+
+    Mirrors :func:`vendor_route_allowed`: a dealer reaches the dealer portal,
+    its own notifications and auth self-service - every other route is 403
+    ``SCOPE_DENIED``, whatever permissions its roles carry. The predicate
+    matches whole path segments, so ``/dealer-portal-x`` is not
+    ``/dealer-portal``. ASSUMPTION: docs/assumptions.md §C3-1.
+    """
+    prefix = settings.api_v1_prefix.rstrip("/")
+    path = path.rstrip("/")
+    roots = ("dealer-portal", "notifications", "auth/sessions", "auth/mfa")
+    return any(
+        path == f"{prefix}/{root}" or path.startswith(f"{prefix}/{root}/") for root in roots
+    ) or path in {
+        f"{prefix}/auth/{name}" for name in ("me", "logout", "logout-all", "change-password")
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class Principal:
     """The authenticated caller, fully resolved.
@@ -81,6 +113,7 @@ class Principal:
     session_id: str | None = None
     role_codes: tuple[str, ...] = ()
     vendor_id: uuid.UUID | None = None
+    customer_id: uuid.UUID | None = None
     allowed_category_ids: tuple[uuid.UUID, ...] = ()
     allowed_warehouse_ids: tuple[uuid.UUID, ...] = ()
     branch_id: uuid.UUID | None = None
@@ -107,6 +140,10 @@ class Principal:
     @property
     def is_vendor_user(self) -> bool:
         return self.vendor_id is not None
+
+    @property
+    def is_dealer_user(self) -> bool:
+        return self.customer_id is not None
 
     def can_access_category(self, category_id: uuid.UUID | None) -> bool:
         """Vendor users restricted to specific categories (section 16).
@@ -198,6 +235,7 @@ async def _load_principal(session: AsyncSession, payload: TokenPayload) -> Princ
         session_id=payload.session_id,
         role_codes=role_codes,
         vendor_id=user.vendor_id,
+        customer_id=user.customer_id,
         allowed_category_ids=tuple(user.allowed_category_ids or ()),
         allowed_warehouse_ids=tuple(user.allowed_warehouse_ids or ()),
         branch_id=user.branch_id,
@@ -260,6 +298,16 @@ async def get_current_principal(
     if principal.must_change_password and not password_change_route_allowed(request.url.path):
         raise PasswordChangeRequiredError()
 
+    if principal.is_vendor_user and not vendor_route_allowed(request.url.path):
+        raise AuthorizationError(
+            "This endpoint is not available to vendor accounts.", code=ErrorCode.SCOPE_DENIED
+        )
+
+    if principal.is_dealer_user and not dealer_route_allowed(request.url.path):
+        raise AuthorizationError(
+            "This endpoint is not available to dealer accounts.", code=ErrorCode.SCOPE_DENIED
+        )
+
     bind_request_context(user_id=principal.user_id, company_id=principal.company_id)
     request.state.principal = principal
     return principal
@@ -320,6 +368,40 @@ def forbid_vendor_users(principal: CurrentUser) -> Principal:
     return principal
 
 
+def require_vendor_user(principal: CurrentUser) -> Principal:
+    """A portal permission never lets an internal administrator impersonate a vendor."""
+    if not principal.is_vendor_user:
+        raise AuthorizationError("A vendor account is required.", code=ErrorCode.SCOPE_DENIED)
+    return principal
+
+
+def forbid_dealer_users(principal: CurrentUser) -> Principal:
+    """Block dealer-portal principals from an internal-only endpoint.
+
+    Belt and braces alongside the route allow-list: a dealer principal can only
+    reach portal routes through the gate, but a future route added to the
+    allow-list by mistake must not expose internal data.
+    """
+    if principal.is_dealer_user:
+        raise AuthorizationError(
+            "This endpoint is not available to dealer accounts.", code=ErrorCode.SCOPE_DENIED
+        )
+    return principal
+
+
+def require_dealer_user(principal: CurrentUser) -> Principal:
+    """A portal permission never lets an internal administrator impersonate a dealer.
+
+    Every ``/dealer-portal`` route uses this: ADMIN holds every permission
+    string, so the permission alone is not enough to let staff act "as" a
+    dealer by naming no customer. The dealer is always the token's - no request
+    carries a customer id.
+    """
+    if not principal.is_dealer_user:
+        raise AuthorizationError("A dealer account is required.", code=ErrorCode.SCOPE_DENIED)
+    return principal
+
+
 @dataclass(frozen=True, slots=True)
 class TenantContext:
     """Everything a repository needs to scope a query correctly."""
@@ -327,9 +409,20 @@ class TenantContext:
     company_id: uuid.UUID
     user_id: uuid.UUID
     vendor_id: uuid.UUID | None = None
+    customer_id: uuid.UUID | None = None
     allowed_category_ids: tuple[uuid.UUID, ...] = field(default_factory=tuple)
     allowed_warehouse_ids: tuple[uuid.UUID, ...] = field(default_factory=tuple)
     is_superuser: bool = False
+
+
+def system_tenant(company_id: uuid.UUID) -> TenantContext:
+    """Scope for work with no principal - a scheduled sweep acting for one company.
+
+    The user id is the nil :data:`~src.core.actors.SYSTEM_ACTOR_ID`, which the
+    repository base class and the audit writer stamp as NULL (see
+    :mod:`src.core.actors`), so a service can be called from a sweep unchanged.
+    """
+    return TenantContext(company_id=company_id, user_id=SYSTEM_ACTOR_ID)
 
 
 def get_tenant_context(principal: CurrentUser) -> TenantContext:
@@ -342,6 +435,7 @@ def get_tenant_context(principal: CurrentUser) -> TenantContext:
         company_id=principal.company_id,
         user_id=principal.user_id,
         vendor_id=principal.vendor_id,
+        customer_id=principal.customer_id,
         allowed_category_ids=principal.allowed_category_ids,
         allowed_warehouse_ids=principal.allowed_warehouse_ids,
         is_superuser=principal.is_superuser,
@@ -362,12 +456,16 @@ __all__ = [
     "Principal",
     "Tenant",
     "TenantContext",
+    "dealer_route_allowed",
+    "forbid_dealer_users",
     "forbid_vendor_users",
     "get_current_principal",
     "get_tenant_context",
     "password_change_route_allowed",
     "permissions_of",
     "require_any_permission",
+    "require_dealer_user",
     "require_permission",
     "require_superuser",
+    "system_tenant",
 ]

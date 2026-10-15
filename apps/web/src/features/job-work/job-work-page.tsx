@@ -21,15 +21,22 @@ import {
   PackageMinus,
   Pencil,
   Plus,
+  Receipt,
   Trash2,
   Truck,
   X,
 } from 'lucide-react'
-import { useMemo, useState, type ReactNode } from 'react'
+import { Suspense, lazy, useMemo, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { ConfirmDialog, FieldError, PageHeader, StatusBadge } from '@/components/shared'
+import {
+  ConfirmDialog,
+  FieldError,
+  PageHeader,
+  PanelLoader,
+  StatusBadge,
+} from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -99,6 +106,13 @@ import {
   type PendingAtVendorRow,
 } from './job-work-model'
 import { JobWorkOrderFormDialog } from './job-work-order-form-dialog'
+
+/**
+ * Bills raised against job-work orders live in their own chunk: the tab pulls
+ * the vendor-invoice match dialog with it, which the orders panel must not
+ * pay for.
+ */
+const JobWorkInvoicesTab = lazy(() => import('./job-work-invoices-tab'))
 
 const reasonReady = (value: string): boolean => {
   const trimmed = value.trim()
@@ -995,8 +1009,13 @@ export default function JobWorkPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [createOpen, setCreateOpen] = useState(false)
 
+  // The invoices tab reads the vendor-invoice register, so it is offered only
+  // to an account that may see it - the endpoint would refuse the list anyway.
+  const canSeeInvoices = can(P.VENDOR_INVOICE_VIEW)
+
   const requested = searchParams.get('tab') ?? ''
-  const tab = requested === 'pending' ? 'pending' : 'orders'
+  const tab =
+    requested === 'pending' || (requested === 'invoices' && canSeeInvoices) ? requested : 'orders'
 
   // Switching tab drops the list parameters: a status filter typed against the
   // orders means nothing against the pending-at-vendor view, and carrying it
@@ -1041,6 +1060,12 @@ export default function JobWorkPage() {
             <Truck className="h-3.5 w-3.5" aria-hidden />
             Pending at vendor
           </TabsTrigger>
+          {canSeeInvoices && (
+            <TabsTrigger value="invoices">
+              <Receipt className="h-3.5 w-3.5" aria-hidden />
+              Invoices
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="orders">
@@ -1050,6 +1075,14 @@ export default function JobWorkPage() {
         <TabsContent value="pending">
           <PendingPanel />
         </TabsContent>
+
+        {canSeeInvoices && (
+          <TabsContent value="invoices">
+            <Suspense fallback={<PanelLoader />}>
+              <JobWorkInvoicesTab />
+            </Suspense>
+          </TabsContent>
+        )}
       </Tabs>
 
       <JobWorkOrderFormDialog open={createOpen} onOpenChange={setCreateOpen} />
