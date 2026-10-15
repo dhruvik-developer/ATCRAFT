@@ -18,7 +18,7 @@ dependencies = [
     # --- Web framework (locked stack, section 3) ---------------------------
     "fastapi>=0.115,<1.0",
     "uvicorn[standard]>=0.32,<1.0",       # ASGI server (dev + container entrypoint)
-    "gunicorn>=23.0,<24.0",               # production process manager for uvicorn workers
+    "gunicorn>=23.0,<27.0",               # production process manager for uvicorn workers
     "python-multipart>=0.0.20",           # multipart/form-data: login form + file uploads
 
     # --- Validation / configuration (locked stack) -------------------------
