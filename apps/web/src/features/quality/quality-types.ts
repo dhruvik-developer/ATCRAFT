@@ -140,6 +140,22 @@ export type QcInspectionRow = SchemaOf<'InspectionSummary'>
 /** `GET /quality/inspections/{id}` (`InspectionDetail`). */
 export type QcInspectionDetail = SchemaOf<'InspectionDetail'>
 
+/** One verdict in the decision history (`DecisionHistoryRead`). */
+export type QcDecisionHistory = SchemaOf<'DecisionHistoryRead'>
+
+/** One rework cycle (`ReworkRecordRead`). */
+export type QcReworkRecord = SchemaOf<'ReworkRecordRead'>
+
+/** `ReworkStatus` on the wire. */
+export type QcReworkStatus = SchemaOf<'ReworkStatus'>
+
+export const QC_REWORK_STATUSES = ['OPEN', 'IN_PROGRESS', 'DONE'] as const
+
+/** `ReworkOutcome` on the wire. */
+export type QcReworkOutcome = SchemaOf<'ReworkOutcome'>
+
+export const QC_REWORK_OUTCOMES = ['REWORKED_OK', 'SCRAPPED', 'RETURNED'] as const
+
 /** `POST /quality/inspections/{id}/results` (`RecordResultsResponse`). */
 export type QcResultsResponse = SchemaOf<'RecordResultsResponse'>
 
@@ -193,6 +209,10 @@ export function referenceLink(
     case 'production_order':
     case 'production_entry':
       return referenceId ? `/production/${referenceId}` : null
+    case 'work_order':
+      return '/production/work-orders'
+    case 'packing_order':
+      return '/packing'
     case 'assembly_order':
       return code ? `/assembly?q=${code}` : '/assembly'
     case 'job_work_order':

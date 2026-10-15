@@ -172,6 +172,7 @@ const STATUS_VARIANTS: Record<
   APPROVED: 'success',
   CONFIRMED: 'success',
   COMPLETED: 'success',
+  DONE: 'success',
   RECEIVED: 'success',
   DELIVERED: 'success',
   DISPATCHED: 'success',
@@ -190,6 +191,7 @@ const STATUS_VARIANTS: Record<
   HANDED_OVER: 'success',
   PASSED: 'success',
   MATCHED: 'success',
+  REWORKED_OK: 'success',
   SELECTED: 'success',
   EXECUTED: 'success',
 

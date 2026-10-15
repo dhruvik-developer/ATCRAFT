@@ -154,6 +154,7 @@ from src.modules.quality.models import (
     InspectionStatus,
     ParameterType,
     QcInspection,
+    QcReworkRecord,
     QcStage,
     QcTemplateParameter,
 )
@@ -162,6 +163,7 @@ from src.modules.quality.schemas import (
     InspectionCreate,
     MeasurementIn,
     RecordResultsRequest,
+    ReworkCreate,
 )
 from src.modules.routing.models import Shift
 from src.modules.sales import service as sales_service
@@ -1699,6 +1701,9 @@ class _InspectionSpec:
     #: ``None`` leaves the inspection PENDING with no readings - the queue.
     verdict: tuple[str, str] | None = None
     rejection_reason: str | None = None
+    #: Quantity sent back to the bench rather than accepted or rejected. Part of
+    #: the verdict totals: accepted + rejected + rework must equal the lot.
+    rework: str = "0"
     #: Which characteristic to record out of specification, if any.
     fail: str = "none"
 
@@ -1754,6 +1759,20 @@ INSPECTIONS: tuple[_InspectionSpec, ...] = (
         sentence=(
             "Pre-despatch check on packed handle sets, raised this morning and "
             "waiting for the inspector. The stock is on QC hold until it is decided."
+        ),
+    ),
+    _InspectionSpec(
+        tag=("QC", "REWORK"),
+        item=("SF", "LEVER-BRASS"),
+        warehouse="WH-ASM",
+        stage=QcStage.IN_PROCESS,
+        quantity="40",
+        verdict=("24", "0"),
+        rework="16",
+        fail="ordinary",
+        sentence=(
+            "Batch check off the turning centre: twenty-four passed, sixteen went back "
+            "to the bench for rework and are still there."
         ),
     ),
 )
@@ -1952,12 +1971,23 @@ async def _seed_quality(ctx: DemoContext, look: _Lookup) -> None:
 
         inspection_code = inspection.code
         try:
-            await _decide(ctx, inspection, spec)
+            await _decide(ctx, inspection, spec, tag)
         except (BusinessRuleError, NotFoundError, ValidationError) as exc:
             _skip(ctx, f"{tag} ({inspection_code}) was left undecided: {exc}")
 
+        # Beside the verdict, not inside it: a re-run that finds the lot
+        # already decided (or a run that crashed after deciding it) still owes
+        # the bench its cycle, and the existence check inside keeps it to one.
+        if spec.rework != "0" and InspectionStatus(inspection.status) is InspectionStatus.REWORK:
+            try:
+                await _open_bench_cycle(ctx, inspection, tag)
+            except (BusinessRuleError, NotFoundError, ValidationError) as exc:
+                _skip(ctx, f"{tag} bench cycle not opened: {exc}")
 
-async def _decide(ctx: DemoContext, inspection: QcInspection, spec: _InspectionSpec) -> None:
+
+async def _decide(
+    ctx: DemoContext, inspection: QcInspection, spec: _InspectionSpec, tag: str
+) -> None:
     """Record the readings and apply the verdict, if it has not been decided."""
     if InspectionStatus(inspection.status) not in OPEN_STATUSES:
         # Already judged. Deciding it again would either be refused by the state
@@ -1977,15 +2007,54 @@ async def _decide(ctx: DemoContext, inspection: QcInspection, spec: _InspectionS
         DecideRequest(
             accepted_quantity=Decimal(accepted),
             rejected_quantity=Decimal(rejected),
+            rework_quantity=Decimal(spec.rework),
             reason="Verdict recorded by the quality engineer",
             rejection_reason=spec.rejection_reason,
             inspected_at=_at(_days_before(2), 10),
-            # Closed in the same call: nothing is left on hold, so there is no
-            # second decision owed to anybody.
-            close=True,
+            # Closed in the same call when nothing is left on hold: there is
+            # no second decision owed to anybody. A rework verdict stays open
+            # by construction - the bench cycle below is that second decision.
+            close=spec.rework == "0",
         ),
     )
     ctx.note(STAGE, created=1)
+
+
+async def _open_bench_cycle(ctx: DemoContext, inspection: QcInspection, tag: str) -> None:
+    """Leave one rework cycle open on the bench against a rework verdict.
+
+    Idempotent by existence: a second run finds the first run's cycle and does
+    nothing, so the bench never shows two cycles for one demonstration lot.
+    """
+    held = await ctx.session.execute(
+        select(QcReworkRecord).where(
+            QcReworkRecord.company_id == ctx.company_id,
+            QcReworkRecord.inspection_id == inspection.id,
+            QcReworkRecord.status != "DONE",
+        )
+    )
+    if held.scalars().first() is not None:
+        _seen(ctx, "qc_rework_record", f"{tag} bench", inspection.id, created=False)
+        return
+    try:
+        record = await quality_service.create_rework(
+            ctx.session,
+            ctx.tenant,
+            ReworkCreate(
+                inspection_id=inspection.id,
+                quantity=Decimal(inspection.rework_quantity),
+                assigned_to=ctx.tenant.user_id,
+                notes=_tagged(tag, "polish out the tool marks and re-present"),
+                reason="Demonstration rework cycle",
+            ),
+        )
+        await quality_service.start_rework(
+            ctx.session, ctx.tenant, record.id, reason="On the bench"
+        )
+    except (BusinessRuleError, NotFoundError, ValidationError) as exc:
+        _skip(ctx, f"{tag} bench cycle not opened: {exc}")
+        return
+    _seen(ctx, "qc_rework_record", f"{tag} bench", record.id, created=True)
 
 
 # =============================================================================

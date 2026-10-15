@@ -211,6 +211,10 @@ export interface ItemDetail extends Record<CapabilityKey, boolean> {
 
   is_batch_tracked: boolean
   is_serial_tracked: boolean
+  /** Good output of this item is held for production QC. */
+  requires_production_qc: boolean
+  /** Packing a line of this item raises a FINAL inspection. */
+  requires_final_qc: boolean
   default_warehouse_id: string | null
   default_location_id: string | null
   is_active: boolean

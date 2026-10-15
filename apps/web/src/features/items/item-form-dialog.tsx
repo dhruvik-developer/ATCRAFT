@@ -103,6 +103,8 @@ const schema = z.object({
   can_job_work: z.boolean(),
   can_return: z.boolean(),
   can_scrap: z.boolean(),
+  requires_production_qc: z.boolean(),
+  requires_final_qc: z.boolean(),
 })
 
 type ItemFormValues = z.infer<typeof schema>
@@ -139,6 +141,8 @@ function emptyValues(): ItemFormValues {
     can_job_work: false,
     can_return: false,
     can_scrap: false,
+    requires_production_qc: false,
+    requires_final_qc: false,
   }
 }
 
@@ -174,6 +178,8 @@ function valuesFrom(item: ItemDetail): ItemFormValues {
     can_job_work: item.can_job_work,
     can_return: item.can_return,
     can_scrap: item.can_scrap,
+    requires_production_qc: item.requires_production_qc,
+    requires_final_qc: item.requires_final_qc,
   }
 }
 
@@ -218,6 +224,8 @@ function buildPayload(
     can_job_work: values.can_job_work,
     can_return: values.can_return,
     can_scrap: values.can_scrap,
+    requires_production_qc: values.requires_production_qc,
+    requires_final_qc: values.requires_final_qc,
   }
 }
 
@@ -734,6 +742,48 @@ export function ItemFormDialog({
                     </div>
                   )
                 })}
+              </div>
+            </fieldset>
+
+            <fieldset className="rounded-lg border p-4">
+              <legend className="px-1 text-sm font-medium">Quality control</legend>
+              <p className="mb-3 text-xs text-muted-foreground">
+                Production orders for this item hold their output for inspection, and packing lines
+                for it raise a final inspection, when these are on.
+              </p>
+              <div className="grid gap-2.5 sm:grid-cols-2">
+                <div className="flex items-center gap-2.5">
+                  <Controller
+                    control={control}
+                    name="requires_production_qc"
+                    render={({ field }) => (
+                      <Checkbox
+                        id="item-requires-production-qc"
+                        checked={field.value}
+                        onCheckedChange={(checked) => field.onChange(checked === true)}
+                      />
+                    )}
+                  />
+                  <Label htmlFor="item-requires-production-qc" className="font-normal">
+                    Hold production output for QC
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <Controller
+                    control={control}
+                    name="requires_final_qc"
+                    render={({ field }) => (
+                      <Checkbox
+                        id="item-requires-final-qc"
+                        checked={field.value}
+                        onCheckedChange={(checked) => field.onChange(checked === true)}
+                      />
+                    )}
+                  />
+                  <Label htmlFor="item-requires-final-qc" className="font-normal">
+                    Final inspection at packing
+                  </Label>
+                </div>
               </div>
             </fieldset>
 

@@ -197,6 +197,8 @@ export interface ProductionOrderRow {
   priority: number
   source_type: ProductionSourceType
   source_id: string | null
+  /** Good output is booked into QC hold with an in-process inspection. */
+  requires_qc: boolean
   created_at: string
 }
 

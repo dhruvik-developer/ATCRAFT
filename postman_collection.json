@@ -13035,6 +13035,55 @@
           }
         },
         {
+          "name": "Raise a fresh FINAL inspection for a rejected line",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Only once the line's FINAL inspection is REJECTED: the rejected stock has moved to DAMAGED, so the operator repacks replacement goods and this raises the inspection that covers them.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "packing",
+                ":order_id",
+                "lines",
+                ":line_id",
+                "reinspect"
+              ],
+              "raw": "{{base_url}}/api/v1/packing/{order_id}/lines/{line_id}/reinspect",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                },
+                {
+                  "description": "line_id of the record",
+                  "key": "line_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Raise a packing order for a completed assembly",
           "request": {
             "body": {
@@ -16737,7 +16786,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"bom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"planned_end_date\": \"2026-01-01\",\n  \"planned_quantity\": 0,\n  \"planned_start_date\": \"2026-01-01\",\n  \"plant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"priority\": 0,\n  \"routing_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"bom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"planned_end_date\": \"2026-01-01\",\n  \"planned_quantity\": 0,\n  \"planned_start_date\": \"2026-01-01\",\n  \"plant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"priority\": 0,\n  \"requires_qc\": false,\n  \"routing_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Edit a draft production order",
             "header": [
@@ -17295,7 +17344,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_end_date\": \"2026-01-01\",\n  \"planned_quantity\": 0,\n  \"planned_start_date\": \"2026-01-01\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"bom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"plant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"priority\": 100,\n  \"routing_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\"\n}"
+              "raw": "{\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_end_date\": \"2026-01-01\",\n  \"planned_quantity\": 0,\n  \"planned_start_date\": \"2026-01-01\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"bom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"plant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"priority\": 100,\n  \"requires_qc\": false,\n  \"routing_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\"\n}"
             },
             "description": "Creates a DRAFT job. Nothing is planned against stock or capacity until the order is approved and released. Leave `bom_id` and `routing_id` unset to take the item's default approved structure and process at release.",
             "header": [
@@ -17901,7 +17950,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"base_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"code\": \"\",\n  \"item_group\": \"RAW_MATERIAL\",\n  \"name\": \"\",\n  \"brand_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"can_be_assembly_component\": false,\n  \"can_be_bom_component\": false,\n  \"can_be_spare\": false,\n  \"can_job_work\": false,\n  \"can_manufacture\": false,\n  \"can_purchase\": false,\n  \"can_return\": false,\n  \"can_scrap\": false,\n  \"can_sell\": false,\n  \"category_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"colour_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"dealer_price\": 0,\n  \"default_location_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"default_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"description\": \"\",\n  \"finish_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"gst_rate\": 0,\n  \"hsn_code\": \"\",\n  \"is_active\": true,\n  \"is_batch_tracked\": false,\n  \"is_serial_tracked\": false,\n  \"lead_time_days\": 0,\n  \"manufacturer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"manufacturer_part_number\": \"\",\n  \"min_order_quantity\": 0,\n  \"production_type\": \"MAKE\",\n  \"purchase_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"reorder_level\": 0,\n  \"reorder_quantity\": 0,\n  \"safety_stock\": 0,\n  \"sale_price\": 0,\n  \"sale_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"shelf_life_days\": 0,\n  \"size_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"standard_cost\": 0\n}"
+              "raw": "{\n  \"base_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"code\": \"\",\n  \"item_group\": \"RAW_MATERIAL\",\n  \"name\": \"\",\n  \"brand_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"can_be_assembly_component\": false,\n  \"can_be_bom_component\": false,\n  \"can_be_spare\": false,\n  \"can_job_work\": false,\n  \"can_manufacture\": false,\n  \"can_purchase\": false,\n  \"can_return\": false,\n  \"can_scrap\": false,\n  \"can_sell\": false,\n  \"category_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"colour_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"dealer_price\": 0,\n  \"default_location_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"default_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"description\": \"\",\n  \"finish_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"gst_rate\": 0,\n  \"hsn_code\": \"\",\n  \"is_active\": true,\n  \"is_batch_tracked\": false,\n  \"is_serial_tracked\": false,\n  \"lead_time_days\": 0,\n  \"manufacturer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"manufacturer_part_number\": \"\",\n  \"min_order_quantity\": 0,\n  \"production_type\": \"MAKE\",\n  \"purchase_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"reorder_level\": 0,\n  \"reorder_quantity\": 0,\n  \"requires_final_qc\": false,\n  \"requires_production_qc\": false,\n  \"safety_stock\": 0,\n  \"sale_price\": 0,\n  \"sale_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"shelf_life_days\": 0,\n  \"size_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"standard_cost\": 0\n}"
             },
             "description": "Create an item",
             "header": [
@@ -19525,7 +19574,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"base_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"brand_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"can_be_assembly_component\": false,\n  \"can_be_bom_component\": false,\n  \"can_be_spare\": false,\n  \"can_job_work\": false,\n  \"can_manufacture\": false,\n  \"can_purchase\": false,\n  \"can_return\": false,\n  \"can_scrap\": false,\n  \"can_sell\": false,\n  \"category_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"colour_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"dealer_price\": 0,\n  \"default_location_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"default_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"description\": \"\",\n  \"finish_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"gst_rate\": 0,\n  \"hsn_code\": \"\",\n  \"is_batch_tracked\": false,\n  \"is_serial_tracked\": false,\n  \"item_group\": \"RAW_MATERIAL\",\n  \"lead_time_days\": 0,\n  \"manufacturer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"manufacturer_part_number\": \"\",\n  \"min_order_quantity\": 0,\n  \"name\": \"\",\n  \"production_type\": \"MAKE\",\n  \"purchase_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"reorder_level\": 0,\n  \"reorder_quantity\": 0,\n  \"safety_stock\": 0,\n  \"sale_price\": 0,\n  \"sale_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"shelf_life_days\": 0,\n  \"size_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"standard_cost\": 0\n}"
+              "raw": "{\n  \"base_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"brand_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"can_be_assembly_component\": false,\n  \"can_be_bom_component\": false,\n  \"can_be_spare\": false,\n  \"can_job_work\": false,\n  \"can_manufacture\": false,\n  \"can_purchase\": false,\n  \"can_return\": false,\n  \"can_scrap\": false,\n  \"can_sell\": false,\n  \"category_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"colour_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"dealer_price\": 0,\n  \"default_location_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"default_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"description\": \"\",\n  \"finish_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"gst_rate\": 0,\n  \"hsn_code\": \"\",\n  \"is_batch_tracked\": false,\n  \"is_serial_tracked\": false,\n  \"item_group\": \"RAW_MATERIAL\",\n  \"lead_time_days\": 0,\n  \"manufacturer_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"manufacturer_part_number\": \"\",\n  \"min_order_quantity\": 0,\n  \"name\": \"\",\n  \"production_type\": \"MAKE\",\n  \"purchase_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"reorder_level\": 0,\n  \"reorder_quantity\": 0,\n  \"requires_final_qc\": false,\n  \"requires_production_qc\": false,\n  \"safety_stock\": 0,\n  \"sale_price\": 0,\n  \"sale_uom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"shelf_life_days\": 0,\n  \"size_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"standard_cost\": 0\n}"
             },
             "description": "Update an item",
             "header": [
@@ -19767,6 +19816,49 @@
                 {
                   "description": "inspection_id of the record",
                   "key": "inspection_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Complete a rework cycle and re-open the inspection",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"outcome\": \"REWORKED_OK\",\n  \"reason\": \"\",\n  \"cost\": 0,\n  \"notes\": \"\"\n}"
+            },
+            "description": "The outcome is the bench's recommendation, not a stock movement: even a SCRAPPED outcome leaves the quantity in QC hold for the inspector to disposition on re-decision. The inspection is re-opened so that re-decision is owed.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quality",
+                "rework",
+                ":record_id",
+                "complete"
+              ],
+              "raw": "{{base_url}}/api/v1/quality/rework/{record_id}/complete",
+              "variable": [
+                {
+                  "description": "record_id of the record",
+                  "key": "record_id",
                   "value": ""
                 }
               ]
@@ -20220,6 +20312,116 @@
           }
         },
         {
+          "name": "List rework cycles",
+          "request": {
+            "description": "List rework cycles",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quality",
+                "rework"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "inspection_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": "OPEN"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "assigned_to",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                },
+                {
+                  "description": "Field to sort by",
+                  "disabled": true,
+                  "key": "sort_by",
+                  "value": ""
+                },
+                {
+                  "description": "Sort direction",
+                  "disabled": true,
+                  "key": "sort_dir",
+                  "value": "asc"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/quality/rework?"
+            }
+          }
+        },
+        {
+          "name": "Open a rework cycle",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"inspection_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"quantity\": 0,\n  \"reason\": \"\",\n  \"assigned_to\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"work_center_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Send part of an inspection's rework quantity to the bench. The stock stays in QC hold for the whole cycle; completing the cycle re-opens the inspection so the quantity is re-decided.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quality",
+                "rework"
+              ],
+              "raw": "{{base_url}}/api/v1/quality/rework"
+            }
+          }
+        },
+        {
           "name": "Raise an inspection by hand",
           "request": {
             "body": {
@@ -20400,6 +20602,49 @@
                 {
                   "description": "template_id of the record",
                   "key": "template_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Start a rework cycle",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Start a rework cycle",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "quality",
+                "rework",
+                ":record_id",
+                "start"
+              ],
+              "raw": "{{base_url}}/api/v1/quality/rework/{record_id}/start",
+              "variable": [
+                {
+                  "description": "record_id of the record",
+                  "key": "record_id",
                   "value": ""
                 }
               ]
@@ -22181,6 +22426,106 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/reports/qc-rejection?"
+            }
+          }
+        },
+        {
+          "name": "Rework rate",
+          "request": {
+            "description": "Rework quantity and rate per item and vendor over the period, from decided inspections. A pending inspection has no verdict and is not counted.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "rework-rate"
+              ],
+              "query": [
+                {
+                  "description": "First day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "item_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": ""
+                },
+                {
+                  "description": "Age threshold in days, where the report uses one",
+                  "disabled": true,
+                  "key": "min_days",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/reports/rework-rate?"
             }
           }
         },

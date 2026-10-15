@@ -319,6 +319,18 @@ export const api = {
     link.remove()
     URL.revokeObjectURL(url)
   },
+
+  /**
+   * Authenticated object URL for inline display.
+   *
+   * The thumbnail twin of {@link download}: inspection photos are fetched
+   * through `GET /documents/{id}/download` as blobs (never as public URLs)
+   * and shown in `<img>` tags. The caller revokes the URL when it unmounts.
+   */
+  async blobUrl(path: string, options?: RequestOptions): Promise<string> {
+    const response = await request<Response>('GET', path, { ...options, raw: true })
+    return URL.createObjectURL(await response.blob())
+  },
 }
 
 export { BASE_URL }

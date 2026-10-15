@@ -79,6 +79,8 @@ const ITEM = {
   shelf_life_days: null,
   is_batch_tracked: true,
   is_serial_tracked: false,
+  requires_production_qc: false,
+  requires_final_qc: false,
   default_warehouse_id: null,
   default_location_id: null,
   is_active: true,

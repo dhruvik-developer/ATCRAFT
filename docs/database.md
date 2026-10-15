@@ -67,7 +67,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `production` | `production_orders`, `production_order_components`, `work_orders`, `material_issues`, `material_issue_lines`, `production_entries` |
 | `assembly` | `assembly_orders`, `assembly_order_components` |
 | `job_work` | `job_work_orders`, `job_work_order_lines`, `job_work_challans`, `job_work_challan_lines`, `job_work_receipts`, `job_work_receipt_lines` |
-| `quality` | `qc_templates`, `qc_template_parameters`, `qc_inspections`, `qc_inspection_results` |
+| `quality` | `qc_templates`, `qc_template_parameters`, `qc_inspections`, `qc_inspection_results`, `qc_inspection_decisions`, `qc_rework_records` |
 | `packing` | `packing_orders`, `packing_order_lines`, `cartons`, `carton_contents` |
 | `dispatch` | `dispatches`, `dispatch_lines`, `dispatch_tracking_events` |
 | `finance` | `ledger_accounts`, `ledger_entries`, `vendor_invoices`, `vendor_invoice_lines`, `sales_invoices`, `sales_invoice_lines`, `payments`, `payment_allocations` |
@@ -185,6 +185,12 @@ The model must never make one of those exclusive.
 can_purchase, can_manufacture, can_sell, can_be_bom_component,
 can_be_assembly_component, can_be_spare, can_job_work, can_return, can_scrap
 ```
+
+Two further flags drive quality holds rather than capabilities:
+`requires_production_qc` (good output of this item is booked into QC hold with
+an in-process inspection) and `requires_final_qc` (packing a line of this
+item raises a FINAL inspection). They default off and are edited on the item
+form.
 
 `item_group` (`RAW_MATERIAL | COMPONENT | SEMI_FINISHED | FINISHED_GOOD |
 CONSUMABLE | PACKING_MATERIAL | SPARE | SCRAP | SERVICE`) is a **reporting and
@@ -638,6 +644,12 @@ Vendor invoice    DRAFT -> PENDING_APPROVAL -> APPROVED <-> PARTIALLY_PAID <-> P
                         cancelling a posted bill reverses its journals)
 
 QC inspection     PENDING -> IN_PROGRESS -> (ACCEPTED | REWORK | REJECTED | HOLD | SCRAP) -> CLOSED
+                  (REWORK -> IN_PROGRESS re-opens a lot whose rework cycle finished,
+                  with the verdict back at PENDING; earlier verdicts stay in
+                  `qc_inspection_decisions`)
+
+QC rework record  OPEN -> IN_PROGRESS -> DONE (a second round of work is a second
+                  record; completing re-opens the inspection for re-decision)
 
 Job work order    DRAFT -> APPROVED -> ISSUED -> PARTIALLY_RECEIVED -> RECEIVED
                         -> QC_PENDING -> COMPLETED -> CLOSED
@@ -686,10 +698,11 @@ Every transition writes an audit row via `record_status_change`.
 |---|---|
 | GRN posted | `inventory.post_movements` (`PURCHASE_RECEIPT`), advance PO status, create incoming QC inspection when the item requires it |
 | Material issue | `allocation.consume` the reservation, then `post_movements` (`MATERIAL_ISSUE`) |
-| Production completion | `post_movements` (`PRODUCTION_RECEIPT`) for output, `ASSEMBLY_CONSUME`/`MATERIAL_ISSUE` for components |
+| Production completion | `post_movements` (`PRODUCTION_RECEIPT`) for output - into QC hold with an in-process inspection when the order holds output for QC - `ASSEMBLY_CONSUME`/`MATERIAL_ISSUE` for components; refused while any booked output is still held |
 | Job-work issue | `post_movements` (`JOB_WORK_ISSUE`) moving stock to `stock_state=JOB_WORK` — still company-owned |
 | QC rejection | `change_stock_state` to `DAMAGED`/`SCRAP`, raise return/rework |
 | QC verdict decided | `quality.owners.notify_owner` in the same transaction, after the stock moves: the owning document completes itself from the verdict and moves nothing again |
+| Packing started | A FINAL inspection per line whose item requires final QC (stock reserved, not held); completion and hand-over refused until each is ACCEPTED; a REJECTED line is repacked and re-inspected |
 | Dispatch | `allocation.consume`, then `post_movements` (`DISPATCH`) |
 | Sales order confirmed | `allocation.reserve` per line against available stock |
 | Stock arrives for a short sales order | `maintenance.allocate_short_orders` finds live shortfalls, then calls `sales.allocate_order` per order in its own transaction; default cadence 900 seconds, at most 200 orders per company |
@@ -710,7 +723,7 @@ Every transition writes an audit row via `record_status_change`.
 
 ### QC verdict to owner (`quality.owners`)
 
-Quality sits downstream of procurement, assembly and job work, so it may call
+Quality sits downstream of procurement, assembly, job work and production, so it may call
 them - never the reverse. `quality.owners` is a registry from
 `reference_type` to an owner handler, resolved once with lazy imports.
 `decide_inspection` (and `close_inspection`, which settles nothing new) locks
@@ -725,7 +738,7 @@ whole decision back.
 | `goods_receipt` | `procurement.record_incoming_inspection_outcome` | Receipt line PENDING → PASSED/FAILED once nothing is held (docs/assumptions.md §E4-2); PO QC_PENDING → QC_COMPLETED → GRN_COMPLETED when no line is PENDING |
 | `assembly_order` | `assembly.record_quality_verdict` | Tallies applied, QC_PENDING → COMPLETED |
 | `job_work_receipt` / `job_work_order` | `job_work.record_quality_verdict` | Receipt released; order completed when nothing remains held (per-receipt release while PARTIALLY_RECEIVED allowed) |
-| `production_entry` | no-op placeholder | Wired when production output goes on QC hold |
+| `production_entry` / `work_order` | `production.record_quality_verdict` | Booking's hold flag cleared once the verdict is settled; completion and gated operations unblock (docs/assumptions.md §E5-1) |
 | `sales_return` | no handler | The return document pulls via `inspections_for_reference` |
 
 A job-work lot that returns several output items raises **one inspection per
