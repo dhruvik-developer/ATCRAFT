@@ -75,6 +75,11 @@ class ProductionOrderCreate(BaseModel):
     priority: Priority = DEFAULT_PRODUCTION_PRIORITY
     source_type: ProductionSourceType = ProductionSourceType.MANUAL
     source_id: uuid.UUID | None = None
+    #: Hold good output for QC. Unset takes the default: true when the item
+    #: requires production QC or any routing operation gates on QC (§E5-1).
+    #: Explicit false is refused while a routing operation gates on QC - the
+    #: operation's completion gate would strand the job.
+    requires_qc: bool | None = None
     notes: str | None = Field(default=None, max_length=4000)
 
     @model_validator(mode="after")
@@ -99,6 +104,9 @@ class ProductionOrderUpdate(BaseModel):
     planned_start_date: date | None = None
     planned_end_date: date | None = None
     priority: Priority | None = None
+    #: Only on a DRAFT; changing the hold once output has been booked would
+    #: orphan inspections already raised, or strand output already held.
+    requires_qc: bool | None = None
     notes: str | None = Field(default=None, max_length=4000)
 
 
@@ -144,6 +152,7 @@ class ProductionOrderSummary(BaseModel):
     priority: int
     source_type: ProductionSourceType
     source_id: uuid.UUID | None
+    requires_qc: bool
     created_at: datetime
 
 
@@ -564,6 +573,11 @@ class ProductionEntryRead(BaseModel):
     downtime_minutes: Decimal
     notes: str | None
     output_transaction_id: uuid.UUID | None
+    #: The in-process inspection this booking raised, when the order holds
+    #: output for QC. Cleared by the quality verdict, which releases the hold.
+    qc_inspection_id: uuid.UUID | None = None
+    qc_inspection_code: str | None = None
+    qc_hold_open: bool = False
     created_at: datetime
 
 

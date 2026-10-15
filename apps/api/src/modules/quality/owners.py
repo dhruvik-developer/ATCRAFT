@@ -209,9 +209,22 @@ OWNER_BINDINGS: dict[str, OwnerBinding] = {
         lock="lock_for_quality_verdict",
         awaiting="awaiting_quality_verdicts",
     ),
-    # Placeholder: production output is not put on QC hold yet. WP E5 wires
-    # production's handler here when it does.
-    "production_entry": OwnerBinding(module="src.modules.production.service", handler=None),
+    # Production output is booked into QC hold with an in-process inspection
+    # per booking (WP E5). A booking at a QC-gated routing operation names the
+    # operation, any other booking names itself - and the handler finds its
+    # booking by the inspection either way, so both keys reach the same owner.
+    "production_entry": OwnerBinding(
+        module="src.modules.production.service",
+        handler="record_quality_verdict",
+        lock="lock_for_quality_verdict",
+        awaiting="awaiting_quality_verdicts",
+    ),
+    "work_order": OwnerBinding(
+        module="src.modules.production.service",
+        handler="record_quality_verdict",
+        lock="lock_for_quality_verdict",
+        awaiting="awaiting_quality_verdicts",
+    ),
     # "sales_return" is deliberately absent: the customer-return document pulls
     # its verdict with ``inspections_for_reference`` (WP A3) rather than being
     # called back.

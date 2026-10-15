@@ -1218,6 +1218,14 @@ async def create_order(
             await require_cost_centre(session, tenant, payload.cost_centre_id)
 
         repo = ProductionOrderRepository(session, tenant)
+        requires_qc = await _resolve_requires_qc(
+            session,
+            tenant,
+            item=item,
+            routing_id=payload.routing_id,
+            requested=payload.requires_qc,
+            order_code=f"Job for {item.code}",
+        )
         order = ProductionOrder(
             code=await next_document_number(session, tenant.company_id, DocTypes.PRODUCTION_ORDER),
             item_id=payload.item_id,
@@ -1233,6 +1241,7 @@ async def create_order(
             status=ProductionOrderStatus.DRAFT,
             source_type=payload.source_type,
             source_id=payload.source_id,
+            requires_qc=requires_qc,
             notes=payload.notes,
         )
         repo.add(order)
@@ -1257,6 +1266,7 @@ async def create_order(
                 "planned_start_date": order.planned_start_date,
                 "planned_end_date": order.planned_end_date,
                 "priority": order.priority,
+                "requires_qc": order.requires_qc,
                 "source_type": str(order.source_type),
                 "source_id": order.source_id,
             },
@@ -1357,7 +1367,7 @@ async def update_order(
             return order
 
         before = {key: getattr(order, key) for key in changes}
-        await _validate_order_references(
+        item = await _validate_order_references(
             session,
             tenant,
             item_id=order.item_id,
@@ -1371,6 +1381,19 @@ async def update_order(
         new_centre = changes.get("cost_centre_id")
         if new_centre is not None and new_centre != order.cost_centre_id:
             await require_cost_centre(session, tenant, new_centre)
+
+        # The hold and the routing are decided together: a draft that stops
+        # holding its output while its routing gates an operation on QC would
+        # strand the job at that operation's completion gate.
+        if "requires_qc" in changes or "routing_id" in changes:
+            changes["requires_qc"] = await _resolve_requires_qc(
+                session,
+                tenant,
+                item=item,
+                routing_id=changes.get("routing_id", order.routing_id),
+                requested=changes.get("requires_qc", order.requires_qc),
+                order_code=order.code,
+            )
 
         if "planned_quantity" in changes:
             changes["planned_quantity"] = to_quantity(changes["planned_quantity"])
@@ -1884,6 +1907,25 @@ async def complete_order(
             )
             output_movement = movement
             roster_note = await _booking_roster_note(session, tenant, entry)
+
+        # The order cannot COMPLETE while any of its output is held: held
+        # output has a verdict outstanding, and completing would close the job
+        # around stock nobody has released. The message names the open
+        # inspections so the floor knows exactly what is owed.
+        open_holds = await ProductionEntryRepository(session, tenant).open_holds_for_order(order.id)
+        if open_holds:
+            codes = ", ".join(
+                entry.qc_inspection_code or str(entry.qc_inspection_id) for entry in open_holds
+            )
+            raise BusinessRuleError(
+                f"{order.code} cannot complete: {len(open_holds)} booking(s) still hold "
+                f"output for QC ({codes}). Decide the inspections first.",
+                details={
+                    "order_code": order.code,
+                    "open_inspection_codes": [entry.qc_inspection_code for entry in open_holds],
+                    "open_inspection_ids": [str(entry.qc_inspection_id) for entry in open_holds],
+                },
+            )
 
         components = await ProductionOrderComponentRepository(session, tenant).lock_for_order(
             order.id
@@ -2944,6 +2986,141 @@ async def _backflush_components(
 
 
 # =============================================================================
+# Quality seam (WP E5)
+# =============================================================================
+
+
+#: Reference types this module raises inspections under. Output held for
+#: production QC names the booking; a booking at a QC-gated routing operation
+#: names the operation, which is what the operation's completion gate reads.
+QUALITY_REFERENCE_ENTRY = "production_entry"
+QUALITY_REFERENCE_WORK_ORDER = "work_order"
+
+
+class QualityPort(Protocol):
+    """What production asks of the quality module when it is deployed.
+
+    Deliberately narrow: one call raising one in-process inspection against one
+    booking's held output. Anything wider would couple the booking to a module
+    that is built independently of it.
+    """
+
+    async def __call__(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        *,
+        item_id: uuid.UUID,
+        quantity: Decimal,
+        warehouse_id: uuid.UUID,
+        reference_type: str,
+        reference_id: uuid.UUID,
+        reference_code: str,
+    ) -> Any: ...
+
+
+def resolve_quality_port() -> QualityPort | None:
+    """The quality module's in-process inspection factory, if it is deployed.
+
+    Only the *absence* of the module is tolerated. A failure inside it is not
+    swallowed: an inspection that could not be raised must roll the booking back
+    with everything else, rather than leaving stock on QC hold with nobody told
+    to look at it.
+    """
+    try:
+        from src.modules.quality import service as quality_service
+    except ImportError:
+        return None
+
+    factory = getattr(quality_service, "create_in_process_inspection", None)
+    return factory if callable(factory) else None
+
+
+class InspectionReaderPort(Protocol):
+    """The quality module's read of every inspection one document raised."""
+
+    async def __call__(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        reference_type: str,
+        reference_id: uuid.UUID,
+    ) -> Sequence[Any]: ...
+
+
+def resolve_inspection_reader_port() -> InspectionReaderPort | None:
+    """The quality module's ``inspections_for_reference``, if it is deployed.
+
+    Read by the completion gates, which must know whether a held booking or a
+    gated operation already has its verdict before refusing anything.
+    """
+    try:
+        from src.modules.quality import service as quality_service
+    except ImportError:
+        return None
+
+    reader = getattr(quality_service, "inspections_for_reference", None)
+    return reader if callable(reader) else None
+
+
+async def _routing_requires_qc(
+    session: AsyncSession, tenant: TenantContext, routing_id: uuid.UUID | None
+) -> bool:
+    """Whether any operation on the routing gates its completion on QC.
+
+    Read at order creation and on every draft edit that touches the hold or
+    the routing, so the two cannot disagree: a job whose routing demands QC
+    at an operation always holds its output for it.
+    """
+    if routing_id is None:
+        return False
+    operations = await RoutingOperationRepository(session, tenant).list_for_routing(routing_id)
+    return any(operation.qc_required for operation in operations)
+
+
+async def _resolve_requires_qc(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    item: ProductionItem,
+    routing_id: uuid.UUID | None,
+    requested: bool | None,
+    order_code: str,
+) -> bool:
+    """Whether this job's good output is booked into QC hold.
+
+    Unset takes the default: true when the item requires production QC or any
+    routing operation gates on QC (docs/assumptions.md §E5-1). An explicit
+    false is honoured against the item flag - the order opts out - but refused
+    while a routing operation gates on QC, because the operation's completion
+    gate would strand the job: output the routing demands inspected, with no
+    inspection anyone will ever raise.
+    """
+    routing_qc = await _routing_requires_qc(session, tenant, routing_id)
+    if requested is False and routing_qc:
+        raise BusinessRuleError(
+            f"{order_code} cannot skip QC: its routing gates an operation on a quality "
+            "inspection. Remove the gate from the routing first.",
+            details={"order_code": order_code, "routing_id": str(routing_id)},
+        )
+    if requested is not None:
+        return requested
+    return bool(item.requires_production_qc) or routing_qc
+
+
+async def _operation_requires_qc(
+    session: AsyncSession, tenant: TenantContext, work_order: WorkOrder
+) -> bool:
+    """Whether the routing operation behind this work order gates on QC."""
+    if work_order.routing_operation_id is None:
+        return False
+    operation = await RoutingOperationRepository(session, tenant).get(
+        work_order.routing_operation_id
+    )
+    return operation is not None and bool(operation.qc_required)
+
+
+# =============================================================================
 # Shop-floor bookings
 # =============================================================================
 
@@ -3018,8 +3195,25 @@ async def _book_entry(
 
     movement: PostedMovement | None = None
     if books_output and produced > ZERO:
-        movement = await _post_output_receipt(session, tenant, order, entry, produced)
+        # The hold and the inspection are one decision: stock on QC hold with
+        # no inspection is stranded, and an inspection over available stock
+        # decides nothing. Without the quality module neither happens - the
+        # output is received as available, exactly as before this seam existed.
+        quality_port = resolve_quality_port() if order.requires_qc else None
+        hold_for_qc = quality_port is not None
+        movement = await _post_output_receipt(
+            session,
+            tenant,
+            order,
+            entry,
+            produced,
+            stock_state=StockState.QC_HOLD if hold_for_qc else StockState.AVAILABLE,
+        )
         order.produced_quantity = to_quantity(Decimal(order.produced_quantity) + produced)
+        if hold_for_qc and quality_port is not None:
+            await _raise_output_inspection(
+                session, tenant, order, entry, work_order, produced, quality_port
+            )
 
     if rejected > ZERO:
         # Rejected output is never received: it was never good stock, so there
@@ -3072,6 +3266,9 @@ async def _book_entry(
             "downtime_minutes": entry.downtime_minutes,
             "posted_output": movement is not None,
             "output_transaction_id": entry.output_transaction_id,
+            "qc_inspection_id": entry.qc_inspection_id,
+            "qc_inspection_code": entry.qc_inspection_code,
+            "qc_hold_open": entry.qc_hold_open,
         },
     )
     return entry, movement
@@ -3083,6 +3280,8 @@ async def _post_output_receipt(
     order: ProductionOrder,
     entry: ProductionEntry,
     quantity: Decimal,
+    *,
+    stock_state: StockState = StockState.AVAILABLE,
 ) -> PostedMovement:
     """Put finished goods into the output warehouse.
 
@@ -3115,13 +3314,57 @@ async def _post_output_receipt(
                 reference_id=order.id,
                 reference_code=order.code,
                 reason=f"Production receipt from {order.code}"[:255],
-                stock_state=StockState.AVAILABLE,
+                stock_state=stock_state,
                 occurred_at=datetime.combine(entry.entry_date, datetime.min.time(), tzinfo=UTC),
             )
         ],
     )
     entry.output_transaction_id = posted[0].id
     return _posted_movement(posted[0])
+
+
+async def _raise_output_inspection(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: ProductionOrder,
+    entry: ProductionEntry,
+    work_order: WorkOrder | None,
+    quantity: Decimal,
+    quality_port: QualityPort,
+) -> None:
+    """Raise the in-process inspection over output just booked into QC hold.
+
+    A booking at a QC-gated routing operation names the operation
+    (``reference_type="work_order"``): the operation cannot complete until that
+    inspection is ACCEPTED. Any other booking names itself. Either way the
+    booking records the inspection and flags its output held; the quality
+    verdict clears the flag, and the order cannot COMPLETE while any flag is
+    set. The caller has already posted the quantity into QC hold - quality
+    never moves stock on the way in, only on the decision.
+    """
+    operation_qc = work_order is not None and await _operation_requires_qc(
+        session, tenant, work_order
+    )
+    if operation_qc and work_order is not None:
+        reference_type = QUALITY_REFERENCE_WORK_ORDER
+        reference_id = work_order.id
+    else:
+        reference_type = QUALITY_REFERENCE_ENTRY
+        reference_id = entry.id
+    inspection = await quality_port(
+        session,
+        tenant,
+        item_id=order.item_id,
+        quantity=quantity,
+        warehouse_id=order.warehouse_id,
+        reference_type=reference_type,
+        reference_id=reference_id,
+        reference_code=order.code,
+    )
+    entry.qc_inspection_id = getattr(inspection, "id", None)
+    entry.qc_inspection_code = getattr(inspection, "code", None)
+    entry.qc_hold_open = entry.qc_inspection_id is not None
+    await session.flush()
 
 
 async def create_production_entry(
@@ -3369,6 +3612,58 @@ async def assign_work_order(
     return work_order, f"{message} {ROSTER_MISMATCH_WARNING}" if mismatch else message
 
 
+async def _assert_operation_accepted(
+    session: AsyncSession, tenant: TenantContext, work_order: WorkOrder
+) -> None:
+    """Refuse to complete a QC-gated operation whose inspection is not ACCEPTED.
+
+    The verdict on a REJECTED or reworked lot is not the end of the story - the
+    lot is re-decided until it is accepted - so anything short of ACCEPTED
+    refuses, naming the inspection that owes the verdict. An operation with no
+    inspection at all (output booked before this seam existed, or held output
+    decided away) names the recourse instead: raise a work-order inspection
+    from Quality and decide it.
+    """
+    reader = resolve_inspection_reader_port()
+    inspections = (
+        await reader(session, tenant, QUALITY_REFERENCE_WORK_ORDER, work_order.id)
+        if reader is not None
+        else []
+    )
+    # ACCEPTED and settled: a partial decision can carry an ACCEPTED verdict
+    # while quantity is still parked in rework or hold, and completing the
+    # operation on that verdict would release the job around stock nobody has
+    # released. This is the same test the owner callback applies.
+    accepted = next(
+        (
+            inspection
+            for inspection in inspections
+            if str(getattr(inspection, "result", "")) == "ACCEPTED"
+            and to_quantity(Decimal(getattr(inspection, "rework_quantity", 0) or 0))
+            + to_quantity(Decimal(getattr(inspection, "hold_quantity", 0) or 0))
+            <= ZERO
+        ),
+        None,
+    )
+    if accepted is not None:
+        return
+    open_codes = ", ".join(str(getattr(inspection, "code", "?")) for inspection in inspections)
+    raise BusinessRuleError(
+        f"Work order {work_order.code} gates on QC and cannot complete until its "
+        + (
+            f"inspection is ACCEPTED (open: {open_codes})."
+            if open_codes
+            else "an inspection on it is ACCEPTED. Raise a work-order inspection from "
+            "Quality against this operation and decide it."
+        ),
+        details={
+            "work_order_code": work_order.code,
+            "work_order_id": str(work_order.id),
+            "open_inspection_codes": [str(getattr(i, "code", "?")) for i in inspections],
+        },
+    )
+
+
 async def transition_work_order(
     session: AsyncSession,
     tenant: TenantContext,
@@ -3404,6 +3699,16 @@ async def transition_work_order(
                     "An operation cannot finish before it started.",
                     details={"work_order_code": work_order.code},
                 )
+            # The routing gate: an operation whose routing step demands QC
+            # cannot be reported complete until the inspection on that step is
+            # ACCEPTED. Only operations that actually produced output are
+            # gated - a dry run booked nothing into stock, so there is nothing
+            # to inspect. Without the quality module there is nothing to check
+            # against and the gate passes vacuously.
+            if to_quantity(Decimal(work_order.completed_quantity)) > ZERO and (
+                await _operation_requires_qc(session, tenant, work_order)
+            ):
+                await _assert_operation_accepted(session, tenant, work_order)
 
         await _transition(
             session,
@@ -3605,6 +3910,135 @@ async def in_progress_output(
     )
 
 
+# =============================================================================
+# Quality owner callbacks (WP E5)
+# =============================================================================
+#
+# Quality owns the hold and the one movement: deciding the inspection moves the
+# held output, and this module learns the verdict through
+# :func:`record_quality_verdict` in the same transaction. The handler never
+# moves stock - it only marks the booking inspected by clearing its hold flag,
+# which is what the order's completion gate reads. See ``quality.owners``.
+
+
+class InspectionVerdict(Protocol):
+    """What production reads off a decided inspection.
+
+    A protocol rather than quality's own type, so this module does not import
+    the module it reaches through a port.
+    """
+
+    @property
+    def inspection_id(self) -> uuid.UUID: ...
+    @property
+    def inspection_code(self) -> str: ...
+    @property
+    def reference_id(self) -> uuid.UUID | None: ...
+    @property
+    def is_settled(self) -> bool: ...
+    @property
+    def reason(self) -> str: ...
+
+
+async def lock_for_quality_verdict(
+    session: AsyncSession, tenant: TenantContext, reference_id: uuid.UUID
+) -> None:
+    """Take the job's row lock before quality moves any of its held output.
+
+    The reference is the booking or the operation the inspection names; either
+    way the lock that matters is the order's, because the booking took
+    order -> balances and the decision must take inspection -> order ->
+    balances behind it. A reference that resolves to nothing is already gone,
+    so there is nothing to serialise against.
+    """
+    entry = await ProductionEntryRepository(session, tenant).get(reference_id)
+    if entry is not None:
+        await _lock_order(session, tenant, entry.production_order_id)
+        return
+    order_id = await WorkOrderRepository(session, tenant).order_id_of(reference_id)
+    if order_id is not None:
+        await _lock_order(session, tenant, order_id)
+
+
+async def record_quality_verdict(
+    session: AsyncSession, tenant: TenantContext, verdict: InspectionVerdict
+) -> bool:
+    """Mark the booking inspected from the verdict on its held output.
+
+    Quality has already moved the held stock, so this clears the booking's
+    hold flag and nothing else. It acts only on a settled verdict - a partial
+    decision that leaves quantity in rework or hold keeps the flag, and the
+    order completes when the inspection is re-decided and nothing is left.
+    The booking is found by the inspection, not by the reference: a booking at
+    a QC-gated operation raises its inspection against the operation, while
+    any other booking raises it against itself.
+
+    Idempotent: a verdict already applied changes nothing.
+    """
+    async with transaction(session):
+        entry = await ProductionEntryRepository(session, tenant).lock_by_inspection(
+            verdict.inspection_id
+        )
+        if entry is None:
+            return False
+        if not entry.qc_hold_open:
+            return False
+        if not verdict.is_settled:
+            # Rework or hold still sits in QC hold; the flag clears when the
+            # inspection is re-decided and nothing is left.
+            return False
+
+        entry.qc_hold_open = False
+        ProductionEntryRepository(session, tenant).touch(entry)
+        await session.flush()
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.UPDATE,
+            entity_type=AUDIT_PRODUCTION_ENTRY,
+            entity_id=entry.id,
+            entity_code=entry.qc_inspection_code,
+            summary=(
+                f"Inspection {verdict.inspection_code} settled: hold released on output "
+                f"booked by {entry.id}"
+            ),
+            user_id=tenant.user_id,
+            new_values={"qc_hold_open": False},
+            context={"reason": verdict.reason},
+        )
+    return True
+
+
+async def awaiting_quality_verdicts(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    after: uuid.UUID | None,
+    limit: int,
+) -> list[tuple[str, uuid.UUID]]:
+    """Bookings still holding output for QC - one keyset page for the
+    reconciliation sweep (``quality.owners.reconcile_owners``).
+
+    Each held booking yields its own pair plus, when it was booked at an
+    operation, the operation's pair: a booking at a QC-gated operation raises
+    its inspection against the operation, so the sweep only finds that verdict
+    under the ``work_order`` key. The entry pairs sort last, so the sweep's
+    ``after`` cursor - the last pair's id - is always a booking id and the
+    next page continues the booking scan where this one stopped.
+    """
+    entries = await ProductionEntryRepository(session, tenant).awaiting_quality_hold(
+        after=after, limit=limit
+    )
+    pairs: list[tuple[str, uuid.UUID]] = []
+    for entry in entries:
+        if entry.work_order_id is not None:
+            pairs.append((QUALITY_REFERENCE_WORK_ORDER, entry.work_order_id))
+    for entry in entries:
+        pairs.append((QUALITY_REFERENCE_ENTRY, entry.id))
+    return pairs
+
+
 __all__ = [
     "AUDIT_MATERIAL_ISSUE",
     "AUDIT_PRODUCTION_ENTRY",
@@ -3623,6 +4057,7 @@ __all__ = [
     "assert_within_over_issue_tolerance",
     "assert_within_over_production_tolerance",
     "assign_work_order",
+    "awaiting_quality_verdicts",
     "backflush_quantity",
     "can_approve",
     "cancel_material_issue",
@@ -3647,6 +4082,7 @@ __all__ = [
     "list_orders",
     "list_production_entries",
     "list_work_orders",
+    "lock_for_quality_verdict",
     "mandatory_components_covered",
     "material_cost_line",
     "net_issued",
@@ -3657,7 +4093,10 @@ __all__ = [
     "plan_work_orders",
     "post_material_issue",
     "production_cost",
+    "record_quality_verdict",
     "release_order",
+    "resolve_inspection_reader_port",
+    "resolve_quality_port",
     "start_order",
     "summarise_cost",
     "transition_work_order",

@@ -134,6 +134,9 @@ class ProductionItem:
     is_serial_tracked: bool
     standard_cost: Decimal
     default_warehouse_id: uuid.UUID | None
+    #: Whether the item's output is held for production QC. Default False so a
+    #: projection built before the flag existed keeps meaning "no QC owed".
+    requires_production_qc: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,6 +206,7 @@ class ProductionItemRepository(BaseRepository[Item]):
             Item.is_active,
             Item.is_batch_tracked,
             Item.is_serial_tracked,
+            Item.requires_production_qc,
             Item.standard_cost,
             Item.default_warehouse_id,
         ).where(
@@ -221,6 +225,7 @@ class ProductionItemRepository(BaseRepository[Item]):
                 is_active=row.is_active,
                 is_batch_tracked=row.is_batch_tracked,
                 is_serial_tracked=row.is_serial_tracked,
+                requires_production_qc=row.requires_production_qc,
                 standard_cost=Decimal(row.standard_cost),
                 default_warehouse_id=row.default_warehouse_id,
             )
@@ -1118,6 +1123,53 @@ class ProductionEntryRepository(BaseRepository[ProductionEntry]):
         order_by = sort.resolve(self.sortable_fields, ProductionEntry.entry_date.desc())
         stmt = self._filtered(filters).order_by(order_by, ProductionEntry.id.desc())
         return await self.list_page(params, stmt=stmt)
+
+    async def open_holds_for_order(self, order_id: uuid.UUID) -> list[ProductionEntry]:
+        """Bookings whose output is still sitting in QC hold.
+
+        The completion gate: an order cannot COMPLETE while any of its output
+        is held. Bounded by the order - a job is booked dozens of times, not
+        thousands.
+        """
+        stmt = (
+            self._scoped()
+            .where(
+                ProductionEntry.production_order_id == order_id,
+                ProductionEntry.qc_hold_open.is_(True),
+            )
+            .order_by(ProductionEntry.entry_date, ProductionEntry.id)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def lock_by_inspection(self, inspection_id: uuid.UUID) -> ProductionEntry | None:
+        """The booking that raised one inspection, row-locked.
+
+        The quality verdict callback finds its entry by the inspection, not by
+        the reference: a booking at a QC-gated operation raises its inspection
+        against the work order, while any other booking raises it against the
+        entry itself, and the callback must clear the hold either way.
+        """
+        stmt = (
+            self._scoped()
+            .where(ProductionEntry.qc_inspection_id == inspection_id)
+            .with_for_update()
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def awaiting_quality_hold(
+        self, *, after: uuid.UUID | None, limit: int
+    ) -> list[ProductionEntry]:
+        """Bookings still holding output for QC, one keyset page.
+
+        The owner reconciliation sweep's work list: each page scans bookings by
+        id, so a sweep walks every held booking once even when most of them are
+        still under inspection.
+        """
+        stmt = self._scoped().where(ProductionEntry.qc_hold_open.is_(True))
+        if after is not None:
+            stmt = stmt.where(ProductionEntry.id > after)
+        stmt = stmt.order_by(ProductionEntry.id).limit(limit)
+        return list((await self.session.execute(stmt)).scalars().all())
 
 
 __all__ = [

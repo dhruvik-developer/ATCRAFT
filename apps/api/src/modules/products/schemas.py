@@ -392,6 +392,10 @@ class ItemCreate(CapabilityFlags):
 
     is_batch_tracked: bool = False
     is_serial_tracked: bool = False
+    #: Good output of this item is held for production QC (§E5-1).
+    requires_production_qc: bool = False
+    #: Packing a line of this item raises a FINAL inspection (§E5-8).
+    requires_final_qc: bool = False
     default_warehouse_id: uuid.UUID | None = None
     default_location_id: uuid.UUID | None = None
     is_active: bool = True
@@ -446,6 +450,8 @@ class ItemUpdate(CapabilityFlags):
 
     is_batch_tracked: bool | None = None
     is_serial_tracked: bool | None = None
+    requires_production_qc: bool | None = None
+    requires_final_qc: bool | None = None
     default_warehouse_id: uuid.UUID | None = None
     default_location_id: uuid.UUID | None = None
 
@@ -532,6 +538,8 @@ class ItemDetail(_Base):
 
     is_batch_tracked: bool
     is_serial_tracked: bool
+    requires_production_qc: bool
+    requires_final_qc: bool
     default_warehouse_id: uuid.UUID | None
     default_location_id: uuid.UUID | None
     is_active: bool
