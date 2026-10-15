@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main, dev]
+    branches: [main, develop]
 
 permissions:
   contents: read
@@ -144,13 +144,21 @@ jobs:
       # One published port on loopback, exactly as a deployment runs: the specs
       # drive the SPA through the deployment's own nginx rather than the Vite
       # dev server, so what is tested is what is shipped.
-      - name: Start the stack
+      - name: Start the database services
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml build backend
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --wait postgres redis
+
+      - name: Apply the schema before starting workers
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --no-deps backend \
+            python -m alembic upgrade head
+
+      - name: Start the application stack
         run: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --wait
 
-      - name: Apply the schema and the baseline data
+      - name: Apply the baseline data
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T backend \
-            python -m alembic upgrade head
           docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T backend \
             python -m src.core.seed --admin-password "$E2E_BOOTSTRAP_PASSWORD"
 
@@ -204,7 +212,7 @@ jobs:
       - name: Validate Compose configuration
         run: docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
       - name: Validate host nginx templates
-        run: ./scripts/check-host-nginx.sh --template
+        run: bash scripts/check-host-nginx.sh --template
       - name: deploy.sh names the env key that still holds a placeholder
         # Every placeholder key except SMTP_HOST is given a real value, so the
         # refusal must name SMTP_HOST. Tested as one concatenated string it
@@ -219,7 +227,7 @@ jobs:
               -e "s#^CREDENTIAL_ENCRYPTION_KEY=\$#CREDENTIAL_ENCRYPTION_KEY=$CREDENTIAL_ENCRYPTION_KEY#" \
               deploy/main.env.example > deploy/main.env
           chmod 600 deploy/main.env
-          if out="$(./scripts/deploy.sh main doctor 2>&1)"; then
+          if out="$(bash scripts/deploy.sh main doctor 2>&1)"; then
             printf '%s\n' "$out" "doctor accepted SMTP_HOST=smtp.example.com"; exit 1
           fi
           printf '%s\n' "$out" | grep -F 'SMTP_HOST in deploy/main.env still holds the example.com placeholder' \
@@ -237,12 +245,12 @@ jobs:
                   infrastructure/nginx/host/atcraft-main.conf \
                   infrastructure/nginx/host/atcraft-dev.conf \
                   /etc/nginx/conf.d/
-          if ./scripts/check-host-nginx.sh --installed; then
+          if bash scripts/check-host-nginx.sh --installed; then
             echo "--installed accepted example.com placeholders"; exit 1
           fi
           sudo sed -i 's/erp\.example\.com/erp.ci.invalid/g'         /etc/nginx/conf.d/atcraft-main.conf
           sudo sed -i 's/dev\.erp\.example\.com/dev.erp.ci.invalid/g' /etc/nginx/conf.d/atcraft-dev.conf
-          ./scripts/check-host-nginx.sh --installed
+          bash scripts/check-host-nginx.sh --installed
       - name: Build production images from fresh bases
         run: docker compose -f docker-compose.yml -f docker-compose.prod.yml build --pull backend frontend
       - name: Scan backend image for high-impact vulnerabilities

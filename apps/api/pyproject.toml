@@ -63,7 +63,7 @@ dev = [
     "ruff>=0.8",
     "mypy>=1.13",
     "pip-audit==2.10.1",                  # Python advisory scanning in CI
-    "pip-tools==7.5.1",                  # deterministic hash-lock regeneration
+    "pip-tools==7.6.2",                  # deterministic hash-lock regeneration
     "types-python-dateutil",
     "watchfiles>=1.0",                    # Celery worker auto-reload in dev containers
 ]

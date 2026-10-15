@@ -1281,6 +1281,38 @@ async def generate_report(
                     "reason": "the job is no longer queued",
                 }
 
+            if snapshot.report_key in reports_service.REPORT_WAREHOUSE_SCOPED_KEYS:
+                scope_key = reports_service.REPORT_WAREHOUSE_SCOPE_PARAMETER
+                captured_scope = reports_service.report_warehouse_scope(snapshot)
+                if captured_scope is None and scope_key not in (snapshot.parameters or {}):
+                    creator = await UserRepository(session, tenant).active_internal_warehouse_scope(
+                        tenant.user_id
+                    )
+                    if creator is not None:
+                        captured_scope = () if creator[1] else creator[0]
+                        snapshot.parameters = {
+                            **(snapshot.parameters or {}),
+                            scope_key: sorted(str(value) for value in set(captured_scope)),
+                        }
+                        await session.flush()
+                        await record_audit(
+                            session,
+                            company_id=tenant.company_id,
+                            action=AuditAction.UPDATE,
+                            entity_type="report_snapshot",
+                            entity_id=snapshot.id,
+                            user_id=tenant.user_id,
+                            summary="Captured warehouse assignments for a legacy report",
+                            new_values={scope_key: snapshot.parameters[scope_key]},
+                        )
+                if captured_scope is None:
+                    raise BusinessRuleError("The report warehouse scope is missing or invalid.")
+                tenant = TenantContext(
+                    company_id=tenant.company_id,
+                    user_id=tenant.user_id,
+                    allowed_warehouse_ids=captured_scope,
+                )
+
             definition, rows = await reports_service.snapshot_rows(session, tenant, snapshot)
             period_text, filter_text = _describe(snapshot.parameters)
             columns = [

@@ -29,7 +29,7 @@ architecture and operational decisions are recorded under [`docs/`](./docs).
 
 ### Prerequisites
 
-Docker Desktop, Node 20+, Python 3.11+, Git.
+Docker Desktop, Node 22.12+, Python 3.11+, Git.
 
 ### 1. Configure
 

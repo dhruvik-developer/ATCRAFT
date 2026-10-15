@@ -260,6 +260,38 @@ class ReportSnapshotRepository(BaseRepository[ReportSnapshot]):
     """Persistence for generated reports and their job rows."""
 
     @staticmethod
+    def catalogue_document_visibility(
+        tenant: TenantContext,
+        document_id: InstrumentedAttribute[Any],
+        *,
+        scope_key: str,
+        report_keys: Sequence[ReportKey],
+        entity_type: str,
+    ) -> ColumnElement[bool]:
+        """Hide generated stock reports when their captured scope exceeds access."""
+        captured = ReportSnapshot.parameters[scope_key]
+        safe_scope = and_(
+            func.jsonb_typeof(captured) == "array",
+            captured != cast([], JSONB),
+            captured.contained_by(
+                cast([str(value) for value in tenant.allowed_warehouse_ids], JSONB)
+            ),
+        ).is_(True)
+        linked_snapshot = (
+            ReportSnapshot.company_id == tenant.company_id,
+            ReportSnapshot.report_key.in_(list(report_keys)),
+            ReportSnapshot.parameters["task"].astext.is_(None),
+            ReportSnapshot.document_id == document_id,
+            Document.entity_type == entity_type,
+            Document.entity_id == ReportSnapshot.id,
+            Document.category == DocumentCategory.REPORT,
+        )
+        forbidden = select(ReportSnapshot.id).where(*linked_snapshot, ~safe_scope)
+        tracked = select(ReportSnapshot.id).where(*linked_snapshot, safe_scope)
+        identified = select(ReportSnapshot.id).where(*linked_snapshot)
+        return and_(~exists(forbidden), or_(~exists(identified), exists(tracked)))
+
+    @staticmethod
     def valuation_document_visibility(
         tenant: TenantContext,
         document_id: InstrumentedAttribute[Any],
@@ -292,6 +324,8 @@ class ReportSnapshotRepository(BaseRepository[ReportSnapshot]):
             or_(
                 Document.entity_type == entity_type,
                 and_(
+                    Document.entity_type.is_(None),
+                    Document.entity_id.is_(None),
                     Document.file_name.startswith("inventory-valuation-", autoescape=True),
                     Document.file_name.endswith(".xlsx", autoescape=True),
                 ),
@@ -351,7 +385,12 @@ class ReportSnapshotRepository(BaseRepository[ReportSnapshot]):
                 # Scope evidence must outlive the workbook. The document FK is
                 # SET NULL when its owning module removes the artifact.
                 or_(
-                    ReportSnapshot.report_key != ReportKey.INVENTORY_VALUATION,
+                    ReportSnapshot.report_key.notin_(
+                        (
+                            ReportKey.INVENTORY_VALUATION,
+                            ReportKey.STOCK_AVAILABILITY,
+                        )
+                    ),
                     ReportSnapshot.document_id.is_(None),
                 ),
             )
@@ -495,7 +534,10 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
             )
             .join(Item, Item.id == InventorySummary.item_id)
             .join(Warehouse, Warehouse.id == InventorySummary.warehouse_id)
-            .where(InventorySummary.company_id == self._company)
+            .where(
+                InventorySummary.company_id == self._company,
+                *warehouse_scope(self.tenant, InventorySummary.warehouse_id),
+            )
         )
         if filters.item_id:
             stmt = stmt.where(InventorySummary.item_id == filters.item_id)

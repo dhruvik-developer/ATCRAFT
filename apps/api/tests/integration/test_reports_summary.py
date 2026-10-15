@@ -19,6 +19,7 @@ every test.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -359,6 +360,100 @@ async def test_stock_availability_reports_the_refreshed_position(
     assert row.available == Decimal("35.0000")
     # Reorder level is 50 and only 35 can be promised.
     assert row.below_reorder_level is True
+
+
+async def test_stock_summary_reports_respect_assigned_warehouses(
+    session: AsyncSession, tenant: TenantContext, company, stock, unique_code
+) -> None:
+    outside = await seed_support.seed_warehouse(
+        session, company_id=company.id, code=unique_code("WH")
+    )
+    outside_item = await seed_support.seed_item(
+        session, company_id=company.id, code=unique_code("ITEM")
+    )
+    await _balance(
+        session,
+        company_id=company.id,
+        item_id=stock["first"].id,
+        warehouse_id=stock["warehouse"].id,
+        on_hand="40",
+        stock_value="400.0000",
+    )
+    await _balance(
+        session,
+        company_id=company.id,
+        item_id=outside_item.id,
+        warehouse_id=outside.id,
+        on_hand="900",
+        stock_value="9000.0000",
+    )
+    await service.refresh_inventory_summary(session, tenant, now=NOW)
+    restricted = replace(tenant, allowed_warehouse_ids=(stock["warehouse"].id,))
+
+    for key in (ReportKey.STOCK_AVAILABILITY, ReportKey.INVENTORY_VALUATION):
+        result = await service.run_report(
+            session,
+            restricted,
+            key=key,
+            period=None,
+            filters=ReportFilters(),
+            params=PageParams(page=1, limit=50),
+            may_export=True,
+            now=NOW,
+        )
+
+        assert isinstance(result, service.InlineReport)
+        assert result.pagination.total == 1
+        assert all(row.warehouse_code == stock["warehouse"].code for row in result.rows)
+
+
+async def test_queued_stock_summary_report_captures_warehouse_scope(
+    session: AsyncSession, tenant: TenantContext, company, stock, unique_code, monkeypatch
+) -> None:
+    outside = await seed_support.seed_warehouse(
+        session, company_id=company.id, code=unique_code("WH")
+    )
+    outside_item = await seed_support.seed_item(
+        session, company_id=company.id, code=unique_code("ITEM")
+    )
+    for warehouse, item in ((stock["warehouse"], stock["first"]), (outside, outside_item)):
+        await _balance(
+            session,
+            company_id=company.id,
+            item_id=item.id,
+            warehouse_id=warehouse.id,
+            on_hand="1",
+            stock_value="10.0000",
+        )
+    await service.refresh_inventory_summary(session, tenant, now=NOW)
+    restricted = replace(tenant, allowed_warehouse_ids=(stock["warehouse"].id,))
+
+    async def skip_dispatch(*args, **kwargs) -> str:
+        return "test-task"
+
+    monkeypatch.setattr(service, "REPORT_INLINE_ROW_LIMIT", 0)
+    monkeypatch.setattr(service, "dispatch_job", skip_dispatch)
+    result = await service.run_report(
+        session,
+        restricted,
+        key=ReportKey.INVENTORY_VALUATION,
+        period=None,
+        filters=ReportFilters(),
+        params=PageParams(page=1, limit=50),
+        may_export=True,
+        now=NOW,
+    )
+
+    assert isinstance(result, service.QueuedReport)
+    assert result.snapshot.parameters[service.REPORT_WAREHOUSE_SCOPE_PARAMETER] == [
+        str(stock["warehouse"].id)
+    ]
+    captured_scope = service.report_warehouse_scope(result.snapshot)
+    assert captured_scope == (stock["warehouse"].id,)
+    report_tenant = replace(tenant, allowed_warehouse_ids=captured_scope)
+    _, rows = await service.snapshot_rows(session, report_tenant, result.snapshot)
+    assert len(rows) == 1
+    assert rows[0].warehouse_code == stock["warehouse"].code
 
 
 async def test_dead_stock_lists_only_positions_older_than_the_threshold(

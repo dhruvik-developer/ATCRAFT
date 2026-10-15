@@ -49,6 +49,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",
@@ -67,14 +68,14 @@
     "openapi-typescript": "^7.4.4",
     "postcss": "^8.4.49",
     "prettier": "^3.4.2",
-    "tailwindcss": "^3.4.17",
+    "tailwindcss": "^4.3.3",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.18.2",
     "vite": "^6.0.5",
-    "vitest": "^3.2.7"
+    "vitest": "^5.0.4"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12.0"
   }
 }

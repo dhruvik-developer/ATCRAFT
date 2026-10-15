@@ -1093,6 +1093,11 @@ async def _queue_report(
         )
 
     parameters = parameters_of(definition, ctx)
+    if definition.key in REPORT_WAREHOUSE_SCOPED_KEYS:
+        captured_scope = () if tenant.is_superuser else tenant.allowed_warehouse_ids
+        parameters[REPORT_WAREHOUSE_SCOPE_PARAMETER] = sorted(
+            str(value) for value in set(captured_scope)
+        )
     digest = parameters_hash(parameters)
     snapshots = ReportSnapshotRepository(session, tenant)
 
@@ -1284,6 +1289,41 @@ def valuation_warehouse_scope(snapshot: ReportSnapshot) -> tuple[uuid.UUID, ...]
         return None
 
 
+REPORT_WAREHOUSE_SCOPE_PARAMETER = "report_warehouse_ids"
+REPORT_WAREHOUSE_SCOPED_KEYS = frozenset(
+    {ReportKey.STOCK_AVAILABILITY, ReportKey.INVENTORY_VALUATION}
+)
+
+
+def report_warehouse_scope(snapshot: ReportSnapshot) -> tuple[uuid.UUID, ...] | None:
+    """Read the captured scope for a queued catalogue report."""
+    raw = (snapshot.parameters or {}).get(REPORT_WAREHOUSE_SCOPE_PARAMETER)
+    if not isinstance(raw, list) or any(not isinstance(value, str) for value in raw):
+        return None
+    try:
+        return tuple(sorted({uuid.UUID(value) for value in raw}))
+    except ValueError:
+        return None
+
+
+def _is_scoped_catalogue_report(snapshot: ReportSnapshot) -> bool:
+    parameters = snapshot.parameters or {}
+    return snapshot.report_key in REPORT_WAREHOUSE_SCOPED_KEYS and parameters.get("task") is None
+
+
+def _catalogue_report_scope_still_accessible(
+    snapshot: ReportSnapshot, principal: Principal | TenantContext
+) -> bool:
+    if principal.is_superuser or not principal.allowed_warehouse_ids:
+        return True
+    captured = report_warehouse_scope(snapshot)
+    return (
+        captured is not None
+        and bool(captured)
+        and set(captured).issubset(principal.allowed_warehouse_ids)
+    )
+
+
 def _valuation_scope_still_accessible(
     snapshot: ReportSnapshot, principal: Principal | TenantContext
 ) -> bool:
@@ -1320,6 +1360,10 @@ async def _accessible_job(
         or (
             _is_valuation_export(snapshot)
             and not _valuation_scope_still_accessible(snapshot, principal)
+        )
+        or (
+            _is_scoped_catalogue_report(snapshot)
+            and not _catalogue_report_scope_still_accessible(snapshot, principal)
         )
         or not (
             principal.has(Permission.REPORT_VIEW) or _owns_valuation_export(snapshot, principal)
@@ -1660,7 +1704,24 @@ def valuation_document_read_policy(
     )
 
 
+def catalogue_report_document_read_policy(
+    tenant: TenantContext, document_id: InstrumentedAttribute[Any]
+) -> ColumnElement[bool] | None:
+    if tenant.is_superuser or not tenant.allowed_warehouse_ids:
+        return None
+    return ReportSnapshotRepository.catalogue_document_visibility(
+        tenant,
+        document_id,
+        scope_key=REPORT_WAREHOUSE_SCOPE_PARAMETER,
+        report_keys=tuple(REPORT_WAREHOUSE_SCOPED_KEYS),
+        entity_type="report_snapshot",
+    )
+
+
 register_document_read_policy("finance_valuation", valuation_document_read_policy)
+register_document_read_policy(
+    "catalogue_report_warehouse_scope", catalogue_report_document_read_policy
+)
 
 
 __all__ = [

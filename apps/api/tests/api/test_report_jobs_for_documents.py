@@ -541,6 +541,68 @@ async def test_valuation_permission_does_not_open_catalogue_jobs_or_other_docume
         assert (await client.get(reports_service.job_status_url(job_id))).status_code == 200
 
 
+async def test_restricted_catalogue_report_job_and_document_keep_captured_scope(
+    client: AsyncClient, engine: Any, tenant: TenantContext, principal: Principal
+) -> None:
+    from src.core.clock import utcnow
+    from src.main import app
+
+    (allowed, _), (outside, _) = await _stock_two_warehouses(engine, tenant)
+    scope_key = reports_service.REPORT_WAREHOUSE_SCOPE_PARAMETER
+    parameters = {
+        "report_key": str(ReportKey.INVENTORY_VALUATION),
+        "filters": {},
+        scope_key: [str(allowed)],
+    }
+    async with _factory(engine)() as session:
+        snapshot = reports_service.new_job_snapshot(
+            ReportKey.INVENTORY_VALUATION, parameters, now=utcnow()
+        )
+        ReportSnapshotRepository(session, tenant).add(snapshot)
+        await session.flush()
+        document = Document(
+            company_id=tenant.company_id,
+            file_name="catalogue-valuation.xlsx",
+            storage_key=f"reports/{tenant.company_id}/catalogue-scope.xlsx",
+            mime_type="application/octet-stream",
+            size_bytes=1,
+            checksum_sha256="a" * 64,
+            category=DocumentCategory.REPORT,
+            entity_type="report_snapshot",
+            entity_id=snapshot.id,
+            uploaded_by_id=tenant.user_id,
+        )
+        session.add(document)
+        await session.flush()
+        await reports_service.start_snapshot(session, tenant, snapshot.id)
+        await reports_service.complete_snapshot(
+            session, tenant, snapshot_id=snapshot.id, row_count=1, document_id=document.id
+        )
+        job_id = snapshot.id
+        document_id = document.id
+        await session.commit()
+
+    restricted_reader = replace(
+        principal,
+        allowed_warehouse_ids=(allowed,),
+        permissions=frozenset({str(Permission.REPORT_VIEW), str(Permission.DOCUMENT_VIEW)}),
+    )
+    app.dependency_overrides[get_current_principal] = lambda: restricted_reader
+    assert (await client.get(reports_service.job_status_url(job_id))).status_code == 200
+    assert (await client.get(f"{_prefix()}/documents/{document_id}")).status_code == 200
+
+    outside_reader = replace(restricted_reader, allowed_warehouse_ids=(outside,))
+    app.dependency_overrides[get_current_principal] = lambda: outside_reader
+    assert (await client.get(reports_service.job_status_url(job_id))).status_code == 404
+    assert (await client.get(f"{_prefix()}/documents/{document_id}")).status_code == 404
+    listed = await client.get(
+        f"{_prefix()}/documents",
+        params={"entity_type": "report_snapshot", "entity_id": str(job_id)},
+    )
+    assert listed.status_code == 200
+    assert listed.json()["data"] == []
+
+
 async def _stock_two_warehouses(engine, tenant):
     """Different values make an overbroad export distinguishable from its page."""
     warehouses = []
@@ -567,6 +629,59 @@ async def _stock_two_warehouses(engine, tenant):
                 reason="Valuation scope regression",
             )
     return warehouses
+
+
+async def test_catalogue_report_worker_uses_and_preserves_captured_warehouse_scope(
+    client: AsyncClient,
+    engine: Any,
+    tenant: TenantContext,
+    principal: Principal,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    from src.main import app
+    from src.modules.reports.models import ReportSnapshot
+
+    (allowed, _), (outside, _) = await _stock_two_warehouses(engine, tenant)
+    async with _factory(engine)() as session:
+        await reports_service.refresh_inventory_summary(session, tenant)
+        await session.commit()
+    restricted = replace(principal, allowed_warehouse_ids=(allowed,))
+    app.dependency_overrides[get_current_principal] = lambda: restricted
+    monkeypatch.setattr(reports_service, "REPORT_INLINE_ROW_LIMIT", 0)
+    accepted = await client.get(f"{_prefix()}/reports/inventory-valuation")
+    assert accepted.status_code == 202, accepted.text
+    job_id = accepted.json()["data"]["job_id"]
+    async with _factory(engine)() as session:
+        snapshot = await session.get(ReportSnapshot, uuid.UUID(job_id))
+        assert snapshot.parameters[reports_service.REPORT_WAREHOUSE_SCOPE_PARAMETER] == [
+            str(allowed)
+        ]
+
+    outcome = await _run_worker(
+        report_tasks.generate_report,
+        company_id=str(tenant.company_id),
+        user_id=str(tenant.user_id),
+        snapshot_id=job_id,
+    )
+    assert outcome["status"] == "COMPLETED"
+    job = await _job(client, reports_service.job_status_url(job_id))
+    assert job["row_count"] == 1
+    document_id = job["document_id"]
+    downloaded = await client.get(reports_service.job_download_url(job_id))
+    assert downloaded.status_code == 200
+    workbook = load_workbook(BytesIO(downloaded.content), read_only=True, data_only=True)
+    assert workbook.active.max_row == 2
+    workbook.close()
+
+    outside_reader = replace(restricted, allowed_warehouse_ids=(outside,))
+    app.dependency_overrides[get_current_principal] = lambda: outside_reader
+    assert (await client.get(reports_service.job_status_url(job_id))).status_code == 404
+    assert (await client.get(reports_service.job_download_url(job_id))).status_code == 404
+    assert (await client.get(f"{_prefix()}/documents/{document_id}")).status_code == 404
 
 
 @pytest.mark.parametrize("legacy", [False, True])
