@@ -225,9 +225,12 @@ OWNER_BINDINGS: dict[str, OwnerBinding] = {
         lock="lock_for_quality_verdict",
         awaiting="awaiting_quality_verdicts",
     ),
-    # "sales_return" is deliberately absent: the customer-return document pulls
-    # its verdict with ``inspections_for_reference`` (WP A3) rather than being
-    # called back.
+    "sales_return": OwnerBinding(
+        module="src.modules.sales_returns.service",
+        handler="record_quality_verdict",
+        lock="lock_for_quality_verdict",
+        awaiting="awaiting_quality_verdicts",
+    ),
 }
 
 

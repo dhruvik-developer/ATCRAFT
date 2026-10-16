@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
+from typing import Protocol
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
@@ -13,12 +15,13 @@ from src.core.errors import BusinessRuleError, NotFoundError
 from src.core.pagination import PageParams
 from src.core.permissions import Permission
 from src.core.state_machine import StateMachine, Transition
-from src.modules.audit.service import record_status_change
+from src.modules.audit.models import AuditAction
+from src.modules.audit.service import record_audit, record_status_change
 from src.modules.dispatch.models import Dispatch, DispatchLine, DispatchStatus, DispatchType
 from src.modules.inventory.models import StockState, TransactionType
 from src.modules.inventory.service import MovementRequest, change_stock_state, post_movements
 from src.modules.products.models import Item
-from src.modules.quality.models import QcStage
+from src.modules.quality.models import InspectionResult, QcInspection, QcStage
 from src.modules.quality.schemas import InspectionCreate
 from src.modules.quality.service import create_inspection
 from src.modules.sales_returns.models import SalesReturn, SalesReturnLine, SalesReturnStatus
@@ -30,6 +33,21 @@ from src.modules.sales_returns.schemas import (
     SalesReturnSummary,
 )
 from src.modules.warehouses.models import Warehouse
+
+SALES_RETURN_REFERENCE = "sales_return"
+
+
+class InspectionVerdict(Protocol):
+    """Quality's settled verdict as consumed by the return owner."""
+
+    inspection_id: uuid.UUID
+    inspection_code: str
+    reference_id: uuid.UUID | None
+    is_settled: bool
+    accepted_quantity: Decimal
+    refused_quantity: Decimal
+    reason: str
+
 
 SALES_RETURN_LIFECYCLE: StateMachine[SalesReturnStatus] = StateMachine(
     entity="Sales return",
@@ -267,7 +285,7 @@ async def transition_return(
                     warehouse_id=warehouse_id,
                     quantity=line.quantity,
                     transaction_type=TransactionType.CUSTOMER_RETURN,
-                    reference_type="SALES_RETURN",
+                    reference_type=SALES_RETURN_REFERENCE,
                     reference_id=row.id,
                     reference_code=row.code,
                     reason="Customer sales return received",
@@ -295,7 +313,7 @@ async def transition_return(
                         to_state=StockState.QC_HOLD,
                         reason=f"{row.code}: customer return inspection",
                         batch_id=source.batch_id,
-                        reference_type="SALES_RETURN",
+                        reference_type=SALES_RETURN_REFERENCE,
                         reference_id=row.id,
                         reference_code=row.code,
                     )
@@ -308,7 +326,7 @@ async def transition_return(
                             qc_stage=QcStage.RETURN,
                             inspected_quantity=line.quantity,
                             batch_id=source.batch_id,
-                            reference_type="SALES_RETURN",
+                            reference_type=SALES_RETURN_REFERENCE,
                             reference_id=row.id,
                             reference_code=row.code,
                             hold_stock=False,
@@ -338,3 +356,137 @@ async def transition_return(
         )
         await session.flush()
     return await get_return(session, tenant, row.id)
+
+
+async def lock_for_quality_verdict(
+    session: AsyncSession, tenant: TenantContext, reference_id: uuid.UUID
+) -> None:
+    """Lock the return before quality decides the stock it owns."""
+    await session.execute(
+        select(SalesReturn.id)
+        .where(
+            SalesReturn.company_id == tenant.company_id,
+            SalesReturn.id == reference_id,
+        )
+        .with_for_update()
+    )
+
+
+async def record_quality_verdict(
+    session: AsyncSession, tenant: TenantContext, verdict: InspectionVerdict
+) -> bool:
+    """Close a received return once every linked QC inspection is settled.
+
+    Quality has already moved the stock. This callback only completes the
+    document lifecycle, and is idempotent so reconciliation can safely repeat
+    it for decisions made before the callback existed.
+    """
+    if verdict.reference_id is None or not verdict.is_settled:
+        return False
+
+    async with transaction(session):
+        return_row = (
+            await session.execute(
+                select(SalesReturn)
+                .where(
+                    SalesReturn.company_id == tenant.company_id,
+                    SalesReturn.id == verdict.reference_id,
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if return_row is None or (
+            SalesReturnStatus(return_row.status) is not SalesReturnStatus.RECEIVED
+        ):
+            return False
+
+        lines = list(
+            (
+                await session.execute(
+                    select(SalesReturnLine)
+                    .where(
+                        SalesReturnLine.company_id == tenant.company_id,
+                        SalesReturnLine.sales_return_id == return_row.id,
+                    )
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        inspection_ids = [line.qc_inspection_id for line in lines if line.qc_inspection_id]
+        if not inspection_ids or verdict.inspection_id not in inspection_ids:
+            return False
+
+        settled_count = await session.scalar(
+            select(func.count(QcInspection.id)).where(
+                QcInspection.company_id == tenant.company_id,
+                QcInspection.id.in_(inspection_ids),
+                QcInspection.result != InspectionResult.PENDING,
+                QcInspection.rework_quantity == 0,
+                QcInspection.hold_quantity == 0,
+            )
+        )
+        if settled_count != len(inspection_ids):
+            return False
+
+        previous_status = SalesReturnStatus(return_row.status)
+        SALES_RETURN_LIFECYCLE.assert_transition(previous_status, SalesReturnStatus.CLOSED)
+        return_row.status = SalesReturnStatus.CLOSED
+        return_row.updated_by_id = tenant.user_id
+        reason = f"Inspection {verdict.inspection_code}: {verdict.reason}"
+        await record_status_change(
+            session,
+            company_id=tenant.company_id,
+            entity_type="sales_return",
+            entity_id=return_row.id,
+            entity_code=return_row.code,
+            from_status=str(previous_status),
+            to_status=str(SalesReturnStatus.CLOSED),
+            user_id=tenant.user_id,
+            reason=reason,
+        )
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.UPDATE,
+            entity_type="sales_return",
+            entity_id=return_row.id,
+            entity_code=return_row.code,
+            summary=f"Closed sales return {return_row.code} after QC settlement",
+            user_id=tenant.user_id,
+            context={
+                "inspection_id": str(verdict.inspection_id),
+                "accepted_quantity": str(verdict.accepted_quantity),
+                "refused_quantity": str(verdict.refused_quantity),
+                "reason": reason,
+            },
+        )
+        await session.flush()
+    return True
+
+
+async def awaiting_quality_verdicts(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    after: uuid.UUID | None,
+    limit: int,
+) -> list[tuple[str, uuid.UUID]]:
+    """Return received returns that still await a quality owner callback."""
+    stmt = (
+        select(SalesReturn.id)
+        .join(SalesReturnLine, SalesReturnLine.sales_return_id == SalesReturn.id)
+        .where(
+            SalesReturn.company_id == tenant.company_id,
+            SalesReturn.status == SalesReturnStatus.RECEIVED,
+            SalesReturnLine.qc_inspection_id.is_not(None),
+        )
+        .distinct()
+        .order_by(SalesReturn.id)
+        .limit(limit)
+    )
+    if after is not None:
+        stmt = stmt.where(SalesReturn.id > after)
+    ids = list((await session.execute(stmt)).scalars().all())
+    return [(SALES_RETURN_REFERENCE, return_id) for return_id in ids]

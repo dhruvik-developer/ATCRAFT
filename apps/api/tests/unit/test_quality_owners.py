@@ -85,7 +85,7 @@ def test_a_job_work_lot_reaches_one_owner_under_both_of_its_keys() -> None:
     assert receipt.handler is legacy.handler
 
 
-def test_production_bookings_and_operations_share_one_owner_and_returns_pull() -> None:
+def test_production_bookings_and_operations_share_one_owner_and_returns_are_called_back() -> None:
     # WP E5 wired the placeholder: held production output reports its verdict
     # through the same handler whether the inspection names the booking or the
     # operation, and the sweep walks that owner once for both keys.
@@ -96,9 +96,11 @@ def test_production_bookings_and_operations_share_one_owner_and_returns_pull() -
     assert entry.handler is not None
     assert entry.lock is operation.lock
     assert entry.awaiting is operation.awaiting
-    # The customer return document reads its verdict; it is never called back.
-    assert "sales_return" not in owners.OWNER_BINDINGS
-    assert owners.resolve_owner("sales_return") is None
+    returns = owners.resolve_owner("sales_return")
+    assert returns is not None
+    assert callable(returns.handler)
+    assert callable(returns.lock)
+    assert callable(returns.awaiting)
     assert owners.resolve_owner("manual") is None
 
 
@@ -123,11 +125,11 @@ def test_a_binding_naming_a_missing_function_fails_loudly(monkeypatch) -> None:
 
 def test_the_sweep_walks_a_shared_owner_once() -> None:
     hooks = owners._awaiting_hooks()
-    # goods receipts, assembly orders, job-work lots and production bookings:
-    # four owners, although job work is bound under two reference types and
-    # production under two more.
-    assert len(hooks) == 4
-    assert len({id(hook) for hook in hooks}) == 4
+    # Goods receipts, assembly orders, job-work lots, production bookings and
+    # customer returns: five owners, although job work and production are each
+    # bound under two reference types.
+    assert len(hooks) == 5
+    assert len({id(hook) for hook in hooks}) == 5
 
 
 # -----------------------------------------------------------------------------
