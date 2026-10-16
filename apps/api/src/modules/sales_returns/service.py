@@ -15,6 +15,7 @@ from src.core.errors import BusinessRuleError, NotFoundError
 from src.core.pagination import PageParams
 from src.core.permissions import Permission
 from src.core.state_machine import StateMachine, Transition
+from src.core.types import ZERO, to_quantity
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change
 from src.modules.dispatch.models import Dispatch, DispatchLine, DispatchStatus, DispatchType
@@ -404,6 +405,7 @@ async def transition_return(
                         ),
                     )
                     line.qc_inspection_id = inspection.id
+            await _issue_return_credit_note(session, tenant, row.id, lines)
         previous_status = row.status
         row.status = target
         row.updated_by_id = tenant.user_id
@@ -499,6 +501,7 @@ async def record_quality_verdict(
         if settled_count != len(inspection_ids):
             return False
 
+        await _issue_return_credit_note(session, tenant, return_row.id, lines)
         previous_status = SalesReturnStatus(return_row.status)
         SALES_RETURN_LIFECYCLE.assert_transition(previous_status, SalesReturnStatus.CLOSED)
         return_row.status = SalesReturnStatus.CLOSED
@@ -533,6 +536,96 @@ async def record_quality_verdict(
         )
         await session.flush()
     return True
+
+
+async def _issue_return_credit_note(
+    session: AsyncSession,
+    tenant: TenantContext,
+    return_id: uuid.UUID,
+    lines: list[SalesReturnLine],
+) -> None:
+    """Credit the accepted part of a settled return exactly once.
+
+    Returns without an invoice have no receivable to reverse and remain
+    operationally complete without creating a financial document.
+    """
+    from src.modules.finance.credit_note_schemas import CreditNoteCreate, CreditNoteLineIn
+    from src.modules.finance.credit_note_service import issue_credit_note
+    from src.modules.finance.models import CreditNote, CreditNoteReason, SalesInvoiceLine
+
+    existing = await session.scalar(
+        select(CreditNote.id).where(
+            CreditNote.company_id == tenant.company_id,
+            CreditNote.sales_return_id == return_id,
+            CreditNote.status != "CANCELLED",
+        )
+    )
+    if existing is not None:
+        return
+
+    dispatch_line_ids = [line.dispatch_line_id for line in lines]
+    invoice_lines = list(
+        (
+            await session.execute(
+                select(SalesInvoiceLine)
+                .where(
+                    SalesInvoiceLine.company_id == tenant.company_id,
+                    SalesInvoiceLine.dispatch_line_id.in_(dispatch_line_ids),
+                )
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    by_dispatch_line = {line.dispatch_line_id: line for line in invoice_lines}
+    credit_lines = []
+    eligible_by_return_line: dict[uuid.UUID, Decimal] = {}
+    for return_line in lines:
+        invoice_line = by_dispatch_line.get(return_line.dispatch_line_id)
+        if invoice_line is None:
+            continue
+        eligible_quantity = Decimal(return_line.quantity)
+        if return_line.qc_inspection_id is not None:
+            inspection = await session.scalar(
+                select(QcInspection).where(
+                    QcInspection.company_id == tenant.company_id,
+                    QcInspection.id == return_line.qc_inspection_id,
+                )
+            )
+            if inspection is None:
+                raise NotFoundError("QC inspection", return_line.qc_inspection_id)
+            eligible_quantity = Decimal(inspection.accepted_quantity)
+        if eligible_quantity <= ZERO:
+            continue
+        credit_lines.append(
+            CreditNoteLineIn(
+                sales_invoice_line_id=invoice_line.id,
+                quantity=to_quantity(eligible_quantity),
+            )
+        )
+        eligible_by_return_line[return_line.id] = eligible_quantity
+    if not credit_lines:
+        return
+    invoice_ids = {line.sales_invoice_id for line in invoice_lines}
+    if len(invoice_ids) != 1:
+        raise BusinessRuleError(
+            "A return spanning multiple sales invoices cannot be credited automatically."
+        )
+    await issue_credit_note(
+        session,
+        tenant,
+        CreditNoteCreate(
+            sales_invoice_id=next(iter(invoice_ids)),
+            sales_return_id=return_id,
+            note_date=utcnow().date(),
+            reason_type=CreditNoteReason.RETURN,
+            lines=credit_lines,
+        ),
+    )
+    for return_line in lines:
+        if return_line.id in eligible_by_return_line:
+            return_line.credited_quantity = eligible_by_return_line[return_line.id]
 
 
 async def awaiting_quality_verdicts(
