@@ -77,15 +77,18 @@ from src.modules.production.models import (
     WorkOrder,
     WorkOrderStatus,
 )
+from src.modules.production.repository import WorkOrderRepository
 from src.modules.production.schemas import (
     ApproveRequest,
     CancelRequest,
+    CapacityFilters,
     CloseRequest,
     CompleteRequest,
     MaterialIssueCreate,
     MaterialIssueLineIn,
     MaterialIssuePostRequest,
     ProductionEntryCreate,
+    ProductionEntryFilters,
     ProductionOrderCreate,
     ProductionOrderFilters,
     ReleaseRequest,
@@ -704,10 +707,11 @@ async def test_assigning_a_shift_snapshots_its_code_and_refuses_a_foreign_or_ina
     early = await seed_shift(db, company_id=tenant.company_id, code="A")
     early_id = early.id
 
-    assigned = await service.update_work_order(
+    assigned, warnings = await service.update_work_order(
         db, tenant, work_order_id, WorkOrderUpdate(shift_id=early_id)
     )
     assert (assigned.shift_id, assigned.shift) == (early_id, "A")
+    assert warnings == []
     audit = (
         (
             await db.execute(
@@ -724,7 +728,7 @@ async def test_assigning_a_shift_snapshots_its_code_and_refuses_a_foreign_or_ina
 
     # Renaming the shift is free and does not rewrite the snapshot.
     await ShiftService(db, tenant).update_shift(early_id, ShiftUpdate(name="Early"))
-    reread = await service.update_work_order(
+    reread, _ = await service.update_work_order(
         db, tenant, work_order_id, WorkOrderUpdate(notes="Renamed shift")
     )
     assert reread.shift == "A"
@@ -741,7 +745,7 @@ async def test_assigning_a_shift_snapshots_its_code_and_refuses_a_foreign_or_ina
         )
     assert set(caught.value.details["fields"]) == {"shift_id"}
 
-    cleared = await service.update_work_order(
+    cleared, _ = await service.update_work_order(
         db, tenant, work_order_id, WorkOrderUpdate(shift_id=None)
     )
     assert (cleared.shift_id, cleared.shift) == (None, None)
@@ -781,11 +785,340 @@ async def test_an_operation_refuses_inactive_or_vendor_operators_and_retired_mac
         await service.update_work_order(
             db, tenant, work_order_id, WorkOrderUpdate(machine_id=retired.id)
         )
-    # Maintenance is not retirement: a job may be lined up for after the repair.
-    lined_up = await service.update_work_order(
+    # Maintenance is not retirement: a job may be lined up for after the repair,
+    # but the plan says so out loud.
+    lined_up, machine_warnings = await service.update_work_order(
         db, tenant, work_order_id, WorkOrderUpdate(machine_id=serviced_id)
     )
     assert lined_up.machine_id == serviced_id
+    assert len(machine_warnings) == 1
+    assert "MAINTENANCE" in machine_warnings[0]
+
+
+async def _two_released_operations(
+    db, tenant, stocked, approver
+) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+    """Two live jobs, each with one operation, sharing the routing's cell.
+
+    Returns ``(first_work_order_id, second_work_order_id, centre_id)``.
+    """
+    _, first_id = await _released_operation(db, tenant, stocked, approver)
+    order = await make_order(db, tenant, stocked)
+    await approve(db, tenant, approver, order)
+    await release(db, tenant, order)
+    second_id = (await service.get_order_detail(db, tenant, order.id)).work_orders[0].id
+    return first_id, second_id, stocked["work_centre"].id
+
+
+async def test_assigning_an_overlapping_machine_window_warns(db, tenant, stocked, approver):
+    """A double-booked machine is reported, naming the operation holding it."""
+    first_id, second_id, centre_id = await _two_released_operations(db, tenant, stocked, approver)
+    machine = await seed_machine(db, company_id=tenant.company_id, work_center_id=centre_id)
+    day = today()
+    first_start = datetime.combine(day, time(1), tzinfo=UTC)
+    first_end = datetime.combine(day, time(3), tzinfo=UTC)
+    _, _ = await service.update_work_order(
+        db,
+        tenant,
+        first_id,
+        WorkOrderUpdate(
+            machine_id=machine.id, planned_start_at=first_start, planned_end_at=first_end
+        ),
+    )
+
+    # Touching but not overlapping: back to back is sequencing, not a clash.
+    touching, warnings = await service.update_work_order(
+        db,
+        tenant,
+        second_id,
+        WorkOrderUpdate(
+            machine_id=machine.id,
+            planned_start_at=first_end,
+            planned_end_at=first_end + timedelta(hours=2),
+        ),
+    )
+    assert touching.machine_id == machine.id
+    assert warnings == []
+
+    clashing, warnings = await service.update_work_order(
+        db,
+        tenant,
+        second_id,
+        WorkOrderUpdate(
+            machine_id=machine.id,
+            planned_start_at=first_start + timedelta(hours=1),
+            planned_end_at=first_end + timedelta(hours=2),
+        ),
+    )
+    assert clashing.machine_id == machine.id
+    assert len(warnings) == 1
+    assert machine.code in warnings[0]
+
+
+async def test_assigning_an_overlapping_machine_window_refuses_in_block_mode(
+    db, tenant, stocked, approver, monkeypatch
+):
+    """With ``BLOCK_MACHINE_OVERLAP`` the same clash is a refusal, not a note."""
+    monkeypatch.setattr(service, "BLOCK_MACHINE_OVERLAP", True)
+    first_id, second_id, centre_id = await _two_released_operations(db, tenant, stocked, approver)
+    machine = await seed_machine(db, company_id=tenant.company_id, work_center_id=centre_id)
+    day = today()
+    _, _ = await service.update_work_order(
+        db,
+        tenant,
+        first_id,
+        WorkOrderUpdate(
+            machine_id=machine.id,
+            planned_start_at=datetime.combine(day, time(1), tzinfo=UTC),
+            planned_end_at=datetime.combine(day, time(3), tzinfo=UTC),
+        ),
+    )
+    with pytest.raises(BusinessRuleError, match=machine.code):
+        await service.update_work_order(
+            db,
+            tenant,
+            second_id,
+            WorkOrderUpdate(
+                machine_id=machine.id,
+                planned_start_at=datetime.combine(day, time(2), tzinfo=UTC),
+                planned_end_at=datetime.combine(day, time(4), tzinfo=UTC),
+            ),
+        )
+    # The refusal happened before the write: the row still holds no machine.
+    reread = await WorkOrderRepository(db, tenant).lock_for_update(second_id)
+    assert reread is not None
+    assert reread.machine_id is None
+
+
+async def test_a_finished_operation_does_not_hold_its_machine(db, tenant, stocked, approver):
+    """A completed run's planned window is history, not a hold on the machine."""
+    first_id, second_id, centre_id = await _two_released_operations(db, tenant, stocked, approver)
+    machine = await seed_machine(db, company_id=tenant.company_id, work_center_id=centre_id)
+    day = today()
+    window = (
+        datetime.combine(day, time(1), tzinfo=UTC),
+        datetime.combine(day, time(3), tzinfo=UTC),
+    )
+    _, _ = await service.update_work_order(
+        db,
+        tenant,
+        first_id,
+        WorkOrderUpdate(
+            machine_id=machine.id, planned_start_at=window[0], planned_end_at=window[1]
+        ),
+    )
+    started = utcnow() - timedelta(hours=3)
+    for status, moment in (
+        (WorkOrderStatus.IN_PROGRESS, started),
+        (WorkOrderStatus.COMPLETED, started + timedelta(minutes=120)),
+    ):
+        await service.transition_work_order(
+            db,
+            tenant,
+            first_id,
+            WorkOrderTransitionRequest(status=status, occurred_at=moment),
+        )
+    _, warnings = await service.update_work_order(
+        db,
+        tenant,
+        second_id,
+        WorkOrderUpdate(
+            machine_id=machine.id, planned_start_at=window[0], planned_end_at=window[1]
+        ),
+    )
+    assert warnings == []
+
+
+async def test_release_plans_inside_rostered_shift_windows(db, tenant, stocked, approver):
+    """A rostered centre schedules inside its shifts, not from midnight."""
+    centre_id = stocked["work_centre"].id
+    shift = await seed_shift(db, company_id=tenant.company_id, code="A")
+    operator = await seed_user(db, company_id=tenant.company_id, full_name="Meera Nair")
+    await ShiftRosterService(db, tenant).plan(
+        [
+            ShiftAssignmentCreate(
+                roster_date=today(),
+                shift_id=shift.id,
+                work_center_id=centre_id,
+                operator_user_id=operator.id,
+            )
+        ]
+    )
+    order = await make_order(db, tenant, stocked)
+    await approve(db, tenant, approver, order)
+    await release(db, tenant, order)
+    work_order = (await service.get_order_detail(db, tenant, order.id)).work_orders[0]
+    # The 06:00-14:00 IST shift is 00:30-08:30 UTC; the 130-minute operation
+    # waits for the window instead of running from midnight.
+    assert work_order.planned_start_at == datetime.combine(today(), time(0, 30), tzinfo=UTC)
+    assert work_order.planned_end_at == datetime.combine(today(), time(2, 40), tzinfo=UTC)
+
+
+async def test_release_ignores_the_roster_when_shift_planning_is_off(
+    db, tenant, stocked, approver, monkeypatch
+):
+    """``PLAN_WITHIN_SHIFTS`` keeps the old round-the-clock schedule available."""
+    monkeypatch.setattr(service, "PLAN_WITHIN_SHIFTS", False)
+    centre_id = stocked["work_centre"].id
+    shift = await seed_shift(db, company_id=tenant.company_id, code="A")
+    operator = await seed_user(db, company_id=tenant.company_id, full_name="Arjun Menon")
+    await ShiftRosterService(db, tenant).plan(
+        [
+            ShiftAssignmentCreate(
+                roster_date=today(),
+                shift_id=shift.id,
+                work_center_id=centre_id,
+                operator_user_id=operator.id,
+            )
+        ]
+    )
+    order = await make_order(db, tenant, stocked)
+    await approve(db, tenant, approver, order)
+    await release(db, tenant, order)
+    work_order = (await service.get_order_detail(db, tenant, order.id)).work_orders[0]
+    assert work_order.planned_start_at == datetime.combine(today(), time(0, 0), tzinfo=UTC)
+    assert work_order.planned_end_at == datetime.combine(today(), time(2, 10), tzinfo=UTC)
+
+
+async def test_release_warns_when_the_routing_machine_is_already_planned(
+    db, tenant, stocked, approver
+):
+    """Releasing onto a held machine still releases, and says whose it is."""
+    first_id, _, centre_id = await _two_released_operations(db, tenant, stocked, approver)
+    machine = await seed_machine(db, company_id=tenant.company_id, work_center_id=centre_id)
+    # The release plans back to back from midnight; holding the machine across
+    # the small hours guarantees the next release's first operation overlaps.
+    _, _ = await service.update_work_order(
+        db,
+        tenant,
+        first_id,
+        WorkOrderUpdate(
+            machine_id=machine.id,
+            planned_start_at=datetime.combine(today(), time(0, 30), tzinfo=UTC),
+            planned_end_at=datetime.combine(today(), time(2, 30), tzinfo=UTC),
+        ),
+    )
+    routing_operation = (
+        await db.execute(
+            select(RoutingOperation)
+            .where(
+                RoutingOperation.company_id == tenant.company_id,
+                RoutingOperation.routing_id == stocked["routing"].id,
+            )
+            .order_by(RoutingOperation.sequence)
+        )
+    ).scalar_one()
+    routing_operation.machine_id = machine.id
+    await db.flush()
+
+    order = await make_order(db, tenant, stocked)
+    await approve(db, tenant, approver, order)
+    result = await release(db, tenant, order)
+    assert result.work_order_count == 1
+    assert machine.code in result.message
+    assert "already planned" in result.message
+
+
+# -----------------------------------------------------------------------------
+# Capacity
+# -----------------------------------------------------------------------------
+
+
+async def _capacity(
+    db, tenant, *, date_from=None, date_to=None, work_center_id=None, limit: int = 200
+):
+    return await service.production_capacity(
+        db,
+        tenant,
+        CapacityFilters(date_from=date_from, date_to=date_to, work_center_id=work_center_id),
+        PageParams(limit=limit),
+    )
+
+
+async def test_capacity_buckets_open_load_against_standard_hours(db, tenant, stocked, approver):
+    """One released job books 130 minutes on its centre's first day, standard day otherwise."""
+    order = await make_order(db, tenant, stocked)
+    await approve(db, tenant, approver, order)
+    await release(db, tenant, order)
+    centre = stocked["work_centre"]
+
+    rows, pagination = await _capacity(db, tenant, date_from=today(), date_to=today())
+    assert pagination.total == 1
+    row = rows[0]
+    assert row.work_center_id == centre.id
+    assert row.capacity_source == "STANDARD"
+    # 8 working hours a day, and nobody rostered anything.
+    assert row.capacity_minutes == Decimal("480")
+    # 30 setup plus 100 units at a minute each, all inside the first day.
+    assert row.planned_minutes == Decimal("130")
+    assert row.over_capacity is False
+
+
+async def test_capacity_splits_a_long_operation_across_local_days(db, tenant, stocked, approver):
+    """A 2030-minute operation starting at midnight UTC spans two IST days.
+
+    Midnight UTC is 05:30 in the company's timezone, so the first local day
+    holds 05:30 to midnight (1110 minutes) and the second holds midnight to
+    15:20 (920 minutes). Both exceed the standard eight-hour day.
+    """
+    order = await make_order(db, tenant, stocked, quantity="2000")
+    await approve(db, tenant, approver, order)
+    await release(db, tenant, order)
+
+    rows, _ = await _capacity(db, tenant, date_from=today(), date_to=today() + timedelta(days=1))
+    assert len(rows) == 2
+    first, second = rows
+    assert (first.planned_minutes, second.planned_minutes) == (
+        Decimal("1110"),
+        Decimal("920"),
+    )
+    assert first.capacity_source == second.capacity_source == "STANDARD"
+    assert first.over_capacity is True
+    assert second.over_capacity is True
+
+
+async def test_capacity_uses_rostered_minutes_where_rostered(db, tenant, stocked, approver):
+    """A rostered day reports ROSTER capacity; the next day stays STANDARD."""
+    centre_id = stocked["work_centre"].id
+    shift = await seed_shift(db, company_id=tenant.company_id, code="A")
+    operator = await seed_user(db, company_id=tenant.company_id, full_name="Divya Rao")
+    await ShiftRosterService(db, tenant).plan(
+        [
+            ShiftAssignmentCreate(
+                roster_date=today(),
+                shift_id=shift.id,
+                work_center_id=centre_id,
+                operator_user_id=operator.id,
+            )
+        ]
+    )
+    order = await make_order(db, tenant, stocked)
+    await approve(db, tenant, approver, order)
+    await release(db, tenant, order)
+
+    rows, _ = await _capacity(db, tenant, date_from=today(), date_to=today() + timedelta(days=1))
+    assert len(rows) == 2
+    first, second = rows
+    assert first.capacity_source == "ROSTER"
+    assert first.capacity_minutes == Decimal("480")
+    # The shift-aware release puts the 130-minute operation inside the
+    # 06:00-14:00 IST window, all on the first local day.
+    assert first.planned_minutes == Decimal("130")
+    assert first.over_capacity is False
+    assert second.capacity_source == "STANDARD"
+    assert second.planned_minutes == Decimal("0")
+
+
+async def test_capacity_refuses_an_inverted_or_unbounded_window(db, tenant, stocked):
+    with pytest.raises(ValidationError):
+        await _capacity(db, tenant, date_from=today(), date_to=today() - timedelta(days=1))
+    with pytest.raises(ValidationError, match="at most 62 days"):
+        await _capacity(db, tenant, date_from=today(), date_to=today() + timedelta(days=100))
+
+
+async def test_capacity_names_an_unknown_work_centre(db, tenant, stocked):
+    with pytest.raises(NotFoundError):
+        await _capacity(db, tenant, work_center_id=uuid.uuid4())
 
 
 async def test_the_assignment_warns_when_the_roster_does_not_plan_the_operator(
@@ -873,6 +1206,43 @@ async def test_a_booking_snapshots_its_shift_and_downtime_alone_is_a_booking(
         )
 
 
+async def test_company_wide_entries_list_bookings_across_orders(db, tenant, stocked, approver):
+    """The unscoped listing behind ``GET /production/entries`` sees every job."""
+    # Two full kits: the shared fixture only stocks one job's worth of screws.
+    await stock(db, tenant, stocked["body"], stocked["warehouse"], "5000", "40")
+    await stock(db, tenant, stocked["screw"], stocked["warehouse"], "5000", "5")
+    first = await make_order(db, tenant, stocked)
+    await approve(db, tenant, approver, first)
+    await release(db, tenant, first)
+    await issue_everything(db, tenant, approver, first)
+    await service.start_order(db, tenant, first.id, StartRequest())
+    second = await make_order(db, tenant, stocked)
+    await approve(db, tenant, approver, second)
+    await release(db, tenant, second)
+    await issue_everything(db, tenant, approver, second)
+    await service.start_order(db, tenant, second.id, StartRequest())
+
+    await service.create_production_entry(
+        db, tenant, first.id, ProductionEntryCreate(downtime_minutes=Decimal("15"))
+    )
+    await service.create_production_entry(
+        db, tenant, second.id, ProductionEntryCreate(downtime_minutes=Decimal("5"))
+    )
+
+    everywhere, _ = await service.list_production_entries(
+        db, tenant, ProductionEntryFilters(), PageParams(limit=50), SortParams()
+    )
+    assert {entry.production_order_id for entry in everywhere} >= {first.id, second.id}
+    scoped, _ = await service.list_production_entries(
+        db,
+        tenant,
+        ProductionEntryFilters(production_order_id=first.id),
+        PageParams(limit=50),
+        SortParams(),
+    )
+    assert [entry.production_order_id for entry in scoped] == [first.id]
+
+
 async def test_daily_production_by_shift_sums_each_shift_cell_and_operator(
     db, tenant, stocked, approver
 ):
@@ -949,7 +1319,7 @@ async def test_machine_utilisation_counts_rostered_minutes_beside_calendar_capac
     )
     operator = await seed_user(db, company_id=tenant.company_id, full_name="Ravi Desai")
 
-    await service.update_work_order(
+    _, _ = await service.update_work_order(
         db, tenant, work_order_id, WorkOrderUpdate(machine_id=machine_id)
     )
     started = utcnow() - timedelta(hours=3)
@@ -987,6 +1357,53 @@ async def test_machine_utilisation_counts_rostered_minutes_beside_calendar_capac
     assert shaped["rostered_utilisation_percent"] == Decimal("25.00")
     # Calendar capacity is untouched: 8 hours a day over the two days.
     assert shaped["available_minutes"] == Decimal("960.00")
+
+
+async def test_machine_utilisation_lists_idle_machines_and_skips_retired_ones(
+    db, tenant, stocked, approver
+):
+    """A machine with no finished runs reads 0%, not absent; retired ones vanish."""
+    _, work_order_id = await _released_operation(db, tenant, stocked, approver)
+    centre_id = stocked["work_centre"].id
+    busy_machine = await seed_machine(
+        db, company_id=tenant.company_id, work_center_id=centre_id, code="BUSY"
+    )
+    await seed_machine(db, company_id=tenant.company_id, work_center_id=centre_id, code="IDLE")
+    await seed_machine(
+        db,
+        company_id=tenant.company_id,
+        work_center_id=centre_id,
+        code="GONE",
+        status=MachineStatus.RETIRED,
+        is_active=False,
+    )
+    _, _ = await service.update_work_order(
+        db, tenant, work_order_id, WorkOrderUpdate(machine_id=busy_machine.id)
+    )
+    started = utcnow() - timedelta(hours=3)
+    for status, moment in (
+        (WorkOrderStatus.IN_PROGRESS, started),
+        (WorkOrderStatus.COMPLETED, started + timedelta(minutes=120)),
+    ):
+        await service.transition_work_order(
+            db,
+            tenant,
+            work_order_id,
+            WorkOrderTransitionRequest(status=status, occurred_at=moment),
+        )
+
+    period = ReportPeriod(date_from=today() - timedelta(days=1), date_to=today())
+    definition = reports_service.definition_for(ReportKey.MACHINE_UTILISATION)
+    context = reports_service.build_context(definition, period, ReportFilters())
+    stmt = definition.build(ReportQueryRepository(db, tenant), context)
+    rows = {found["machine_code"]: dict(found) for found in (await db.execute(stmt)).mappings()}
+    assert set(rows) == {"BUSY", "IDLE"}
+    assert definition.derive is not None
+    idle = definition.derive(rows["IDLE"], context)
+    assert Decimal(idle["busy_minutes"]) == Decimal("0")
+    assert idle["work_order_count"] == 0
+    assert idle["utilisation_percent"] == Decimal("0")
+    assert Decimal(definition.derive(rows["BUSY"], context)["busy_minutes"]) == Decimal("120")
 
 
 async def test_a_bom_revised_after_release_does_not_change_the_released_job(

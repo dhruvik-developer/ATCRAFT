@@ -103,6 +103,7 @@ from src.modules.reports.models import InventorySummary, ReportJobStatus, Report
 from src.modules.reports.schemas import ReportFilters, ReportPeriod
 from src.modules.routing.models import (
     Machine,
+    MachineStatus,
     Shift,
     ShiftAssignment,
     ShiftAssignmentStatus,
@@ -1379,18 +1380,30 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
                 ),
                 func.coalesce(func.sum(WorkOrder.rejected_quantity), 0).label("rejected_quantity"),
             )
-            .join(Machine, Machine.id == WorkOrder.machine_id)
+            # Machine-driven, so an idle machine reads 0% instead of vanishing.
+            # The run predicates live in the join's ON clause: in the WHERE they
+            # would turn the outer join back into an inner one, which is exactly
+            # how idle machines used to disappear.
+            .select_from(Machine)
             .join(WorkCenter, WorkCenter.id == Machine.work_center_id)
+            .outerjoin(
+                WorkOrder,
+                (WorkOrder.machine_id == Machine.id)
+                & (WorkOrder.company_id == self._company)
+                # Only finished runs: an operation still open has no elapsed
+                # time yet, and treating its NULL end as "now" would credit a
+                # machine with hours it has not worked.
+                & WorkOrder.actual_start_at.is_not(None)
+                & WorkOrder.actual_end_at.is_not(None)
+                & (WorkOrder.actual_start_at >= start)
+                & (WorkOrder.actual_start_at < end),
+            )
             .outerjoin(downtime, downtime.c.machine_id == Machine.id)
             .where(
-                WorkOrder.company_id == self._company,
-                # Only finished runs: an operation still open has no elapsed time
-                # yet, and treating its NULL end as "now" would credit a machine
-                # with hours it has not worked.
-                WorkOrder.actual_start_at.is_not(None),
-                WorkOrder.actual_end_at.is_not(None),
-                WorkOrder.actual_start_at >= start,
-                WorkOrder.actual_start_at < end,
+                Machine.company_id == self._company,
+                Machine.deleted_at.is_(None),
+                Machine.is_active.is_(True),
+                Machine.status != MachineStatus.RETIRED,
             )
             .group_by(
                 Machine.id,

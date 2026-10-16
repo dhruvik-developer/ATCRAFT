@@ -36,7 +36,7 @@ that the ledger says was consumed by a job that never existed.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -55,6 +55,7 @@ from src.core.errors import (
     BusinessRuleError,
     ErrorCode,
     NotFoundError,
+    ValidationError,
 )
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
@@ -91,8 +92,10 @@ from src.modules.production.models import (
     WorkOrderStatus,
 )
 from src.modules.production.repository import (
+    CapacityWindow,
     ComponentAvailabilityRepository,
     IssuedComponentTotals,
+    MachineConflict,
     MaterialIssueLineRepository,
     MaterialIssueRepository,
     PlantLookupRepository,
@@ -110,6 +113,8 @@ from src.modules.production.repository import (
 from src.modules.production.schemas import (
     ApproveRequest,
     CancelRequest,
+    CapacityFilters,
+    CapacitySource,
     CloseRequest,
     CloseResult,
     CompleteRequest,
@@ -124,6 +129,7 @@ from src.modules.production.schemas import (
     MaterialIssuePostResult,
     MaterialIssueRead,
     PostedMovement,
+    ProductionCapacityDay,
     ProductionCostMaterialLine,
     ProductionCostOperationLine,
     ProductionCostRead,
@@ -151,10 +157,12 @@ from src.modules.production.schemas import (
 from src.modules.routing.models import MachineStatus, Routing, RoutingStatus
 from src.modules.routing.repository import (
     OPERATOR_ENTITY,
+    WORKABLE_MACHINE_STATUSES,
     MachineRepository,
     RosterOperatorRepository,
     RoutingOperationRepository,
     RoutingRepository,
+    ShiftAssignmentRepository,
 )
 from src.modules.routing.service import (
     MINUTES_PER_HOUR,
@@ -164,6 +172,7 @@ from src.modules.routing.service import (
     local_date,
     require_shift,
     roster_mismatch,
+    windows_overlap,
 )
 
 # =============================================================================
@@ -183,6 +192,29 @@ ROSTER_MISMATCH_WARNING = (
     "date. It was recorded anyway."
 )
 
+# ASSUMPTION: a machine double-booking warns rather than refuses. Two open
+# operations naming the same machine with overlapping planned windows is
+# usually a planning mistake, but the floor re-sequences work constantly - a
+# machine down for an hour pushes everything - and refusing the assignment
+# would strand the traveller over a plan that is already stale. Set
+# ``BLOCK_MACHINE_OVERLAP`` to True to refuse instead. docs/assumptions.md §E7-4.
+BLOCK_MACHINE_OVERLAP = False
+
+# ASSUMPTION: operations are planned inside the rostered shift windows of their
+# work centre whenever a roster exists. A 24/7 back-to-back schedule promises
+# Friday-night output from a plant that works one eight-hour shift, so the
+# release schedule is only honest when it keeps office hours. Where no roster
+# rows cover a centre, planning falls back to running round the clock rather
+# than refusing to schedule at all. Set ``PLAN_WITHIN_SHIFTS`` to False for the
+# old behaviour. docs/assumptions.md §E7-5.
+PLAN_WITHIN_SHIFTS = True
+
+#: How far ahead of the planned start the release looks for rostered windows.
+#: Six months of daily windows is a few thousand rows at most; a longer job
+#: than that schedules its tail round the clock rather than reading the whole
+#: roster.
+PLANNING_ROSTER_DAYS = 180
+
 #: A PATCH touching one of these is a staffing decision worth checking against
 #: the roster; one that only edits the notes is not.
 _ROSTER_FIELDS = frozenset({"operator_user_id", "shift_id", "machine_id", "planned_start_at"})
@@ -197,6 +229,15 @@ AUDIT_PRODUCTION_ENTRY = "production_entry"
 MOVEMENT_REFERENCE_ORDER = "production_order"
 MOVEMENT_REFERENCE_ISSUE = "material_issue"
 MOVEMENT_REFERENCE_RETURN = "material_return"
+
+#: The longest window the capacity board answers in one request. Sixty-two days
+#: is two months of daily buckets; past that the matrix is an export, not a
+#: board, and the day-slicing loop below stays bounded.
+MAX_CAPACITY_DAYS = 62
+
+#: Days the capacity board covers when no window is named: four working weeks
+#: from today where the company is.
+DEFAULT_CAPACITY_DAYS = 28
 
 #: Decimal, never 60.0 - see :func:`_elapsed_minutes`.
 SECONDS_PER_MINUTE = Decimal(60)
@@ -632,11 +673,59 @@ def backflush_quantity(
     return max(ZERO, to_quantity(entitled - to_quantity(already_issued)))
 
 
+def _merge_windows(
+    windows: Sequence[tuple[datetime, datetime]],
+) -> list[tuple[datetime, datetime]]:
+    """Union of shift windows, in order.
+
+    Several roster rows can cover the same hours - three operators on one shift
+    is three rows over one window - and the union is what the centre works. The
+    windows arrive ordered by start; touching ones merge, because a shift ending
+    at 14:00 and the next starting at 14:00 is continuous working time.
+    """
+    merged: list[tuple[datetime, datetime]] = []
+    for start, end in sorted(windows):
+        if end <= start:
+            continue
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _place_in_windows(
+    cursor: datetime, duration: timedelta, windows: Sequence[tuple[datetime, datetime]]
+) -> tuple[datetime, datetime]:
+    """Start an operation inside the shift windows, as early as possible.
+
+    The first window the operation fits in wins, starting at the cursor when the
+    cursor is already inside it. An operation longer than any single window
+    overruns from the earliest window still ahead rather than waiting for a
+    shift that can never hold it; past the last window the plant runs round the
+    clock, because an unscheduled tail is worse than an unstaffed one.
+    """
+    if duration <= timedelta(0):
+        duration = timedelta(0)
+    fallback: tuple[datetime, datetime] | None = None
+    for start, end in windows:
+        if end <= cursor:
+            continue
+        placed = max(cursor, start)
+        fallback = fallback or (placed, placed + duration)
+        if placed + duration <= end:
+            return placed, placed + duration
+    if fallback is not None:
+        return fallback
+    return cursor, cursor + duration
+
+
 def plan_work_orders(
     operations: Sequence[RoutingStep],
     *,
     planned_quantity: Decimal,
     start_at: datetime,
+    windows_by_work_center: Mapping[uuid.UUID, Sequence[tuple[datetime, datetime]]] | None = None,
 ) -> list[WorkOrderPlan]:
     """Turn a routing into a schedule for one job.
 
@@ -646,16 +735,31 @@ def plan_work_orders(
     carry, and the sequential schedule is the conservative one - it never
     promises a date the plant cannot hit. The same assumption the routing
     module's lead-time calculation already makes, so the two agree.
+
+    With ``windows_by_work_center``, each operation additionally starts inside
+    its work centre's rostered windows (see :data:`PLAN_WITHIN_SHIFTS`). A
+    centre with no windows plans round the clock, exactly as without them.
     """
     quantity = to_quantity(planned_quantity)
     plans: list[WorkOrderPlan] = []
     cursor = start_at
+    merged: dict[uuid.UUID, list[tuple[datetime, datetime]]] = {}
+    if windows_by_work_center:
+        merged = {
+            centre_id: _merge_windows(windows)
+            for centre_id, windows in windows_by_work_center.items()
+        }
     for operation in sorted(operations, key=lambda o: o.sequence):
         elapsed = calculate_operation_time(operation, quantity)
         # Seconds, as an int: a schedule is a duration, and converting a
         # Decimal through float to build one would reintroduce the binary
         # rounding the rest of the module is careful to avoid.
-        finish = cursor + timedelta(seconds=int(elapsed * 60))
+        duration = timedelta(seconds=int(elapsed * 60))
+        centre_windows = merged.get(operation.work_center_id, [])
+        if centre_windows:
+            start, finish = _place_in_windows(cursor, duration, centre_windows)
+        else:
+            start, finish = cursor, cursor + duration
         plans.append(
             WorkOrderPlan(
                 sequence=operation.sequence,
@@ -670,7 +774,7 @@ def plan_work_orders(
                 ),
                 process_cost=to_money(operation.process_cost),
                 is_outsourced=operation.is_outsourced,
-                planned_start_at=cursor,
+                planned_start_at=start,
                 planned_end_at=finish,
             )
         )
@@ -1064,24 +1168,80 @@ async def _assert_operator(
         )
 
 
+def _machine_status_warning(machine_code: str, status: MachineStatus) -> str | None:
+    """The advisory warning for a machine that can take work but should not.
+
+    Retired and inactive machines never reach here - they are refused outright.
+    Maintenance and breakdown are warned through ``WORKABLE_MACHINE_STATUSES``,
+    the routing module's own definition of which states accept work, so the two
+    modules cannot disagree about what "down" means.
+    """
+    if status in WORKABLE_MACHINE_STATUSES:
+        return None
+    return (
+        f"Warning: machine {machine_code} is {status}, so this plan assumes it "
+        "will be repaired in time. It was recorded anyway."
+    )
+
+
+def _overlap_warning(machine_code: str, conflicts: Sequence[MachineConflict]) -> str:
+    """Name every open operation already holding the machine in the window."""
+    holders = "; ".join(
+        f"{conflict.work_order_code} on {conflict.production_order_code} "
+        f"({conflict.planned_start_at.isoformat()} to {conflict.planned_end_at.isoformat()})"
+        for conflict in conflicts
+    )
+    return (
+        f"Warning: machine {machine_code} is already planned on {holders}. "
+        "The overlapping plan was recorded anyway."
+    )
+
+
+def _apply_overlap_rule(machine_code: str, conflicts: Sequence[MachineConflict]) -> str | None:
+    """Warn about a double-booked machine, or refuse it when configured to.
+
+    Returns the warning to append to the response, or ``None`` when the machine
+    is clear. With ``BLOCK_MACHINE_OVERLAP`` the same conflicts raise instead,
+    naming every holder so the planner knows what to move.
+    """
+    if not conflicts:
+        return None
+    if BLOCK_MACHINE_OVERLAP:
+        raise BusinessRuleError(
+            f"Machine {machine_code} is already planned on "
+            + "; ".join(
+                f"{conflict.work_order_code} on {conflict.production_order_code}"
+                for conflict in conflicts
+            )
+            + ". Move the planned window or clear the machine before retrying.",
+            details={
+                "machine_id": str(conflicts[0].machine_id),
+                "conflicting_work_order_ids": [str(c.work_order_id) for c in conflicts],
+            },
+        )
+    return _overlap_warning(machine_code, conflicts)
+
+
 async def _assert_machine(
     session: AsyncSession,
     tenant: TenantContext,
     machine_id: uuid.UUID | None,
     *,
     work_center_id: uuid.UUID | None = None,
-) -> None:
+) -> str | None:
     """A machine must exist in this tenant, still be in service and, when a centre
     is named, sit in it.
 
     A retired machine - ``change_status(RETIRED)`` clears ``is_active`` without
     deleting the row, so the repository still returns it - cannot take work.
-    Maintenance and breakdown are allowed: a booking records what happened, and
-    an assignment may be made for after the repair. The composite foreign key
-    already refuses the centre mismatch; checking here names the machine.
+    Maintenance and breakdown are allowed but warned: a booking records what
+    happened, and an assignment may be made for after the repair. The composite
+    foreign key already refuses the centre mismatch; checking here names the
+    machine. Returns the status warning, if any - the booking path ignores it,
+    the assignment path reports it.
     """
     if machine_id is None:
-        return
+        return None
     machines = await MachineRepository(session, tenant).load([machine_id])
     machine = machines.get(machine_id)
     if machine is None:
@@ -1096,6 +1256,7 @@ async def _assert_machine(
             f"Machine {machine.code} does not belong to this operation's work centre.",
             details={"machine_id": str(machine_id), "work_center_id": str(work_center_id)},
         )
+    return _machine_status_warning(machine.code, machine.status)
 
 
 def _order_read(order: ProductionOrder) -> ProductionOrderRead:
@@ -1744,7 +1905,7 @@ async def release_order(
             for plan in plans
         ]
 
-        work_orders = await _create_work_orders(session, tenant, order, routing)
+        work_orders, machine_warnings = await _create_work_orders(session, tenant, order, routing)
 
         order.bom_id = bom.id
         if routing is not None:
@@ -1827,7 +1988,8 @@ async def release_order(
                     f"{order.code} released, but {len(shortages)} component(s) could not be "
                     "fully held. The job can still be issued against what was found."
                 )
-            ),
+            )
+            + (f" {' '.join(machine_warnings)}" if machine_warnings else ""),
         )
     return result
 
@@ -1837,15 +1999,22 @@ async def _create_work_orders(
     tenant: TenantContext,
     order: ProductionOrder,
     routing: Routing | None,
-) -> list[WorkOrder]:
+) -> tuple[list[WorkOrder], list[str]]:
     """Issue one work order per routing operation.
 
     Document numbers are claimed one per operation because a work order is a
     shop-floor document in its own right - it is printed, signed and booked
     against - and a routing is bounded, so the loop is bounded with it.
+
+    Returns the operations and the advisory machine warnings the release
+    reports. The machines the routing names are checked before anything is
+    written: a retired machine refuses the release, a down one warns, and a
+    window overlapping another job's open operation warns - or refuses, with
+    ``BLOCK_MACHINE_OVERLAP``. The overlap read is one statement across every
+    machine and window being placed, matched to its plan in memory.
     """
     if routing is None:
-        return []
+        return [], []
 
     operations = await RoutingOperationRepository(session, tenant).list_for_routing(routing.id)
     if not operations:
@@ -1855,7 +2024,14 @@ async def _create_work_orders(
         )
 
     start_at = datetime.combine(order.planned_start_date, datetime.min.time(), tzinfo=UTC)
-    plans = plan_work_orders(operations, planned_quantity=order.planned_quantity, start_at=start_at)
+    plans = plan_work_orders(
+        operations,
+        planned_quantity=order.planned_quantity,
+        start_at=start_at,
+        windows_by_work_center=await _roster_windows(session, tenant, order, operations),
+    )
+
+    warnings = await _check_release_machines(session, tenant, order, plans)
 
     # The rates the job is costed at, read once for every centre on the routing
     # and frozen onto the traveller. See ``WorkOrder.work_center_cost_per_hour``
@@ -1895,7 +2071,91 @@ async def _create_work_orders(
             )
         )
     await session.flush()
-    return created
+    return created, warnings
+
+
+async def _roster_windows(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: ProductionOrder,
+    operations: Sequence[RoutingStep],
+) -> dict[uuid.UUID, list[tuple[datetime, datetime]]] | None:
+    """Rostered windows per work centre for the release being planned, or None.
+
+    ``None`` is the old behaviour - round the clock - and is also what a centre
+    without roster rows gets: only centres the roster actually covers constrain
+    the schedule. One statement for every centre on the routing.
+    """
+    if not PLAN_WITHIN_SHIFTS:
+        return None
+    centre_ids = list(dict.fromkeys(operation.work_center_id for operation in operations))
+    day_from = order.planned_start_date
+    rows = await ShiftAssignmentRepository(session, tenant).windows_for_centres(
+        centre_ids, day_from, day_from + timedelta(days=PLANNING_ROSTER_DAYS)
+    )
+    grouped: dict[uuid.UUID, list[tuple[datetime, datetime]]] = {}
+    for row in rows:
+        grouped.setdefault(row.work_center_id, []).append((row.starts_at, row.ends_at))
+    return grouped or None
+
+
+async def _check_release_machines(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: ProductionOrder,
+    plans: Sequence[WorkOrderPlan],
+) -> list[str]:
+    """Refuse retired machines and report down or double-booked ones at release.
+
+    Reads each machine once for the whole traveller and the overlapping open
+    operations once for every machine and window being placed - two statements
+    however many steps the routing has. Runs before the work orders are added,
+    so a refusal leaves nothing half-written.
+    """
+    machine_ids = list(dict.fromkeys(plan.machine_id for plan in plans if plan.machine_id))
+    if not machine_ids:
+        return []
+    infos = await MachineRepository(session, tenant).load(machine_ids)
+    warnings: list[str] = []
+    for machine_id in machine_ids:
+        info = infos.get(machine_id)
+        if info is None:
+            raise NotFoundError("Machine", machine_id)
+        if info.status is MachineStatus.RETIRED or not info.is_active:
+            raise BusinessRuleError(
+                f"Machine {info.code} is retired or inactive and cannot take work.",
+                details={"machine_id": str(machine_id)},
+            )
+        warning = _machine_status_warning(info.code, info.status)
+        if warning is not None:
+            warnings.append(warning)
+
+    starts = [plan.planned_start_at for plan in plans if plan.machine_id is not None]
+    ends = [plan.planned_end_at for plan in plans if plan.machine_id is not None]
+    conflicts = await WorkOrderRepository(session, tenant).machine_conflicts(
+        machine_ids,
+        start_at=min(starts),
+        end_at=max(ends),
+        exclude_order_id=order.id,
+    )
+    by_machine: dict[uuid.UUID, list[MachineConflict]] = {}
+    for conflict in conflicts:
+        by_machine.setdefault(conflict.machine_id, []).append(conflict)
+    for plan in plans:
+        if plan.machine_id is None:
+            continue
+        holding = [
+            conflict
+            for conflict in by_machine.get(plan.machine_id, [])
+            if windows_overlap(
+                (plan.planned_start_at, plan.planned_end_at),
+                (conflict.planned_start_at, conflict.planned_end_at),
+            )
+        ]
+        warning = _apply_overlap_rule(infos[plan.machine_id].code, holding)
+        if warning is not None:
+            warnings.append(warning)
+    return warnings
 
 
 async def start_order(
@@ -3576,8 +3836,13 @@ async def update_work_order(
     tenant: TenantContext,
     work_order_id: uuid.UUID,
     payload: WorkOrderUpdate,
-) -> WorkOrder:
-    """Assign and schedule. Quantities only ever move through a booking."""
+) -> tuple[WorkOrder, list[str]]:
+    """Assign and schedule. Quantities only ever move through a booking.
+
+    Returns the operation and the advisory warnings the PATCH reports - a
+    machine in maintenance or an overlapping plan. Both are checked *before*
+    anything is written, so a configured refusal leaves the row untouched.
+    """
     async with transaction(session):
         repo = WorkOrderRepository(session, tenant)
         # One projection read to learn which job owns this operation, then the
@@ -3604,15 +3869,45 @@ async def update_work_order(
 
         changes = payload.model_dump(exclude_unset=True)
         if not changes:
-            return work_order
+            return work_order, []
         before = {key: getattr(work_order, key) for key in changes}
+        warnings: list[str] = []
 
         if "operator_user_id" in changes:
             await _assert_operator(session, tenant, changes["operator_user_id"])
+        machine_warning: str | None = None
         if "machine_id" in changes:
-            await _assert_machine(
+            machine_warning = await _assert_machine(
                 session, tenant, changes["machine_id"], work_center_id=work_order.work_center_id
             )
+
+        # The machine and window the row will hold once the patch lands - the
+        # overlap check reads the proposal, not the stale row. A reschedule
+        # that keeps the machine must still be checked, so an unchanged machine
+        # is read off the row rather than skipped.
+        machine_id = changes.get("machine_id", work_order.machine_id)
+        start_at = changes.get("planned_start_at", work_order.planned_start_at)
+        end_at = changes.get("planned_end_at", work_order.planned_end_at)
+        if machine_id is not None and start_at is not None and end_at is not None:
+            infos = await MachineRepository(session, tenant).load([machine_id])
+            info = infos.get(machine_id)
+            # Existence, retirement and the centre match were just asserted
+            # above when the machine itself is being changed; a reschedule keeps
+            # the machine it already holds, which was valid when it was set.
+            if info is not None and machine_warning is None:
+                machine_warning = _machine_status_warning(info.code, info.status)
+            conflicts = await repo.machine_conflicts(
+                [machine_id],
+                start_at=start_at,
+                end_at=end_at,
+                exclude_work_order_ids=[work_order.id],
+            )
+            code = info.code if info is not None else str(machine_id)
+            warning = _apply_overlap_rule(code, conflicts)
+            if warning is not None:
+                warnings.append(warning)
+        if machine_warning is not None:
+            warnings.append(machine_warning)
 
         if "shift_id" in changes:
             # The snapshot travels with the id - written when one is chosen,
@@ -3645,7 +3940,7 @@ async def update_work_order(
             old_values=before,
             new_values=changes,
         )
-    return work_order
+    return work_order, warnings
 
 
 async def assign_work_order(
@@ -3661,8 +3956,10 @@ async def assign_work_order(
     operator and a shift. The roster date is the local date of the planned start,
     or today's where the company is when none is planned.
     """
-    work_order = await update_work_order(session, tenant, work_order_id, payload)
+    work_order, warnings = await update_work_order(session, tenant, work_order_id, payload)
     message = f"{work_order.code} updated."
+    if warnings:
+        message = f"{message} {' '.join(warnings)}"
     if not _ROSTER_FIELDS & payload.model_fields_set:
         return work_order, message
     if work_order.operator_user_id is None or work_order.shift_id is None:
@@ -3858,6 +4155,144 @@ async def wip_work_centres(
         )
         for row in rows
     ], pagination
+
+
+# =============================================================================
+# Capacity
+# =============================================================================
+
+
+def _capacity_window(filters: CapacityFilters, as_of: date) -> tuple[date, date]:
+    """The board's date window, defaulted and bounded.
+
+    Defaults to four weeks from today; refuses a window longer than
+    ``MAX_CAPACITY_DAYS`` rather than answering a matrix nobody can read.
+    """
+    day_from = filters.date_from or as_of
+    day_to = filters.date_to or day_from + timedelta(days=DEFAULT_CAPACITY_DAYS - 1)
+    if day_to < day_from:
+        raise ValidationError(
+            "The capacity window ends before it starts.",
+            details={
+                "fields": {
+                    "date_to": [f"date_to ({day_to.isoformat()}) is before date_from."],
+                }
+            },
+        )
+    if (day_to - day_from).days >= MAX_CAPACITY_DAYS:
+        raise ValidationError(
+            f"Capacity covers at most {MAX_CAPACITY_DAYS} days in one request; narrow the window.",
+            details={
+                "fields": {
+                    "date_to": [f"date_to is more than {MAX_CAPACITY_DAYS} days after date_from."],
+                }
+            },
+        )
+    return day_from, day_to
+
+
+def _bucket_planned_minutes(
+    windows: Sequence[CapacityWindow],
+    days: Sequence[date],
+    day_bounds: Sequence[tuple[datetime, datetime]],
+) -> dict[tuple[uuid.UUID, date], Decimal]:
+    """Slice each open window across the days it touches, in company time.
+
+    The queries fetch whole windows; the day boundaries live here because they
+    need the company timezone, which SQL would have to look up per row. Days
+    and bounds are parallel sequences, so the inner walk is over the days the
+    window actually overlaps rather than the whole board.
+    """
+    planned: dict[tuple[uuid.UUID, date], Decimal] = {}
+    for window in windows:
+        for day, (opens, closes) in zip(days, day_bounds, strict=True):
+            if window.planned_end_at <= opens or window.planned_start_at >= closes:
+                continue
+            overlap = _elapsed_minutes(
+                max(window.planned_start_at, opens), min(window.planned_end_at, closes)
+            )
+            if overlap > ZERO:
+                key = (window.work_center_id, day)
+                planned[key] = planned.get(key, ZERO) + overlap
+    return planned
+
+
+async def production_capacity(
+    session: AsyncSession,
+    tenant: TenantContext,
+    filters: CapacityFilters,
+    params: PageParams,
+) -> tuple[list[ProductionCapacityDay], OffsetPagination]:
+    """Remaining planned minutes per work centre per day, against capacity.
+
+    Capacity is the rostered minutes for that centre on that date when a roster
+    exists, otherwise ``working_hours_per_day`` - the same two figures the
+    machine-utilisation report carries, so the board and the report agree about
+    what a day holds. Three batched reads (centres, open windows, rostered
+    minutes) and the bucketing in memory; no per-day and no per-centre queries.
+    """
+    zone = await company_zone(session, tenant)
+    day_from, day_to = _capacity_window(filters, await company_today(session, tenant))
+    days = [day_from + timedelta(days=offset) for offset in range((day_to - day_from).days + 1)]
+    day_bounds = [
+        (
+            datetime.combine(day, datetime.min.time(), tzinfo=zone).astimezone(UTC),
+            datetime.combine(day + timedelta(days=1), datetime.min.time(), tzinfo=zone).astimezone(
+                UTC
+            ),
+        )
+        for day in days
+    ]
+
+    facts = await WorkCentreRateRepository(session, tenant).capacity_facts(
+        [filters.work_center_id] if filters.work_center_id is not None else []
+    )
+    if filters.work_center_id is not None and filters.work_center_id not in facts:
+        raise NotFoundError("Work center", filters.work_center_id)
+    centres = sorted(facts.values(), key=lambda centre: centre.code)
+
+    windows = await WorkOrderRepository(session, tenant).open_windows(
+        day_bounds[0][0], day_bounds[-1][1], filters.work_center_id
+    )
+    rostered = await ShiftAssignmentRepository(session, tenant).rostered_minutes_by_centre(
+        day_from, day_to, [centre.id for centre in centres]
+    )
+    planned = _bucket_planned_minutes(windows, days, day_bounds)
+
+    rows: list[ProductionCapacityDay] = []
+    for day in days:
+        for centre in centres:
+            day_planned = to_quantity(planned.get((centre.id, day), ZERO))
+            rostered_minutes = rostered.get((centre.id, day))
+            if rostered_minutes is not None:
+                day_capacity = to_quantity(rostered_minutes)
+                source = CapacitySource.ROSTER
+            else:
+                day_capacity = to_quantity(Decimal(centre.working_hours_per_day) * MINUTES_PER_HOUR)
+                source = CapacitySource.STANDARD
+            rows.append(
+                ProductionCapacityDay(
+                    work_center_id=centre.id,
+                    work_center_code=centre.code,
+                    work_center_name=centre.name,
+                    date=day,
+                    planned_minutes=day_planned,
+                    capacity_minutes=day_capacity,
+                    capacity_source=source,
+                    over_capacity=day_planned > day_capacity,
+                )
+            )
+    total = len(rows)
+    page = rows[params.offset : params.offset + params.limit]
+    total_pages = (total + params.limit - 1) // params.limit if total else 0
+    return page, OffsetPagination(
+        page=params.page,
+        limit=params.limit,
+        total=total,
+        total_pages=total_pages,
+        has_next=params.offset + params.limit < total,
+        has_previous=params.page > 1,
+    )
 
 
 # =============================================================================

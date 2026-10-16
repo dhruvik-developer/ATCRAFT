@@ -20,6 +20,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from enum import StrEnum
 from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -709,6 +710,50 @@ class WipFilters(BaseModel):
     item_id: uuid.UUID | None = None
     work_center_id: uuid.UUID | None = None
     late_only: bool = False
+
+
+# -----------------------------------------------------------------------------
+# Capacity
+# -----------------------------------------------------------------------------
+
+
+class CapacitySource(StrEnum):
+    """Where a work centre's daily capacity figure came from.
+
+    ``ROSTER`` is the rostered minutes for that centre on that date; ``STANDARD``
+    is ``working_hours_per_day`` when nobody rostered anything there that day.
+    """
+
+    ROSTER = "ROSTER"
+    STANDARD = "STANDARD"
+
+
+class CapacityFilters(BaseModel):
+    """The window the capacity board covers, and optionally one work centre."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    date_from: date | None = None
+    date_to: date | None = None
+    work_center_id: uuid.UUID | None = None
+
+
+class ProductionCapacityDay(BaseModel):
+    """Remaining planned minutes on one work centre on one date, against capacity.
+
+    ``planned_minutes`` is the overlap of every open operation's planned window
+    with the date, in the company's timezone. ``over_capacity`` flags the days
+    the plan does not fit.
+    """
+
+    work_center_id: uuid.UUID
+    work_center_code: str
+    work_center_name: str
+    date: date
+    planned_minutes: Decimal
+    capacity_minutes: Decimal
+    capacity_source: CapacitySource
+    over_capacity: bool
 
 
 # -----------------------------------------------------------------------------

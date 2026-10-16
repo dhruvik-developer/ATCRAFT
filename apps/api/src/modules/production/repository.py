@@ -41,7 +41,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -171,6 +171,48 @@ class WorkCentreLoad:
     planned_quantity: Decimal
     completed_quantity: Decimal
     remaining_minutes: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class MachineConflict:
+    """One open operation already planned on a machine inside a proposed window.
+
+    The order code is carried so the refusal names the job that holds the
+    machine, not just the operation: a planner reading "WO-1042" has to go and
+    find whose it is, while "WO-1042 on ORD-0091" says where to move it.
+    """
+
+    work_order_id: uuid.UUID
+    work_order_code: str
+    production_order_id: uuid.UUID
+    production_order_code: str
+    machine_id: uuid.UUID
+    planned_start_at: datetime
+    planned_end_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class WorkCentreCapacityFacts:
+    """What the capacity board needs of a work centre: its name and day length."""
+
+    id: uuid.UUID
+    code: str
+    name: str
+    working_hours_per_day: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class CapacityWindow:
+    """One open operation's planned window and length, for capacity bucketing.
+
+    ``minutes`` is setup plus run - the load the operation books against the
+    day, the same figure the work-centre board reports as remaining.
+    """
+
+    work_center_id: uuid.UUID
+    planned_start_at: datetime
+    planned_end_at: datetime
+    minutes: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -341,6 +383,37 @@ class WorkCentreRateRepository(BaseRepository[WorkCenter]):
         )
         return {
             row.id: (Decimal(row.cost_per_hour), Decimal(row.setup_cost))
+            for row in (await self.session.execute(stmt)).all()
+        }
+
+    async def capacity_facts(
+        self, work_center_ids: Sequence[uuid.UUID] = ()
+    ) -> dict[uuid.UUID, WorkCentreCapacityFacts]:
+        """The identity and standard day a capacity board prints per centre.
+
+        Retired masters are excluded: capacity is a statement about the plant
+        as it runs now. A centre deactivated mid-week keeps its open operations
+        on the queue, but the board no longer plans against it.
+        """
+        stmt = select(
+            WorkCenter.id,
+            WorkCenter.code,
+            WorkCenter.name,
+            WorkCenter.working_hours_per_day,
+        ).where(
+            WorkCenter.company_id == self.tenant.company_id,
+            WorkCenter.deleted_at.is_(None),
+            WorkCenter.is_active.is_(True),
+        )
+        if work_center_ids:
+            stmt = stmt.where(WorkCenter.id.in_(list(dict.fromkeys(work_center_ids))))
+        return {
+            row.id: WorkCentreCapacityFacts(
+                id=row.id,
+                code=row.code,
+                name=row.name,
+                working_hours_per_day=Decimal(str(row.working_hours_per_day)),
+            )
             for row in (await self.session.execute(stmt)).all()
         }
 
@@ -1073,6 +1146,117 @@ class WorkOrderRepository(BaseRepository[WorkOrder]):
             has_previous=params.page > 1,
         )
 
+    async def open_windows(
+        self,
+        start_at: datetime,
+        end_at: datetime,
+        work_center_id: uuid.UUID | None = None,
+    ) -> list[CapacityWindow]:
+        """Planned windows of open operations overlapping ``[start_at, end_at)``.
+
+        One statement for the whole board: only PENDING and IN_PROGRESS
+        operations of open jobs count, because finished work no longer occupies
+        capacity and a closed job's operations cannot move anyway. Rows without
+        a planned window are skipped - unscheduled work is invisible to capacity
+        by definition, and the queue is where it waits to be planned.
+        """
+        if end_at <= start_at:
+            return []
+        stmt = (
+            select(
+                WorkOrder.work_center_id.label("work_center_id"),
+                WorkOrder.planned_start_at.label("planned_start_at"),
+                WorkOrder.planned_end_at.label("planned_end_at"),
+                (WorkOrder.planned_setup_minutes + WorkOrder.planned_run_minutes).label("minutes"),
+            )
+            .join(ProductionOrder, ProductionOrder.id == WorkOrder.production_order_id)
+            .where(
+                WorkOrder.company_id == self.tenant.company_id,
+                ProductionOrder.company_id == self.tenant.company_id,
+                WorkOrder.status.in_(sorted(str(s) for s in OPEN_WORK_ORDER_STATUSES)),
+                ProductionOrder.status.in_(sorted(str(s) for s in OPEN_PRODUCTION_STATUSES)),
+                WorkOrder.planned_start_at.is_not(None),
+                WorkOrder.planned_end_at.is_not(None),
+                WorkOrder.planned_start_at < end_at,
+                WorkOrder.planned_end_at > start_at,
+            )
+            .order_by(WorkOrder.work_center_id, WorkOrder.planned_start_at, WorkOrder.id)
+        )
+        if work_center_id is not None:
+            stmt = stmt.where(WorkOrder.work_center_id == work_center_id)
+        return [
+            CapacityWindow(
+                work_center_id=row.work_center_id,
+                planned_start_at=row.planned_start_at,
+                planned_end_at=row.planned_end_at,
+                minutes=Decimal(str(row.minutes)),
+            )
+            for row in (await self.session.execute(stmt)).all()
+        ]
+
+    async def machine_conflicts(
+        self,
+        machine_ids: Sequence[uuid.UUID],
+        *,
+        start_at: datetime,
+        end_at: datetime,
+        exclude_work_order_ids: Sequence[uuid.UUID] = (),
+        exclude_order_id: uuid.UUID | None = None,
+    ) -> list[MachineConflict]:
+        """Open operations already planned on these machines inside ``[start_at, end_at)``.
+
+        One statement for every machine and window the caller is placing, read
+        off ``ix_work_orders_machine``: the planner placing five operations does
+        not pay five round trips. Only PENDING and IN_PROGRESS operations count -
+        a finished run's planned window is a stale plan, not a hold on the
+        machine, and a cancelled one never happens. ``exclude_work_order_ids``
+        keeps an operation being rescheduled from conflicting with itself, and
+        ``exclude_order_id`` keeps a release that is already flushed from
+        tripping over its own traveller.
+        """
+        unique = list(dict.fromkeys(machine_ids))
+        if not unique or end_at <= start_at:
+            return []
+        stmt = (
+            select(
+                WorkOrder.id.label("work_order_id"),
+                WorkOrder.code.label("work_order_code"),
+                WorkOrder.production_order_id.label("production_order_id"),
+                ProductionOrder.code.label("production_order_code"),
+                WorkOrder.machine_id.label("machine_id"),
+                WorkOrder.planned_start_at.label("planned_start_at"),
+                WorkOrder.planned_end_at.label("planned_end_at"),
+            )
+            .join(ProductionOrder, ProductionOrder.id == WorkOrder.production_order_id)
+            .where(
+                WorkOrder.company_id == self.tenant.company_id,
+                ProductionOrder.company_id == self.tenant.company_id,
+                WorkOrder.machine_id.in_(unique),
+                WorkOrder.status.in_(sorted(str(s) for s in OPEN_WORK_ORDER_STATUSES)),
+                WorkOrder.planned_start_at.is_not(None),
+                WorkOrder.planned_end_at.is_not(None),
+                WorkOrder.planned_start_at < end_at,
+                WorkOrder.planned_end_at > start_at,
+            )
+            .order_by(WorkOrder.machine_id, WorkOrder.planned_start_at, WorkOrder.id)
+        )
+        if exclude_work_order_ids:
+            stmt = stmt.where(WorkOrder.id.not_in(list(exclude_work_order_ids)))
+        if exclude_order_id is not None:
+            stmt = stmt.where(WorkOrder.production_order_id != exclude_order_id)
+        return [
+            MachineConflict(
+                work_order_id=row.work_order_id,
+                work_order_code=row.work_order_code,
+                production_order_id=row.production_order_id,
+                production_order_code=row.production_order_code,
+                machine_id=row.machine_id,
+                planned_start_at=row.planned_start_at,
+                planned_end_at=row.planned_end_at,
+            )
+            for row in (await self.session.execute(stmt)).all()
+        ]
+
 
 # -----------------------------------------------------------------------------
 # Material issues
@@ -1274,8 +1458,10 @@ __all__ = [
     "MAX_WORK_CENTRE_ROWS",
     "NETTABLE_PRODUCTION_STATUSES",
     "OPEN_WORK_ORDER_STATUSES",
+    "CapacityWindow",
     "ComponentAvailabilityRepository",
     "IssuedComponentTotals",
+    "MachineConflict",
     "MaterialIssueLineRepository",
     "MaterialIssueRepository",
     "PlantLookupRepository",
@@ -1288,6 +1474,7 @@ __all__ = [
     "StorageLocationLookupRepository",
     "WarehouseLookupRepository",
     "WipOrderAggregate",
+    "WorkCentreCapacityFacts",
     "WorkCentreLoad",
     "WorkCentreRateRepository",
     "WorkOrderRepository",

@@ -352,12 +352,13 @@ class _Step:
         process_cost: str = "0",
         machine_id: uuid.UUID | None = None,
         is_outsourced: bool = False,
+        work_center_id: uuid.UUID | None = None,
     ) -> None:
         self.id = uuid.uuid4()
         self.sequence = sequence
         self.operation_code = f"OP{sequence}"
         self.operation_name = f"Operation {sequence}"
-        self.work_center_id = uuid.uuid4()
+        self.work_center_id = work_center_id or uuid.uuid4()
         self.machine_id = machine_id
         self.setup_time_minutes = Decimal(setup)
         self.run_time_per_unit_minutes = Decimal(run_per_unit)
@@ -426,3 +427,116 @@ def test_outsourced_routing_operation_is_snapshotted_to_the_work_order_plan():
 
 def test_a_job_with_no_routing_gets_no_work_orders():
     assert plan_work_orders([], planned_quantity=Decimal("10"), start_at=datetime.now(UTC)) == []
+
+
+# -----------------------------------------------------------------------------
+# Planning inside shift windows
+# -----------------------------------------------------------------------------
+
+
+def _day_shift(
+    day: datetime, *, start_hour: int = 6, end_hour: int = 14
+) -> tuple[datetime, datetime]:
+    return (
+        day.replace(hour=start_hour, minute=0, second=0, microsecond=0),
+        day.replace(hour=end_hour, minute=0, second=0, microsecond=0),
+    )
+
+
+def test_without_windows_operations_run_back_to_back_round_the_clock():
+    """The old behaviour: None means the night is working time too."""
+    first = _Step(10, setup="0", run_per_unit="60")
+    plans = plan_work_orders(
+        [first, _Step(20, setup="0", run_per_unit="60")],
+        planned_quantity=Decimal("1"),
+        start_at=datetime(2026, 4, 1, 22, 0, tzinfo=UTC),
+        windows_by_work_center=None,
+    )
+    assert plans[0].planned_start_at == datetime(2026, 4, 1, 22, 0, tzinfo=UTC)
+    assert plans[1].planned_start_at == datetime(2026, 4, 1, 23, 0, tzinfo=UTC)
+
+
+def test_an_operation_starting_at_night_waits_for_the_morning_shift():
+    """A cursor in the dark starts at the next window, not at midnight."""
+    centre = uuid.uuid4()
+    monday = datetime(2026, 4, 6, tzinfo=UTC)
+    plans = plan_work_orders(
+        [_Step(10, setup="60", run_per_unit="0", work_center_id=centre)],
+        planned_quantity=Decimal("1"),
+        start_at=datetime(2026, 4, 6, 0, 0, tzinfo=UTC),
+        windows_by_work_center={centre: [_day_shift(monday)]},
+    )
+    assert plans[0].planned_start_at == datetime(2026, 4, 6, 6, 0, tzinfo=UTC)
+    assert plans[0].planned_end_at == datetime(2026, 4, 6, 7, 0, tzinfo=UTC)
+
+
+def test_an_operation_that_does_not_fit_waits_for_the_next_shift():
+    """Two hours left in this shift and three to run means tomorrow, not an overrun."""
+    centre = uuid.uuid4()
+    monday = datetime(2026, 4, 6, tzinfo=UTC)
+    tuesday = datetime(2026, 4, 7, tzinfo=UTC)
+    plans = plan_work_orders(
+        [_Step(10, setup="180", run_per_unit="0", work_center_id=centre)],
+        planned_quantity=Decimal("1"),
+        start_at=datetime(2026, 4, 6, 12, 0, tzinfo=UTC),
+        windows_by_work_center={centre: [_day_shift(monday), _day_shift(tuesday)]},
+    )
+    assert plans[0].planned_start_at == datetime(2026, 4, 7, 6, 0, tzinfo=UTC)
+    assert plans[0].planned_end_at == datetime(2026, 4, 7, 9, 0, tzinfo=UTC)
+
+
+def test_an_operation_longer_than_any_shift_overruns_from_the_earliest_window():
+    """Nine hours cannot fit in an eight-hour shift; it starts at six anyway."""
+    centre = uuid.uuid4()
+    monday = datetime(2026, 4, 6, tzinfo=UTC)
+    plans = plan_work_orders(
+        [_Step(10, setup="540", run_per_unit="0", work_center_id=centre)],
+        planned_quantity=Decimal("1"),
+        start_at=datetime(2026, 4, 6, 0, 0, tzinfo=UTC),
+        windows_by_work_center={centre: [_day_shift(monday)]},
+    )
+    assert plans[0].planned_start_at == datetime(2026, 4, 6, 6, 0, tzinfo=UTC)
+    assert plans[0].planned_end_at == datetime(2026, 4, 6, 15, 0, tzinfo=UTC)
+
+
+def test_windows_are_per_work_centre_and_merge_touching_shifts():
+    """Two centres keep their own calendars; back-to-back shifts are one day."""
+    cutting = uuid.uuid4()
+    assembly = uuid.uuid4()
+    monday = datetime(2026, 4, 6, tzinfo=UTC)
+    morning = _day_shift(monday)
+    evening = (morning[1], monday.replace(hour=22, minute=0))
+    plans = plan_work_orders(
+        [
+            _Step(10, setup="120", run_per_unit="0", work_center_id=cutting),
+            _Step(20, setup="120", run_per_unit="0", work_center_id=assembly),
+        ],
+        planned_quantity=Decimal("1"),
+        start_at=datetime(2026, 4, 6, 0, 0, tzinfo=UTC),
+        windows_by_work_center={
+            # Touching shifts merge, so a 2-hour job starting at 06:00 ends 08:00.
+            cutting: [morning, evening],
+            # Assembly works nights only: the second step waits for 22:00 even
+            # though the first finished at 08:00.
+            assembly: [(monday.replace(hour=22, minute=0), datetime(2026, 4, 7, 6, 0, tzinfo=UTC))],
+        },
+    )
+    assert plans[0].planned_start_at == datetime(2026, 4, 6, 6, 0, tzinfo=UTC)
+    assert plans[0].planned_end_at == datetime(2026, 4, 6, 8, 0, tzinfo=UTC)
+    assert plans[1].planned_start_at == datetime(2026, 4, 6, 22, 0, tzinfo=UTC)
+    assert plans[1].planned_end_at == datetime(2026, 4, 7, 0, 0, tzinfo=UTC)
+
+
+def test_a_centre_with_no_windows_plans_round_the_clock():
+    """The roster covering one cell does not stop the uncovered one."""
+    staffed = uuid.uuid4()
+    unstaffed = uuid.uuid4()
+    monday = datetime(2026, 4, 6, tzinfo=UTC)
+    plans = plan_work_orders(
+        [_Step(10, setup="60", run_per_unit="0", work_center_id=unstaffed)],
+        planned_quantity=Decimal("1"),
+        start_at=datetime(2026, 4, 6, 0, 0, tzinfo=UTC),
+        windows_by_work_center={staffed: [_day_shift(monday)]},
+    )
+    assert plans[0].planned_start_at == datetime(2026, 4, 6, 0, 0, tzinfo=UTC)
+    assert plans[0].planned_end_at == datetime(2026, 4, 6, 1, 0, tzinfo=UTC)

@@ -22,11 +22,11 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, and_, delete, exists, func, literal, or_, select
+from sqlalchemy import Numeric, Select, and_, cast, delete, exists, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -105,6 +105,21 @@ class RoutingItemInfo:
     code: str
     can_manufacture: bool
     is_active: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RosterWindow:
+    """One PLANNED shift window at a work centre, as UTC instants.
+
+    The roster stores the window twice - the local ``roster_date`` it belongs
+    to and the ``starts_at``/``ends_at`` instants - and planning reads the
+    instants: capacity and scheduling compare against work-order windows, which
+    are instants too.
+    """
+
+    work_center_id: uuid.UUID
+    starts_at: datetime
+    ends_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -942,6 +957,103 @@ class ShiftAssignmentRepository(BaseRepository[ShiftAssignment]):
         stmt = stmt.order_by(ShiftAssignment.starts_at.asc(), ShiftAssignment.id.asc()).limit(limit)
         return list((await self.session.execute(stmt)).scalars().all())
 
+    async def windows_for_centres(
+        self,
+        work_center_ids: Sequence[uuid.UUID],
+        day_from: date,
+        day_to: date,
+        *,
+        limit: int = 5000,
+    ) -> list[RosterWindow]:
+        """PLANNED shift windows at these work centres, overlapping the date range.
+
+        One statement for every centre the planner is scheduling, bounded by the
+        caller - a year of daily windows for a cell with three shifts is about a
+        thousand rows. Cell-level and machine-level rows both count: either way
+        the centre is staffed and its machines may run.
+        """
+        unique = list(dict.fromkeys(work_center_ids))
+        if not unique or day_to < day_from:
+            return []
+        start = datetime.combine(day_from, datetime.min.time(), tzinfo=UTC)
+        end = datetime.combine(day_to + timedelta(days=1), datetime.min.time(), tzinfo=UTC)
+        stmt = (
+            select(
+                ShiftAssignment.work_center_id,
+                ShiftAssignment.starts_at,
+                ShiftAssignment.ends_at,
+            )
+            .where(
+                ShiftAssignment.company_id == self.tenant.company_id,
+                ShiftAssignment.status == ShiftAssignmentStatus.PLANNED,
+                ShiftAssignment.work_center_id.in_(unique),
+                ShiftAssignment.starts_at < end,
+                ShiftAssignment.ends_at > start,
+            )
+            .order_by(ShiftAssignment.starts_at.asc(), ShiftAssignment.id.asc())
+            .limit(limit + 1)
+        )
+        rows = (await self.session.execute(stmt)).all()[:limit]
+        return [
+            RosterWindow(
+                work_center_id=row.work_center_id,
+                starts_at=row.starts_at,
+                ends_at=row.ends_at,
+            )
+            for row in rows
+        ]
+
+    async def rostered_minutes_by_centre(
+        self,
+        day_from: date,
+        day_to: date,
+        work_center_ids: Sequence[uuid.UUID] = (),
+    ) -> dict[tuple[uuid.UUID, date], Decimal]:
+        """Rostered minutes per work centre per date, net of shift breaks.
+
+        One grouped statement for the whole board. Only dates with PLANNED rows
+        appear - a centre-day with no roster is the caller's cue to fall back
+        to the centre's standard working hours, which is how the capacity board
+        tells "nothing rostered" apart from "rostered but idle".
+        """
+        if day_to < day_from:
+            return {}
+        company = self.tenant.company_id
+        minutes = func.coalesce(
+            func.sum(
+                cast(
+                    func.extract("epoch", ShiftAssignment.ends_at - ShiftAssignment.starts_at),
+                    Numeric,
+                )
+                / 60
+                - Shift.break_minutes
+            ),
+            0,
+        )
+        stmt = (
+            select(
+                ShiftAssignment.work_center_id,
+                ShiftAssignment.roster_date,
+                minutes.label("rostered_minutes"),
+            )
+            .join(Shift, and_(Shift.id == ShiftAssignment.shift_id, Shift.company_id == company))
+            .where(
+                ShiftAssignment.company_id == company,
+                ShiftAssignment.status == ShiftAssignmentStatus.PLANNED,
+                ShiftAssignment.roster_date >= day_from,
+                ShiftAssignment.roster_date <= day_to,
+            )
+            .group_by(ShiftAssignment.work_center_id, ShiftAssignment.roster_date)
+        )
+        if work_center_ids:
+            stmt = stmt.where(
+                ShiftAssignment.work_center_id.in_(list(dict.fromkeys(work_center_ids)))
+            )
+        return {
+            (row.work_center_id, row.roster_date): Decimal(str(row.rostered_minutes))
+            for row in (await self.session.execute(stmt)).all()
+        }
+
     async def is_rostered(
         self,
         *,
@@ -1074,6 +1186,7 @@ __all__ = [
     "MachineRepository",
     "OperatorFacts",
     "RosterOperatorRepository",
+    "RosterWindow",
     "RoutingItemInfo",
     "RoutingOperationRepository",
     "RoutingRepository",

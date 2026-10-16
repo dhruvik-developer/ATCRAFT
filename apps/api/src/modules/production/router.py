@@ -60,6 +60,7 @@ from src.modules.production.models import (
 from src.modules.production.schemas import (
     ApproveRequest,
     CancelRequest,
+    CapacityFilters,
     CloseRequest,
     CloseResult,
     CompleteRequest,
@@ -71,6 +72,7 @@ from src.modules.production.schemas import (
     MaterialIssuePostRequest,
     MaterialIssuePostResult,
     MaterialIssueRead,
+    ProductionCapacityDay,
     ProductionCostRead,
     ProductionEntryCreate,
     ProductionEntryFilters,
@@ -230,11 +232,24 @@ def wip_filters(
     )
 
 
+def capacity_filters(
+    date_from: Annotated[date | None, Query(description="First date on the board")] = None,
+    date_to: Annotated[date | None, Query(description="Last date on the board")] = None,
+    work_center_id: Annotated[uuid.UUID | None, Query()] = None,
+) -> CapacityFilters:
+    return CapacityFilters(
+        date_from=date_from,
+        date_to=date_to,
+        work_center_id=work_center_id,
+    )
+
+
 OrderFilterDep = Annotated[ProductionOrderFilters, Depends(order_filters)]
 IssueFilterDep = Annotated[MaterialIssueFilters, Depends(issue_filters)]
 EntryFilterDep = Annotated[ProductionEntryFilters, Depends(entry_filters)]
 WorkOrderFilterDep = Annotated[WorkOrderFilters, Depends(work_order_filters)]
 WipFilterDep = Annotated[WipFilters, Depends(wip_filters)]
+CapacityFilterDep = Annotated[CapacityFilters, Depends(capacity_filters)]
 
 
 # -----------------------------------------------------------------------------
@@ -282,6 +297,28 @@ async def get_wip_by_work_centre(
 ) -> PaginatedResponse[WipWorkCentreRow]:
     items, pagination = await service.wip_work_centres(session, tenant, filters, params)
     return PaginatedResponse[WipWorkCentreRow](data=items, pagination=pagination)
+
+
+@router.get(
+    "/capacity",
+    response_model=PaginatedResponse[ProductionCapacityDay],
+    summary="Remaining planned load per work centre per day, against capacity",
+    description=(
+        "The planning board's heat strip: every work centre crossed with every "
+        "date in the window, carrying the open operations' planned minutes "
+        "sliced across the days they touch and the day's capacity beside it. "
+        "Capacity is the rostered minutes when the roster plans that centre that "
+        "day, otherwise the centre's standard working hours. Days the plan does "
+        "not fit are flagged `over_capacity`. Defaults to four weeks from today; "
+        "at most 62 days in one request."
+    ),
+    dependencies=[require_permission(Permission.PRODUCTION_ORDER_VIEW)],
+)
+async def get_production_capacity(
+    session: DbSession, tenant: Tenant, filters: CapacityFilterDep, params: PageDep
+) -> PaginatedResponse[ProductionCapacityDay]:
+    items, pagination = await service.production_capacity(session, tenant, filters, params)
+    return PaginatedResponse[ProductionCapacityDay](data=items, pagination=pagination)
 
 
 # -----------------------------------------------------------------------------
@@ -372,6 +409,35 @@ async def cancel_material_issue(
 
 
 # -----------------------------------------------------------------------------
+# Production entries, company-wide - literal prefix, declared before /{order_id}
+# -----------------------------------------------------------------------------
+
+
+@router.get(
+    "/entries",
+    response_model=PaginatedResponse[ProductionEntryRead],
+    summary="Bookings across all jobs",
+    description=(
+        "Every shop-floor booking in the company, newest first - the daily board "
+        "behind the date-and-shift view. The same filters as the per-order "
+        "listing; narrow by entry date and shift for one day's work."
+    ),
+    dependencies=[require_permission(Permission.PRODUCTION_ORDER_VIEW)],
+)
+async def list_all_production_entries(
+    session: DbSession,
+    tenant: Tenant,
+    filters: EntryFilterDep,
+    params: PageDep,
+    sort: SortDep,
+) -> PaginatedResponse[ProductionEntryRead]:
+    items, pagination = await service.list_production_entries(
+        session, tenant, filters, params, sort
+    )
+    return PaginatedResponse[ProductionEntryRead](data=items, pagination=pagination)
+
+
+# -----------------------------------------------------------------------------
 # Work orders - literal prefix, declared before /{order_id}
 # -----------------------------------------------------------------------------
 
@@ -406,7 +472,11 @@ async def list_work_orders(
         "they only ever move through a production booking. The shift is chosen from the "
         "shift master by shift_id; its code is kept on the row as a snapshot. An operator "
         "the shift roster does not plan on that shift is accepted with a warning in the "
-        "message - the roster is advisory."
+        "message - the roster is advisory. The proposed machine and window are "
+        "re-validated too: a retired machine is refused, a machine in maintenance "
+        "or breakdown warns, and a window overlapping another open operation on the "
+        "same machine warns in the message - or is refused when machine-overlap "
+        "blocking is configured."
     ),
     dependencies=[require_permission(Permission.WORK_ORDER_MANAGE)],
 )
