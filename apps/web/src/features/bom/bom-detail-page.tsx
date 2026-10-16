@@ -29,6 +29,7 @@ import {
   GitBranch,
   Layers,
   Merge,
+  Pencil,
   RefreshCw,
   Send,
   ShieldCheck,
@@ -74,6 +75,7 @@ import {
 } from '@/components/ui/primitives'
 import { useItemFacts } from '@/features/dispatch/dispatch-types'
 import { useAuth } from '@/features/auth/auth-context'
+import { optionLabel, useWorkCentreOptions } from '@/features/production/work-order-model'
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import {
@@ -89,10 +91,11 @@ import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
-import { CopyBomDialog } from './bom-dialogs'
+import { CopyBomDialog, BomEditDialog } from './bom-dialogs'
 import {
   isApprovable,
   isDeletable,
+  isEditable,
   isObsoletable,
   isRejectable,
   isSubmittable,
@@ -100,6 +103,7 @@ import {
   type BomCostComponent,
   type BomDetail,
   type BomExplosion,
+  type BomOperation,
   type BomRow,
   type BomWhereUsedRow,
   type ExplodedComponent,
@@ -218,6 +222,16 @@ function StructurePanel({ bom }: { bom: BomDetail }) {
     () => [...(bom.lines ?? [])].sort((a, b) => a.line_number - b.line_number),
     [bom.lines],
   )
+  const operations = useMemo(
+    () => [...(bom.operations ?? [])].sort((a, b) => a.operation_sequence - b.operation_sequence),
+    [bom.operations],
+  )
+  const workCentres = useWorkCentreOptions(operations.length > 0)
+  const centreById = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const centre of workCentres.data ?? []) map.set(centre.id, optionLabel(centre))
+    return map
+  }, [workCentres.data])
 
   const names = useQuery({
     queryKey: queryKeys.bom.explosion(bom.id, bom.output_quantity),
@@ -256,7 +270,120 @@ function StructurePanel({ bom }: { bom: BomDetail }) {
         </AlertDescription>
       </Alert>
       <BomStructure lines={lines} names={nameByItemId} label={bom.code} />
+      <OperationsPanel operations={operations} centreById={centreById} />
     </div>
+  )
+}
+
+/**
+ * The labour half of the bill, as stored - not as the routing currently reads.
+ *
+ * `bom_operations` is a snapshot: approving a bill without operations copies
+ * the item's default routing in, and later routing edits do not rewrite it.
+ * An empty bill costs material only, which is exactly what the Cost tab will
+ * show until steps are added here or snapshotted at approval.
+ */
+function OperationsPanel({
+  operations,
+  centreById,
+}: {
+  operations: BomOperation[]
+  centreById: Map<string, string>
+}) {
+  const columns = useMemo<ColumnDef<BomOperation, unknown>[]>(
+    () => [
+      {
+        id: 'operation_sequence',
+        header: 'Step',
+        meta: { align: 'right' },
+        cell: ({ row }) => <span className="tabular">{row.original.operation_sequence}</span>,
+      },
+      {
+        id: 'name',
+        header: 'Operation',
+        enableSorting: false,
+        cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
+      },
+      {
+        id: 'work_center',
+        header: 'Work centre',
+        enableSorting: false,
+        cell: ({ row }) =>
+          row.original.work_center_id ? (
+            (centreById.get(row.original.work_center_id) ?? 'Assigned')
+          ) : (
+            <span className="text-muted-foreground">-</span>
+          ),
+      },
+      {
+        id: 'setup_time_minutes',
+        header: 'Setup (min)',
+        enableSorting: false,
+        meta: { align: 'right' },
+        cell: ({ row }) => formatQuantity(row.original.setup_time_minutes),
+      },
+      {
+        id: 'run_time_minutes_per_unit',
+        header: 'Run / unit (min)',
+        enableSorting: false,
+        meta: { align: 'right' },
+        cell: ({ row }) => formatQuantity(row.original.run_time_minutes_per_unit),
+      },
+      {
+        id: 'cost_per_hour',
+        header: 'Rate / hour',
+        enableSorting: false,
+        meta: { align: 'right' },
+        cell: ({ row }) => formatMoney(row.original.cost_per_hour),
+      },
+      {
+        id: 'fixed_cost',
+        header: 'Fixed charge',
+        enableSorting: false,
+        meta: { align: 'right' },
+        cell: ({ row }) => formatMoney(row.original.fixed_cost),
+      },
+      {
+        id: 'is_outsourced',
+        header: '',
+        enableSorting: false,
+        cell: ({ row }) =>
+          row.original.is_outsourced ? (
+            <Badge variant="warning">Job work</Badge>
+          ) : (
+            <span className="text-muted-foreground">-</span>
+          ),
+      },
+    ],
+    [centreById],
+  )
+
+  if (operations.length === 0) {
+    return (
+      <Alert variant="info">
+        <AlertTitle>No operations on this bill</AlertTitle>
+        <AlertDescription>
+          Material only, until steps are added on a draft or snapshotted from the item&apos;s
+          default routing at approval.
+        </AlertDescription>
+      </Alert>
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Operations</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <DataTable
+          columns={columns}
+          data={operations}
+          getRowId={(row) => row.id}
+          emptyTitle="No operations"
+        />
+      </CardContent>
+    </Card>
   )
 }
 
@@ -814,6 +941,7 @@ export default function BomDetailPage() {
   const [reason, setReason] = useState('')
   const [reasonTouched, setReasonTouched] = useState(false)
   const [copyOpen, setCopyOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
 
   const reasonTooShort = reason.trim().length < REASON_MIN_LENGTH
 
@@ -957,6 +1085,9 @@ export default function BomDetailPage() {
   const canSubmit = can(P.BOM_UPDATE) && isSubmittable(bom.status)
   const canApprove = can(P.BOM_APPROVE) && isApprovable(bom.status)
   const canReject = can(P.BOM_APPROVE) && isRejectable(bom.status)
+  // Only a draft still accepts line edits, and the API enforces the same rule:
+  // PATCH on any other status is refused by name.
+  const canEdit = can(P.BOM_UPDATE) && isEditable(bom.status)
   // Retiring and deleting are both `bom.obsolete`, not `bom.update`: that is
   // what `POST /bom/{id}/obsolete` and `DELETE /bom/{id}` declare in the BOM
   // router. Deletion has no right of its own in the registry, and the API
@@ -1011,6 +1142,12 @@ export default function BomDetailPage() {
               <Button variant="outline" onClick={() => setCopyOpen(true)}>
                 <Copy />
                 Copy as new version
+              </Button>
+            )}
+            {canEdit && (
+              <Button variant="outline" onClick={() => setEditOpen(true)}>
+                <Pencil />
+                Edit draft
               </Button>
             )}
             {/* Two separate buttons on purpose, and never both at once: the
@@ -1167,6 +1304,8 @@ export default function BomDetailPage() {
           onCopied={(created) => navigate(`/bom/${created.id}`)}
         />
       )}
+
+      {canEdit && <BomEditDialog bom={bom} open={editOpen} onOpenChange={setEditOpen} />}
     </>
   )
 }

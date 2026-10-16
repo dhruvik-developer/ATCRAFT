@@ -35,7 +35,8 @@ import { Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useUomOptions } from '@/features/items/item-model'
-import { api } from '@/lib/api-client'
+import { optionLabel, useWorkCentreOptions } from '@/features/production/work-order-model'
+import { ApiError, api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
@@ -590,6 +591,605 @@ export function BomFormDialog({
             </Button>
             <Button type="submit" loading={mutation.isPending}>
               Create BOM
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ------------------------------------------------------------ edit draft ----
+
+/**
+ * One component line on the edit form.
+ *
+ * The grid carries every field `PATCH /bom/{id}` accepts on a line -
+ * substitute and operation staging included, which the create dialog never
+ * collected - because an edit that cannot see them would silently keep values
+ * the engineer did not review. `substitute_for_index` is the target row's
+ * position, translated to the API's line numbers on submit; both travel
+ * together, so the numbering cannot drift between them.
+ */
+const editLineSchema = z.object({
+  component_item_id: z.string().min(1, 'Choose a component'),
+  quantity_per: z
+    .string()
+    .trim()
+    .regex(DECIMAL, 'Enter a quantity with up to 4 decimal places')
+    .refine((value) => value !== '0', 'Quantity per must be more than zero'),
+  scrap_percentage: z.string().trim().regex(DECIMAL, 'Enter a percentage with up to 4 decimals'),
+  is_optional: z.boolean(),
+  substitute_for_index: z.number().int().min(0).nullable(),
+  operation_sequence: z
+    .string()
+    .trim()
+    .regex(/^(\d{1,5})?$/, 'Enter the operation step number, if any'),
+  notes: z.string().trim().max(2000, 'Notes are at most 2000 characters'),
+})
+
+/**
+ * One operation on the edit form.
+ *
+ * `sequence` is the step number the lines stage against, carried rather than
+ * edited: renumbering steps would orphan the staging the lines name. A new row
+ * takes the next free step above the highest one on submit.
+ */
+const editOperationSchema = z.object({
+  sequence: z.number().int().positive().nullable(),
+  name: z.string().trim().min(1, 'An operation name is required').max(255),
+  work_center_id: z.string().nullable(),
+  setup_time_minutes: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
+  run_time_minutes_per_unit: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
+  cost_per_hour: z.string().trim().regex(DECIMAL, 'Enter an amount with up to 4 decimals'),
+  fixed_cost: z.string().trim().regex(DECIMAL, 'Enter an amount with up to 4 decimals'),
+  is_outsourced: z.boolean(),
+  notes: z.string().trim().max(2000, 'Notes are at most 2000 characters'),
+})
+
+const editSchema = z
+  .object({
+    lines: z.array(editLineSchema).min(1, 'A bill needs at least one component line'),
+    operations: z.array(editOperationSchema),
+  })
+  .superRefine((values, context) => {
+    values.lines.forEach((line, index) => {
+      if (line.substitute_for_index === index) {
+        context.addIssue({
+          code: 'custom',
+          path: ['lines', index, 'substitute_for_index'],
+          message: 'A line cannot substitute for itself.',
+        })
+      }
+    })
+  })
+
+type EditValues = z.infer<typeof editSchema>
+
+function emptyEditLine(): EditValues['lines'][number] {
+  return {
+    component_item_id: '',
+    quantity_per: '1',
+    scrap_percentage: '0',
+    is_optional: false,
+    substitute_for_index: null,
+    operation_sequence: '',
+    notes: '',
+  }
+}
+
+function emptyEditOperation(): EditValues['operations'][number] {
+  return {
+    sequence: null,
+    name: '',
+    work_center_id: null,
+    setup_time_minutes: '0',
+    run_time_minutes_per_unit: '0',
+    cost_per_hour: '0',
+    fixed_cost: '0',
+    is_outsourced: false,
+    notes: '',
+  }
+}
+
+function editDefaults(bom: BomDetail): EditValues {
+  const lines = [...(bom.lines ?? [])].sort((a, b) => a.line_number - b.line_number)
+  const idToIndex = new Map(lines.map((line, index) => [line.id, index]))
+  return {
+    lines: lines.map((line) => ({
+      component_item_id: line.component_item_id,
+      quantity_per: line.quantity_per,
+      scrap_percentage: line.scrap_percentage,
+      is_optional: line.is_optional,
+      substitute_for_index:
+        line.substitute_for_line_id == null
+          ? null
+          : (idToIndex.get(line.substitute_for_line_id) ?? null),
+      operation_sequence: line.operation_sequence == null ? '' : String(line.operation_sequence),
+      notes: line.notes ?? '',
+    })),
+    operations: [...(bom.operations ?? [])]
+      .sort((a, b) => a.operation_sequence - b.operation_sequence)
+      .map((operation) => ({
+        sequence: operation.operation_sequence,
+        name: operation.name,
+        work_center_id: operation.work_center_id,
+        setup_time_minutes: operation.setup_time_minutes,
+        run_time_minutes_per_unit: operation.run_time_minutes_per_unit,
+        cost_per_hour: operation.cost_per_hour,
+        fixed_cost: operation.fixed_cost,
+        is_outsourced: operation.is_outsourced,
+        notes: operation.notes ?? '',
+      })),
+  }
+}
+
+export function BomEditDialog({
+  bom,
+  open,
+  onOpenChange,
+}: {
+  /** The draft being edited, with its lines and operations already loaded. */
+  bom: BomDetail | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const queryClient = useQueryClient()
+  const workCentres = useWorkCentreOptions(open)
+  const centreRows = workCentres.data ?? []
+
+  const {
+    control,
+    register,
+    handleSubmit,
+    reset,
+    setError,
+    formState: { errors },
+  } = useForm<EditValues>({
+    resolver: zodResolver(editSchema),
+    defaultValues: bom ? editDefaults(bom) : { lines: [emptyEditLine()], operations: [] },
+  })
+
+  const {
+    fields: lineFields,
+    append: appendLine,
+    remove: removeLine,
+  } = useFieldArray({ control, name: 'lines' })
+  const {
+    fields: operationFields,
+    append: appendOperation,
+    remove: removeOperation,
+  } = useFieldArray({ control, name: 'operations' })
+
+  // Seeded from the loaded bill on every opening: a background refetch must
+  // not rewrite what the engineer is editing.
+  useEffect(() => {
+    if (open && bom) reset(editDefaults(bom))
+  }, [open, bom, reset])
+
+  const mutation = useMutation({
+    mutationFn: (values: EditValues) => {
+      // Sequences for brand-new operations continue past the highest kept
+      // step, so they cannot collide with one the lines already stage at.
+      let nextSequence =
+        values.operations.reduce<number>(
+          (highest, operation) => Math.max(highest, operation.sequence ?? 0),
+          0,
+        ) + 10
+      const operations = values.operations.map((operation) => {
+        const sequence = operation.sequence ?? nextSequence
+        if (operation.sequence == null) nextSequence += 10
+        return {
+          operation_sequence: sequence,
+          name: operation.name.trim(),
+          work_center_id: operation.work_center_id,
+          setup_time_minutes: operation.setup_time_minutes.trim(),
+          run_time_minutes_per_unit: operation.run_time_minutes_per_unit.trim(),
+          cost_per_hour: operation.cost_per_hour.trim(),
+          fixed_cost: operation.fixed_cost.trim(),
+          is_outsourced: operation.is_outsourced,
+          notes: operation.notes.trim() || null,
+        }
+      })
+      return api.patch<BomDetail>(`/bom/${bom?.id}`, {
+        lines: values.lines.map((line, index) => ({
+          line_number: index + 1,
+          component_item_id: line.component_item_id,
+          quantity_per: line.quantity_per.trim(),
+          scrap_percentage: line.scrap_percentage.trim(),
+          is_optional: line.is_optional,
+          substitute_for_line_number:
+            line.substitute_for_index == null ? null : line.substitute_for_index + 1,
+          operation_sequence:
+            line.operation_sequence === '' ? null : Number(line.operation_sequence),
+          notes: line.notes.trim() || null,
+        })),
+        operations,
+      })
+    },
+    onSuccess: (saved) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.bom.all })
+      toast.success(success.updated('BOM'), `${saved.code} v${saved.version} updated.`)
+      onOpenChange(false)
+    },
+    onError: (error) => {
+      // The bill carries an optimistic lock: a second engineer saving first
+      // answers this save with a 409, which has no field behind it. It lands
+      // on the form's root slot (and the mutation toast) rather than vanishing
+      // into the field-error machinery, which only speaks 422.
+      if (error instanceof ApiError && error.status === 409) {
+        setError('root', { type: 'server', message: error.message })
+        return
+      }
+      applyFieldErrors(error, setError)
+    },
+  })
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="xl">
+        <DialogHeader>
+          <DialogTitle>Edit {bom?.code ?? 'draft'}</DialogTitle>
+          <DialogDescription>
+            Lines and operations replace the draft wholesale. A bill that someone else saved first
+            refuses with a conflict - reload it and re-apply the change.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form
+          onSubmit={handleSubmit((values) => mutation.mutate(values))}
+          className="flex min-h-0 flex-col gap-4"
+          noValidate
+        >
+          <DialogBody className="space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Components</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => appendLine(emptyEditLine())}
+                >
+                  <Plus />
+                  Add line
+                </Button>
+              </div>
+
+              {lineFields.map((field, index) => (
+                <div
+                  key={field.id}
+                  className="grid items-start gap-3 rounded-md border p-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_6rem_5rem_7rem_6rem_auto]"
+                >
+                  <div className="min-w-0">
+                    <Controller
+                      control={control}
+                      name={`lines.${index}.component_item_id`}
+                      render={({ field: pick }) => (
+                        <ItemPicker
+                          id={`bom-edit-line-item-${index}`}
+                          label={`Component ${index + 1}`}
+                          hideLabel
+                          value={pick.value || null}
+                          onChange={(itemId) => pick.onChange(itemId ?? '')}
+                          placeholder="Search the item master"
+                          invalid={Boolean(errors.lines?.[index]?.component_item_id)}
+                        />
+                      )}
+                    />
+                    <FieldError message={errors.lines?.[index]?.component_item_id?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor={`bom-edit-line-qty-${index}`} className="text-xs">
+                      Qty per
+                    </Label>
+                    <Input
+                      id={`bom-edit-line-qty-${index}`}
+                      inputMode="decimal"
+                      {...register(`lines.${index}.quantity_per`)}
+                      aria-invalid={Boolean(errors.lines?.[index]?.quantity_per)}
+                      className="mt-1 text-right tabular"
+                    />
+                    <FieldError message={errors.lines?.[index]?.quantity_per?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor={`bom-edit-line-scrap-${index}`} className="text-xs">
+                      Scrap %
+                    </Label>
+                    <Input
+                      id={`bom-edit-line-scrap-${index}`}
+                      inputMode="decimal"
+                      {...register(`lines.${index}.scrap_percentage`)}
+                      aria-invalid={Boolean(errors.lines?.[index]?.scrap_percentage)}
+                      className="mt-1 text-right tabular"
+                    />
+                    <FieldError message={errors.lines?.[index]?.scrap_percentage?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor={`bom-edit-line-opseq-${index}`} className="text-xs">
+                      At operation
+                    </Label>
+                    <Input
+                      id={`bom-edit-line-opseq-${index}`}
+                      inputMode="numeric"
+                      placeholder="Any"
+                      {...register(`lines.${index}.operation_sequence`)}
+                      aria-invalid={Boolean(errors.lines?.[index]?.operation_sequence)}
+                      className="mt-1 text-right tabular"
+                    />
+                    <FieldError message={errors.lines?.[index]?.operation_sequence?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor={`bom-edit-line-sub-${index}`} className="text-xs">
+                      Substitutes
+                    </Label>
+                    <Controller
+                      control={control}
+                      name={`lines.${index}.substitute_for_index`}
+                      render={({ field: sub }) => (
+                        <Select
+                          value={sub.value == null ? SELECT_NONE : String(sub.value)}
+                          onValueChange={(value) =>
+                            sub.onChange(value === SELECT_NONE ? null : Number(value))
+                          }
+                        >
+                          <SelectTrigger
+                            id={`bom-edit-line-sub-${index}`}
+                            className="mt-1"
+                            aria-label={`Line ${index + 1} substitutes for`}
+                          >
+                            <SelectValue placeholder="Primary" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={SELECT_NONE}>Primary line</SelectItem>
+                            {lineFields.map((_, other) =>
+                              other === index ? null : (
+                                <SelectItem key={other} value={String(other)}>
+                                  Line {other + 1}
+                                </SelectItem>
+                              ),
+                            )}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                    <FieldError message={errors.lines?.[index]?.substitute_for_index?.message} />
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-6">
+                    <Controller
+                      control={control}
+                      name={`lines.${index}.is_optional`}
+                      render={({ field: flag }) => (
+                        <Checkbox
+                          id={`bom-edit-line-optional-${index}`}
+                          checked={flag.value}
+                          onCheckedChange={(checked) => flag.onChange(checked === true)}
+                          aria-label={`Component ${index + 1} is optional`}
+                        />
+                      )}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      disabled={lineFields.length === 1}
+                      aria-label={`Remove component ${index + 1}`}
+                      onClick={() => removeLine(index)}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+
+                  <div className="sm:col-span-2 lg:col-span-6">
+                    <Label htmlFor={`bom-edit-line-notes-${index}`} className="text-xs">
+                      Line notes
+                    </Label>
+                    <Input
+                      id={`bom-edit-line-notes-${index}`}
+                      {...register(`lines.${index}.notes`)}
+                      autoComplete="off"
+                      className="mt-1"
+                    />
+                    <FieldError message={errors.lines?.[index]?.notes?.message} />
+                  </div>
+
+                  {errors.lines?.[index]?.message && (
+                    <div className="sm:col-span-2 lg:col-span-6">
+                      <FieldError message={errors.lines?.[index]?.message} />
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              <FieldError message={errors.lines?.message ?? errors.lines?.root?.message} />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Operations</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => appendOperation(emptyEditOperation())}
+                >
+                  <Plus />
+                  Add operation
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                The labour steps this bill costs. A draft with no operations takes the item&apos;s
+                default routing when it is approved.
+              </p>
+
+              {operationFields.map((field, index) => (
+                <div
+                  key={field.id}
+                  className="grid items-start gap-3 rounded-md border p-3 sm:grid-cols-2 lg:grid-cols-[5rem_minmax(0,1fr)_minmax(0,1fr)_auto]"
+                >
+                  <div>
+                    <Label htmlFor={`bom-edit-op-name-${index}`} className="text-xs">
+                      Step {field.sequence ?? 'new'}
+                    </Label>
+                    <Input
+                      id={`bom-edit-op-name-${index}`}
+                      {...register(`operations.${index}.name`)}
+                      autoComplete="off"
+                      placeholder="Operation name"
+                      aria-invalid={Boolean(errors.operations?.[index]?.name)}
+                      className="mt-1"
+                    />
+                    <FieldError message={errors.operations?.[index]?.name?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor={`bom-edit-op-wc-${index}`} className="text-xs">
+                      Work centre
+                    </Label>
+                    <Controller
+                      control={control}
+                      name={`operations.${index}.work_center_id`}
+                      render={({ field: centre }) => (
+                        <Select
+                          value={centre.value ?? SELECT_NONE}
+                          onValueChange={(value) =>
+                            centre.onChange(value === SELECT_NONE ? null : value)
+                          }
+                        >
+                          <SelectTrigger
+                            id={`bom-edit-op-wc-${index}`}
+                            className="mt-1"
+                            aria-label="Operation work centre"
+                          >
+                            <SelectValue
+                              placeholder={workCentres.isLoading ? 'Loading...' : 'No centre'}
+                            />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={SELECT_NONE}>No centre</SelectItem>
+                            {centreRows.map((row) => (
+                              <SelectItem key={row.id} value={row.id}>
+                                {optionLabel(row)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                    <FieldError message={errors.operations?.[index]?.work_center_id?.message} />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label htmlFor={`bom-edit-op-setup-${index}`} className="text-xs">
+                        Setup (min)
+                      </Label>
+                      <Input
+                        id={`bom-edit-op-setup-${index}`}
+                        inputMode="decimal"
+                        {...register(`operations.${index}.setup_time_minutes`)}
+                        className="mt-1 text-right tabular"
+                      />
+                      <FieldError
+                        message={errors.operations?.[index]?.setup_time_minutes?.message}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor={`bom-edit-op-run-${index}`} className="text-xs">
+                        Run / unit
+                      </Label>
+                      <Input
+                        id={`bom-edit-op-run-${index}`}
+                        inputMode="decimal"
+                        {...register(`operations.${index}.run_time_minutes_per_unit`)}
+                        className="mt-1 text-right tabular"
+                      />
+                      <FieldError
+                        message={errors.operations?.[index]?.run_time_minutes_per_unit?.message}
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor={`bom-edit-op-rate-${index}`} className="text-xs">
+                        Rate / hour
+                      </Label>
+                      <Input
+                        id={`bom-edit-op-rate-${index}`}
+                        inputMode="decimal"
+                        {...register(`operations.${index}.cost_per_hour`)}
+                        className="mt-1 text-right tabular"
+                      />
+                      <FieldError message={errors.operations?.[index]?.cost_per_hour?.message} />
+                    </div>
+                    <div>
+                      <Label htmlFor={`bom-edit-op-fixed-${index}`} className="text-xs">
+                        Fixed charge
+                      </Label>
+                      <Input
+                        id={`bom-edit-op-fixed-${index}`}
+                        inputMode="decimal"
+                        {...register(`operations.${index}.fixed_cost`)}
+                        className="mt-1 text-right tabular"
+                      />
+                      <FieldError message={errors.operations?.[index]?.fixed_cost?.message} />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-6">
+                    <Controller
+                      control={control}
+                      name={`operations.${index}.is_outsourced`}
+                      render={({ field: flag }) => (
+                        <Checkbox
+                          id={`bom-edit-op-outsourced-${index}`}
+                          checked={flag.value}
+                          onCheckedChange={(checked) => flag.onChange(checked === true)}
+                          aria-label={`Operation ${index + 1} is outsourced`}
+                        />
+                      )}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Remove operation ${index + 1}`}
+                      onClick={() => removeOperation(index)}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+
+                  {errors.operations?.[index]?.message && (
+                    <div className="sm:col-span-2 lg:col-span-4">
+                      <FieldError message={errors.operations?.[index]?.message} />
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              <FieldError
+                message={errors.operations?.message ?? errors.operations?.root?.message}
+              />
+            </div>
+
+            <FieldError message={errors.root?.message} />
+          </DialogBody>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={mutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={mutation.isPending}>
+              Save changes
             </Button>
           </DialogFooter>
         </form>

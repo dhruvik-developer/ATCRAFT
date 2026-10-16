@@ -14,8 +14,8 @@ import { describe, expect, it } from 'vitest'
 import { P } from '@/lib/permissions'
 import { fail, ok, page, renderScreen, type RouteTable } from '@/test/harness'
 
-import { BomFormDialog } from './bom-dialogs'
-import type { BomRow } from './bom-model'
+import { BomEditDialog, BomFormDialog } from './bom-dialogs'
+import type { BomDetail, BomRow } from './bom-model'
 
 const ITEM = {
   id: 'it000000-0000-7000-8000-000000000001',
@@ -158,5 +158,146 @@ describe('a refused line', () => {
     ).toBeInTheDocument()
     // The dialog stays open so the line can be corrected.
     expect(within(dialog).getByRole('button', { name: /create bom/i })).toBeVisible()
+  })
+})
+
+/**
+ * The draft editor.
+ *
+ * A draft bill is corrected in place rather than re-keyed: the dialog prefills
+ * both grids from the loaded bill and PATCHes them wholesale, and a bill
+ * someone else saved first answers 409, which has to say so on the form rather
+ * than vanishing into the field-error machinery.
+ */
+const SCREW = {
+  id: 'it000000-0000-7000-8000-000000000003',
+  code: 'SCREW-M4',
+  name: 'Screw M4',
+}
+
+const DRAFT_BOM: BomDetail = {
+  ...PRODUCTION_BOM,
+  id: 'bom00000-0000-7000-8000-000000000009',
+  code: 'BOM/DOOR-CLOSER-A/2',
+  status: 'DRAFT',
+  notes: null,
+  lines: [
+    {
+      id: 'bl000000-0000-7000-8000-000000000001',
+      bom_id: 'bom00000-0000-7000-8000-000000000009',
+      line_number: 1,
+      component_item_id: SCREW.id,
+      quantity_per: '6.0000',
+      uom_id: UOM.id,
+      scrap_percentage: '5.0000',
+      is_optional: false,
+      substitute_for_line_id: null,
+      operation_sequence: 10,
+      notes: null,
+    },
+    {
+      id: 'bl000000-0000-7000-8000-000000000002',
+      bom_id: 'bom00000-0000-7000-8000-000000000009',
+      line_number: 2,
+      component_item_id: ITEM.id,
+      quantity_per: '1.0000',
+      uom_id: UOM.id,
+      scrap_percentage: '0.0000',
+      is_optional: true,
+      substitute_for_line_id: 'bl000000-0000-7000-8000-000000000001',
+      operation_sequence: null,
+      notes: 'Spare closer',
+    },
+  ],
+  operations: [
+    {
+      id: 'bo000000-0000-7000-8000-000000000001',
+      bom_id: 'bom00000-0000-7000-8000-000000000009',
+      operation_sequence: 10,
+      name: 'Cut to length',
+      description: null,
+      work_center_id: null,
+      routing_operation_id: null,
+      setup_time_minutes: '30.0000',
+      run_time_minutes_per_unit: '2.0000',
+      cost_per_hour: '600.0000',
+      fixed_cost: '50.0000',
+      is_outsourced: false,
+      notes: null,
+    },
+  ],
+}
+
+function renderEditDialog(routes: RouteTable = {}) {
+  return renderScreen(<BomEditDialog bom={{ ...DRAFT_BOM }} open onOpenChange={() => {}} />, {
+    permissions: [P.BOM_VIEW, P.BOM_UPDATE],
+    routes: {
+      [`GET /products/items/${SCREW.id}`]: ok(SCREW),
+      [`GET /products/items/${ITEM.id}`]: ok(ITEM),
+      'GET /routing/work-centers': page([]),
+      ...routes,
+    },
+  })
+}
+
+describe('editing a draft', () => {
+  it('sends the prefilled lines and operations wholesale on save', async () => {
+    const { user, fetch } = renderEditDialog({
+      [`PATCH /bom/${DRAFT_BOM.id}`]: ok(DRAFT_BOM),
+    })
+
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /save changes/i }))
+
+    await expect.poll(() => fetch.calls.some((call) => call.method === 'PATCH')).toBe(true)
+    const body = fetch.requestFor('PATCH', `/bom/${DRAFT_BOM.id}`) as {
+      lines: Record<string, unknown>[]
+      operations: Record<string, unknown>[]
+    }
+    expect(body.lines).toHaveLength(2)
+    expect(body.lines[0]).toMatchObject({
+      line_number: 1,
+      component_item_id: SCREW.id,
+      quantity_per: '6.0000',
+      scrap_percentage: '5.0000',
+      is_optional: false,
+      substitute_for_line_number: null,
+      operation_sequence: 10,
+      notes: null,
+    })
+    // The substitute points at the first line's number, translated from the id.
+    expect(body.lines[1]).toMatchObject({
+      line_number: 2,
+      substitute_for_line_number: 1,
+      operation_sequence: null,
+      is_optional: true,
+    })
+    expect(body.operations).toHaveLength(1)
+    expect(body.operations[0]).toMatchObject({
+      operation_sequence: 10,
+      name: 'Cut to length',
+      setup_time_minutes: '30.0000',
+      run_time_minutes_per_unit: '2.0000',
+      cost_per_hour: '600.0000',
+      fixed_cost: '50.0000',
+      is_outsourced: false,
+    })
+  })
+
+  it('says on the form when someone else saved first', async () => {
+    const { user } = renderEditDialog({
+      [`PATCH /bom/${DRAFT_BOM.id}`]: fail(
+        409,
+        'CONCURRENT_UPDATE',
+        'This bill was changed by someone else. Reload it and re-apply the change.',
+      ),
+    })
+
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /save changes/i }))
+
+    expect(await within(dialog).findByText(/changed by someone else/)).toBeInTheDocument()
+    // The dialog stays open so the edit can be re-applied after a reload.
+    expect(within(dialog).getByRole('button', { name: /save changes/i })).toBeVisible()
   })
 })
