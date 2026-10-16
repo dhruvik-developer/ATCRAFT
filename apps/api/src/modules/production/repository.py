@@ -41,7 +41,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -1048,6 +1048,18 @@ class WorkOrderRepository(BaseRepository[WorkOrder]):
             stmt = stmt.where(WorkOrder.shift == filters.shift)
         if filters.operator_user_id is not None:
             stmt = stmt.where(WorkOrder.operator_user_id == filters.operator_user_id)
+        if filters.planned_from is not None:
+            stmt = stmt.where(
+                WorkOrder.planned_start_at
+                >= datetime.combine(filters.planned_from, datetime.min.time(), tzinfo=UTC)
+            )
+        if filters.planned_to is not None:
+            stmt = stmt.where(
+                WorkOrder.planned_start_at
+                < datetime.combine(
+                    filters.planned_to + timedelta(days=1), datetime.min.time(), tzinfo=UTC
+                )
+            )
         return stmt
 
     async def list_page_filtered(

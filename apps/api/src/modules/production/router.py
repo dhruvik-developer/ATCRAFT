@@ -201,6 +201,12 @@ def work_order_filters(
     shift_id: Annotated[uuid.UUID | None, Query()] = None,
     shift: Annotated[str | None, Query(max_length=16)] = None,
     open_only: Annotated[bool, Query()] = False,
+    planned_from: Annotated[
+        date | None, Query(description="Only operations planned on or after this date")
+    ] = None,
+    planned_to: Annotated[
+        date | None, Query(description="Only operations planned on or before this date")
+    ] = None,
 ) -> WorkOrderFilters:
     return WorkOrderFilters(
         production_order_id=production_order_id,
@@ -211,6 +217,8 @@ def work_order_filters(
         shift_id=shift_id,
         shift=shift,
         open_only=open_only,
+        planned_from=planned_from,
+        planned_to=planned_to,
     )
 
 

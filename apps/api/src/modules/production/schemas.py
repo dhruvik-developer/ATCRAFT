@@ -656,6 +656,9 @@ class WorkOrderFilters(BaseModel):
     #: Exact match on the code snapshot - also finds rows typed before the shift master.
     shift: str | None = Field(default=None, max_length=16)
     open_only: bool = False
+    #: The planning board's window: operations whose planned start falls inside.
+    planned_from: date | None = None
+    planned_to: date | None = None
 
 
 # -----------------------------------------------------------------------------

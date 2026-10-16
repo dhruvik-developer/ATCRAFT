@@ -77,6 +77,7 @@ const ROUTES = [
   ['/procurement/purchase-returns', 'purchase_return.view'],
   ['/production', 'production_order.view'],
   ['/production/work-orders', 'work_order.view'],
+  ['/production/planning', 'production_order.view'],
   ['/assembly', 'assembly_order.view'],
   ['/job-work', 'job_work.view'],
   ['/quality', 'qc.view'],

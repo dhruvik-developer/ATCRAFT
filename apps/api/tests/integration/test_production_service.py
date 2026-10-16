@@ -93,6 +93,7 @@ from src.modules.production.schemas import (
     ProductionOrderFilters,
     ReleaseRequest,
     StartRequest,
+    WorkOrderFilters,
     WorkOrderTransitionRequest,
     WorkOrderUpdate,
 )
@@ -1241,6 +1242,26 @@ async def test_company_wide_entries_list_bookings_across_orders(db, tenant, stoc
         SortParams(),
     )
     assert [entry.production_order_id for entry in scoped] == [first.id]
+
+
+async def test_work_orders_list_filters_by_planned_window(db, tenant, stocked, approver):
+    """The planning board reads one week of operations, not the whole queue."""
+    _, work_order_id = await _released_operation(db, tenant, stocked, approver)
+    far = datetime.combine(today() + timedelta(days=30), time(9), tzinfo=UTC)
+    _, _ = await service.update_work_order(
+        db,
+        tenant,
+        work_order_id,
+        WorkOrderUpdate(planned_start_at=far, planned_end_at=far + timedelta(hours=2)),
+    )
+    filters = WorkOrderFilters(planned_from=today(), planned_to=today() + timedelta(days=6))
+    inside, _ = await service.list_work_orders(db, tenant, filters, PageParams(), SortParams())
+    assert [row.id for row in inside] == []
+    following = WorkOrderFilters(
+        planned_from=today() + timedelta(days=30), planned_to=today() + timedelta(days=36)
+    )
+    outside, _ = await service.list_work_orders(db, tenant, following, PageParams(), SortParams())
+    assert [row.id for row in outside] == [work_order_id]
 
 
 async def test_daily_production_by_shift_sums_each_shift_cell_and_operator(

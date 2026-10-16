@@ -67,6 +67,7 @@ const PurchaseReturnsPage = lazy(routeLoaders['/procurement/purchase-returns'])
 const TransportersPage = lazy(routeLoaders['/transporters'])
 const ShiftRosterPage = lazy(routeLoaders['/production/shift-roster'])
 const WorkOrdersPage = lazy(routeLoaders['/production/work-orders'])
+const PlanningPage = lazy(routeLoaders['/production/planning'])
 const QcTemplatesPage = lazy(routeLoaders['/quality/templates'])
 const DocumentsPage = lazy(routeLoaders['/documents'])
 const MastersPage = lazy(routeLoaders['/masters'])
@@ -376,6 +377,11 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
     path: '/production/work-orders',
     element: <WorkOrdersPage />,
     permissions: [P.WORK_ORDER_VIEW],
+  },
+  {
+    path: '/production/planning',
+    element: <PlanningPage />,
+    permissions: [P.PRODUCTION_ORDER_VIEW],
   },
   { path: '/quality/templates', element: <QcTemplatesPage />, permissions: [P.QC_VIEW] },
   { path: '/documents', element: <DocumentsPage />, permissions: [P.DOCUMENT_VIEW] },

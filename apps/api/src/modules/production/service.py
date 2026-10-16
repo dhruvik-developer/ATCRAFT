@@ -4167,6 +4167,7 @@ def _capacity_window(filters: CapacityFilters, as_of: date) -> tuple[date, date]
 
     Defaults to four weeks from today; refuses a window longer than
     ``MAX_CAPACITY_DAYS`` rather than answering a matrix nobody can read.
+    docs/assumptions.md §E7-6.
     """
     day_from = filters.date_from or as_of
     day_to = filters.date_to or day_from + timedelta(days=DEFAULT_CAPACITY_DAYS - 1)

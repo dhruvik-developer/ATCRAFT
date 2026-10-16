@@ -120784,6 +120784,44 @@
             }
           },
           {
+            "description": "Only operations planned on or after this date",
+            "in": "query",
+            "name": "planned_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only operations planned on or after this date",
+              "title": "Planned From"
+            }
+          },
+          {
+            "description": "Only operations planned on or before this date",
+            "in": "query",
+            "name": "planned_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only operations planned on or before this date",
+              "title": "Planned To"
+            }
+          },
+          {
             "description": "1-based page number",
             "in": "query",
             "name": "page",
@@ -123573,6 +123611,44 @@
               "default": false,
               "title": "Open Only",
               "type": "boolean"
+            }
+          },
+          {
+            "description": "Only operations planned on or after this date",
+            "in": "query",
+            "name": "planned_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only operations planned on or after this date",
+              "title": "Planned From"
+            }
+          },
+          {
+            "description": "Only operations planned on or before this date",
+            "in": "query",
+            "name": "planned_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only operations planned on or before this date",
+              "title": "Planned To"
             }
           },
           {

@@ -70236,6 +70236,10 @@ export interface operations {
                 shift_id?: string | null;
                 shift?: string | null;
                 open_only?: boolean;
+                /** @description Only operations planned on or after this date */
+                planned_from?: string | null;
+                /** @description Only operations planned on or before this date */
+                planned_to?: string | null;
                 /** @description 1-based page number */
                 page?: number;
                 /** @description Rows per page */
@@ -72031,6 +72035,10 @@ export interface operations {
                 shift_id?: string | null;
                 shift?: string | null;
                 open_only?: boolean;
+                /** @description Only operations planned on or after this date */
+                planned_from?: string | null;
+                /** @description Only operations planned on or before this date */
+                planned_to?: string | null;
                 /** @description 1-based page number */
                 page?: number;
                 /** @description Rows per page */

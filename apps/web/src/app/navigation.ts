@@ -16,6 +16,7 @@ import {
   BookOpen,
   Boxes,
   Building2,
+  CalendarDays,
   ClipboardCheck,
   ClipboardList,
   Cog,
@@ -208,6 +209,12 @@ export const navigation: NavSection[] = [
         icon: Factory,
         permissions: [P.PRODUCTION_ORDER_VIEW],
         badgeKey: 'productionInProgress',
+      },
+      {
+        label: 'Production planning',
+        to: '/production/planning',
+        icon: CalendarDays,
+        permissions: [P.PRODUCTION_ORDER_VIEW],
       },
       {
         label: 'Shift roster',

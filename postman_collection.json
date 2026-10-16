@@ -17200,6 +17200,18 @@
                   "value": "False"
                 },
                 {
+                  "description": "Only operations planned on or after this date",
+                  "disabled": true,
+                  "key": "planned_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Only operations planned on or before this date",
+                  "disabled": true,
+                  "key": "planned_to",
+                  "value": "2026-01-01"
+                },
+                {
                   "description": "1-based page number",
                   "disabled": true,
                   "key": "page",
@@ -17354,6 +17366,18 @@
                   "disabled": true,
                   "key": "open_only",
                   "value": "False"
+                },
+                {
+                  "description": "Only operations planned on or after this date",
+                  "disabled": true,
+                  "key": "planned_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Only operations planned on or before this date",
+                  "disabled": true,
+                  "key": "planned_to",
+                  "value": "2026-01-01"
                 },
                 {
                   "description": "1-based page number",

@@ -134,6 +134,7 @@ const SCREENS = [
   { file: '50-production', route: '/production', title: 'Production orders' },
   { file: '51-production-detail', route: '@production', title: 'A production order' },
   { file: '52a-shift-roster', route: '/production/shift-roster', title: 'Shift roster' },
+  { file: '52b-planning', route: '/production/planning', title: 'Production planning' },
   { file: '52-work-orders', route: '/production/work-orders', title: 'Work orders' },
   { file: '53-assembly', route: '/assembly', title: 'Assembly' },
   { file: '54-job-work', route: '/job-work', title: 'Job work' },
