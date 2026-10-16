@@ -5939,6 +5939,49 @@
           }
         },
         {
+          "name": "Cancel Credit Note",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Cancel Credit Note",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "credit-notes",
+                ":note_id",
+                "cancel"
+              ],
+              "raw": "{{base_url}}/api/v1/finance/credit-notes/{note_id}/cancel",
+              "variable": [
+                {
+                  "description": "note_id of the record",
+                  "key": "note_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Cancel an unpaid invoice within its cancellation window",
           "request": {
             "body": {
@@ -5978,6 +6021,40 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Create Credit Note",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"lines\": [\n    {\n      \"sales_invoice_line_id\": {},\n      \"quantity\": {},\n      \"taxable_amount\": {}\n    }\n  ],\n  \"note_date\": \"2026-01-01\",\n  \"reason_type\": \"RETURN\",\n  \"sales_invoice_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"sales_return_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Create Credit Note",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "credit-notes"
+              ],
+              "raw": "{{base_url}}/api/v1/finance/credit-notes"
             }
           }
         },
@@ -6083,6 +6160,34 @@
           }
         },
         {
+          "name": "Get Credit Note",
+          "request": {
+            "description": "Get Credit Note",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "credit-notes",
+                ":note_id"
+              ],
+              "raw": "{{base_url}}/api/v1/finance/credit-notes/{note_id}",
+              "variable": [
+                {
+                  "description": "note_id of the record",
+                  "key": "note_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Hold an invoice while it is argued with the vendor",
           "request": {
             "body": {
@@ -6156,6 +6261,58 @@
                 "sales-invoices"
               ],
               "raw": "{{base_url}}/api/v1/finance/sales-invoices"
+            }
+          }
+        },
+        {
+          "name": "List Credit Notes",
+          "request": {
+            "description": "List Credit Notes",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "credit-notes"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                },
+                {
+                  "description": "Field to sort by",
+                  "disabled": true,
+                  "key": "sort_by",
+                  "value": ""
+                },
+                {
+                  "description": "Sort direction",
+                  "disabled": true,
+                  "key": "sort_dir",
+                  "value": "asc"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/finance/credit-notes?"
             }
           }
         },
@@ -26482,6 +26639,208 @@
         }
       ],
       "name": "Sales Orders"
+    },
+    {
+      "item": [
+        {
+          "name": "Cancel Sales Return",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Cancel Sales Return",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sales-returns",
+                ":return_id",
+                "cancel"
+              ],
+              "raw": "{{base_url}}/api/v1/sales-returns/{return_id}/cancel",
+              "variable": [
+                {
+                  "description": "return_id of the record",
+                  "key": "return_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Close Sales Return",
+          "request": {
+            "description": "Close Sales Return",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sales-returns",
+                ":return_id",
+                "close"
+              ],
+              "raw": "{{base_url}}/api/v1/sales-returns/{return_id}/close",
+              "variable": [
+                {
+                  "description": "return_id of the record",
+                  "key": "return_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Sales Return",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"dispatch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"lines\": [\n    {\n      \"dispatch_line_id\": {},\n      \"quantity\": {},\n      \"reason_code\": {},\n      \"note\": {},\n      \"requires_qc\": {}\n    }\n  ],\n  \"notes\": \"\",\n  \"return_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source\": \"ERP\"\n}"
+            },
+            "description": "Create Sales Return",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sales-returns"
+              ],
+              "raw": "{{base_url}}/api/v1/sales-returns"
+            }
+          }
+        },
+        {
+          "name": "Get Sales Return",
+          "request": {
+            "description": "Get Sales Return",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sales-returns",
+                ":return_id"
+              ],
+              "raw": "{{base_url}}/api/v1/sales-returns/{return_id}",
+              "variable": [
+                {
+                  "description": "return_id of the record",
+                  "key": "return_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Sales Returns",
+          "request": {
+            "description": "List Sales Returns",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sales-returns"
+              ],
+              "query": [
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/sales-returns?"
+            }
+          }
+        },
+        {
+          "name": "Receive Sales Return",
+          "request": {
+            "description": "Receive Sales Return",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sales-returns",
+                ":return_id",
+                "receive"
+              ],
+              "raw": "{{base_url}}/api/v1/sales-returns/{return_id}/receive",
+              "variable": [
+                {
+                  "description": "return_id of the record",
+                  "key": "return_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "name": "Sales Returns"
     },
     {
       "item": [

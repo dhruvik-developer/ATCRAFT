@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from src.common.repository import BaseRepository
 from src.core.pagination import PageParams
+from src.core.responses import OffsetPagination
 from src.modules.sales_returns.models import SalesReturn, SalesReturnLine
 
 
@@ -25,5 +26,7 @@ class SalesReturnRepository(BaseRepository[SalesReturn]):
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
-    async def list_page_for_tenant(self, params: PageParams):
+    async def list_page_for_tenant(
+        self, params: PageParams
+    ) -> tuple[list[SalesReturn], OffsetPagination]:
         return await self.list_page(params)

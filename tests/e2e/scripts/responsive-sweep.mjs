@@ -87,6 +87,8 @@ const STATIC_ROUTES = [
   '/finance/vendor-invoices',
   '/finance/payments',
   '/finance/accounts',
+  '/finance/credit-notes',
+  '/sales-returns',
   '/documents',
   '/reports',
   '/audit',

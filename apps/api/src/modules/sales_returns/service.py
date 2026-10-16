@@ -203,7 +203,7 @@ async def transition_return(
     if target == SalesReturnStatus.CANCELLED and not reason:
         raise BusinessRuleError("A cancellation reason is required.")
     async with transaction(session):
-        row = (
+        locked_row = (
             await session.execute(
                 select(SalesReturn)
                 .where(
@@ -213,8 +213,9 @@ async def transition_return(
                 .with_for_update()
             )
         ).scalar_one_or_none()
-        if row is None:
+        if locked_row is None:
             raise NotFoundError("Sales return", return_id)
+        row = locked_row
         SALES_RETURN_LIFECYCLE.assert_transition(row.status, target)
         lines = list(
             (

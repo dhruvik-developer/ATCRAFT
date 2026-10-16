@@ -118,7 +118,7 @@ SALES_INVOICE_LIFECYCLE: StateMachine[SalesInvoiceStatus] = StateMachine(
             is_irreversible=True,
         ),
     ),
-    terminal=frozenset({SalesInvoiceStatus.CANCELLED}),
+    terminal=frozenset({SalesInvoiceStatus.CANCELLED, SalesInvoiceStatus.CREDITED}),
 )
 
 

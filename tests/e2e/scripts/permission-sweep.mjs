@@ -89,6 +89,8 @@ const ROUTES = [
   ['/finance/accounts', 'ledger.view'],
   ['/finance/sales-invoices', 'sales_invoice.view'],
   ['/finance/vendor-invoices', 'vendor_invoice.view'],
+  ['/finance/credit-notes', 'credit_note.view'],
+  ['/sales-returns', 'sales_return.view'],
   ['/documents', 'document.view'],
   ['/reports', 'report.view'],
   ['/audit', 'audit_log.view'],

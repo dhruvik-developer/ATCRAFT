@@ -35,6 +35,7 @@ const STATIC_ROUTES = [
   '/production', '/production/work-orders', '/production/planning', '/production/shift-roster', '/assembly', '/job-work',
   '/quality', '/quality/templates', '/packing', '/dispatch',
   '/finance', '/finance/sales-invoices', '/finance/vendor-invoices', '/finance/payments', '/finance/accounts',
+  '/finance/credit-notes', '/sales-returns',
   '/documents', '/reports', '/audit',
   '/admin/users', '/admin/organisation',
   '/notifications', '/profile',

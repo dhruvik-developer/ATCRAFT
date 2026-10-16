@@ -265,7 +265,7 @@ PERMISSION_GROUPS: dict[str, tuple[str, ...]] = {
     "Warehouses": ("warehouse", "location"),
     "Inventory": ("inventory", "reservation", "allocation", "internal_issue"),
     "Engineering": ("bom", "routing", "work_center", "machine", "shift"),
-    "Sales": ("sales_order", "sales_invoice"),
+    "Sales": ("sales_order", "sales_invoice", "sales_return", "promotion"),
     "Planning": ("mrp",),
     "Procurement": (
         "purchase_requisition",
@@ -290,7 +290,14 @@ PERMISSION_GROUPS: dict[str, tuple[str, ...]] = {
     "Job Work": ("job_work",),
     "Quality": ("qc",),
     "Packing & Dispatch": ("packing", "dispatch"),
-    "Finance": ("finance", "ledger", "vendor_invoice", "payment", "gst_report"),
+    "Finance": (
+        "finance",
+        "ledger",
+        "vendor_invoice",
+        "payment",
+        "gst_report",
+        "credit_note",
+    ),
     "Reporting & Audit": ("report", "dashboard", "document", "notification", "audit_log", "job"),
 }
 

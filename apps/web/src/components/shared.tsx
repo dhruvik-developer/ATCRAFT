@@ -186,6 +186,7 @@ const STATUS_VARIANTS: Record<
   DISPATCHED: 'success',
   ACCEPTED: 'success',
   PAID: 'success',
+  CREDITED: 'success',
   GRN_COMPLETED: 'success',
   QC_COMPLETED: 'success',
   INVOICED: 'success',
