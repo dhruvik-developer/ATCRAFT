@@ -25,7 +25,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from src.core.clock import today
+from src.core.clock import today, utcnow
 from src.core.config import settings
 from src.core.deps import Principal, TenantContext
 from src.core.errors import AuthorizationError, BusinessRuleError, InvalidStateTransitionError
@@ -44,6 +44,12 @@ from src.modules.bom.schemas import (
     CopyAsNewVersionRequest,
 )
 from src.modules.products.models import Item, ItemGroup, ProductionType, UnitOfMeasure, UomCategory
+from src.modules.routing.models import (
+    Routing,
+    RoutingOperation,
+    RoutingStatus,
+    WorkCenter,
+)
 from tests.schema_support import prepare_metadata, report_database_setup_failure
 from tests.seed_support import seed_company, seed_user
 
@@ -1154,3 +1160,125 @@ async def test_the_update_audit_records_the_line_count_before_the_replacement(
     )
     assert row.old_values["line_count"] == 3
     assert row.new_values["line_count"] == 1
+
+
+# -----------------------------------------------------------------------------
+# Default-routing snapshot
+# -----------------------------------------------------------------------------
+
+
+async def _cell(ctx: Ctx) -> WorkCenter:
+    centre = WorkCenter(
+        company_id=ctx.author.company_id,
+        code=f"WC-{uuid.uuid4().hex[:6].upper()}",
+        name="Machining cell",
+        cost_per_hour=Decimal("600"),
+    )
+    ctx.session.add(centre)
+    await ctx.session.flush()
+    return centre
+
+
+async def _approved_default_routing(ctx: Ctx, item: Item, centre: WorkCenter) -> Routing:
+    """An approved, default, effective routing with one costed step."""
+    routing = Routing(
+        company_id=ctx.author.company_id,
+        code=f"RT-{uuid.uuid4().hex[:6].upper()}",
+        item_id=item.id,
+        version=1,
+        status=RoutingStatus.APPROVED,
+        is_default=True,
+        effective_from=today() - timedelta(days=30),
+        approved_by_id=ctx.reviewer.user_id,
+        approved_at=utcnow(),
+    )
+    ctx.session.add(routing)
+    await ctx.session.flush()
+    ctx.session.add(
+        RoutingOperation(
+            company_id=ctx.author.company_id,
+            routing_id=routing.id,
+            sequence=10,
+            operation_code="CUT",
+            operation_name="Cut to length",
+            work_center_id=centre.id,
+            setup_time_minutes=Decimal("30"),
+            run_time_per_unit_minutes=Decimal("2"),
+            process_cost=Decimal("50"),
+        )
+    )
+    await ctx.session.flush()
+    return routing
+
+
+async def test_creating_a_bom_snapshots_the_default_routing(ctx: Ctx) -> None:
+    """A UI-built BOM with no operations still costs labour, from the routing."""
+    uom = await seed_uom(ctx.session, ctx.author)
+    parent = await seed_item(ctx.session, ctx.author, "KIT", uom, manufactured=True)
+    screw = await seed_item(ctx.session, ctx.author, "SCREW", uom)
+    centre = await _cell(ctx)
+    step_routing = await _approved_default_routing(ctx, parent, centre)
+
+    _, _, operations = await service.create_bom(
+        ctx.session, ctx.author, create_payload(parent, {screw: Decimal("1")})
+    )
+    assert len(operations) == 1
+    (operation,) = operations
+    assert operation.operation_sequence == 10
+    assert operation.name == "Cut to length"
+    assert operation.routing_operation_id is not None
+    assert operation.work_center_id == centre.id
+    assert operation.setup_time_minutes == Decimal("30")
+    assert operation.run_time_minutes_per_unit == Decimal("2")
+    assert operation.cost_per_hour == Decimal("600")
+    assert operation.fixed_cost == Decimal("50")
+    assert operation.is_outsourced is False
+    assert step_routing.id is not None
+
+
+async def test_approving_a_bom_snapshots_the_routing_before_costing(ctx: Ctx) -> None:
+    """A draft raised before any routing existed is costed whole at approval."""
+    uom = await seed_uom(ctx.session, ctx.author)
+    parent = await seed_item(ctx.session, ctx.author, "KIT", uom, manufactured=True)
+    screw = await seed_item(ctx.session, ctx.author, "SCREW", uom)
+    bom, _, created_operations = await service.create_bom(
+        ctx.session, ctx.author, create_payload(parent, {screw: Decimal("1")})
+    )
+    assert created_operations == []
+    centre = await _cell(ctx)
+    await _approved_default_routing(ctx, parent, centre)
+
+    await service.submit_bom(ctx.session, ctx.author, bom.id, reason="Ready for review")
+    approved = await service.approve_bom(
+        ctx.session, ctx.reviewer, ctx.reviewer_principal, bom.id, reason="Checked"
+    )
+    assert approved.total_operation_cost > Decimal("0")
+    stored = await service.get_bom_detail(ctx.session, ctx.author, ctx.author_principal, bom.id)
+    assert len(stored.operations) == 1
+    assert stored.operations[0].name == "Cut to length"
+
+
+async def test_explicit_operations_are_never_overwritten_by_the_snapshot(ctx: Ctx) -> None:
+    """The engineer chose these steps over the routing; approval keeps them."""
+    uom = await seed_uom(ctx.session, ctx.author)
+    parent = await seed_item(ctx.session, ctx.author, "KIT", uom, manufactured=True)
+    screw = await seed_item(ctx.session, ctx.author, "SCREW", uom)
+    centre = await _cell(ctx)
+    await _approved_default_routing(ctx, parent, centre)
+
+    bom, _, _ = await service.create_bom(
+        ctx.session,
+        ctx.author,
+        create_payload(
+            parent,
+            {screw: Decimal("1")},
+            operations=[BomOperationIn(operation_sequence=10, name="Deburr")],
+        ),
+    )
+    await service.submit_bom(ctx.session, ctx.author, bom.id, reason="Ready for review")
+    await service.approve_bom(
+        ctx.session, ctx.reviewer, ctx.reviewer_principal, bom.id, reason="Checked"
+    )
+    stored = await service.get_bom_detail(ctx.session, ctx.author, ctx.author_principal, bom.id)
+    assert [operation.name for operation in stored.operations] == ["Deburr"]
+    assert stored.operations[0].routing_operation_id is None

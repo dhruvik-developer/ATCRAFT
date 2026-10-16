@@ -410,6 +410,79 @@ async def _persist_operations(
 # -----------------------------------------------------------------------------
 
 
+async def _snapshot_default_routing(
+    session: AsyncSession, tenant: TenantContext, bom: Bom, *, as_of: date
+) -> list[BomOperation]:
+    """Snapshot the item's default approved routing into ``bom_operations``.
+
+    A BOM with no operations costs material only, and every BOM built from the
+    UI used to be exactly that: the dialog posts no operations. The routing the
+    item would be released against - resolved exactly as production resolves it
+    - is copied step for step (sequence, name, routing link, centre, times,
+    the centre's current rate, the step's process charge as the fixed cost, and
+    the outsourced flag), so the roll-up prices labour from the first approval.
+
+    Empty when the item has no effective approved routing, or the routing has
+    no steps: a missing process is legitimate for a single-operation item, and
+    inventing operations would be worse than costing material only.
+
+    The routing module is read through a function-level import. Both modules
+    sit on the engine layer, and the production module - which reads both -
+    already resolves the same routing the same way; a top-level import here
+    would tie the two engines' import graphs together for no runtime reason.
+    """
+    from src.modules.routing.repository import (
+        RoutingOperationRepository,
+        RoutingRepository,
+        WorkCenterRepository,
+    )
+
+    effective = await RoutingRepository(session, tenant).effective_routings_for_items(
+        [bom.item_id], as_of
+    )
+    routing = effective.get(bom.item_id)
+    if routing is None:
+        return []
+    steps = await RoutingOperationRepository(session, tenant).list_for_routing(routing.id)
+    if not steps:
+        return []
+    rates = await WorkCenterRepository(session, tenant).rates(
+        [step.work_center_id for step in steps]
+    )
+    records = [
+        BomOperation(
+            bom_id=bom.id,
+            operation_sequence=step.sequence,
+            name=step.operation_name,
+            description=None,
+            routing_operation_id=step.id,
+            work_center_id=step.work_center_id,
+            setup_time_minutes=step.setup_time_minutes,
+            run_time_minutes_per_unit=step.run_time_per_unit_minutes,
+            cost_per_hour=(
+                rates[step.work_center_id].cost_per_hour
+                if step.work_center_id in rates
+                else Decimal("0")
+            ),
+            fixed_cost=step.process_cost,
+            is_outsourced=step.is_outsourced,
+            notes=None,
+        )
+        for step in steps
+    ]
+    repo = BomOperationRepository(session, tenant)
+    for record in records:
+        repo.add(record)
+    await session.flush()
+    log.info(
+        "bom.snapshot_routing",
+        bom_id=str(bom.id),
+        routing_code=routing.code,
+        operation_count=len(records),
+    )
+    return records
+
+
 async def get_bom(session: AsyncSession, tenant: TenantContext, bom_id: uuid.UUID) -> Bom:
     return await BomRepository(session, tenant).get_or_404(bom_id)
 
@@ -549,6 +622,15 @@ async def create_bom(
             bom=bom,
             payload_operations=payload.operations,
         )
+        if not operations:
+            # A BOM built from the UI carries no operations, so without this
+            # every such structure would cost material only. The default
+            # approved routing is snapshotted instead; an explicit empty list
+            # means the same thing, because operations cannot be added any
+            # other way at create time.
+            operations = await _snapshot_default_routing(
+                session, tenant, bom, as_of=payload.effective_from or today()
+            )
 
         await record_audit(
             session,
@@ -833,6 +915,14 @@ async def approve_bom(
             reason=reason,
             action=AuditAction.APPROVE,
         )
+
+        # A draft approved without operations gets the item's default routing
+        # snapshotted before the roll-up runs, so the stored operation cost the
+        # approval writes is not silently zero. Explicitly authored operations
+        # are left alone: the engineer chose them over the routing.
+        existing_operations = await BomOperationRepository(session, tenant).list_for_bom(bom.id)
+        if not existing_operations:
+            await _snapshot_default_routing(session, tenant, bom, as_of=today())
 
         # The structure is APPROVED inside this transaction, so the roll-up sees
         # the same graph planning will see a moment from now.
