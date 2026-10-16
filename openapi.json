@@ -96926,6 +96926,125 @@
         ]
       }
     },
+    "/api/v1/job-work/challans/{challan_id}/pdf": {
+      "post": {
+        "description": "Hands the GST Rule 55 render to the reports queue and returns a job id immediately. Poll GET /reports/jobs/{id}; once it completes, `download_url` points at the PDF in the document store. Rendering never happens on an HTTP worker (section 22).",
+        "operationId": "challan_pdf_api_v1_job_work_challans__challan_id__pdf_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "challan_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Challan Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptedJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Queue the delivery-challan PDF",
+        "tags": [
+          "Job Work"
+        ]
+      }
+    },
     "/api/v1/job-work/charges": {
       "get": {
         "description": "The figures finance posts to the vendor ledger. Charges accrue on receipt, so the period is applied to the receipt date: a vendor earns the fee when the processed goods come back. Net charges are the gross processing fee less the value of company material the vendor lost beyond the agreed allowance. One vendor per row, largest spend first, paged - `has_next` says when there is more to post.",

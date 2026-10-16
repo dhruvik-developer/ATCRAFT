@@ -135,6 +135,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
@@ -221,7 +222,13 @@ from src.modules.job_work.schemas import (
     VendorLedgerItemRow,
     VendorLedgerReport,
 )
+from src.modules.organization.models import Company
 from src.modules.organization.service import require_cost_centre
+from src.modules.products.models import Item, UnitOfMeasure
+from src.modules.reports import service as reports_service
+from src.modules.reports.models import ReportKey
+from src.modules.reports.repository import ReportSnapshotRepository
+from src.modules.vendors.models import Transporter, Vendor
 
 log = get_logger(__name__)
 
@@ -3225,12 +3232,235 @@ async def create_order_from_mrp(
     )
 
 
+# -----------------------------------------------------------------------------
+# Delivery challan PDF - queued, never rendered in the request (section 22)
+# -----------------------------------------------------------------------------
+
+
+#: Celery task that renders the delivery challan, and the queue it runs on.
+JOB_WORK_CHALLAN_TASK_NAME = "reports.generate_job_work_challan"
+JOB_WORK_CHALLAN_QUEUE = "reports"
+
+#: What the challan states it is: goods sent out for processing, not sold.
+CHALLAN_PURPOSE = "Sent for job work \u2014 not for sale"
+
+
+def challan_pdf_parameters(challan: JobWorkChallan) -> dict[str, Any]:
+    """What a challan PDF job is a render *of*, as stored on its job row.
+
+    The challan is immutable once issued, but the row still names the document
+    so a support conversation can say which PDF a job produced.
+    """
+    return {
+        "report_key": str(ReportKey.JOB_WORK_CHALLAN),
+        "job_work_challan_id": str(challan.id),
+        "job_work_challan_code": challan.code,
+    }
+
+
+async def queue_job_work_challan(
+    session: AsyncSession, tenant: TenantContext, challan_id: uuid.UUID
+) -> str:
+    """Hand the delivery-challan PDF to Celery and return the job id.
+
+    The job id is a ``report_snapshots`` row, not the Celery task id: the row is
+    what ``GET /reports/jobs/{id}`` reads, what the worker marks RUNNING,
+    COMPLETED or FAILED, and what carries the ``document_id`` the client
+    downloads. The row is created and audited in one transaction before the
+    task is published, so a broker that refuses the task can mark the job FAILED
+    rather than leave the client polling a job that never existed.
+    """
+    challan = await JobWorkChallanRepository(session, tenant).get_or_404(challan_id)
+
+    snapshots = ReportSnapshotRepository(session, tenant)
+    async with transaction(session):
+        job = reports_service.new_job_snapshot(
+            ReportKey.JOB_WORK_CHALLAN, challan_pdf_parameters(challan), now=utcnow()
+        )
+        snapshots.add(job)
+        await session.flush()
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.JOB_STARTED,
+            entity_type=AUDIT_JOB_WORK_CHALLAN,
+            entity_id=challan.id,
+            entity_code=challan.code,
+            summary=f"Queued the delivery challan PDF for {challan.code}",
+            user_id=tenant.user_id,
+            context={"task": JOB_WORK_CHALLAN_TASK_NAME, "job_id": str(job.id)},
+        )
+
+    await reports_service.dispatch_job(
+        session,
+        tenant,
+        job,
+        task_name=JOB_WORK_CHALLAN_TASK_NAME,
+        queue=JOB_WORK_CHALLAN_QUEUE,
+        task_kwargs={"job_work_challan_id": str(challan.id)},
+        subject="The delivery challan",
+    )
+
+    log.info("job_work.challan_pdf_queued", code=challan.code, job_id=str(job.id))
+    return str(job.id)
+
+
+def _party_block(
+    *,
+    name: str | None,
+    legal_name: str | None,
+    address_line1: str | None,
+    address_line2: str | None,
+    city: str | None,
+    state: str | None,
+    postal_code: str | None,
+    gstin: str | None,
+) -> dict[str, Any]:
+    return {
+        "name": name or "",
+        "legal_name": legal_name,
+        "address_line1": address_line1,
+        "address_line2": address_line2,
+        "city": city,
+        "state": state,
+        "postal_code": postal_code,
+        "gstin": gstin,
+    }
+
+
+async def challan_pdf_data(
+    session: AsyncSession, tenant: TenantContext, challan_id: uuid.UUID
+) -> dict[str, Any]:
+    """Everything the delivery-challan renderer needs, in six batched statements.
+
+    Assembled here rather than in the worker so the document the PDF shows and
+    the document the API shows are produced by one piece of code. The return is
+    a plain mapping of primitives: it crosses a process boundary into a
+    renderer that must not hold ORM instances or a session.
+    """
+    challan = await JobWorkChallanRepository(session, tenant).get_or_404(challan_id)
+    grouped = await JobWorkChallanLineRepository(session, tenant).list_for_challans([challan.id])
+    lines = grouped.get(challan.id, [])
+    order = await JobWorkOrderRepository(session, tenant).get_or_404(challan.job_work_order_id)
+
+    vendor = (
+        await session.execute(
+            select(Vendor).where(
+                Vendor.company_id == tenant.company_id, Vendor.id == challan.vendor_id
+            )
+        )
+    ).scalar_one_or_none()
+    if vendor is None:
+        raise NotFoundError("Vendor", challan.vendor_id)
+    company = (
+        await session.execute(select(Company).where(Company.id == tenant.company_id))
+    ).scalar_one_or_none()
+
+    transporter: Transporter | None = None
+    if challan.transporter_id is not None:
+        transporter = (
+            await session.execute(
+                select(Transporter).where(
+                    Transporter.company_id == tenant.company_id,
+                    Transporter.id == challan.transporter_id,
+                )
+            )
+        ).scalar_one_or_none()
+
+    item_ids = sorted({row.item_id for row in lines})
+    items: dict[uuid.UUID, Item] = {}
+    uoms: dict[uuid.UUID, str] = {}
+    if item_ids:
+        items = {
+            row.id: row
+            for row in (
+                await session.execute(
+                    select(Item).where(Item.company_id == tenant.company_id, Item.id.in_(item_ids))
+                )
+            )
+            .scalars()
+            .all()
+        }
+        uom_ids = sorted({row.base_uom_id for row in items.values()})
+        if uom_ids:
+            uoms = {
+                row.id: row.code
+                for row in (
+                    await session.execute(
+                        select(UnitOfMeasure).where(
+                            UnitOfMeasure.company_id == tenant.company_id,
+                            UnitOfMeasure.id.in_(uom_ids),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            }
+
+    return {
+        "code": challan.code,
+        "challan_date": challan.challan_date.isoformat(),
+        "expected_return_date": challan.expected_return_date.isoformat(),
+        "order_code": order.code,
+        "process_type": str(order.process_type),
+        "process_description": order.process_description,
+        "purpose": CHALLAN_PURPOSE,
+        "consignor": _party_block(
+            name=company.name if company else None,
+            legal_name=company.legal_name if company else None,
+            address_line1=company.address_line1 if company else None,
+            address_line2=company.address_line2 if company else None,
+            city=company.city if company else None,
+            state=company.state if company else None,
+            postal_code=company.postal_code if company else None,
+            gstin=company.gstin if company else None,
+        ),
+        "consignee": _party_block(
+            name=vendor.name,
+            legal_name=vendor.legal_name,
+            address_line1=vendor.address_line1,
+            address_line2=vendor.address_line2,
+            city=vendor.city,
+            state=vendor.state,
+            postal_code=vendor.postal_code,
+            gstin=vendor.gstin,
+        ),
+        "vehicle_number": challan.vehicle_number,
+        "transporter": (
+            {"code": transporter.code, "name": transporter.name}
+            if transporter is not None
+            else None
+        ),
+        "lines": [
+            {
+                "line_number": row.line_number,
+                "item_code": items[row.item_id].code if row.item_id in items else "",
+                "item_name": items[row.item_id].name if row.item_id in items else "",
+                "hsn_code": items[row.item_id].hsn_code if row.item_id in items else None,
+                "uom": (
+                    uoms.get(items[row.item_id].base_uom_id, "") if row.item_id in items else ""
+                ),
+                "quantity": str(row.quantity),
+                "unit_value": str(row.unit_value),
+                "total_value": str(row.total_value),
+            }
+            for row in lines
+        ],
+        "total_quantity": str(challan.total_quantity),
+        "total_value": str(challan.total_value),
+        "notes": challan.notes,
+    }
+
+
 __all__ = [
     "AUDIT_JOB_WORK_CHALLAN",
     "AUDIT_JOB_WORK_ORDER",
     "AUDIT_JOB_WORK_RECEIPT",
+    "CHALLAN_PURPOSE",
     "CHARGES_VENDOR_LIMIT",
     "EXCESS_RECEIPT_TOLERANCE_PERCENT",
+    "JOB_WORK_CHALLAN_QUEUE",
+    "JOB_WORK_CHALLAN_TASK_NAME",
     "JOB_WORK_ORDER_LIFECYCLE",
     "MOVEMENT_REFERENCE_JOB_WORK",
     "MRP_CONVERSION_REFUSED",
@@ -3250,6 +3480,8 @@ __all__ = [
     "cancel_order",
     "capitalised_output_cost",
     "challan_detail",
+    "challan_pdf_data",
+    "challan_pdf_parameters",
     "close_order",
     "create_order",
     "create_order_from_mrp",
@@ -3272,6 +3504,7 @@ __all__ = [
     "pending_at_vendor",
     "plan_line_receipt",
     "production_order_charges",
+    "queue_job_work_challan",
     "receipt_charge",
     "receipt_detail",
     "receive",

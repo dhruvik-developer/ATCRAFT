@@ -613,6 +613,351 @@ async def generate_packing_list(
     }
 
 
+#: The ``documents.entity_type`` a challan PDF is filed under - the challan
+#: itself, so the challan register and the order's file list both find it.
+JOB_WORK_CHALLAN_ENTITY = "job_work_challan"
+
+
+def _party_paragraphs(party: dict[str, Any], styles: dict[str, ParagraphStyle]) -> list[Any]:
+    """One GST party block: name, address, GSTIN - the Rule 55 minimum."""
+    from xml.sax.saxutils import escape
+
+    name = escape(str(party.get("legal_name") or party.get("name") or "-"))
+    out: list[Any] = [Paragraph(f"<b>{name}</b>", styles["body"])]
+    for key in _ADDRESS_KEYS:
+        value = party.get(key)
+        if value:
+            out.append(Paragraph(escape(str(value)), styles["body"]))
+    gstin = party.get("gstin")
+    if gstin:
+        out.append(Paragraph(f"<b>GSTIN: {escape(str(gstin))}</b>", styles["body"]))
+    else:
+        out.append(Paragraph("GSTIN: -", styles["body"]))
+    return out
+
+
+def render_job_work_challan_pdf(data: dict[str, Any]) -> bytes:
+    """Render one job-work delivery challan to PDF bytes (GST Rule 55).
+
+    Pure and synchronous: it takes the plain mapping
+    :func:`~src.modules.job_work.service.challan_pdf_data` produced and returns
+    bytes. No session, no ORM instance and no I/O, which is what lets it run on
+    a worker thread and be exercised without a database.
+    """
+    from xml.sax.saxutils import escape
+
+    styles = _styles()
+    buffer = io.BytesIO()
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=PAGE_MARGIN,
+        rightMargin=PAGE_MARGIN,
+        topMargin=PAGE_MARGIN,
+        bottomMargin=PAGE_MARGIN,
+        title=f"Delivery challan {data.get('code', '')}",
+    )
+
+    story: list[Any] = [
+        Paragraph("DELIVERY CHALLAN", styles["title"]),
+        Paragraph(
+            f"Job work &mdash; {escape(str(data.get('purpose', '')))} (GST Rule 55)",
+            styles["meta"],
+        ),
+        Spacer(1, 6),
+    ]
+
+    meta = [
+        [
+            "Challan no.",
+            escape(str(data.get("code", ""))),
+            "Challan date",
+            escape(str(data.get("challan_date", ""))),
+        ],
+        [
+            "Job-work order",
+            escape(str(data.get("order_code", ""))),
+            "Expected return",
+            escape(str(data.get("expected_return_date", ""))),
+        ],
+        [
+            "Process",
+            escape(str(data.get("process_type", ""))),
+            "Vehicle",
+            escape(str(data.get("vehicle_number") or "-")),
+        ],
+    ]
+    transporter = data.get("transporter") or {}
+    meta.append(
+        [
+            "Transporter",
+            escape(str(transporter.get("name") or "-")),
+            "Process detail",
+            escape(str(data.get("process_description") or "-")),
+        ]
+    )
+    meta_table = Table(meta, colWidths=[30 * mm, 55 * mm, 30 * mm, 55 * mm])
+    meta_table.setStyle(
+        TableStyle(
+            [
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#999999")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
+    story.append(meta_table)
+    story.append(Spacer(1, 6))
+
+    parties = Table(
+        [
+            [
+                Paragraph("<b>Consignor (Principal)</b>", styles["body"]),
+                Paragraph("<b>Consignee (Job worker)</b>", styles["body"]),
+            ],
+            [
+                _party_paragraphs(data.get("consignor") or {}, styles),
+                _party_paragraphs(data.get("consignee") or {}, styles),
+            ],
+        ],
+        colWidths=[85 * mm, 85 * mm],
+    )
+    parties.setStyle(
+        TableStyle(
+            [
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#999999")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
+    story.append(parties)
+    story.append(Spacer(1, 6))
+
+    header = ["#", "HSN", "Description", "Qty", "UoM", "Taxable value (Rs)"]
+    rows: list[list[Any]] = [header]
+    for line in data.get("lines", []):
+        description = escape(str(line.get("item_code", "")))
+        if line.get("item_name"):
+            description += f"<br/>{escape(str(line['item_name']))}"
+        rows.append(
+            [
+                str(line.get("line_number", "")),
+                escape(str(line.get("hsn_code") or "-")),
+                Paragraph(description, styles["body"]),
+                plain_quantity(line.get("quantity")),
+                escape(str(line.get("uom") or "")),
+                indian_money(line.get("total_value")),
+            ]
+        )
+    rows.append(
+        [
+            "",
+            "",
+            Paragraph("<b>Total</b>", styles["body"]),
+            f"<b>{plain_quantity(data.get('total_quantity'))}</b>",
+            "",
+            f"<b>{indian_money(data.get('total_value'))}</b>",
+        ]
+    )
+    goods = Table(
+        rows, colWidths=[10 * mm, 22 * mm, 68 * mm, 20 * mm, 15 * mm, 35 * mm], repeatRows=1
+    )
+    goods.setStyle(_TABLE_STYLE)
+    story.append(goods)
+    story.append(Spacer(1, 6))
+
+    if data.get("notes"):
+        story.append(Paragraph("Notes", styles["heading"]))
+        story.append(Paragraph(escape(str(data["notes"])), styles["body"]))
+        story.append(Spacer(1, 6))
+
+    story.append(
+        Paragraph(
+            "The goods above are sent for job work and remain the property of the "
+            "consignor. This challan is not a tax invoice: no supply is effected by "
+            "this movement.",
+            styles["body"],
+        )
+    )
+    story.append(Spacer(1, 12))
+
+    signatures = Table(
+        [
+            [
+                Paragraph("For the consignor<br/><br/><br/>Authorised signatory", styles["body"]),
+                Paragraph(
+                    "For the consignee<br/><br/><br/>Received the goods above in good order",
+                    styles["body"],
+                ),
+            ]
+        ],
+        colWidths=[85 * mm, 85 * mm],
+    )
+    signatures.setStyle(
+        TableStyle(
+            [
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LINEABOVE", (0, 0), (-1, 0), 0.4, colors.HexColor("#999999")),
+            ]
+        )
+    )
+    story.append(signatures)
+    story.append(Spacer(1, 10))
+    story.append(
+        Paragraph(f"Generated {utcnow().isoformat(timespec='seconds')} UTC", styles["right"])
+    )
+
+    document.build(story)
+    return buffer.getvalue()
+
+
+@async_task(name="reports.generate_job_work_challan", queue="reports")
+async def generate_job_work_challan(
+    job_work_challan_id: str,
+    snapshot_id: str,
+    company_id: str,
+    user_id: str,
+    request_id: str | None = None,
+    **_: Any,
+) -> dict[str, Any]:
+    """Render one job-work delivery challan and file it in the document store.
+
+    The job row (``snapshot_id``) is driven through the same lifecycle as every
+    other background report: claimed on entry, completed with the document id
+    once the row is written, and failed on a fresh session if anything raises -
+    see :func:`generate_report` for why each of those matters. Without it the
+    client polls a job that stays QUEUED for ever.
+
+    Arguments are plain strings because Celery serialises task payloads as JSON;
+    ``request_id`` is not used here but is read by the ``task_prerun`` signal so
+    the API's correlation id follows the work into the worker's logs (section 55).
+    """
+    from src.modules.job_work import service as job_work_service
+
+    tenant = TenantContext(company_id=uuid.UUID(company_id), user_id=uuid.UUID(user_id))
+    challan_id = uuid.UUID(job_work_challan_id)
+    identifier = uuid.UUID(snapshot_id)
+    moment = utcnow()
+
+    try:
+        async with session_scope() as session:
+            try:
+                snapshot = await reports_service.start_snapshot(session, tenant, identifier)
+            except InvalidStateTransitionError:
+                log.warning("reports.challan_not_queued", snapshot_id=snapshot_id)
+                return {
+                    "snapshot_id": snapshot_id,
+                    "status": "SKIPPED",
+                    "reason": "the job is no longer queued",
+                }
+
+            data = await job_work_service.challan_pdf_data(session, tenant, challan_id)
+
+            payload = await anyio.to_thread.run_sync(render_job_work_challan_pdf, data)
+            checksum = hashlib.sha256(payload).hexdigest()
+
+            rule = KNOWN_TYPES[PDF_MIME_TYPE]
+            storage_key = build_storage_key(
+                category=DocumentCategory.REPORT,
+                company_id=tenant.company_id,
+                rule=rule,
+                moment=moment,
+                file_id=new_id(),
+            )
+            destination = resolve_storage_path(storage_key)
+            await anyio.to_thread.run_sync(_write_bytes, destination, payload)
+
+            try:
+                document = Document(
+                    file_name=_safe_file_name(str(data.get("code", ""))),
+                    storage_key=storage_key,
+                    mime_type=PDF_MIME_TYPE,
+                    size_bytes=len(payload),
+                    checksum_sha256=checksum,
+                    category=DocumentCategory.REPORT,
+                    entity_type=JOB_WORK_CHALLAN_ENTITY,
+                    entity_id=challan_id,
+                    uploaded_by_id=tenant.user_id,
+                    is_public=False,
+                    expires_at=default_expiry(DocumentCategory.REPORT, moment),
+                )
+                DocumentRepository(session, tenant).add(document)
+                await session.flush()
+
+                await record_audit(
+                    session,
+                    company_id=tenant.company_id,
+                    action=AuditAction.DATA_EXPORT,
+                    entity_type=JOB_WORK_CHALLAN_ENTITY,
+                    entity_id=challan_id,
+                    entity_code=str(data.get("code", "")),
+                    summary=(
+                        f"Generated the delivery challan for {data.get('code', '')} "
+                        f"({len(payload)} bytes)"
+                    ),
+                    user_id=tenant.user_id,
+                    new_values={
+                        "document_id": document.id,
+                        "file_name": document.file_name,
+                        "size_bytes": document.size_bytes,
+                        "checksum_sha256": checksum,
+                        "line_count": len(data.get("lines", [])),
+                    },
+                )
+
+                await reports_service.complete_snapshot(
+                    session,
+                    tenant,
+                    snapshot_id=snapshot.id,
+                    row_count=len(data.get("lines", [])),
+                    document_id=document.id,
+                )
+            except Exception:
+                # The row never committed, so nothing will ever reference these
+                # bytes. Removing them here is the only cheap chance to do so.
+                await anyio.to_thread.run_sync(_unlink, destination)
+                raise
+
+            document_id = str(document.id)
+            size_bytes = document.size_bytes
+
+    except Exception as exc:
+        # A separate session: the one the failure happened on cannot be used to
+        # write anything, so the job would otherwise stay RUNNING for ever.
+        async with session_scope() as session:
+            await reports_service.fail_snapshot(
+                session, tenant, snapshot_id=identifier, error=_failure_message(exc)
+            )
+        log.error("reports.challan_failed", snapshot_id=snapshot_id, error=str(exc), exc_info=exc)
+        raise
+
+    log.info(
+        "reports.challan_generated",
+        snapshot_id=snapshot_id,
+        job_work_challan_id=job_work_challan_id,
+        document_id=document_id,
+        size_bytes=size_bytes,
+    )
+    return {
+        "snapshot_id": snapshot_id,
+        "status": "COMPLETED",
+        "job_work_challan_id": job_work_challan_id,
+        "job_work_challan_code": str(data.get("code", "")),
+        "document_id": document_id,
+        "size_bytes": size_bytes,
+        "checksum_sha256": checksum,
+        "line_count": len(data.get("lines", [])),
+    }
+
+
 @async_task(name="reports.generate_sales_invoice", queue="reports")
 async def generate_sales_invoice(
     sales_invoice_id: str,

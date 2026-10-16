@@ -32,7 +32,12 @@ from src.core.deps import (
 )
 from src.core.pagination import PageParams, SortParams, page_params, sort_params
 from src.core.permissions import Permission
-from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
+from src.core.responses import (
+    COMMON_ERROR_RESPONSES,
+    AcceptedJobResponse,
+    ApiResponse,
+    PaginatedResponse,
+)
 from src.modules.job_work import service
 from src.modules.job_work.models import JobWorkOrderStatus, JobWorkProcess
 from src.modules.job_work.schemas import (
@@ -56,6 +61,7 @@ from src.modules.job_work.schemas import (
     VendorChargeRow,
     VendorLedgerReport,
 )
+from src.modules.reports import service as reports_service
 
 router = APIRouter(prefix="/job-work", tags=["Job Work"], responses=COMMON_ERROR_RESPONSES)
 
@@ -255,6 +261,30 @@ async def vendor_ledger(
         await service.vendor_ledger(
             session, tenant, vendor_id=vendor_id, date_from=date_from, date_to=date_to
         )
+    )
+
+
+@router.post(
+    "/challans/{challan_id}/pdf",
+    response_model=AcceptedJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue the delivery-challan PDF",
+    description=(
+        "Hands the GST Rule 55 render to the reports queue and returns a job id "
+        "immediately. Poll GET /reports/jobs/{id}; once it completes, "
+        "`download_url` points at the PDF in the document store. Rendering never "
+        "happens on an HTTP worker (section 22)."
+    ),
+    dependencies=[require_permission(Permission.JOB_WORK_VIEW)],
+)
+async def challan_pdf(
+    challan_id: uuid.UUID, session: DbSession, tenant: Tenant
+) -> AcceptedJobResponse:
+    job_id = await service.queue_job_work_challan(session, tenant, challan_id)
+    return AcceptedJobResponse.create(
+        job_id=job_id,
+        status_url=reports_service.job_status_url(job_id),
+        message="The delivery challan is being generated",
     )
 
 

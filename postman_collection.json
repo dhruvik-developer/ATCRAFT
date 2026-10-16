@@ -10061,6 +10061,35 @@
           }
         },
         {
+          "name": "Queue the delivery-challan PDF",
+          "request": {
+            "description": "Hands the GST Rule 55 render to the reports queue and returns a job id immediately. Poll GET /reports/jobs/{id}; once it completes, `download_url` points at the PDF in the document store. Rendering never happens on an HTTP worker (section 22).",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "job-work",
+                "challans",
+                ":challan_id",
+                "pdf"
+              ],
+              "raw": "{{base_url}}/api/v1/job-work/challans/{challan_id}/pdf",
+              "variable": [
+                {
+                  "description": "challan_id of the record",
+                  "key": "challan_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Raise a draft job work order",
           "request": {
             "body": {
