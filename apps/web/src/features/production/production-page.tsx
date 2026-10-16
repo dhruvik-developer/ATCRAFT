@@ -21,6 +21,10 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
 } from '@/components/ui/overlays'
 import { Badge } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
@@ -32,6 +36,7 @@ import { formatDate, formatNumber, formatQuantity, humanise } from '@/lib/format
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 
+import { DailyBookingsPanel } from './daily-bookings-panel'
 import { ProductionOrderFormDialog } from './production-dialogs'
 import {
   PRODUCTION_SOURCE_TYPES,
@@ -83,9 +88,64 @@ function ProgressCell({ row }: { row: ProductionOrderRow }) {
 
 export default function ProductionPage() {
   const { can } = useAuth()
-  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const [createOpen, setCreateOpen] = useState(false)
+
+  const tab = searchParams.get('tab') ?? 'orders'
+  const changeTab = (next: string) =>
+    setSearchParams(
+      (current) => {
+        const params = new URLSearchParams(current)
+        params.set('tab', next)
+        for (const key of ['page', 'sort', 'dir']) params.delete(key)
+        return params
+      },
+      { replace: true },
+    )
+
+  // Gating an affordance only - the API authorises the write itself.
+  const newOrderButton = can(P.PRODUCTION_ORDER_CREATE) ? (
+    <Button onClick={() => setCreateOpen(true)}>
+      <Plus />
+      New order
+    </Button>
+  ) : null
+
+  // The bookings tab reads `GET /production/entries`, which declares the same
+  // view right as this page, so no second gate is needed to show it.
+  return (
+    <>
+      <PageHeader
+        title="Production orders"
+        description="What the plant is making. An order explodes its BOM into components, draws them from stock and books output against the plan."
+        actions={newOrderButton}
+      />
+
+      <Tabs value={tab} onValueChange={changeTab}>
+        <TabsList>
+          <TabsTrigger value="orders">Orders</TabsTrigger>
+          <TabsTrigger value="bookings">Daily bookings</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="orders">
+          <OrdersTable emptyAction={newOrderButton} />
+        </TabsContent>
+
+        <TabsContent value="bookings">
+          <DailyBookingsPanel />
+        </TabsContent>
+      </Tabs>
+
+      {can(P.PRODUCTION_ORDER_CREATE) && (
+        <ProductionOrderFormDialog open={createOpen} onOpenChange={setCreateOpen} />
+      )}
+    </>
+  )
+}
+
+function OrdersTable({ emptyAction }: { emptyAction: React.ReactNode }) {
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const status = searchParams.get('status') ?? ''
   const itemId = searchParams.get('item_id') ?? ''
@@ -249,135 +309,113 @@ export default function ProductionPage() {
     [],
   )
 
-  // Gating an affordance only - the API authorises the write itself.
-  const newOrderButton = can(P.PRODUCTION_ORDER_CREATE) ? (
-    <Button onClick={() => setCreateOpen(true)}>
-      <Plus />
-      New order
-    </Button>
-  ) : null
-
   return (
-    <>
-      <PageHeader
-        title="Production orders"
-        description="What the plant is making. An order explodes its BOM into components, draws them from stock and books output against the plan."
-        actions={newOrderButton}
-      />
+    <DataTable
+      columns={columns}
+      data={list.data}
+      pagination={list.pagination}
+      isLoading={list.isLoading}
+      isFetching={list.isFetching}
+      error={list.error}
+      onPageChange={list.setPage}
+      onLimitChange={list.setLimit}
+      onSortChange={list.setSort}
+      onSearchChange={list.setSearch}
+      onRefresh={() => void list.refetch()}
+      searchValue={list.search}
+      searchPlaceholder="Search order code or item..."
+      getRowId={(row) => row.id}
+      onRowClick={(row) => navigate(`/production/${row.id}`)}
+      emptyTitle="No production orders found"
+      emptyDescription="Nothing matches the current filters. Widen the date window or clear a filter."
+      emptyAction={emptyAction}
+      toolbar={
+        <>
+          <Select
+            value={status || SELECT_ALL}
+            onValueChange={(value) => setParam('status', value === SELECT_ALL ? undefined : value)}
+          >
+            <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by status">
+              <SelectValue placeholder="All statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
+              {PRODUCTION_STATUSES.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {humanise(value)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-      <DataTable
-        columns={columns}
-        data={list.data}
-        pagination={list.pagination}
-        isLoading={list.isLoading}
-        isFetching={list.isFetching}
-        error={list.error}
-        onPageChange={list.setPage}
-        onLimitChange={list.setLimit}
-        onSortChange={list.setSort}
-        onSearchChange={list.setSearch}
-        onRefresh={() => void list.refetch()}
-        searchValue={list.search}
-        searchPlaceholder="Search order code or item..."
-        getRowId={(row) => row.id}
-        onRowClick={(row) => navigate(`/production/${row.id}`)}
-        emptyTitle="No production orders found"
-        emptyDescription="Nothing matches the current filters. Widen the date window or clear a filter."
-        emptyAction={newOrderButton}
-        toolbar={
-          <>
+          <ItemPicker
+            id="production-item-filter"
+            label="Item"
+            hideLabel
+            value={itemId || null}
+            onChange={(value) => setParam('item_id', value ?? undefined)}
+            placeholder="All items"
+          />
+
+          {plantRows.length > 0 && (
             <Select
-              value={status || SELECT_ALL}
+              value={plantId || SELECT_ALL}
               onValueChange={(value) =>
-                setParam('status', value === SELECT_ALL ? undefined : value)
+                setParam('plant_id', value === SELECT_ALL ? undefined : value)
               }
             >
-              <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by status">
-                <SelectValue placeholder="All statuses" />
+              <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by plant">
+                <SelectValue placeholder="All plants" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={SELECT_ALL}>All statuses</SelectItem>
-                {PRODUCTION_STATUSES.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {humanise(value)}
+                <SelectItem value={SELECT_ALL}>All plants</SelectItem>
+                {plantRows.map((plant) => (
+                  <SelectItem key={plant.id} value={plant.id}>
+                    {plant.code} - {plant.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+          )}
 
-            <ItemPicker
-              id="production-item-filter"
-              label="Item"
-              hideLabel
-              value={itemId || null}
-              onChange={(value) => setParam('item_id', value ?? undefined)}
-              placeholder="All items"
-            />
-
-            {plantRows.length > 0 && (
-              <Select
-                value={plantId || SELECT_ALL}
-                onValueChange={(value) =>
-                  setParam('plant_id', value === SELECT_ALL ? undefined : value)
-                }
-              >
-                <SelectTrigger className="w-full sm:w-[180px]" aria-label="Filter by plant">
-                  <SelectValue placeholder="All plants" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={SELECT_ALL}>All plants</SelectItem>
-                  {plantRows.map((plant) => (
-                    <SelectItem key={plant.id} value={plant.id}>
-                      {plant.code} - {plant.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-
-            <Select
-              value={sourceType || SELECT_ALL}
-              onValueChange={(value) =>
-                setParam('source_type', value === SELECT_ALL ? undefined : value)
-              }
+          <Select
+            value={sourceType || SELECT_ALL}
+            onValueChange={(value) =>
+              setParam('source_type', value === SELECT_ALL ? undefined : value)
+            }
+          >
+            <SelectTrigger
+              className="w-full sm:w-[170px]"
+              aria-label="Filter by how the order was raised"
             >
-              <SelectTrigger
-                className="w-full sm:w-[170px]"
-                aria-label="Filter by how the order was raised"
-              >
-                <SelectValue placeholder="Any source" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={SELECT_ALL}>Any source</SelectItem>
-                {PRODUCTION_SOURCE_TYPES.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {humanise(value)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              <SelectValue placeholder="Any source" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={SELECT_ALL}>Any source</SelectItem>
+              {PRODUCTION_SOURCE_TYPES.map((value) => (
+                <SelectItem key={value} value={value}>
+                  {humanise(value)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-            <DateRangeFilter
-              id="production-date"
-              from={dateFrom}
-              to={dateTo}
-              onFromChange={(value) => setParam('planned_from', value || undefined)}
-              onToChange={(value) => setParam('planned_to', value || undefined)}
-            />
+          <DateRangeFilter
+            id="production-date"
+            from={dateFrom}
+            to={dateTo}
+            onFromChange={(value) => setParam('planned_from', value || undefined)}
+            onToChange={(value) => setParam('planned_to', value || undefined)}
+          />
 
-            {filterCount > 0 && (
-              <Button variant="ghost" size="sm" onClick={clearFilters}>
-                <X />
-                Clear
-              </Button>
-            )}
-          </>
-        }
-      />
-
-      {can(P.PRODUCTION_ORDER_CREATE) && (
-        <ProductionOrderFormDialog open={createOpen} onOpenChange={setCreateOpen} />
-      )}
-    </>
+          {filterCount > 0 && (
+            <Button variant="ghost" size="sm" onClick={clearFilters}>
+              <X />
+              Clear
+            </Button>
+          )}
+        </>
+      }
+    />
   )
 }
