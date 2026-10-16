@@ -425,6 +425,7 @@ async def _snapshot_default_routing(
     Empty when the item has no effective approved routing, or the routing has
     no steps: a missing process is legitimate for a single-operation item, and
     inventing operations would be worse than costing material only.
+    docs/assumptions.md §E7-7.
 
     The routing module is read through a function-level import. Both modules
     sit on the engine layer, and the production module - which reads both -

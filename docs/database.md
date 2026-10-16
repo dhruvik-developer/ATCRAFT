@@ -757,6 +757,25 @@ cost, `/production/wip` requires both `production_order.view` and
 `production_cost.view`. Its `late_only` filter is applied consistently by both
 the order and work-centre WIP endpoints.
 
+Capacity (`GET /production/capacity`) is read-only over the same open
+operations: one statement for open windows overlapping the window, one grouped
+statement for rostered minutes per centre per date, and the day-slicing in
+Python in the company timezone. Capacity is rostered minutes where the roster
+plans the centre that day, else `working_hours_per_day`. Release plans each
+operation inside its centre's rostered windows behind `PLAN_WITHIN_SHIFTS`
+(per-centre fallback to round the clock); machine double-booking across open
+operations warns by default and refuses with `BLOCK_MACHINE_OVERLAP`, both
+read off `ix_work_orders_machine` in one statement (docs/assumptions.md
+§E7-4, §E7-5, §E7-6).
+
+A BOM with no operations snapshots the item's effective default approved
+routing into `bom_operations` on create and - when still empty - at approval
+before the cost roll-up, so UI-built structures cost labour instead of
+material only; explicitly authored operations are never overwritten
+(docs/assumptions.md §E7-7). The machine-utilisation report is machine-driven
+(`machines` LEFT JOIN busy/downtime), so idle machines read 0% and retired or
+inactive ones are excluded.
+
 ### QC verdict to owner (`quality.owners`)
 
 Quality sits downstream of procurement, assembly, job work and production, so it may call

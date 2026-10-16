@@ -3,7 +3,7 @@
     "systemSummary": "Atcraft is one system for running an architectural-hardware manufacturing business end to end: what you make and what it is built from, what customers have ordered, what has to be bought or made to cover it, what is on the shelf, what has been checked, packed and sent, and what is owed either way. Everything in it hangs off two things \u2014 an item master that every other document points at, and a stock ledger in which every single movement of material is written down with a reason and a name against it. Because of that, the stock figure on the screen is not an estimate that somebody keys in and corrects later; it is the arithmetic of documents your own people have raised, and every one of those documents can be traced back to who raised it, who approved it, and why. The rest \u2014 sales orders, MRP, purchase orders, goods receipts, quality inspections, production orders, job work, packing, dispatch, invoices and payments \u2014 is the paperwork of the business, arranged in the order the work actually happens.",
     "whatItReplaces": "Almost every business of this size runs on a stock register in a spreadsheet, a purchase file, a WhatsApp group for the shop floor and the accountant's own books \u2014 four records of the same facts that agree with each other only until somebody is on leave. The everyday cost is not the typing; it is that nobody can answer a plain question in one place: is this order covered, why did we buy 200 of those, who passed that lot, where did the twelve missing pieces go. What changes is that each of those facts now has exactly one home and one moment at which it is recorded. Stock changes only when a document is posted \u2014 a receipt, an issue, a production booking, a dispatch \u2014 never by editing a number, so the register cannot quietly drift. An order that cannot be covered from stock is not a discovery made at picking time; the shortfall is on the screen the moment the order is confirmed. What you give up is the freedom to fix things afterwards: an approved purchase order cannot be edited, a sealed carton cannot be unsealed, a posted movement cannot be deleted. Corrections happen the way they do in a ledger \u2014 by another entry, with a reason, that stays visible.",
     "signIn": "Open the address your administrator gave you and sign in on the Sign in screen with your email address and password. If your account has two-factor authentication switched on, the screen then asks for the six-digit code from your authenticator app; there is a \"Back to password\" link if you started with the wrong account. Get the password wrong too many times in a row and the screen holds you off with a visible countdown before it will try again \u2014 wait it out rather than reloading. There is a \"Forgotten your password?\" link below the button. The first time you sign in with a password an administrator issued for you, the system will not let you go any further: it takes you straight to \"Choose a new password\", explains that a temporary password is in use, and asks for a new one. The new password must be at least twelve characters and contain a lowercase letter, an uppercase letter, a digit and a symbol; a live checklist beside the box shows what is still missing, and the server additionally refuses very common passwords and anything containing your own email address. Setting it signs out every other device you were signed in on. Only when that is done does the rest of the application open. Afterwards, your own account lives on Profile & sessions, reached from your name at the top right: change your password there, switch two-factor authentication on or off, and see every device currently signed in as you \u2014 with a Revoke button beside each one, which is what to use the day a phone is lost.",
-    "navigation": "The menu down the left is deliberately not an alphabetical list of features; it is the order the work happens in, from demand through to accounts. Overview is the dashboard. Sales holds sales orders, customers and dealers. Inventory holds stock balances, the stock ledger, reservations, transfers and adjustments, warehouses and storage locations. Engineering holds items, bills of material, routings and the item masters (categories, units, conversions, attributes, brands, manufacturers and price lists). Planning holds MRP. Procurement runs requisitions, purchase orders, goods receipts, RFQs, quotations, purchase returns, vendors and transporters. Manufacturing holds production orders, assembly, work orders and job work. Quality & Dispatch holds quality control, the QC check sheets, packing and dispatch. Finance holds ledgers and outstanding, vendor invoices, payments and the chart of accounts. Insights holds reports, the audit trail and documents. Administration holds users and roles, and the organisation record. Two things about the menu are worth knowing. First, you only see the sections your job needs \u2014 a storekeeper does not see Finance, because every screen in it would only refuse them; if a colleague describes a screen you cannot find, it is a permission question for your administrator, not a fault. Second, some entries carry a small number: open sales orders, requisitions waiting, purchase orders waiting for approval, jobs in progress, job work sitting at a vendor, inspections pending, consignments running late. That number is the day's queue. Along the top there is a box that searches items by code or name, a bell for notifications with the unread count on it, a light/dark switch, and your own name, which opens Profile & sessions and Sign out.",
+    "navigation": "The menu down the left is deliberately not an alphabetical list of features; it is the order the work happens in, from demand through to accounts. Overview is the dashboard. Sales holds sales orders, customers and dealers. Inventory holds stock balances, the stock ledger, reservations, transfers and adjustments, warehouses and storage locations. Engineering holds items, bills of material, routings and the item masters (categories, units, conversions, attributes, brands, manufacturers and price lists). Planning holds MRP. Procurement runs requisitions, purchase orders, goods receipts, RFQs, quotations, purchase returns, vendors and transporters. Manufacturing holds production orders, production planning, assembly, work orders and job work. Quality & Dispatch holds quality control, the QC check sheets, packing and dispatch. Finance holds ledgers and outstanding, vendor invoices, payments and the chart of accounts. Insights holds reports, the audit trail and documents. Administration holds users and roles, and the organisation record. Two things about the menu are worth knowing. First, you only see the sections your job needs \u2014 a storekeeper does not see Finance, because every screen in it would only refuse them; if a colleague describes a screen you cannot find, it is a permission question for your administrator, not a fault. Second, some entries carry a small number: open sales orders, requisitions waiting, purchase orders waiting for approval, jobs in progress, job work sitting at a vendor, inspections pending, consignments running late. That number is the day's queue. Along the top there is a box that searches items by code or name, a bell for notifications with the unread count on it, a light/dark switch, and your own name, which opens Profile & sessions and Sign out.",
     "endToEnd": [
       {
         "step": 1,
@@ -1207,6 +1207,11 @@
             {
               "action": "Throw away a draft that was never released",
               "how": "Press Delete draft, type a reason, confirm."
+            },
+            {
+              "action": "Correct a draft in place",
+              "how": "Edit draft on a DRAFT bill: the component grid and the operations grid arrive prefilled, and Save replaces both wholesale",
+              "note": "A bill someone else saved first answers with a conflict - reload it and re-apply the change. A draft approved without operations takes the item\u2019s default routing as its operation steps."
             }
           ],
           "flow": [
@@ -1276,6 +1281,11 @@
             {
               "action": "Filter",
               "how": "Routings by status; machines by condition (Available, Running, Maintenance, Breakdown, Retired)."
+            },
+            {
+              "action": "Put an operation on a machine",
+              "how": "The Machine picker on the operation row, listing the workable machines of that row\u2019s work centre",
+              "note": "The choice is cleared when the work centre changes and unavailable for outsourced steps, which run on the vendor\u2019s equipment. The routing panel shows the machine beside the work centre."
             }
           ],
           "flow": [
@@ -2476,6 +2486,11 @@
               "action": "Re-sort the list",
               "how": "Click a column heading",
               "note": "Order code, planned quantity, planned start, planned end and priority can be sorted on. Produced quantity, progress and status cannot, and their headings deliberately do not offer to."
+            },
+            {
+              "action": "Book a whole day across every open order",
+              "how": "The Daily bookings tab: pick the date and shift, read what each live job booked, and press Record on a row to book against that job",
+              "note": "Only jobs that have started take bookings; a released job that has not started reads Not started until it is issued and started."
             }
           ],
           "flow": [
@@ -2679,6 +2694,45 @@
           "notes": "There is no search box, because the underlying list does not offer one, and only Sequence, Status and Planned start can be sorted. There is no machine column in the grid - a row knows its machine but the grid would need one lookup per row to name it, so machines are resolved in the assignment dialog and in the machine filter instead. The load board carries no work centre names of its own; it borrows them from the work centre master, and shows 'Name unavailable' if that cannot be read. A cell with nothing on it disappears from the board rather than showing zeroes, which is worth saying out loud in the deck. Shift selects use the company shift master. Operators come from the active internal directory; choose a work order for per-operation output or leave it blank for final output. Downtime-only bookings are accepted. Legacy shift codes remain visible read-only."
         },
         {
+          "route": "/production/planning",
+          "title": "Production planning",
+          "purpose": "One week of work per work centre and machine. The load strip answers whether the plan fits - remaining planned minutes per centre per day against rostered capacity where a roster exists, standard hours elsewhere, with the days that do not fit flagged. The timeline answers what runs where, and an operation is rescheduled through the same assignment dialog the queue uses.",
+          "whoUses": "The production planner, laying the week out before releasing it to the floor.",
+          "keyActions": [
+            {
+              "action": "Move to another week",
+              "how": "The Previous week, This week and Next week controls above the board"
+            },
+            {
+              "action": "Narrow to one cell",
+              "how": "The work centre selector",
+              "note": "The machine view then lists that cell\u2019s seats plus the operations not yet on any machine."
+            },
+            {
+              "action": "Read overloads",
+              "how": "The Over badge on a load-strip day",
+              "note": "A day marked Over holds more planned minutes than the centre\u2019s capacity for it."
+            },
+            {
+              "action": "Reschedule an operation",
+              "how": "Select the operation on the timeline",
+              "note": "The new window is re-validated on save, and a machine double-booking is reported - or refused, where the plant blocks overlaps."
+            },
+            {
+              "action": "Place unscheduled work",
+              "how": "The Without a planned window list at the foot of the board"
+            }
+          ],
+          "flow": null,
+          "keyActionsNote": null,
+          "permission": "Anyone with the right to see production orders can open this screen and read the board. Moving an operation needs the work-order management right.",
+          "rules": [
+            "Releases plan operations inside rostered shift windows where a roster exists, and round the clock where none does.",
+            "A machine clash badge compares the operations loaded for the visible week; the assignment itself checks everything."
+          ],
+          "notes": null
+        },
+        {
           "route": "/assembly",
           "title": "Assembly orders",
           "purpose": "Kits put together at a bench rather than run through a routing - the lock set built from a handle, a cylinder, a lock body, a set of keys and a screw kit. An assembly order names the finished item, the quantity, the components it eats and where the finished units are received. The order opens in a panel over the list rather than on a page of its own, because an assembly is a short document and an operator working down twenty of them should not lose their place. Where a component is serial tracked, the serials that went into each build are recorded against the order, which is what answers a warranty claim years later.",
@@ -2859,7 +2913,8 @@
             "Press New job work order. Choose the vendor, the process (polishing, coating, PVD, laser marking, machining or other), and the date the material is due back - that date is what the ageing and the overdue flag are measured against.",
             "Choose the store the material leaves from and, if different, the store the processed output returns to.",
             "Set the rate basis - per piece, per kilo, or a flat rate for the lot - and the rate. The rate is frozen on the order, so a later rate-card change does not restate what was approved.",
-            "Set the GST rate and the SAC for the processing service - 18% and 9988 unless the vendor's paperwork says otherwise.",            "Tick 'Output must be inspected' if the returned goods have to go through QC.",
+            "Set the GST rate and the SAC for the processing service - 18% and 9988 unless the vendor's paperwork says otherwise.",
+            "Tick 'Output must be inspected' if the returned goods have to go through QC.",
             "Add the lines: the item going out, the quantity, what it comes back as (leave blank if the same item comes back), the expected output quantity if the yield is not one for one, and the agreed loss percentage.",
             "Save the draft, then Approve it. Approval reserves the material.",
             "Press Issue to vendor. Enter the challan date, the expected return, the vehicle number and the quantities going out. The challan is raised and the stock moves into the job-work state - still yours, no longer available.",
@@ -3130,7 +3185,7 @@
             "Rejected material from a named vendor is flagged as owing a return and the buyers are notified. The return itself is raised in procurement - quality states that one is owed, it does not raise it, because the return is procurement's document, numbering and approval.",
             "Whether a reading passes is decided by the system against the specification, never asserted by whoever typed it, and the result is stored as it was judged at the time. A later change to the specification therefore cannot rewrite the past.",
             "An item for which nobody has written a specification is still put forward for inspection. It simply arrives with no characteristics to measure, and the inspector dispositions it on judgement with a remark - refusing to raise it would mean the goods were never inspected at all.",
-          "A finished rework cycle hands the lot back for re-decision rather than dispositioning it. Every verdict stays in the lot's history, so re-deciding a reworked lot never erases how it was decided before."
+            "A finished rework cycle hands the lot back for re-decision rather than dispositioning it. Every verdict stays in the lot's history, so re-deciding a reworked lot never erases how it was decided before."
           ],
           "permission": "Reading the queue, the history and the reports needs the right to see quality. Recording measurements and deciding a lot are two separate rights on purpose: the person who measures a part is usually not the person authorised to release a consignment on the strength of it. An account that may only measure sees the readings and no disposition section at all, and is told so; an account that may only decide sees the readings as recorded and sends only the decision. Attaching a photograph additionally needs the right to upload documents.",
           "notes": "Most inspections arrive automatically from goods receipts, job-work returns, assembly completions, production bookings and packing starts - and a supervisor can raise one by hand with Raise inspection. There is also no Close action anywhere on the screen: a fully dispositioned inspection stays on the record as decided. Rows carry the item, batch and vendor as identifiers rather than names, so the Item column is an eight-character link into the item master; a screenshot will show that rather than an item code. Both report cards are empty until an item or a vendor is chosen, so a screenshot needs a selection made first."

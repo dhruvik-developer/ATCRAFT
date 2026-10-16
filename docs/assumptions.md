@@ -2994,6 +2994,98 @@ unchanged because its actual end time is the authoritative completed duration.
 operations, remove the in-progress elapsed-time branch; the final-cost model is
 independent of this estimate.
 
+## §E7-4. A machine double-booking warns instead of refusing
+
+**Assumed.** Two open operations naming the same machine with overlapping
+planned windows are reported in the response message, naming every holder
+(operation code, job code, window) - on assignment and at release - rather
+than refused. Only PENDING and IN_PROGRESS operations count: a finished run's
+planned window is a stale plan, not a hold on the machine. Setting
+`BLOCK_MACHINE_OVERLAP` to True refuses instead, before anything is written.
+A machine in MAINTENANCE or BREAKDOWN warns through the routing module's
+`WORKABLE_MACHINE_STATUSES`; a RETIRED or inactive machine is still refused.
+
+**Why.** The floor re-sequences work constantly - an hour's breakdown pushes
+everything behind it - and refusing an assignment over a plan that is already
+stale would strand the traveller. The warning names what to move, which is the
+useful half of a refusal.
+
+**Where.** `src/modules/production/service.py` - `BLOCK_MACHINE_OVERLAP`,
+`_apply_overlap_rule`, `_check_release_machines`; `WorkOrderRepository.machine_conflicts`.
+
+**Impact if wrong.** If the business wants hard single-booking, set
+`BLOCK_MACHINE_OVERLAP` to True (a named constant, not a code change). If
+finished runs should also block, extend the overlap query beyond open
+statuses.
+
+## §E7-5. Operations are planned inside rostered shift windows
+
+**Assumed.** Release schedules each operation to start inside its work
+centre's rostered shift windows (first window it fits in, earliest first; an
+operation longer than any window overruns from the earliest window still
+ahead). A centre with no roster rows plans round the clock, and setting
+`PLAN_WITHIN_SHIFTS` to False restores the old 24/7 back-to-back schedule
+everywhere. Operations remain strictly sequential - no overlap of a long run
+with the next setup - matching the routing lead-time convention.
+
+**Why.** A 24/7 schedule promises Friday-night output from a plant working one
+eight-hour shift. Planning inside shifts keeps the promise honest where a
+roster exists, while refusing to schedule at all where none does would be
+worse.
+
+**Where.** `src/modules/production/service.py` - `PLAN_WITHIN_SHIFTS`,
+`plan_work_orders`, `_roster_windows`; `ShiftAssignmentRepository.windows_for_centres`.
+
+**Impact if wrong.** If the business plans 24/7 despite the roster, set
+`PLAN_WITHIN_SHIFTS` to False. If operations should overlap shifts or split
+across them, the placement rule in `_place_in_windows` is the line to change.
+
+## §E7-6. Capacity buckets whole planned windows by company day
+
+**Assumed.** `GET /production/capacity` slices each open operation's full
+planned window (setup plus run minutes) across the company-local dates it
+touches, and compares the day's total against the rostered minutes for that
+centre on that date when roster rows exist, else `working_hours_per_day`.
+Days the plan exceeds capacity are flagged. The default window is four weeks
+from today; at most 62 days are answered in one request. Operations without a
+planned window are invisible to capacity.
+
+**Why.** Capacity is a per-day statement, and a multi-day operation occupies
+each day it runs through. Rostered minutes are used where planned because
+that is what the day actually holds; the standard day is the fallback, not a
+second opinion - the same two figures the machine-utilisation report carries.
+
+**Where.** `src/modules/production/service.py` - `production_capacity`,
+`MAX_CAPACITY_DAYS`; `WorkOrderRepository.open_windows`;
+`ShiftAssignmentRepository.rostered_minutes_by_centre`.
+
+**Impact if wrong.** If capacity should count only remaining (pro-rated)
+minutes rather than whole planned windows, change `open_windows` to net off
+completed quantity as the work-centre load board does. If the window cap is
+wrong for planning horizons, change `MAX_CAPACITY_DAYS`.
+
+## §E7-7. A BOM without operations inherits its default routing at approval
+
+**Assumed.** Creating or approving a BOM with no operations snapshots the
+item's effective default approved routing into `bom_operations` - sequence,
+name, routing link, work centre, setup/run minutes, the centre's current rate,
+the step's process charge as the fixed cost, and the outsourced flag.
+Explicitly authored operations are never overwritten, and a missing or
+stepless routing leaves the BOM operation-free rather than inventing steps.
+The snapshot is costed by the same roll-up as authored operations.
+
+**Why.** Every BOM built from the UI used to cost material only, because the
+dialog posts no operations and nothing else populated them. The routing the
+item would be released against is the only defensible default, and freezing
+it at approval keeps later rate revisions from rewriting an approved cost.
+
+**Where.** `src/modules/bom/service.py` - `_snapshot_default_routing`,
+called from `create_bom` and `approve_bom`.
+
+**Impact if wrong.** If snapshots should follow routing revisions instead of
+freezing, the roll-up would have to read live routing data - which contradicts
+the snapshot-at-commitment rule the rest of the module follows.
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant
