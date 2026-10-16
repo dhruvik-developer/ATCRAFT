@@ -10639,6 +10639,15 @@
         "title": "CancelRequest",
         "type": "object"
       },
+      "CapacitySource": {
+        "description": "Where a work centre's daily capacity figure came from.\n\n``ROSTER`` is the rostered minutes for that centre on that date; ``STANDARD``\nis ``working_hours_per_day`` when nobody rostered anything there that day.",
+        "enum": [
+          "ROSTER",
+          "STANDARD"
+        ],
+        "title": "CapacitySource",
+        "type": "string"
+      },
       "CartonContentIn": {
         "additionalProperties": false,
         "description": "One quantity of one item going into a carton.\n\n``serial_ids`` is required for a serial-tracked item and refused for every\nother one: a serial identifies a single physical unit, so the count has to\nequal the quantity, and a non-serialised part has nothing to name. The\nquantity/count agreement is checked in the service, where the item's\ntracking mode is known.",
@@ -31878,6 +31887,32 @@
         "title": "PaginatedResponse[PriceOut]",
         "type": "object"
       },
+      "PaginatedResponse_ProductionCapacityDay_": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ProductionCapacityDay"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/OffsetPagination"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "PaginatedResponse[ProductionCapacityDay]",
+        "type": "object"
+      },
       "PaginatedResponse_ProductionEntryRead_": {
         "properties": {
           "data": {
@@ -35309,6 +35344,58 @@
           }
         },
         "title": "PriceUpdate",
+        "type": "object"
+      },
+      "ProductionCapacityDay": {
+        "description": "Remaining planned minutes on one work centre on one date, against capacity.\n\n``planned_minutes`` is the overlap of every open operation's planned window\nwith the date, in the company's timezone. ``over_capacity`` flags the days\nthe plan does not fit.",
+        "properties": {
+          "capacity_minutes": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Capacity Minutes",
+            "type": "string"
+          },
+          "capacity_source": {
+            "$ref": "#/components/schemas/CapacitySource"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "over_capacity": {
+            "title": "Over Capacity",
+            "type": "boolean"
+          },
+          "planned_minutes": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Planned Minutes",
+            "type": "string"
+          },
+          "work_center_code": {
+            "title": "Work Center Code",
+            "type": "string"
+          },
+          "work_center_id": {
+            "format": "uuid",
+            "title": "Work Center Id",
+            "type": "string"
+          },
+          "work_center_name": {
+            "title": "Work Center Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "work_center_id",
+          "work_center_code",
+          "work_center_name",
+          "date",
+          "planned_minutes",
+          "capacity_minutes",
+          "capacity_source",
+          "over_capacity"
+        ],
+        "title": "ProductionCapacityDay",
         "type": "object"
       },
       "ProductionCostMaterialLine": {
@@ -118893,6 +118980,541 @@
         ]
       }
     },
+    "/api/v1/production/capacity": {
+      "get": {
+        "description": "The planning board's heat strip: every work centre crossed with every date in the window, carrying the open operations' planned minutes sliced across the days they touch and the day's capacity beside it. Capacity is the rostered minutes when the roster plans that centre that day, otherwise the centre's standard working hours. Days the plan does not fit are flagged `over_capacity`. Defaults to four weeks from today; at most 62 days in one request.",
+        "operationId": "get_production_capacity_api_v1_production_capacity_get",
+        "parameters": [
+          {
+            "description": "First date on the board",
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "First date on the board",
+              "title": "Date From"
+            }
+          },
+          {
+            "description": "Last date on the board",
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Last date on the board",
+              "title": "Date To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "work_center_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Work Center Id"
+            }
+          },
+          {
+            "description": "1-based page number",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "1-based page number",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Rows per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Rows per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Include an exact total row count",
+            "in": "query",
+            "name": "with_total",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Include an exact total row count",
+              "title": "With Total",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_ProductionCapacityDay_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Remaining planned load per work centre per day, against capacity",
+        "tags": [
+          "Production"
+        ]
+      }
+    },
+    "/api/v1/production/entries": {
+      "get": {
+        "description": "Every shop-floor booking in the company, newest first - the daily board behind the date-and-shift view. The same filters as the per-order listing; narrow by entry date and shift for one day's work.",
+        "operationId": "list_all_production_entries_api_v1_production_entries_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "production_order_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Production Order Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "work_order_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Work Order Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "operator_user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Operator User Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "machine_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Machine Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "shift",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 16,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Shift"
+            }
+          },
+          {
+            "in": "query",
+            "name": "shift_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Shift Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "entry_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Entry From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "entry_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Entry To"
+            }
+          },
+          {
+            "description": "Only bookings that received finished goods",
+            "in": "query",
+            "name": "output_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Only bookings that received finished goods",
+              "title": "Output Only",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "1-based page number",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "1-based page number",
+              "maximum": 100000,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Rows per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Rows per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Include an exact total row count",
+            "in": "query",
+            "name": "with_total",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Include an exact total row count",
+              "title": "With Total",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Field to sort by",
+            "in": "query",
+            "name": "sort_by",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Field to sort by",
+              "title": "Sort By"
+            }
+          },
+          {
+            "description": "Sort direction",
+            "in": "query",
+            "name": "sort_dir",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "description": "Sort direction",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Sort Dir",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_ProductionEntryRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Bookings across all jobs",
+        "tags": [
+          "Production"
+        ]
+      }
+    },
     "/api/v1/production/material-issues": {
       "get": {
         "operationId": "list_material_issues_api_v1_production_material_issues_get",
@@ -120341,7 +120963,7 @@
     },
     "/api/v1/production/work-orders/{work_order_id}": {
       "patch": {
-        "description": "Operator, machine, shift and planned times. Quantities are never set here - they only ever move through a production booking. The shift is chosen from the shift master by shift_id; its code is kept on the row as a snapshot. An operator the shift roster does not plan on that shift is accepted with a warning in the message - the roster is advisory.",
+        "description": "Operator, machine, shift and planned times. Quantities are never set here - they only ever move through a production booking. The shift is chosen from the shift master by shift_id; its code is kept on the row as a snapshot. An operator the shift roster does not plan on that shift is accepted with a warning in the message - the roster is advisory. The proposed machine and window are re-validated too: a retired machine is refused, a machine in maintenance or breakdown warns, and a window overlapping another open operation on the same machine warns in the message - or is refused when machine-overlap blocking is configured.",
         "operationId": "update_work_order_api_v1_production_work_orders__work_order_id__patch",
         "parameters": [
           {

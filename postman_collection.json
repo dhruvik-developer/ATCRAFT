@@ -16230,7 +16230,7 @@
               },
               "raw": "{\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_end_at\": \"2026-01-01T00:00:00Z\",\n  \"planned_start_at\": \"2026-01-01T00:00:00Z\",\n  \"shift_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
-            "description": "Operator, machine, shift and planned times. Quantities are never set here - they only ever move through a production booking. The shift is chosen from the shift master by shift_id; its code is kept on the row as a snapshot. An operator the shift roster does not plan on that shift is accepted with a warning in the message - the roster is advisory.",
+            "description": "Operator, machine, shift and planned times. Quantities are never set here - they only ever move through a production booking. The shift is chosen from the shift master by shift_id; its code is kept on the row as a snapshot. An operator the shift roster does not plan on that shift is accepted with a warning in the message - the roster is advisory. The proposed machine and window are re-validated too: a retired machine is refused, a machine in maintenance or breakdown warns, and a window overlapping another open operation on the same machine warns in the message - or is refused when machine-overlap blocking is configured.",
             "header": [
               {
                 "key": "Content-Type",
@@ -16299,6 +16299,112 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Bookings across all jobs",
+          "request": {
+            "description": "Every shop-floor booking in the company, newest first - the daily board behind the date-and-shift view. The same filters as the per-order listing; narrow by entry date and shift for one day's work.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "production",
+                "entries"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "production_order_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_order_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "operator_user_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "machine_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "shift",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "shift_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "entry_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "entry_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Only bookings that received finished goods",
+                  "disabled": true,
+                  "key": "output_only",
+                  "value": "False"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                },
+                {
+                  "description": "Field to sort by",
+                  "disabled": true,
+                  "key": "sort_by",
+                  "value": ""
+                },
+                {
+                  "description": "Sort direction",
+                  "disabled": true,
+                  "key": "sort_dir",
+                  "value": "asc"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/production/entries?"
             }
           }
         },
@@ -17406,6 +17512,64 @@
                   "value": ""
                 }
               ]
+            }
+          }
+        },
+        {
+          "name": "Remaining planned load per work centre per day, against capacity",
+          "request": {
+            "description": "The planning board's heat strip: every work centre crossed with every date in the window, carrying the open operations' planned minutes sliced across the days they touch and the day's capacity beside it. Capacity is the rostered minutes when the roster plans that centre that day, otherwise the centre's standard working hours. Days the plan does not fit are flagged `over_capacity`. Defaults to four weeks from today; at most 62 days in one request.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "production",
+                "capacity"
+              ],
+              "query": [
+                {
+                  "description": "First date on the board",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last date on the board",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/production/capacity?"
             }
           }
         },

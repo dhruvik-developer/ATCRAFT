@@ -5441,6 +5441,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/production/capacity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Remaining planned load per work centre per day, against capacity
+         * @description The planning board's heat strip: every work centre crossed with every date in the window, carrying the open operations' planned minutes sliced across the days they touch and the day's capacity beside it. Capacity is the rostered minutes when the roster plans that centre that day, otherwise the centre's standard working hours. Days the plan does not fit are flagged `over_capacity`. Defaults to four weeks from today; at most 62 days in one request.
+         */
+        get: operations["get_production_capacity_api_v1_production_capacity_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/production/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bookings across all jobs
+         * @description Every shop-floor booking in the company, newest first - the daily board behind the date-and-shift view. The same filters as the per-order listing; narrow by entry date and shift for one day's work.
+         */
+        get: operations["list_all_production_entries_api_v1_production_entries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/production/material-issues": {
         parameters: {
             query?: never;
@@ -5592,7 +5632,7 @@ export interface paths {
         head?: never;
         /**
          * Assign or reschedule an operation
-         * @description Operator, machine, shift and planned times. Quantities are never set here - they only ever move through a production booking. The shift is chosen from the shift master by shift_id; its code is kept on the row as a snapshot. An operator the shift roster does not plan on that shift is accepted with a warning in the message - the roster is advisory.
+         * @description Operator, machine, shift and planned times. Quantities are never set here - they only ever move through a production booking. The shift is chosen from the shift master by shift_id; its code is kept on the row as a snapshot. An operator the shift roster does not plan on that shift is accepted with a warning in the message - the roster is advisory. The proposed machine and window are re-validated too: a retired machine is refused, a machine in maintenance or breakdown warns, and a window overlapping another open operation on the same machine warns in the message - or is refused when machine-overlap blocking is configured.
          */
         patch: operations["update_work_order_api_v1_production_work_orders__work_order_id__patch"];
         trace?: never;
@@ -13805,6 +13845,15 @@ export interface components {
             reason: string;
         };
         /**
+         * CapacitySource
+         * @description Where a work centre's daily capacity figure came from.
+         *
+         *     ``ROSTER`` is the rostered minutes for that centre on that date; ``STANDARD``
+         *     is ``working_hours_per_day`` when nobody rostered anything there that day.
+         * @enum {string}
+         */
+        CapacitySource: "ROSTER" | "STANDARD";
+        /**
          * CartonContentIn
          * @description One quantity of one item going into a carton.
          *
@@ -21702,6 +21751,22 @@ export interface components {
              */
             success: boolean;
         };
+        /** PaginatedResponse[ProductionCapacityDay] */
+        PaginatedResponse_ProductionCapacityDay_: {
+            /** Data */
+            data?: components["schemas"]["ProductionCapacityDay"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
         /** PaginatedResponse[ProductionEntryRead] */
         PaginatedResponse_ProductionEntryRead_: {
             /** Data */
@@ -23239,6 +23304,37 @@ export interface components {
             valid_from?: string | null;
             /** Valid To */
             valid_to?: string | null;
+        };
+        /**
+         * ProductionCapacityDay
+         * @description Remaining planned minutes on one work centre on one date, against capacity.
+         *
+         *     ``planned_minutes`` is the overlap of every open operation's planned window
+         *     with the date, in the company's timezone. ``over_capacity`` flags the days
+         *     the plan does not fit.
+         */
+        ProductionCapacityDay: {
+            /** Capacity Minutes */
+            capacity_minutes: string;
+            capacity_source: components["schemas"]["CapacitySource"];
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Over Capacity */
+            over_capacity: boolean;
+            /** Planned Minutes */
+            planned_minutes: string;
+            /** Work Center Code */
+            work_center_code: string;
+            /**
+             * Work Center Id
+             * Format: uuid
+             */
+            work_center_id: string;
+            /** Work Center Name */
+            work_center_name: string;
         };
         /** ProductionCostMaterialLine */
         ProductionCostMaterialLine: {
@@ -69225,6 +69321,223 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_ProductionOrderRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_production_capacity_api_v1_production_capacity_get: {
+        parameters: {
+            query?: {
+                /** @description First date on the board */
+                date_from?: string | null;
+                /** @description Last date on the board */
+                date_to?: string | null;
+                work_center_id?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_ProductionCapacityDay_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    list_all_production_entries_api_v1_production_entries_get: {
+        parameters: {
+            query?: {
+                production_order_id?: string | null;
+                work_order_id?: string | null;
+                operator_user_id?: string | null;
+                machine_id?: string | null;
+                shift?: string | null;
+                shift_id?: string | null;
+                entry_from?: string | null;
+                entry_to?: string | null;
+                /** @description Only bookings that received finished goods */
+                output_only?: boolean;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+                /** @description Field to sort by */
+                sort_by?: string | null;
+                /** @description Sort direction */
+                sort_dir?: "asc" | "desc";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_ProductionEntryRead_"];
                 };
             };
             /** @description Malformed request */
