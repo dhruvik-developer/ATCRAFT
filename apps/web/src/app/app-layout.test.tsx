@@ -19,12 +19,13 @@
  * should not fails the test on the request itself.
  */
 
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { Route, Routes, useLocation } from 'react-router-dom'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ok, renderScreen, type RouteTable } from '@/test/harness'
 import { P } from '@/lib/permissions'
+import { STORAGE_KEYS } from '@/lib/constants'
 
 import { AppLayout } from './app-layout'
 
@@ -240,5 +241,82 @@ describe('the account menu', () => {
     // only stops this tab from using them, and the session would stay live for
     // anyone holding the refresh token.
     await waitFor(() => fetch.requestFor('POST', '/auth/logout'))
+  })
+})
+
+describe('the mobile navigation drawer', () => {
+  afterEach(() => {
+    localStorage.removeItem(STORAGE_KEYS.sidebar)
+    vi.restoreAllMocks()
+  })
+
+  it('contains keyboard focus, closes with Escape and returns focus to its opener', async () => {
+    // A collapsed desktop preference must not hide the mobile labels.
+    localStorage.setItem(STORAGE_KEYS.sidebar, 'collapsed')
+    const { user } = renderLayout([P.ITEM_VIEW])
+    await sidebar()
+
+    const opener = screen.getByRole('button', { name: 'Open navigation' })
+    await user.click(opener)
+    const drawer = await screen.findByRole('dialog', { name: 'Main navigation' })
+    const close = within(drawer).getByRole('button', { name: 'Close navigation' })
+    const items = within(drawer).getByRole('link', { name: 'Items' })
+    expect(close).toHaveFocus()
+
+    await user.tab()
+    expect(items).toHaveFocus()
+    await user.tab()
+    expect(close).toHaveFocus()
+    await user.tab({ shift: true })
+    expect(items).toHaveFocus()
+
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(opener).toHaveFocus()
+  })
+
+  it('closes after opening the selected screen', async () => {
+    const { user } = renderScreen(
+      <Routes>
+        <Route element={<AppLayout />}>
+          <Route index element={null} />
+          <Route path="/items" element={<p>Items destination</p>} />
+        </Route>
+      </Routes>,
+      { permissions: [P.ITEM_VIEW] },
+    )
+    await sidebar()
+    await user.click(screen.getByRole('button', { name: 'Open navigation' }))
+    const drawer = await screen.findByRole('dialog', { name: 'Main navigation' })
+
+    await user.click(within(drawer).getByRole('link', { name: 'Items' }))
+
+    expect(await screen.findByText('Items destination')).toBeVisible()
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  it('releases the modal when the viewport grows to the desktop sidebar', async () => {
+    const originalMatchMedia = window.matchMedia
+    const desktop = Object.assign(new EventTarget(), {
+      matches: false,
+      media: '(min-width: 1024px)',
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+    }) as MediaQueryList
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) =>
+      query === desktop.media ? desktop : originalMatchMedia(query),
+    )
+    const { user } = renderLayout([P.ITEM_VIEW])
+    await sidebar()
+    await user.click(screen.getByRole('button', { name: 'Open navigation' }))
+    expect(await screen.findByRole('dialog', { name: 'Main navigation' })).toBeVisible()
+
+    act(() => {
+      Object.defineProperty(desktop, 'matches', { value: true })
+      desktop.dispatchEvent(new Event('change'))
+    })
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 })

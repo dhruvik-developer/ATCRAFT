@@ -152,6 +152,7 @@ function CustomerAddressSelect({
   addressType,
   value,
   onChange,
+  error,
 }: {
   id: string
   label: string
@@ -159,12 +160,14 @@ function CustomerAddressSelect({
   addressType: AddressType
   value: string
   onChange: (value: string) => void
+  error?: string
 }) {
+  const { can } = useAuth()
   const params = { address_type: addressType, is_active: true, limit: 100, with_total: false }
   const addresses = useQuery({
     queryKey: [...queryKeys.customers.detail(customerId), 'addresses', params],
     queryFn: () => api.getPage<CustomerAddress>(`/customers/${customerId}/addresses`, { params }),
-    enabled: Boolean(customerId),
+    enabled: Boolean(customerId) && can(P.CUSTOMER_VIEW),
     staleTime: staleTimes.master,
   })
 
@@ -173,14 +176,21 @@ function CustomerAddressSelect({
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id}>{label}</Label>
-      <Select value={value} onValueChange={onChange} disabled={!customerId}>
-        <SelectTrigger id={id}>
+      <Select
+        value={value}
+        onValueChange={onChange}
+        disabled={!customerId || !can(P.CUSTOMER_VIEW) || addresses.isLoading}
+      >
+        <SelectTrigger id={id} aria-invalid={Boolean(error || addresses.error)}>
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={SELECT_NONE}>
             {customerId ? "The customer's default" : 'Choose a customer first'}
           </SelectItem>
+          {value !== SELECT_NONE && !rows.some((address) => address.id === value) && (
+            <SelectItem value={value}>Saved address</SelectItem>
+          )}
           {rows.map((address) => (
             <SelectItem key={address.id} value={address.id}>
               {address.label ?? address.address_line1}
@@ -190,6 +200,7 @@ function CustomerAddressSelect({
           ))}
         </SelectContent>
       </Select>
+      <FieldError message={error ?? addresses.error?.message} />
     </div>
   )
 }
@@ -221,6 +232,7 @@ export function SalesOrderFormDialog({
     handleSubmit,
     reset,
     setError,
+    setValue,
     watch,
     formState: { errors },
   } = useForm<OrderFormValues>({ resolver: zodResolver(schema), defaultValues: emptyValues() })
@@ -313,7 +325,13 @@ export function SalesOrderFormDialog({
                         id="order-customer"
                         label="Customer"
                         value={field.value || null}
-                        onChange={(picked) => field.onChange(picked ?? '')}
+                        onChange={(picked) => {
+                          if ((picked ?? '') !== field.value) {
+                            setValue('billing_address_id', SELECT_NONE)
+                            setValue('shipping_address_id', SELECT_NONE)
+                          }
+                          field.onChange(picked ?? '')
+                        }}
                         placeholder="Search for a customer"
                         invalid={Boolean(errors.customer_id)}
                         // The API refuses to move an order to another account.
@@ -436,6 +454,7 @@ export function SalesOrderFormDialog({
                       addressType="BILLING"
                       value={field.value}
                       onChange={field.onChange}
+                      error={errors.billing_address_id?.message}
                     />
                   )}
                 />
@@ -451,6 +470,7 @@ export function SalesOrderFormDialog({
                       addressType="SHIPPING"
                       value={field.value}
                       onChange={field.onChange}
+                      error={errors.shipping_address_id?.message}
                     />
                   )}
                 />

@@ -23,6 +23,8 @@ export interface UseListQueryOptions {
   path: string
   /** React Query key factory for this resource. */
   queryKey: (params: unknown) => readonly unknown[]
+  /** Isolate URL state when a screen contains several independent lists. */
+  namespace?: string
   /** Filters that are not page/limit/sort/search. */
   filters?: Record<string, unknown>
   defaultLimit?: number
@@ -44,6 +46,7 @@ export interface UseListQueryOptions {
 export function useListQuery<T>({
   path,
   queryKey,
+  namespace,
   filters = {},
   defaultLimit = DEFAULT_PAGE_SIZE,
   defaultSortBy,
@@ -55,12 +58,13 @@ export function useListQuery<T>({
   refetchOnWindowFocus = false,
 }: UseListQueryOptions) {
   const [searchParams, setSearchParams] = useSearchParams()
+  const prefix = namespace ? `${namespace}_` : ''
 
-  const page = Number(searchParams.get('page') ?? 1)
-  const limit = Number(searchParams.get('limit') ?? defaultLimit)
-  const search = searchParams.get('q') ?? ''
-  const sortBy = searchParams.get('sort') ?? defaultSortBy
-  const sortDir = (searchParams.get('dir') as 'asc' | 'desc' | null) ?? defaultSortDir
+  const page = Number(searchParams.get(`${prefix}page`) ?? 1)
+  const limit = Number(searchParams.get(`${prefix}limit`) ?? defaultLimit)
+  const search = searchParams.get(`${prefix}q`) ?? ''
+  const sortBy = searchParams.get(`${prefix}sort`) ?? defaultSortBy
+  const sortDir = (searchParams.get(`${prefix}dir`) as 'asc' | 'desc' | null) ?? defaultSortDir
 
   const params: ListParams = useMemo(
     () => ({
@@ -103,15 +107,15 @@ export function useListQuery<T>({
         (current) => {
           const updated = new URLSearchParams(current)
           for (const [key, value] of Object.entries(next)) {
-            if (value === undefined || value === '') updated.delete(key)
-            else updated.set(key, String(value))
+            if (value === undefined || value === '') updated.delete(`${prefix}${key}`)
+            else updated.set(`${prefix}${key}`, String(value))
           }
           return updated
         },
         { replace: true },
       )
     },
-    [setSearchParams],
+    [prefix, setSearchParams],
   )
 
   return {

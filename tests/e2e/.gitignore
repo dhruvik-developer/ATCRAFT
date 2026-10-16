@@ -1,6 +1,7 @@
 .auth/
 test-results/
 playwright-report/
+readiness-artifacts/
 node_modules/
 
 # Local configuration and credentials. `.env.example` is the template.

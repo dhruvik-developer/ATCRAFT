@@ -120,6 +120,7 @@ export function RaiseSalesInvoiceDialog({
   dispatchId: string | null
   onClose: () => void
 }) {
+  const { can } = useAuth()
   const [date, setDate] = useState('')
   const [notes, setNotes] = useState('')
   const queryClient = useQueryClient()
@@ -129,7 +130,7 @@ export function RaiseSalesInvoiceDialog({
       api.get<SalesInvoicePreview>('/finance/sales-invoices/preview', {
         params: { dispatch_id: dispatchId, ...(date ? { invoice_date: date } : {}) },
       }),
-    enabled: Boolean(dispatchId),
+    enabled: Boolean(dispatchId) && can(P.SALES_INVOICE_VIEW),
     staleTime: 0,
   })
   useEffect(() => {
@@ -176,11 +177,15 @@ export function RaiseSalesInvoiceDialog({
               <Input
                 id="sales-invoice-notes"
                 value={notes}
+                maxLength={2000}
                 onChange={(event) => setNotes(event.target.value)}
               />
             </div>
           </div>
           {preview.isLoading && <p>Loading invoice preview...</p>}
+          {!can(P.SALES_INVOICE_VIEW) && (
+            <FieldError message="Viewing sales invoices is required to review the invoice before issuing it." />
+          )}
           {preview.error && <FieldError message={preview.error.message} />}
           {issue.error && <FieldError message={issue.error.message} />}
           {preview.data && (
@@ -201,13 +206,20 @@ export function RaiseSalesInvoiceDialog({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            onClick={() => issue.mutate()}
-            disabled={!preview.data || Boolean(preview.error)}
-            loading={issue.isPending}
-          >
-            Confirm and issue
-          </Button>
+          {can(P.SALES_INVOICE_CREATE) && (
+            <Button
+              onClick={() => issue.mutate()}
+              disabled={
+                !can(P.SALES_INVOICE_VIEW) ||
+                !preview.data ||
+                preview.isFetching ||
+                Boolean(preview.error)
+              }
+              loading={issue.isPending}
+            >
+              Confirm and issue
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -226,10 +238,11 @@ export function SalesInvoiceDetailDialog({
   const detail = useQuery({
     queryKey: salesInvoiceKeys.detail(invoiceId ?? ''),
     queryFn: () => api.get<SalesInvoiceDetail>(`/finance/sales-invoices/${invoiceId}`),
-    enabled: Boolean(invoiceId),
+    enabled: Boolean(invoiceId) && can(P.SALES_INVOICE_VIEW),
   })
   const [cancelOpen, setCancelOpen] = useState(false)
   const [reason, setReason] = useState('')
+  const [reasonTouched, setReasonTouched] = useState(false)
   const job = useReportJob()
   const pdf = useMutation({
     mutationFn: () =>
@@ -255,6 +268,7 @@ export function SalesInvoiceDetailDialog({
       void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })
       setCancelOpen(false)
       setReason('')
+      setReasonTouched(false)
       toast.success(success.cancelled('Sales invoice'))
     },
   })
@@ -370,24 +384,35 @@ export function SalesInvoiceDetailDialog({
       </Dialog>
       <ConfirmDialog
         open={cancelOpen}
-        onOpenChange={setCancelOpen}
+        onOpenChange={(open) => {
+          setCancelOpen(open)
+          if (!open) {
+            setReason('')
+            setReasonTouched(false)
+            cancel.reset()
+          }
+        }}
         title="Cancel this invoice?"
         description={salesInvoiceMessages.cancel}
         confirmLabel="Cancel invoice"
         destructive
         loading={cancel.isPending}
         onConfirm={() => {
+          setReasonTouched(true)
           if (reason.trim().length >= REASON_MIN_LENGTH) cancel.mutate()
         }}
       >
-        <Label htmlFor="sales-invoice-cancel-reason">Reason</Label>
+        <Label htmlFor="sales-invoice-cancel-reason" required>
+          Reason
+        </Label>
         <Input
           id="sales-invoice-cancel-reason"
           value={reason}
           maxLength={REASON_MAX_LENGTH}
+          aria-invalid={reasonTouched && reason.trim().length < REASON_MIN_LENGTH}
           onChange={(event) => setReason(event.target.value)}
         />
-        {reason.trim().length > 0 && reason.trim().length < REASON_MIN_LENGTH && (
+        {reasonTouched && reason.trim().length < REASON_MIN_LENGTH && (
           <FieldError message="A cancellation needs at least three characters." />
         )}
         {cancel.error && <FieldError message={cancel.error.message} />}

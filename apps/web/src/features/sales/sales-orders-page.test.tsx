@@ -595,6 +595,72 @@ describe('what the new-order form sends', () => {
     expect(typeof body.lines[0]!.quantity).toBe('string')
   })
 
+  it('clears billing and shipping addresses when the selected customer changes', async () => {
+    const secondCustomer = { ...CUSTOMER, id: 'second-customer', code: 'C-0002' }
+    const { user, fetch } = renderScreen(<SalesOrdersPage />, {
+      permissions: formPermissions,
+      routes: formRoutes({
+        'GET /customers': page([CUSTOMER, secondCustomer]),
+        [`GET /customers/${CUSTOMER_ID}/addresses`]: ({ url }) => {
+          const type = url.searchParams.get('address_type')
+          return page([
+            {
+              id: `${type}-address`,
+              label: `${type} office`,
+              address_line1: 'Customer one address',
+              city: 'Pune',
+              is_default: false,
+            },
+          ])
+        },
+        'GET /customers/second-customer/addresses': page([]),
+        'POST /sales': ok(orderDetail()),
+      }),
+    })
+    await openForm(user, fetch)
+    await user.click(screen.getByRole('combobox', { name: 'Bill to' }))
+    await user.click(await screen.findByRole('option', { name: 'BILLING office - Pune' }))
+    await user.click(screen.getByRole('combobox', { name: 'Ship to' }))
+    await user.click(await screen.findByRole('option', { name: 'SHIPPING office - Pune' }))
+
+    await user.click(screen.getByRole('combobox', { name: 'Customer' }))
+    await user.click(await screen.findByRole('option', { name: /C-0002/ }))
+    expect(screen.getByRole('combobox', { name: 'Bill to' })).toHaveTextContent(
+      "The customer's default",
+    )
+    expect(screen.getByRole('combobox', { name: 'Ship to' })).toHaveTextContent(
+      "The customer's default",
+    )
+    await addLine(user, { quantity: '1', price: '100' })
+    await user.click(screen.getByRole('button', { name: 'Create draft order' }))
+    await expect
+      .poll(() => fetch.requestFor('POST', '/sales'))
+      .toMatchObject({
+        customer_id: secondCustomer.id,
+        billing_address_id: null,
+        shipping_address_id: null,
+      })
+  })
+
+  it('shows an address lookup failure beside its selector', async () => {
+    const { user, fetch } = renderScreen(<SalesOrdersPage />, {
+      permissions: formPermissions,
+      routes: formRoutes({
+        [`GET /customers/${CUSTOMER_ID}/addresses`]: fail(
+          503,
+          'UNAVAILABLE',
+          'Customer addresses are temporarily unavailable',
+        ),
+      }),
+    })
+    await openForm(user, fetch)
+    await screen.findAllByText('Customer addresses are temporarily unavailable')
+    expect(screen.getByRole('combobox', { name: 'Bill to' })).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    )
+  })
+
   it('offers and sends an active variant for a selected item', async () => {
     const { user, fetch } = renderScreen(<SalesOrdersPage />, {
       permissions: formPermissions,

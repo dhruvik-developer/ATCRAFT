@@ -17,12 +17,14 @@ import { CalendarClock, TriangleAlert } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import { PageHeader, StatusBadge } from '@/components/shared'
+import { Button } from '@/components/ui/button'
 import { Badge, Skeleton } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { formatDate, formatQuantity } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
+import type { OffsetPagination } from '@/types/api'
 
 import { AssemblyDetailDialog } from './assembly-detail-dialog'
 import { assemblyKeys, type AssemblyBoardOrder, type AssemblyLineLoad } from './assembly-model'
@@ -68,6 +70,44 @@ function LineCard({ line }: { line: AssemblyLineLoad }) {
   )
 }
 
+function BoardPagination({
+  label,
+  pagination,
+  isFetching,
+  onPageChange,
+}: {
+  label: string
+  pagination?: OffsetPagination
+  isFetching: boolean
+  onPageChange: (page: number) => void
+}) {
+  if (!pagination || (!pagination.has_previous && !pagination.has_next)) return null
+  return (
+    <nav aria-label={`${label} pagination`} className="mt-3 flex flex-wrap items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={isFetching || !pagination.has_previous}
+        onClick={() => onPageChange(pagination.page - 1)}
+      >
+        Previous
+      </Button>
+      <span className="text-sm text-muted-foreground" role="status">
+        Page {pagination.page}
+        {pagination.total_pages ? ` of ${pagination.total_pages}` : ''}
+      </span>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={isFetching || !pagination.has_next}
+        onClick={() => onPageChange(pagination.page + 1)}
+      >
+        Next
+      </Button>
+    </nav>
+  )
+}
+
 export function AssemblyBoard({ onOpenOrder }: { onOpenOrder: (id: string) => void }) {
   // The board endpoints fix their own order (lines by name, orders by
   // schedule), so no sort is offered: a sortable heading would claim the
@@ -75,11 +115,13 @@ export function AssemblyBoard({ onOpenOrder }: { onOpenOrder: (id: string) => vo
   const lines = useListQuery<AssemblyLineLoad>({
     path: '/assembly/board/lines',
     queryKey: assemblyKeys.boardLines,
+    namespace: 'board_lines',
     staleTime: staleTimes.transactional,
   })
   const orders = useListQuery<AssemblyBoardOrder>({
     path: '/assembly/board/orders',
     queryKey: assemblyKeys.boardOrders,
+    namespace: 'board_orders',
     staleTime: staleTimes.transactional,
     filters: { late_only: true },
   })
@@ -119,6 +161,12 @@ export function AssemblyBoard({ onOpenOrder }: { onOpenOrder: (id: string) => vo
             ))}
           </div>
         )}
+        <BoardPagination
+          label="Assembly lines"
+          pagination={lines.pagination}
+          isFetching={lines.isFetching}
+          onPageChange={lines.setPage}
+        />
       </section>
 
       <section aria-label="Late open orders">
@@ -165,6 +213,12 @@ export function AssemblyBoard({ onOpenOrder }: { onOpenOrder: (id: string) => vo
             ))}
           </div>
         )}
+        <BoardPagination
+          label="Late orders"
+          pagination={orders.pagination}
+          isFetching={orders.isFetching}
+          onPageChange={orders.setPage}
+        />
       </section>
     </div>
   )

@@ -488,6 +488,7 @@ function DispatchesTab({
               </DropdownMenuItem>
 
               {can(P.SALES_INVOICE_CREATE) &&
+                can(P.SALES_INVOICE_VIEW) &&
                 dispatch.dispatch_type === 'SALES' &&
                 dispatch.sales_order_id &&
                 !dispatch.sales_invoice_id &&
@@ -1109,7 +1110,7 @@ export default function DispatchPage() {
       />
 
       <ActionConfirm pending={pending} onDone={() => setPending(null)} />
-      {can(P.SALES_INVOICE_CREATE) && (
+      {can(P.SALES_INVOICE_CREATE) && can(P.SALES_INVOICE_VIEW) && (
         <RaiseSalesInvoiceDialog
           dispatchId={invoiceDispatch?.id ?? null}
           onClose={() => setInvoiceDispatch(null)}

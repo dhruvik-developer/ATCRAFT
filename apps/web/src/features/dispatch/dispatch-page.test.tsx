@@ -154,6 +154,28 @@ describe('who may raise a consignment', () => {
   })
 })
 
+describe('sales invoice actions', () => {
+  it('withholds invoice creation when the account cannot read its required preview', async () => {
+    await openActions(
+      'READY_FOR_DISPATCH',
+      [P.DISPATCH_VIEW, P.SALES_INVOICE_CREATE],
+      {},
+      { sales_order_id: 'so-1' },
+    )
+    expect(screen.queryByRole('menuitem', { name: 'Raise invoice' })).toBeNull()
+  })
+
+  it('offers invoice creation with both create and preview rights', async () => {
+    await openActions(
+      'READY_FOR_DISPATCH',
+      [P.DISPATCH_VIEW, P.SALES_INVOICE_CREATE, P.SALES_INVOICE_VIEW],
+      {},
+      { sales_order_id: 'so-1' },
+    )
+    expect(screen.getByRole('menuitem', { name: 'Raise invoice' })).toBeVisible()
+  })
+})
+
 describe('the two lists', () => {
   it('forwards each list filter under the name the endpoint answers', async () => {
     const recorder = urlRecorder()

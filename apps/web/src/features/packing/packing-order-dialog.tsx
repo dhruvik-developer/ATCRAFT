@@ -957,13 +957,12 @@ type OrderAction = 'start' | 'complete' | 'hand-over' | 'close' | 'cancel'
 /**
  * The order's lifecycle buttons.
  *
- * Rendered under PACKING_MANAGE, which is what every action here needs except
- * one: `POST /packing/{id}/hand-over` guards with DISPATCH_CREATE, because
- * handing a packed order to a consignment is a dispatch act. Without its own
- * gate the button showed to packers the API refuses.
+ * Packing transitions need PACKING_MANAGE. Hand-over instead needs
+ * DISPATCH_CREATE, plus DISPATCH_VIEW to choose the receiving consignment.
  */
 function OrderActions({ order }: { order: PackingOrderDetail }) {
   const { can } = useAuth()
+  const canManage = can(P.PACKING_MANAGE)
   const queryClient = useQueryClient()
   const [action, setAction] = useState<OrderAction | null>(null)
   const [allowShortPack, setAllowShortPack] = useState(false)
@@ -1070,30 +1069,30 @@ function OrderActions({ order }: { order: PackingOrderDetail }) {
   return (
     <>
       <div className="flex flex-wrap gap-2">
-        {isStartable(order.status) && (
+        {canManage && isStartable(order.status) && (
           <Button variant="outline" size="sm" onClick={() => setAction('start')}>
             <Play />
             Start packing
           </Button>
         )}
-        {isCompletable(order.status) && (
+        {canManage && isCompletable(order.status) && (
           <Button variant="outline" size="sm" onClick={() => setAction('complete')}>
             <PackageCheck />
             Complete
           </Button>
         )}
-        {isHandOverable(order.status) && can(P.DISPATCH_CREATE) && (
+        {isHandOverable(order.status) && can(P.DISPATCH_CREATE) && can(P.DISPATCH_VIEW) && (
           <Button variant="outline" size="sm" onClick={() => setAction('hand-over')}>
             <Truck />
             Hand to dispatch
           </Button>
         )}
-        {isCloseable(order.status) && (
+        {canManage && isCloseable(order.status) && (
           <Button variant="outline" size="sm" onClick={() => setAction('close')}>
             Close
           </Button>
         )}
-        {isPackingCancellable(order.status) && (
+        {canManage && isPackingCancellable(order.status) && (
           <Button
             variant="outline"
             size="sm"
@@ -1142,9 +1141,19 @@ function OrderActions({ order }: { order: PackingOrderDetail }) {
             <Label htmlFor="packing-handover-dispatch" required>
               Consignment
             </Label>
-            <Select value={dispatchId} onValueChange={setDispatchId}>
+            <Select
+              value={dispatchId}
+              onValueChange={setDispatchId}
+              disabled={dispatches.isLoading || dispatches.isError}
+            >
               <SelectTrigger id="packing-handover-dispatch" className="mt-1.5">
-                <SelectValue placeholder="Choose the dispatch taking these boxes" />
+                <SelectValue
+                  placeholder={
+                    dispatches.isLoading
+                      ? 'Loading consignments...'
+                      : 'Choose the dispatch taking these boxes'
+                  }
+                />
               </SelectTrigger>
               <SelectContent>
                 {rows.map((dispatch) => (
@@ -1154,7 +1163,8 @@ function OrderActions({ order }: { order: PackingOrderDetail }) {
                 ))}
               </SelectContent>
             </Select>
-            {!dispatches.isLoading && rows.length === 0 && (
+            {dispatches.error && <FieldError message={dispatches.error.message} />}
+            {!dispatches.isLoading && !dispatches.error && rows.length === 0 && (
               <FieldError message="This customer has no consignment waiting to be loaded. Create one on the dispatch screen first." />
             )}
             {moreDispatches && (
@@ -1266,7 +1276,9 @@ export function PackingOrderDialog({
 
           {data && (
             <>
-              {canManage && <OrderActions order={data} />}
+              {(canManage || (can(P.DISPATCH_CREATE) && can(P.DISPATCH_VIEW))) && (
+                <OrderActions order={data} />
+              )}
 
               {/* ------------------------------------------ running totals -- */}
               <div className="grid gap-3 sm:grid-cols-3">

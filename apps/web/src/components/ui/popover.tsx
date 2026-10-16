@@ -22,7 +22,7 @@ export const PopoverContent = forwardRef<
         // Capped at what Radix says is available, so a w-72 (or wider) popover
         // opened near the edge of a 360px phone shrinks instead of being
         // clipped; collisionPadding keeps it off the viewport edge.
-        'z-50 w-72 max-w-[var(--radix-popover-content-available-width)] rounded-md border bg-popover p-4 text-popover-foreground shadow-md outline-none',
+        'z-50 w-72 max-w-[var(--radix-popover-content-available-width)] max-h-[var(--radix-popover-content-available-height)] overflow-y-auto overscroll-contain rounded-md border bg-popover p-4 text-popover-foreground shadow-md outline-none',
         'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
         className,
       )}

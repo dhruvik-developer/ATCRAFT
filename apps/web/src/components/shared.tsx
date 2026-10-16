@@ -68,14 +68,20 @@ export function PageHeader({
         <nav aria-label="Breadcrumb" className="mb-1.5">
           <ol className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
             {breadcrumbs.map((crumb, index) => (
-              <li key={`${crumb.label}-${index}`} className="flex items-center gap-1">
-                {index > 0 && <ChevronRight className="h-3 w-3 opacity-50" aria-hidden />}
+              <li
+                key={`${crumb.label}-${index}`}
+                className="flex min-w-0 max-w-full items-center gap-1"
+              >
+                {index > 0 && <ChevronRight className="h-3 w-3 shrink-0 opacity-50" aria-hidden />}
                 {crumb.to ? (
-                  <Link to={crumb.to} className="hover:text-foreground hover:underline">
+                  <Link
+                    to={crumb.to}
+                    className="min-w-0 break-words hover:text-foreground hover:underline"
+                  >
                     {crumb.label}
                   </Link>
                 ) : (
-                  <span>{crumb.label}</span>
+                  <span className="min-w-0 break-words">{crumb.label}</span>
                 )}
               </li>
             ))}
@@ -90,7 +96,9 @@ export function PageHeader({
             {status}
           </div>
           {description && (
-            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p>
+            <p className="mt-1 max-w-3xl break-words text-sm text-muted-foreground">
+              {description}
+            </p>
           )}
         </div>
         {/* No shrink-0 here: a flex item that cannot shrink is sized to all of

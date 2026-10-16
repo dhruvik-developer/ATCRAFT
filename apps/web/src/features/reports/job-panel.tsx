@@ -32,9 +32,9 @@ export function ReportJobPanel({
 
   if (phase === 'failed') {
     return (
-      <Alert variant="destructive" className="flex items-start gap-3">
+      <Alert variant="destructive" className="flex flex-wrap items-start gap-3">
         <TriangleAlert className="mt-0.5 shrink-0 text-destructive" aria-hidden />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-40">
           <AlertTitle>{label} could not be generated</AlertTitle>
           <AlertDescription>
             {job?.error_message ??
@@ -42,7 +42,7 @@ export function ReportJobPanel({
               'The job stopped before it produced a file. Nothing was saved.'}
           </AlertDescription>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
           {error && (
             <Button size="sm" onClick={controller.retry} loading={controller.isRetrying}>
               Retry status
@@ -58,15 +58,15 @@ export function ReportJobPanel({
 
   if (phase === 'ready') {
     return (
-      <Alert variant="info" className="flex items-start gap-3">
+      <Alert variant="info" className="flex flex-wrap items-start gap-3">
         <CheckCircle2 className="mt-0.5 shrink-0 text-success" aria-hidden />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-40">
           <AlertTitle>{label} is ready</AlertTitle>
           <AlertDescription>
             {job ? `${formatNumber(job.row_count)} rows.` : 'The file is ready to download.'}
           </AlertDescription>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
           <Button size="sm" onClick={controller.download} loading={controller.isDownloading}>
             <Download />
             Download

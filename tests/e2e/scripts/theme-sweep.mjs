@@ -31,13 +31,29 @@ const SCREENS = [
 
 /** Relative luminance, so "is this actually dark" is a number and not an opinion. */
 function luminance(rgb) {
-  const [r, g, b] = rgb.match(/\d+/g).slice(0, 3).map(Number)
-  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+  if (
+    rgb.length !== 3 ||
+    rgb.some((channel) => !Number.isFinite(channel) || channel < 0 || channel > 255)
+  ) {
+    throw new Error(`Invalid sRGB triplet: ${JSON.stringify(rgb)}`)
+  }
+  const [r, g, b] = rgb.map((channel) => {
+    const encoded = channel / 255
+    return encoded <= 0.04045 ? encoded / 12.92 : ((encoded + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
 }
 
 function contrast(a, b) {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
   return (hi + 0.05) / (lo + 0.05)
+}
+
+// Theme-direction thresholds were calibrated on encoded sRGB brightness.
+// Keep that heuristic separate from WCAG's linear-light contrast calculation:
+// a saturated primary button can be dark without being a wrong-theme panel.
+function brightness([r, g, b]) {
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
 }
 
 const failures = []
@@ -96,25 +112,84 @@ for (const theme of ['light', 'dark']) {
     await page.waitForTimeout(1200)
 
     const seen = await page.evaluate(() => {
+      // Canvas resolves every browser-supported CSS colour space into sRGB.
+      // Parsing digits misreads oklab(), and treating translucent backgrounds
+      // as opaque measures a colour the user never sees.
+      const canvas = document.createElement('canvas')
+      canvas.width = canvas.height = 1
+      const ctx = canvas.getContext('2d', { colorSpace: 'srgb', willReadFrequently: true })
+      if (!ctx) throw new Error('Cannot measure theme colours without a 2D canvas.')
+      const paint = (color) => {
+        if (!CSS.supports('color', color)) throw new Error(`Unknown CSS colour: ${color}`)
+        // An invalid canvas colour assignment silently retains the old value.
+        // Two sentinels distinguish that from a supported CSS colour.
+        ctx.fillStyle = '#010203'
+        ctx.fillStyle = color
+        const first = ctx.fillStyle
+        ctx.fillStyle = '#040506'
+        ctx.fillStyle = color
+        if (ctx.fillStyle !== first) throw new Error(`Canvas cannot resolve CSS colour: ${color}`)
+        ctx.fillRect(0, 0, 1, 1)
+      }
+      const pixel = () => [...ctx.getImageData(0, 0, 1, 1).data]
+      const normalize = (color) => {
+        ctx.clearRect(0, 0, 1, 1)
+        paint(color)
+        return pixel()
+      }
+      const rootStyle = getComputedStyle(document.documentElement)
+      const semanticFills = ['--primary', '--success', '--warning', '--destructive'].map(
+        (token) => {
+          const channels = rootStyle.getPropertyValue(token).trim()
+          if (!channels) throw new Error(`Missing theme colour token: ${token}`)
+          const rgba = normalize(`hsl(${channels})`)
+          if (rgba[3] !== 255) throw new Error(`Semantic theme colour must be opaque: ${token}`)
+          return rgba
+        },
+      )
+      const background = (el) => {
+        const ancestors = []
+        for (let current = el; current; current = current.parentElement) ancestors.unshift(current)
+        ctx.clearRect(0, 0, 1, 1)
+        for (const ancestor of ancestors) paint(getComputedStyle(ancestor).backgroundColor)
+        const rgba = pixel()
+        if (rgba[3] !== 255)
+          throw new Error('Theme background has no opaque ancestor to composite against.')
+        return rgba.slice(0, 3)
+      }
       const read = (el) => {
         const s = getComputedStyle(el)
-        return { bg: s.backgroundColor, fg: s.color }
+        const bg = background(el)
+        paint(s.color)
+        return { bg, fg: pixel().slice(0, 3), css: s.backgroundColor }
       }
       const body = read(document.body)
       // Every panel that paints its own surface - a card that hardcoded white
       // would show up here and nowhere else.
       const surfaces = [...document.querySelectorAll('main *')]
         .filter((el) => {
-          const bg = getComputedStyle(el).backgroundColor
-          return bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent'
+          return normalize(getComputedStyle(el).backgroundColor)[3] > 0
         })
         .slice(0, 40)
-        .map((el) => getComputedStyle(el).backgroundColor)
+        .map((el) => {
+          const css = getComputedStyle(el).backgroundColor
+          const rgba = normalize(css)
+          return {
+            css,
+            rgb: background(el),
+            // Semantic fills deliberately carry status/action colour in both
+            // themes. Only exact matches to this theme's four opaque tokens
+            // are exempt; arbitrary colours and wrong neutral panels still fail.
+            semantic: semanticFills.some((fill) => fill.every((channel, i) => channel === rgba[i])),
+          }
+        })
       return {
         dark: document.documentElement.classList.contains('dark'),
         colorScheme: document.documentElement.style.colorScheme,
         body,
-        surfaces: [...new Set(surfaces)],
+        surfaces: [
+          ...new Map(surfaces.map((surface) => [JSON.stringify(surface), surface])).values(),
+        ],
       }
     })
 
@@ -127,13 +202,17 @@ for (const theme of ['light', 'dark']) {
       failures.push(`${label}: color-scheme is "${seen.colorScheme}", expected "${theme}"`)
     }
 
-    const bodyLum = luminance(seen.body.bg)
+    const bodyBrightness = brightness(seen.body.bg)
     const wantDark = theme === 'dark'
-    if (wantDark && bodyLum > 0.35) {
-      failures.push(`${label}: background ${seen.body.bg} is not dark (luminance ${bodyLum.toFixed(2)})`)
+    if (wantDark && bodyBrightness > 0.35) {
+      failures.push(
+        `${label}: background ${seen.body.css} is not dark (brightness ${bodyBrightness.toFixed(2)})`,
+      )
     }
-    if (!wantDark && bodyLum < 0.65) {
-      failures.push(`${label}: background ${seen.body.bg} is not light (luminance ${bodyLum.toFixed(2)})`)
+    if (!wantDark && bodyBrightness < 0.65) {
+      failures.push(
+        `${label}: background ${seen.body.css} is not light (brightness ${bodyBrightness.toFixed(2)})`,
+      )
     }
 
     // Text must stay readable against the page, in both themes.
@@ -143,16 +222,19 @@ for (const theme of ['light', 'dark']) {
     }
 
     // A surface that stayed light while the page went dark is a hardcoded colour.
-    const wrong = seen.surfaces.filter((bg) => {
-      const l = luminance(bg)
-      return wantDark ? l > 0.6 : l < 0.25
+    const wrong = seen.surfaces.filter((surface) => {
+      if (surface.semantic) return false
+      const value = brightness(surface.rgb)
+      return wantDark ? value > 0.6 : value < 0.25
     })
     if (wrong.length) {
-      failures.push(`${label}: ${wrong.length} surface(s) did not follow the theme, e.g. ${wrong[0]}`)
+      failures.push(
+        `${label}: ${wrong.length} surface(s) did not follow the theme, e.g. ${wrong[0].css} rendered as rgb(${wrong[0].rgb.join(', ')})`,
+      )
     }
 
     console.log(
-      `${label.padEnd(30)} bg ${seen.body.bg.padEnd(20)} contrast ${ratio.toFixed(1)}:1  ` +
+      `${label.padEnd(30)} bg ${`rgb(${seen.body.bg.join(', ')})`.padEnd(20)} contrast ${ratio.toFixed(1)}:1  ` +
         `${seen.surfaces.length} surfaces checked`,
     )
   }

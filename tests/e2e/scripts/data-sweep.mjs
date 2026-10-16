@@ -23,7 +23,8 @@
 import { chromium } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 
-import { API_URL as API, BASE_URL as BASE } from '../lib/env.mjs'
+import { API_URL as API } from '../lib/env.mjs'
+import { createNavigator } from '../lib/navigation.mjs'
 import { readyAdminToken, signInThroughForm } from '../lib/session.mjs'
 
 /** route -> the API list endpoint whose rows it is supposed to be showing. */
@@ -72,6 +73,7 @@ const SCREENS = [
 const browser = await chromium.launch()
 const context = await browser.newContext({ viewport: { width: 1600, height: 1000 } })
 const page = await context.newPage()
+const { navigate, settle } = createNavigator(page)
 
 // --- log in, and keep the token so the API can be asked the same question ---
 // The seeded administrator is forced through a password change before it can
@@ -79,6 +81,7 @@ const page = await context.newPage()
 // fresh database, and is one successful login otherwise.
 const token = await readyAdminToken()
 await signInThroughForm(page)
+await settle()
 
 async function apiCount(path) {
   const response = await fetch(`${API}${path}?page=1&limit=100`, {
@@ -102,8 +105,7 @@ for (const [route, endpoint] of SCREENS) {
   }
   page.on('response', onResponse)
 
-  await page.goto(`${BASE}${route}`, { waitUntil: 'domcontentloaded', timeout: 25000 })
-  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => {})
+  await navigate(route)
 
   // Count real body rows, excluding the single row a table renders to say it is
   // empty or loading - that row is the absence of data, not an instance of it.
@@ -130,7 +132,11 @@ for (const [route, endpoint] of SCREENS) {
   else if (status !== 200) verdict = `API-${status}`
   else if ((apiRows ?? 0) === 0 && rows === 0) verdict = 'NO-DATA'
   else if (rows === 0) verdict = 'EMPTY'
-  else if (apiRows !== null && rows !== Math.min(apiRows, rows > 50 ? rows : 50) && rows !== apiRows)
+  else if (
+    apiRows !== null &&
+    rows !== Math.min(apiRows, rows > 50 ? rows : 50) &&
+    rows !== apiRows
+  )
     verdict = 'MISMATCH'
   else verdict = 'ok'
 
@@ -149,6 +155,8 @@ console.log(
   `\n${results.length} screens | ok=${results.filter((r) => r.verdict === 'ok').length} ` +
     `problems=${bad.length} no-data=${noData.length}`,
 )
-if (noData.length) console.log(`no data to prove anything with: ${noData.map((r) => r.route).join(', ')}`)
+if (noData.length)
+  console.log(`no data to prove anything with: ${noData.map((r) => r.route).join(', ')}`)
 
 await browser.close()
+process.exitCode = bad.length ? 1 : 0

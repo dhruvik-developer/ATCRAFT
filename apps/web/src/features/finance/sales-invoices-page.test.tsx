@@ -96,6 +96,34 @@ function invoice(overrides: Partial<SalesInvoiceDetail> = {}): SalesInvoiceDetai
   }
 }
 
+function receipt(overrides: Partial<PaymentDetail> = {}): PaymentDetail {
+  return {
+    id: 'payment',
+    code: 'PAY/2026-27/00001',
+    payment_type: 'RECEIPT',
+    party_type: 'CUSTOMER',
+    party_id: 'customer',
+    payment_date: '2026-10-12',
+    amount: '118',
+    allocated_amount: '0',
+    unallocated_amount: '118',
+    currency: 'INR',
+    payment_method: 'CASH',
+    reference_number: null,
+    status: 'APPROVED',
+    created_at: '2026-10-12T06:00:00Z',
+    bank_name: null,
+    instrument_date: null,
+    approved_by_id: 'user',
+    approved_at: '2026-10-12T06:00:00Z',
+    cancellation_reason: null,
+    notes: null,
+    version: 1,
+    allocations: [],
+    ...overrides,
+  }
+}
+
 describe('sales invoices', () => {
   it('lists an issued invoice and opens its snapshotted detail', async () => {
     const { user } = renderScreen(<SalesInvoicesPage />, {
@@ -169,37 +197,19 @@ describe('sales invoices', () => {
     )
     await user.click(await screen.findByRole('button', { name: 'Cancel invoice' }))
     const confirm = await screen.findByRole('dialog', { name: 'Cancel this invoice?' })
-    await user.type(within(confirm).getByLabelText('Reason'), 'Correct the buyer')
+    await user.click(within(confirm).getByRole('button', { name: 'Cancel invoice' }))
+    expect(
+      within(confirm).getByText('A cancellation needs at least three characters.'),
+    ).toBeVisible()
+    expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+    await user.type(within(confirm).getByRole('textbox', { name: 'Reason' }), 'Correct the buyer')
     await user.click(within(confirm).getByRole('button', { name: 'Cancel invoice' }))
     await expect
       .poll(() => fetch.requestFor('POST', `/finance/sales-invoices/${ID}/cancel`))
       .toEqual({ reason: 'Correct the buyer' })
   })
   it('allocates customer receipts with sales_invoice_id', async () => {
-    const payment: PaymentDetail = {
-      id: 'payment',
-      code: 'PAY/2026-27/00001',
-      payment_type: 'RECEIPT',
-      party_type: 'CUSTOMER',
-      party_id: 'customer',
-      payment_date: '2026-10-12',
-      amount: '118',
-      allocated_amount: '0',
-      unallocated_amount: '118',
-      currency: 'INR',
-      payment_method: 'CASH',
-      reference_number: null,
-      status: 'APPROVED',
-      created_at: '2026-10-12T06:00:00Z',
-      bank_name: null,
-      instrument_date: null,
-      approved_by_id: 'user',
-      approved_at: '2026-10-12T06:00:00Z',
-      cancellation_reason: null,
-      notes: null,
-      version: 1,
-      allocations: [],
-    }
+    const payment = receipt()
     const { user, fetch } = renderScreen(
       <SalesReceiptAllocationDialog payment={payment} onClose={() => {}} />,
       {
@@ -218,5 +228,120 @@ describe('sales invoices', () => {
         replace: true,
         allocations: [{ sales_invoice_id: ID, amount: '118.00', notes: null }],
       })
+  })
+
+  it('preserves existing allocation notes when an amount is corrected', async () => {
+    const payment = receipt({
+      allocations: [
+        {
+          id: 'allocation',
+          sales_invoice_id: ID,
+          vendor_invoice_id: null,
+          invoice_code: 'SI/2026-27/00042',
+          amount: '50.00',
+          notes: 'Customer requested this invoice first',
+        },
+      ],
+    })
+    const { user, fetch } = renderScreen(
+      <SalesReceiptAllocationDialog payment={payment} onClose={() => {}} />,
+      {
+        permissions: [P.PAYMENT_RECORD, P.SALES_INVOICE_VIEW],
+        routes: {
+          'GET /finance/sales-invoices': page([]),
+          'POST /finance/payments/payment/allocate': ok(payment),
+        },
+      },
+    )
+    const amount = await screen.findByLabelText('SI/2026-27/00042')
+    await user.clear(amount)
+    await user.type(amount, '40.00')
+    await user.click(screen.getByRole('button', { name: 'Save allocation' }))
+    await expect
+      .poll(() => fetch.requestFor('POST', '/finance/payments/payment/allocate'))
+      .toEqual({
+        replace: true,
+        allocations: [
+          {
+            sales_invoice_id: ID,
+            amount: '40.00',
+            notes: 'Customer requested this invoice first',
+          },
+        ],
+      })
+  })
+
+  it('refuses a new allocation above the invoice balance even within the receipt total', async () => {
+    const payment = receipt({ amount: '200' })
+    const { user, fetch } = renderScreen(
+      <SalesReceiptAllocationDialog payment={payment} onClose={() => {}} />,
+      {
+        permissions: [P.PAYMENT_RECORD, P.SALES_INVOICE_VIEW],
+        routes: { 'GET /finance/sales-invoices': page([invoice()]) },
+      },
+    )
+    await user.click(await screen.findByRole('button', { name: 'Add invoice' }))
+    const amount = screen.getByLabelText('SI/2026-27/00042')
+    await user.clear(amount)
+    await user.type(amount, '150.00')
+    expect(screen.getByRole('button', { name: 'Save allocation' })).toBeDisabled()
+    expect(screen.getByText(/within the receipt total and invoice balance/)).toBeVisible()
+    expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
+  })
+
+  it('does not fetch a preview or permit issue without the view permission', async () => {
+    const { fetch } = renderScreen(
+      <RaiseSalesInvoiceDialog dispatchId={DISPATCH} onClose={() => {}} />,
+      { permissions: [P.SALES_INVOICE_CREATE] },
+    )
+    expect(await screen.findByText(/Viewing sales invoices is required/)).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Confirm and issue' })).toBeDisabled()
+    expect(fetch.calls.some((call) => call.path === '/finance/sales-invoices/preview')).toBe(false)
+  })
+
+  it('adds back this receipt allocation when a removed invoice is selected again', async () => {
+    const payment = receipt({
+      allocations: [
+        {
+          id: 'allocation',
+          sales_invoice_id: ID,
+          vendor_invoice_id: null,
+          invoice_code: 'SI/2026-27/00042',
+          amount: '50.00',
+          notes: null,
+        },
+      ],
+    })
+    const { user, fetch } = renderScreen(
+      <SalesReceiptAllocationDialog payment={payment} onClose={() => {}} />,
+      {
+        permissions: [P.PAYMENT_RECORD, P.SALES_INVOICE_VIEW],
+        routes: {
+          'GET /finance/sales-invoices': page([
+            invoice({ balance_amount: '68', paid_amount: '50', status: 'PARTIALLY_PAID' }),
+          ]),
+          'POST /finance/payments/payment/allocate': ok(payment),
+        },
+      },
+    )
+    await user.click(await screen.findByRole('button', { name: 'Remove' }))
+    await user.click(await screen.findByRole('button', { name: 'Add invoice' }))
+    expect(screen.getByLabelText('SI/2026-27/00042')).toHaveValue('118.00')
+    await user.click(screen.getByRole('button', { name: 'Save allocation' }))
+    await expect
+      .poll(() => fetch.requestFor('POST', '/finance/payments/payment/allocate'))
+      .toEqual({
+        replace: true,
+        allocations: [{ sales_invoice_id: ID, amount: '118.00', notes: null }],
+      })
+  })
+
+  it('allows preview readers to review without offering invoice creation', async () => {
+    renderScreen(<RaiseSalesInvoiceDialog dispatchId={DISPATCH} onClose={() => {}} />, {
+      permissions: [P.SALES_INVOICE_VIEW],
+      routes: { 'GET /finance/sales-invoices/preview': ok(preview) },
+    })
+    await screen.findByText('Architectural hinge')
+    expect(screen.queryByRole('button', { name: 'Confirm and issue' })).not.toBeInTheDocument()
   })
 })

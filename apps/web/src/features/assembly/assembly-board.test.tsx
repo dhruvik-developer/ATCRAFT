@@ -7,7 +7,7 @@
  * same order panel as the register.
  */
 
-import { screen } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
@@ -163,5 +163,63 @@ describe('the assembly board', () => {
 
     // The panel reads the full header, which the board row does not carry.
     expect(await screen.findByRole('dialog')).toBeVisible()
+  })
+
+  it('pages line loads and late orders independently without inheriting register filters', async () => {
+    const lineRequests: URL[] = []
+    const orderRequests: URL[] = []
+    const rendered = renderScreen(<AssemblyPage />, {
+      route: '/assembly?page=7&q=unrelated&sort=code&dir=desc',
+      permissions: [P.ASSEMBLY_ORDER_VIEW],
+      routes: {
+        'GET /assembly': page([]),
+        'GET /assembly/board/lines': ({ url }) => {
+          lineRequests.push(url)
+          const current = Number(url.searchParams.get('page'))
+          return page([{ ...LINES[0], assembly_line: `Load line ${current}` }], {
+            page: current,
+            total_pages: 2,
+            has_next: current === 1,
+            has_previous: current === 2,
+          })
+        },
+        'GET /assembly/board/orders': ({ url }) => {
+          orderRequests.push(url)
+          const current = Number(url.searchParams.get('page'))
+          return page([{ ...ORDERS[0], id: `late-${current}`, code: `Late order ${current}` }], {
+            page: current,
+            total_pages: 2,
+            has_next: current === 1,
+            has_previous: current === 2,
+          })
+        },
+      },
+    })
+    await rendered.user.click(screen.getByRole('tab', { name: 'Board' }))
+    expect(await screen.findByText('Load line 1')).toBeVisible()
+    expect(await screen.findByText('Late order 1')).toBeVisible()
+    expect(lineRequests[0]?.searchParams.has('search')).toBe(false)
+    expect(orderRequests[0]?.searchParams.has('sort_by')).toBe(false)
+
+    await rendered.user.click(
+      within(screen.getByRole('navigation', { name: 'Assembly lines pagination' })).getByRole(
+        'button',
+        { name: 'Next' },
+      ),
+    )
+    expect(await screen.findByText('Load line 2')).toBeVisible()
+    expect(screen.getByText('Late order 1')).toBeVisible()
+    expect(orderRequests).toHaveLength(1)
+
+    await rendered.user.click(
+      within(screen.getByRole('navigation', { name: 'Late orders pagination' })).getByRole(
+        'button',
+        { name: 'Next' },
+      ),
+    )
+    expect(await screen.findByText('Late order 2')).toBeVisible()
+    expect(screen.getByText('Load line 2')).toBeVisible()
+    await waitFor(() => expect(lineRequests).toHaveLength(2))
+    expect(orderRequests.at(-1)?.searchParams.get('late_only')).toBe('true')
   })
 })

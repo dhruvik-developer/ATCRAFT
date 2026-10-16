@@ -497,31 +497,36 @@ export function AgeingTab() {
 
               {/* The plot is a picture; this is the same numbers in a form a
                   screen reader can walk through. */}
-              <table className="sr-only">
-                <caption>Outstanding amount by party and age bucket, in {blockCurrency}</caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Party</th>
-                    {BUCKETS.map((bucket) => (
-                      <th key={bucket.key} scope="col">
-                        {bucket.label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.slice(0, CHART_ROWS).map((row) => (
-                    <tr key={`${row.party_id}-${row.currency}`}>
-                      <th scope="row">{row.party_name}</th>
+              {/* Tables retain their intrinsic column width even with the
+                  sr-only dimensions. Clip a wrapper so the accessible data
+                  cannot widen the document on a phone. */}
+              <div className="sr-only">
+                <table>
+                  <caption>Outstanding amount by party and age bucket, in {blockCurrency}</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Party</th>
                       {BUCKETS.map((bucket) => (
-                        <td key={bucket.key}>
-                          {formatMoney(row[bucket.key], { currency: row.currency })}
-                        </td>
+                        <th key={bucket.key} scope="col">
+                          {bucket.label}
+                        </th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {rows.slice(0, CHART_ROWS).map((row) => (
+                      <tr key={`${row.party_id}-${row.currency}`}>
+                        <th scope="row">{row.party_name}</th>
+                        {BUCKETS.map((bucket) => (
+                          <td key={bucket.key}>
+                            {formatMoney(row[bucket.key], { currency: row.currency })}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </>
           )}
         </CardContent>

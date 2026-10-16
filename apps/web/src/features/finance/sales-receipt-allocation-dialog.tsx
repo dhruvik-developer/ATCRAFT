@@ -21,8 +21,16 @@ import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 import { formatDate, formatMoney, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { toast } from '@/lib/toast'
-import { paymentKeys, type PaymentDetail } from './payment-model'
+import { MAX_ALLOCATIONS, paymentKeys, type PaymentDetail } from './payment-model'
 import { salesInvoiceKeys, type SalesInvoiceSummary } from './sales-invoice-types'
+
+interface ReceiptAllocationDraft {
+  code: string
+  amount: string
+  notes: string | null
+  /** Existing settlements have no balance in PaymentAllocationRead. */
+  ceiling: string | null
+}
 
 export function SalesReceiptAllocationDialog({
   payment,
@@ -33,13 +41,18 @@ export function SalesReceiptAllocationDialog({
 }) {
   const { can } = useAuth()
   const queryClient = useQueryClient()
-  const [draft, setDraft] = useState<Record<string, { code: string; amount: string }>>(() =>
+  const [draft, setDraft] = useState<Record<string, ReceiptAllocationDraft>>(() =>
     Object.fromEntries(
       (payment.allocations ?? [])
         .filter((row) => row.sales_invoice_id)
         .map((row) => [
           row.sales_invoice_id!,
-          { code: row.invoice_code ?? row.sales_invoice_id!, amount: row.amount },
+          {
+            code: row.invoice_code ?? row.sales_invoice_id!,
+            amount: row.amount,
+            notes: row.notes ?? null,
+            ceiling: null,
+          },
         ]),
     ),
   )
@@ -66,10 +79,21 @@ export function SalesReceiptAllocationDialog({
     (sum, row) => sum.plus(toDecimal(row.amount)),
     toDecimal('0'),
   )
+  // A replacement releases this receipt's previous allocation before applying
+  // the new one. Its own amount must be added back to the displayed balance
+  // when a removed line is added again, just as the service checks under lock.
+  const previousAmounts = useMemo(
+    () => new Map((payment.allocations ?? []).map((row) => [row.sales_invoice_id, row.amount])),
+    [payment.allocations],
+  )
   const valid =
+    Object.keys(draft).length <= MAX_ALLOCATIONS &&
     total.lessThanOrEqualTo(toDecimal(payment.amount)) &&
     Object.values(draft).every(
-      (row) => /^\d+(\.\d{1,2})?$/.test(row.amount) && toDecimal(row.amount).greaterThan(0),
+      (row) =>
+        /^\d+(\.\d{1,2})?$/.test(row.amount) &&
+        toDecimal(row.amount).greaterThan(0) &&
+        (row.ceiling === null || toDecimal(row.amount).lessThanOrEqualTo(row.ceiling)),
     )
   const save = useMutation({
     mutationFn: () =>
@@ -78,7 +102,7 @@ export function SalesReceiptAllocationDialog({
         allocations: Object.entries(draft).map(([id, row]) => ({
           sales_invoice_id: id,
           amount: row.amount,
-          notes: null,
+          notes: row.notes,
         })),
       }),
     onSuccess: () => {
@@ -112,16 +136,27 @@ export function SalesReceiptAllocationDialog({
           <Button
             variant="outline"
             size="sm"
-            disabled={Boolean(draft[row.original.id]) || row.original.currency !== payment.currency}
+            disabled={
+              Boolean(draft[row.original.id]) ||
+              row.original.currency !== payment.currency ||
+              Object.keys(draft).length >= MAX_ALLOCATIONS ||
+              total.greaterThanOrEqualTo(payment.amount)
+            }
             onClick={() =>
               setDraft((current) => ({
                 ...current,
                 [row.original.id]: {
                   code: row.original.code,
+                  notes: null,
+                  ceiling: toDecimal(row.original.balance_amount)
+                    .plus(previousAmounts.get(row.original.id) ?? '0')
+                    .toFixed(2),
                   amount: Decimal.max(
                     0,
                     Decimal.min(
-                      toDecimal(row.original.balance_amount),
+                      toDecimal(row.original.balance_amount).plus(
+                        previousAmounts.get(row.original.id) ?? '0',
+                      ),
                       toDecimal(payment.amount).minus(total),
                     ),
                   ).toFixed(2),
@@ -134,7 +169,7 @@ export function SalesReceiptAllocationDialog({
         ),
       },
     ],
-    [draft, payment.amount, payment.currency, total],
+    [draft, payment.amount, payment.currency, previousAmounts, total],
   )
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -217,7 +252,9 @@ export function SalesReceiptAllocationDialog({
             />
           )}
           {!valid && (
-            <FieldError message="Use positive amounts with up to two decimal places, within the receipt total." />
+            <FieldError
+              message={`Use positive amounts with up to two decimal places, within the receipt total and invoice balance. A receipt may settle at most ${MAX_ALLOCATIONS} invoices.`}
+            />
           )}
           {save.error && <FieldError message={save.error.message} />}
         </DialogBody>

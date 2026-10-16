@@ -31,7 +31,7 @@ import {
   Search,
   X,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -129,6 +129,11 @@ export function DataTable<T>({
   const [searchInput, setSearchInput] = useState(searchValue)
   const scrollRef = useRef<HTMLDivElement>(null)
 
+  // Search can also change through the shell, a link or browser navigation.
+  // Keep the visible draft aligned with that server filter, and cancel the
+  // previous draft's debounce before it can restore an obsolete URL value.
+  useLayoutEffect(() => setSearchInput(searchValue), [searchValue])
+
   // Debounced search: a request per keystroke would put a filtered scan of a
   // large table behind every character the user types.
   useEffect(() => {
@@ -187,11 +192,11 @@ export function DataTable<T>({
   const rangeEnd = (page - 1) * limit + data.length
 
   return (
-    <div className={cn('flex flex-col gap-3', className)}>
+    <div className={cn('flex min-w-0 max-w-full flex-col gap-3', className)}>
       {/* ------------------------------------------------------- toolbar -- */}
       <div className="flex flex-wrap items-center gap-2">
         {onSearchChange && (
-          <div className="relative min-w-[240px] flex-1 sm:max-w-xs">
+          <div className="relative min-w-0 basis-60 flex-1 sm:max-w-xs">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={searchInput}
@@ -234,7 +239,7 @@ export function DataTable<T>({
                   Columns
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="max-h-80 overflow-y-auto">
+              <DropdownMenuContent align="end">
                 <DropdownMenuLabel>Visible columns</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 {hideableColumns.map((column) => (

@@ -1,3 +1,4 @@
+import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { useQuery } from '@tanstack/react-query'
 import {
   Bell,
@@ -12,7 +13,7 @@ import {
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
-import { navigation, type NavItem } from '@/app/navigation'
+import { navigation, type NavItem, type NavSection } from '@/app/navigation'
 import { prefetchRoute } from '@/app/route-loaders'
 import { Button } from '@/components/ui/button'
 // Imported from the specific modules, not the `overlays` barrel: the barrel
@@ -55,6 +56,17 @@ export function AppLayout() {
   // Close the mobile drawer on navigation, otherwise it covers the page the
   // user just asked for.
   useEffect(() => setMobileOpen(false), [location.pathname])
+
+  // A drawer opened on a phone must release its focus/scroll lock when the
+  // viewport grows into the persistent desktop sidebar.
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 1024px)')
+    const onChange = () => {
+      if (desktop.matches) setMobileOpen(false)
+    }
+    desktop.addEventListener('change', onChange)
+    return () => desktop.removeEventListener('change', onChange)
+  }, [])
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_KEY, collapsed ? 'collapsed' : 'expanded')
@@ -111,97 +123,34 @@ export function AppLayout() {
     <TooltipProvider delayDuration={300}>
       <div className="flex h-full">
         {/* ------------------------------------------------------ sidebar -- */}
-        {/* "Collapsed" is a desktop preference, and it only takes effect at lg,
-            where the toggle that undoes it exists. Below lg this same element
-            is the drawer: always full width, always labelled, whatever the
-            persisted value says. */}
         <aside
           className={cn(
-            'fixed inset-y-0 left-0 z-40 flex flex-col bg-sidebar text-sidebar-foreground transition-all duration-200',
-            'lg:static lg:translate-x-0',
-            'w-64',
+            'hidden w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground transition-all duration-200 lg:flex',
             collapsed && 'lg:w-[68px]',
-            mobileOpen ? 'translate-x-0' : '-translate-x-full',
           )}
         >
-          <div className="flex h-14 items-center gap-2.5 border-b border-sidebar-border px-4">
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-sidebar-accent font-bold text-white">
-              A
-            </div>
-            <div className={cn('min-w-0 flex-1', collapsed && 'lg:hidden')}>
-              <p className="truncate text-sm font-semibold text-white">Atcraft ERP</p>
-              <p className="truncate text-2xs text-sidebar-foreground/60">
-                {user?.company_name ?? ''}
-              </p>
-            </div>
-            <button
-              type="button"
-              className="ml-auto rounded p-1 text-sidebar-foreground/70 hover:text-white lg:hidden"
-              onClick={() => setMobileOpen(false)}
-              aria-label="Close navigation"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-
-          <nav className="flex-1 space-y-4 overflow-y-auto px-2.5 py-4" aria-label="Main">
-            {visibleSections.map((section) => (
-              <div key={section.label}>
-                <p
-                  className={cn(
-                    'px-2.5 pb-1.5 text-2xs font-semibold uppercase tracking-wider text-sidebar-foreground/70',
-                    collapsed && 'lg:hidden',
-                  )}
-                >
-                  {section.label}
-                </p>
-                <ul className="space-y-0.5">
-                  {section.items.map((item) => (
-                    <SidebarLink key={item.to} item={item} collapsed={collapsed} />
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </nav>
-
-          <div className="border-t border-sidebar-border p-2.5">
-            <button
-              type="button"
-              onClick={() => setCollapsed((c) => !c)}
-              className="hidden w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-sidebar-foreground/70 hover:bg-white/5 hover:text-white lg:flex"
-            >
-              <PanelLeftClose
-                className={cn('h-4 w-4 transition-transform', collapsed && 'rotate-180')}
-              />
-              {!collapsed && <span>Collapse</span>}
-            </button>
-          </div>
-        </aside>
-
-        {mobileOpen && (
-          <div
-            className="fixed inset-0 z-30 bg-black/50 lg:hidden"
-            onClick={() => setMobileOpen(false)}
-            aria-hidden
+          <SidebarContent
+            companyName={user?.company_name}
+            sections={visibleSections}
+            collapsed={collapsed}
+            onToggle={() => setCollapsed((c) => !c)}
           />
-        )}
+        </aside>
 
         {/* ---------------------------------------------------- main area -- */}
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur">
-            <button
-              type="button"
-              className="rounded-md p-1.5 hover:bg-accent lg:hidden"
-              onClick={() => setMobileOpen(true)}
-              aria-label="Open navigation"
-            >
-              <Menu className="h-5 w-5" />
-            </button>
+            <MobileNavigation
+              open={mobileOpen}
+              onOpenChange={setMobileOpen}
+              companyName={user?.company_name}
+              sections={visibleSections}
+            />
 
             {maySearchItems && (
               <form
                 role="search"
-                className="relative hidden max-w-md flex-1 md:block"
+                className="relative hidden min-w-0 max-w-md flex-1 md:block"
                 onSubmit={(event) => {
                   event.preventDefault()
                   const term = searchTerm.trim()
@@ -284,13 +233,20 @@ export function AppLayout() {
                     <span className="grid h-7 w-7 place-items-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
                       {initials(user?.full_name ?? '?')}
                     </span>
-                    <span className="hidden text-sm font-medium sm:inline">{user?.full_name}</span>
+                    <span
+                      className="hidden max-w-40 truncate text-sm font-medium sm:inline"
+                      title={user?.full_name}
+                    >
+                      {user?.full_name}
+                    </span>
                     <ChevronDown className="h-4 w-4 text-muted-foreground" />
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-60">
                   <DropdownMenuLabel className="font-normal">
-                    <p className="text-sm font-medium text-foreground">{user?.full_name}</p>
+                    <p className="break-words text-sm font-medium text-foreground">
+                      {user?.full_name}
+                    </p>
                     <p className="truncate text-xs text-muted-foreground">{user?.email}</p>
                     {user?.roles?.length ? (
                       <div className="mt-2 flex flex-wrap gap-1">
@@ -329,6 +285,119 @@ export function AppLayout() {
         </div>
       </div>
     </TooltipProvider>
+  )
+}
+
+function MobileNavigation({
+  open,
+  onOpenChange,
+  companyName,
+  sections,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  companyName?: string | null
+  sections: NavSection[]
+}) {
+  // CSS translation alone left invisible links in the keyboard order of every
+  // phone screen. A modal contains focus and returns it to the opener on close.
+  return (
+    <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
+      <DialogPrimitive.Trigger asChild>
+        <button
+          type="button"
+          className="rounded-md p-1.5 hover:bg-accent lg:hidden"
+          aria-label="Open navigation"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+      </DialogPrimitive.Trigger>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay className="fixed inset-0 z-30 bg-black/50" />
+        <DialogPrimitive.Content
+          className="fixed inset-y-0 left-0 z-40 flex w-64 max-w-[calc(100vw-2rem)] flex-col bg-sidebar text-sidebar-foreground outline-none"
+          aria-describedby={undefined}
+        >
+          <DialogPrimitive.Title className="sr-only">Main navigation</DialogPrimitive.Title>
+          <SidebarContent companyName={companyName} sections={sections} mobile />
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  )
+}
+
+function SidebarContent({
+  companyName,
+  sections,
+  collapsed = false,
+  mobile = false,
+  onToggle,
+}: {
+  companyName?: string | null
+  sections: NavSection[]
+  collapsed?: boolean
+  mobile?: boolean
+  onToggle?: () => void
+}) {
+  return (
+    <>
+      <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-sidebar-border px-4">
+        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-sidebar-accent font-bold text-white">
+          A
+        </div>
+        <div className={cn('min-w-0 flex-1', collapsed && 'lg:hidden')}>
+          <p className="truncate text-sm font-semibold text-white">Atcraft ERP</p>
+          <p className="truncate text-2xs text-sidebar-foreground/60">{companyName ?? ''}</p>
+        </div>
+        {mobile && (
+          <DialogPrimitive.Close asChild>
+            <button
+              type="button"
+              className="ml-auto rounded p-1 text-sidebar-foreground/70 hover:text-white"
+              aria-label="Close navigation"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </DialogPrimitive.Close>
+        )}
+      </div>
+
+      <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto px-2.5 py-4" aria-label="Main">
+        {sections.map((section) => (
+          <div key={section.label}>
+            <p
+              className={cn(
+                'px-2.5 pb-1.5 text-2xs font-semibold uppercase tracking-wider text-sidebar-foreground/70',
+                collapsed && 'lg:hidden',
+              )}
+            >
+              {section.label}
+            </p>
+            <ul className="space-y-0.5">
+              {section.items.map((item) => (
+                <SidebarLink key={item.to} item={item} collapsed={collapsed} />
+              ))}
+            </ul>
+          </div>
+        ))}
+      </nav>
+
+      {!mobile && (
+        <div className="border-t border-sidebar-border p-2.5">
+          <button
+            type="button"
+            onClick={onToggle}
+            className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-sidebar-foreground/70 hover:bg-white/5 hover:text-white"
+            aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          >
+            <PanelLeftClose
+              className={cn('h-4 w-4 transition-transform', collapsed && 'rotate-180')}
+            />
+            {!collapsed && <span>Collapse</span>}
+          </button>
+        </div>
+      )}
+    </>
   )
 }
 

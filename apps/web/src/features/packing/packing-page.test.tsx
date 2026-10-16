@@ -195,9 +195,32 @@ describe('the packing list', () => {
 
 describe('the hand-over gate', () => {
   it('offers the hand-over to a packer who may also raise a dispatch', async () => {
-    await openOrder('PACKED', [P.PACKING_VIEW, P.PACKING_MANAGE, P.DISPATCH_CREATE])
+    await openOrder('PACKED', [
+      P.PACKING_VIEW,
+      P.PACKING_MANAGE,
+      P.DISPATCH_CREATE,
+      P.DISPATCH_VIEW,
+    ])
 
     expect(screen.getByRole('button', { name: /hand to dispatch/i })).toBeVisible()
+  })
+
+  it('lets a dispatch operator hand over without packing management rights', async () => {
+    await openOrder('PACKED', [P.PACKING_VIEW, P.DISPATCH_CREATE, P.DISPATCH_VIEW])
+    expect(screen.getByRole('button', { name: /hand to dispatch/i })).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: /cancel order|start packing|^complete$/i }),
+    ).toBeNull()
+  })
+
+  it('withholds hand-over when its consignment picker cannot be read', async () => {
+    const { fetch } = await openOrder('PACKED', [
+      P.PACKING_VIEW,
+      P.PACKING_MANAGE,
+      P.DISPATCH_CREATE,
+    ])
+    expect(screen.queryByRole('button', { name: /hand to dispatch/i })).toBeNull()
+    expect(fetch.calls.some((call) => call.path === '/dispatch')).toBe(false)
   })
 
   it('withholds it from a packer who may not - this is the defect that shipped', async () => {
@@ -218,7 +241,7 @@ describe('the hand-over gate', () => {
   it('will not hand over until a consignment is named', async () => {
     const { user, fetch } = await openOrder(
       'PACKED',
-      [P.PACKING_VIEW, P.PACKING_MANAGE, P.DISPATCH_CREATE],
+      [P.PACKING_VIEW, P.PACKING_MANAGE, P.DISPATCH_CREATE, P.DISPATCH_VIEW],
       { 'GET /dispatch': page([]) },
     )
 
@@ -238,7 +261,7 @@ describe('the hand-over gate', () => {
     // is on another screen entirely, so the message says so.
     const { user } = await openOrder(
       'PACKED',
-      [P.PACKING_VIEW, P.PACKING_MANAGE, P.DISPATCH_CREATE],
+      [P.PACKING_VIEW, P.PACKING_MANAGE, P.DISPATCH_CREATE, P.DISPATCH_VIEW],
       { 'GET /dispatch': page([]) },
     )
 
@@ -246,11 +269,29 @@ describe('the hand-over gate', () => {
     expect(await screen.findByText(/no consignment waiting to be loaded/i)).toBeVisible()
   })
 
+  it('shows a failed consignment lookup instead of claiming there are no consignments', async () => {
+    const { user } = await openOrder(
+      'PACKED',
+      [P.PACKING_VIEW, P.DISPATCH_CREATE, P.DISPATCH_VIEW],
+      {
+        'GET /dispatch': fail(
+          503,
+          'SERVICE_UNAVAILABLE',
+          'Consignments are temporarily unavailable',
+        ),
+      },
+    )
+    await user.click(screen.getByRole('button', { name: /hand to dispatch/i }))
+    expect(await screen.findByText('Consignments are temporarily unavailable')).toBeVisible()
+    expect(screen.queryByText(/no consignment waiting to be loaded/i)).toBeNull()
+    expect(screen.getByRole('combobox')).toBeDisabled()
+  })
+
   it('asks only for this customer’s consignments that have not left', async () => {
     const recorder = urlRecorder()
     const { user } = await openOrder(
       'PACKED',
-      [P.PACKING_VIEW, P.PACKING_MANAGE, P.DISPATCH_CREATE],
+      [P.PACKING_VIEW, P.PACKING_MANAGE, P.DISPATCH_CREATE, P.DISPATCH_VIEW],
       {
         'GET /dispatch': ({ url }: RouteRequest) => {
           recorder.urls.push(url)

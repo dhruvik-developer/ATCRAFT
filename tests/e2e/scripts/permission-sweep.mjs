@@ -27,6 +27,7 @@ import { chromium } from '@playwright/test'
 import { writeFileSync } from 'node:fs'
 
 import { BASE_URL as BASE } from '../lib/env.mjs'
+import { createNavigator } from '../lib/navigation.mjs'
 
 // A restricted account, not the administrator: an administrator passes every
 // gate by construction. Create it with `must_change_password: false`, or the
@@ -98,12 +99,14 @@ const ROUTES = [
 const browser = await chromium.launch()
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
 const page = await context.newPage()
+const { navigate, settle } = createNavigator(page)
 
 await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' })
 await page.getByRole('textbox', { name: /email/i }).fill(EMAIL)
 await page.getByRole('textbox', { name: /password/i }).fill(PASSWORD)
 await page.getByRole('button', { name: /sign in|log ?in/i }).click()
 await page.waitForURL((u) => !u.pathname.includes('/login'), { timeout: 20000 })
+await settle()
 console.log(`signed in as ${EMAIL} (not a superuser)\n`)
 
 // The sidebar is the first place over-exposure shows: it hides what a user
@@ -125,8 +128,7 @@ for (const [route, permission] of ROUTES) {
   }
   page.on('response', onResponse)
 
-  await page.goto(`${BASE}${route}`, { waitUntil: 'domcontentloaded', timeout: 25000 })
-  await page.waitForLoadState('networkidle', { timeout: 12000 }).catch(() => {})
+  await navigate(route)
   const body = await page.evaluate(() => document.body.innerText).catch(() => '')
   page.off('response', onResponse)
 
@@ -146,9 +148,7 @@ for (const [route, permission] of ROUTES) {
 
   results.push({ route, permission, entitled, denied, inNav, httpForbidden, verdict })
   const flag = ['ok', 'denied'].includes(verdict) ? ' ' : '!'
-  console.log(
-    `${flag} ${verdict.padEnd(18)} ${route.padEnd(32)} needs=${permission ?? '(none)'}`,
-  )
+  console.log(`${flag} ${verdict.padEnd(18)} ${route.padEnd(32)} needs=${permission ?? '(none)'}`)
 }
 
 writeFileSync(
@@ -162,3 +162,4 @@ console.log(`\n${results.length} routes | problems=${problems.length}`)
 for (const p of problems) console.log(`  ${p.verdict}: ${p.route} (needs ${p.permission})`)
 
 await browser.close()
+process.exitCode = problems.length ? 1 : 0
