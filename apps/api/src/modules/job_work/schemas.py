@@ -671,6 +671,9 @@ class VendorLedgerItemRow(BaseModel):
     """
 
     item_id: uuid.UUID
+    #: Denormalised for display and export: the register reads one vendor's
+    #: rows, and a second lookup per row is the N+1 section 32 forbids.
+    item_code: str = ""
     opening_quantity: Decimal
     issued_quantity: Decimal
     #: Input accounted back out of the job-work pool in the period.

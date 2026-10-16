@@ -31019,6 +31019,11 @@ export interface components {
             /** Issued Quantity */
             issued_quantity: string;
             /**
+             * Item Code
+             * @default
+             */
+            item_code: string;
+            /**
              * Item Id
              * Format: uuid
              */

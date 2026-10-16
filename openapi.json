@@ -58147,6 +58147,11 @@
             "title": "Issued Quantity",
             "type": "string"
           },
+          "item_code": {
+            "default": "",
+            "title": "Item Code",
+            "type": "string"
+          },
           "item_id": {
             "format": "uuid",
             "title": "Item Id",

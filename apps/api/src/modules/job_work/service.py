@@ -1212,9 +1212,11 @@ async def vendor_ledger(
     consumed = await JobWorkReceiptRepository(session, tenant).consumed_by_item(
         vendor_id, date_from, date_to
     )
+    item_ids = sorted(set(issued) | set(consumed))
+    codes = await ItemLookupRepository(session, tenant).load(item_ids)
 
     rows: list[VendorLedgerItemRow] = []
-    for item_id in sorted(set(issued) | set(consumed)):
+    for item_id in item_ids:
         issued_before, issued_period = issued.get(item_id, (ZERO, ZERO))
         parts = consumed.get(
             item_id,
@@ -1234,6 +1236,7 @@ async def vendor_ledger(
         rows.append(
             VendorLedgerItemRow(
                 item_id=item_id,
+                item_code=codes[item_id].code if item_id in codes else "",
                 opening_quantity=opening,
                 issued_quantity=to_quantity(issued_period),
                 input_consumed_quantity=consumed_period,
