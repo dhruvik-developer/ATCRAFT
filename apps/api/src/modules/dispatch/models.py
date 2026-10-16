@@ -424,6 +424,9 @@ class DispatchLine(TenantEntity):
         GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    returned_quantity: Mapped[Decimal] = mapped_column(
+        Quantity, nullable=False, default=Decimal("0"), server_default="0"
+    )
 
     batch_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("stock_batches.id", ondelete="RESTRICT"), nullable=True, index=True
@@ -466,6 +469,10 @@ class DispatchLine(TenantEntity):
         Index("ix_dispatch_lines_cartons", "carton_ids", postgresql_using="gin"),
         CheckConstraint("line_number > 0", name="line_number_positive"),
         CheckConstraint("quantity > 0", name="quantity_positive"),
+        CheckConstraint(
+            "returned_quantity >= 0 AND returned_quantity <= quantity",
+            name="returned_quantity_bounded",
+        ),
         CheckConstraint(
             f"cardinality(serial_ids) <= {MAX_SERIALS_PER_LINE}", name="serial_count_bounded"
         ),

@@ -68,6 +68,20 @@ class OfferScopeKind(StrEnum):
     ITEM = "ITEM"
 
 
+class DealerBannerLinkKind(StrEnum):
+    NONE = "NONE"
+    ITEM = "ITEM"
+    CATEGORY = "CATEGORY"
+    BRAND = "BRAND"
+    OFFER = "OFFER"
+
+
+class DealerBannerStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+    ARCHIVED = "ARCHIVED"
+
+
 class AvailabilityBand(StrEnum):
     """A stock indication that does not reveal a quantity."""
 
@@ -165,6 +179,53 @@ class DealerOffer(TenantMasterEntity):
     )
 
 
+class DealerBanner(TenantMasterEntity):
+    """A staff-managed promotional banner shown to eligible dealers."""
+
+    __tablename__ = "dealer_banners"
+
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    subtitle: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_document_id: Mapped[uuid.UUID] = mapped_column(GUID, nullable=False)
+    link_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="NONE")
+    link_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+    audience_price_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    valid_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=DealerBannerStatus.INACTIVE.value,
+        server_default="INACTIVE",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "code", name="uq_dealer_banners_company_id_code"),
+        Index("ix_dealer_banners_window", "company_id", "status", "sort_order"),
+        CheckConstraint(
+            f"link_kind IN ({sql_in_list(DealerBannerLinkKind)})", name="link_kind_known"
+        ),
+        CheckConstraint(
+            "(link_kind = 'NONE' AND link_id IS NULL) OR "
+            "(link_kind <> 'NONE' AND link_id IS NOT NULL)",
+            name="link_target_matches",
+        ),
+        CheckConstraint(
+            f"audience_price_type IS NULL OR audience_price_type IN ({sql_in_list(PriceType)})",
+            name="banner_audience_known",
+        ),
+        CheckConstraint(
+            f"status IN ({sql_in_list(DealerBannerStatus)})", name="banner_status_known"
+        ),
+        CheckConstraint(
+            "valid_to IS NULL OR valid_from IS NULL OR valid_from <= valid_to",
+            name="banner_dates_ordered",
+        ),
+    )
+
+
 class DealerCart(TenantEntity, OptimisticLockMixin):
     """One open cart per dealer user. ASSUMPTION: docs/assumptions.md §C3-4."""
 
@@ -251,6 +312,9 @@ __all__ = [
     "SELLABLE_WAREHOUSE_TYPES",
     "TRACKING_EVENT_LIMIT",
     "AvailabilityBand",
+    "DealerBanner",
+    "DealerBannerLinkKind",
+    "DealerBannerStatus",
     "DealerCart",
     "DealerCartLine",
     "DealerOffer",

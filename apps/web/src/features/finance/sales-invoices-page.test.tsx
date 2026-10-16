@@ -52,6 +52,7 @@ const preview: SalesInvoicePreview = {
   total_amount: '118',
   lines: [
     {
+      id: 'invoice-line',
       dispatch_line_id: 'dispatch-line',
       sales_order_line_id: 'order-line',
       item_id: 'item',
@@ -61,6 +62,8 @@ const preview: SalesInvoicePreview = {
       description: 'Architectural hinge',
       hsn_code: '8302',
       quantity: '10',
+      credited_quantity: '0',
+      credited_amount: '0',
       unit_price: '10',
       tax_rate: '18',
       subtotal: '100',
@@ -181,6 +184,29 @@ describe('sales invoices', () => {
     })
     await screen.findByText('Architectural hinge')
     expect(screen.queryByRole('button', { name: 'Cancel invoice' })).not.toBeInTheDocument()
+  })
+  it('issues a credit note for selected invoice quantities', async () => {
+    const { user, fetch } = renderScreen(
+      <SalesInvoiceDetailDialog invoiceId={ID} onClose={() => {}} />,
+      {
+        permissions: [P.SALES_INVOICE_VIEW, P.CREDIT_NOTE_CREATE],
+        routes: {
+          [`GET /finance/sales-invoices/${ID}`]: ok(invoice()),
+          'POST /finance/credit-notes': ok({ id: 'credit-note' }),
+        },
+      },
+    )
+    await user.click(await screen.findByRole('button', { name: 'Issue credit note' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Issue credit note' })
+    await user.type(within(dialog).getByRole('spinbutton', { name: /credit quantity/i }), '2')
+    await user.click(within(dialog).getByRole('button', { name: 'Issue credit note' }))
+    await expect
+      .poll(() => fetch.requestFor('POST', '/finance/credit-notes'))
+      .toMatchObject({
+        sales_invoice_id: ID,
+        reason_type: 'PRICE_ADJUSTMENT',
+        lines: [{ sales_invoice_line_id: 'invoice-line', quantity: '2' }],
+      })
   })
   it('sends an audited cancellation reason when allowed', async () => {
     const { user, fetch } = renderScreen(

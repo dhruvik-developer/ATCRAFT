@@ -896,6 +896,7 @@ class SalesInvoiceStatus(StrEnum):
     ISSUED = "ISSUED"
     PARTIALLY_PAID = "PARTIALLY_PAID"
     PAID = "PAID"
+    CREDITED = "CREDITED"
     CANCELLED = "CANCELLED"
 
 
@@ -1050,6 +1051,12 @@ class SalesInvoiceLine(TenantEntity):
     hsn_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
     uom_code: Mapped[str] = mapped_column(String(16), nullable=False)
     quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    credited_quantity: Mapped[Decimal] = mapped_column(
+        Quantity, nullable=False, default=Decimal("0"), server_default="0"
+    )
+    credited_amount: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
     unit_price: Mapped[Decimal] = mapped_column(UnitPrice, nullable=False)
     tax_rate: Mapped[Decimal] = mapped_column(Percentage, nullable=False)
     subtotal: Mapped[Decimal] = mapped_column(Money, nullable=False)
@@ -1070,6 +1077,14 @@ class SalesInvoiceLine(TenantEntity):
         Index("ix_sales_invoice_lines_hsn", "company_id", "hsn_code", "tax_rate"),
         CheckConstraint("line_number > 0 AND quantity > 0", name="positive_quantity_number"),
         CheckConstraint(
+            "credited_quantity >= 0 AND credited_quantity <= quantity",
+            name="credited_quantity_bounded",
+        ),
+        CheckConstraint(
+            "credited_amount >= 0 AND credited_amount <= taxable_amount",
+            name="credited_amount_bounded",
+        ),
+        CheckConstraint(
             "unit_price >= 0 AND discount_amount >= 0 AND taxable_amount >= 0",
             name="amounts_bounded",
         ),
@@ -1084,6 +1099,134 @@ class SalesInvoiceLine(TenantEntity):
         ),
         CheckConstraint(
             "igst_amount = 0 OR (cgst_amount = 0 AND sgst_amount = 0)", name="tax_exclusive"
+        ),
+    )
+
+
+class CreditNoteStatus(StrEnum):
+    ISSUED = "ISSUED"
+    CANCELLED = "CANCELLED"
+
+
+class CreditNoteReason(StrEnum):
+    RETURN = "RETURN"
+    PRICE_ADJUSTMENT = "PRICE_ADJUSTMENT"
+    DISCOUNT = "DISCOUNT"
+    OTHER = "OTHER"
+
+
+class CreditNote(TenantEntity):
+    __tablename__ = "credit_notes"
+
+    code: Mapped[str] = mapped_column(String(16), nullable=False)
+    sales_invoice_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("sales_invoices.id", ondelete="RESTRICT"), nullable=False
+    )
+    sales_return_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("sales_returns.id", ondelete="RESTRICT"), nullable=True
+    )
+    customer_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("customers.id", ondelete="RESTRICT"), nullable=False
+    )
+    note_date: Mapped[date] = mapped_column(Date, nullable=False)
+    reason_type: Mapped[CreditNoteReason] = mapped_column(String(24), nullable=False)
+    status: Mapped[CreditNoteStatus] = mapped_column(
+        String(16), nullable=False, default=CreditNoteStatus.ISSUED, server_default="ISSUED"
+    )
+    currency: Mapped[str] = mapped_column(String(CURRENCY_CODE_LENGTH), nullable=False)
+    subtotal: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    taxable_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    cgst_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    sgst_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    igst_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    tax_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    round_off_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    total_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    buyer_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    buyer_gstin: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    seller_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    seller_gstin: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    seller_address: Mapped[str] = mapped_column(Text, nullable=False)
+    billing_address: Mapped[str] = mapped_column(Text, nullable=False)
+    place_of_supply_state_code: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    is_interstate: Mapped[bool] = mapped_column(nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    issued_by_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cancelled_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    journal_id: Mapped[uuid.UUID] = mapped_column(GUID, nullable=False)
+    pdf_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "code", name="uq_credit_notes_company_code"),
+        Index("ix_credit_notes_invoice", "company_id", "sales_invoice_id", "note_date"),
+        Index("ix_credit_notes_customer", "company_id", "customer_id", "note_date"),
+        CheckConstraint(
+            f"status IN ({sql_in_list(CreditNoteStatus)})", name="credit_note_status_known"
+        ),
+        CheckConstraint(
+            f"reason_type IN ({sql_in_list(CreditNoteReason)})", name="credit_note_reason_known"
+        ),
+        CheckConstraint(
+            "total_amount = taxable_amount + tax_amount + round_off_amount",
+            name="credit_note_total_reconciles",
+        ),
+        CheckConstraint(
+            "tax_amount = cgst_amount + sgst_amount + igst_amount",
+            name="credit_note_tax_reconciles",
+        ),
+        CheckConstraint(
+            "status <> 'CANCELLED' OR "
+            "(cancelled_at IS NOT NULL AND cancellation_reason IS NOT NULL)",
+            name="credit_note_cancellation_evidence",
+        ),
+    )
+
+
+class CreditNoteLine(TenantEntity):
+    __tablename__ = "credit_note_lines"
+
+    credit_note_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("credit_notes.id", ondelete="CASCADE"), nullable=False
+    )
+    sales_invoice_line_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("sales_invoice_lines.id", ondelete="RESTRICT"), nullable=False
+    )
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=False
+    )
+    hsn_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    quantity: Mapped[Decimal | None] = mapped_column(Quantity, nullable=True)
+    taxable_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    tax_rate: Mapped[Decimal] = mapped_column(Percentage, nullable=False)
+    cgst_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    sgst_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    igst_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    tax_amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    line_total: Mapped[Decimal] = mapped_column(Money, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "credit_note_id", "sales_invoice_line_id", name="uq_credit_note_lines_invoice_line"
+        ),
+        CheckConstraint("quantity IS NULL OR quantity > 0", name="credit_note_quantity_positive"),
+        CheckConstraint(
+            "taxable_amount >= 0 AND tax_rate >= 0 AND tax_rate <= 100",
+            name="credit_note_line_amounts_valid",
+        ),
+        CheckConstraint(
+            "tax_amount = cgst_amount + sgst_amount + igst_amount",
+            name="credit_note_line_tax_reconciles",
+        ),
+        CheckConstraint(
+            "line_total = taxable_amount + tax_amount", name="credit_note_line_total_reconciles"
         ),
     )
 
@@ -1243,6 +1386,10 @@ __all__ = [
     "POSTED_PAYMENT_STATUSES",
     "PRICE_VARIANCE_TOLERANCE",
     "QUANTITY_VARIANCE_TOLERANCE",
+    "CreditNote",
+    "CreditNoteLine",
+    "CreditNoteReason",
+    "CreditNoteStatus",
     "CustomerAdjustmentType",
     "LedgerAccount",
     "LedgerAccountType",

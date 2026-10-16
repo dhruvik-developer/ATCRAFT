@@ -35,6 +35,7 @@ const BomDetailPage = lazy(routeLoaders['/bom/:bomId'])
 const RoutingPage = lazy(routeLoaders['/routing'])
 const SalesOrdersPage = lazy(routeLoaders['/sales-orders'])
 const SalesOrderDetailPage = lazy(routeLoaders['/sales-orders/:orderId'])
+const SalesReturnsPage = lazy(routeLoaders['/sales-returns'])
 const CustomersPage = lazy(routeLoaders['/customers'])
 const MrpPage = lazy(routeLoaders['/mrp'])
 const MrpRunDetailPage = lazy(routeLoaders['/mrp/runs/:runId'])
@@ -53,6 +54,7 @@ const PackingPage = lazy(routeLoaders['/packing'])
 const DispatchPage = lazy(routeLoaders['/dispatch'])
 const FinancePage = lazy(routeLoaders['/finance'])
 const SalesInvoicesPage = lazy(routeLoaders['/finance/sales-invoices'])
+const CreditNotesPage = lazy(routeLoaders['/finance/credit-notes'])
 const VendorInvoicesPage = lazy(routeLoaders['/finance/vendor-invoices'])
 const ReportsPage = lazy(routeLoaders['/reports'])
 const AuditPage = lazy(routeLoaders['/audit'])
@@ -282,6 +284,7 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
     element: <SalesOrderDetailPage />,
     permissions: [P.SALES_ORDER_VIEW],
   },
+  { path: '/sales-returns', element: <SalesReturnsPage />, permissions: [P.SALES_RETURN_VIEW] },
   { path: '/customers', element: <CustomersPage />, permissions: [P.CUSTOMER_VIEW] },
 
   { path: '/mrp', element: <MrpPage />, permissions: [P.MRP_VIEW] },
@@ -333,6 +336,11 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
     path: '/finance/sales-invoices',
     element: <SalesInvoicesPage />,
     permissions: [P.SALES_INVOICE_VIEW],
+  },
+  {
+    path: '/finance/credit-notes',
+    element: <CreditNotesPage />,
+    permissions: [P.CREDIT_NOTE_VIEW],
   },
   {
     path: '/finance/vendor-invoices',

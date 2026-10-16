@@ -567,7 +567,8 @@ async def test_checkout_places_a_draft_portal_order(
             await session.execute(
                 select(Notification).where(
                     Notification.company_id == dealer_tenant.company_id,
-                    Notification.notification_type == NotificationType.APPROVAL_PENDING.value,
+                    Notification.notification_type
+                    == NotificationType.DEALER_ORDER_REQUEST_RECEIVED.value,
                     Notification.entity_id == order.id,
                 )
             )

@@ -76,6 +76,12 @@ export const navigation: NavSection[] = [
         permissions: [P.SALES_ORDER_VIEW],
         badgeKey: 'openSalesOrders',
       },
+      {
+        label: 'Sales Returns',
+        to: '/sales-returns',
+        icon: Undo2,
+        permissions: [P.SALES_RETURN_VIEW],
+      },
       { label: 'Customers', to: '/customers', icon: Users, permissions: [P.CUSTOMER_VIEW] },
       { label: 'Dealers', to: '/dealers', icon: Users, permissions: [P.DEALER_VIEW] },
     ],
@@ -283,6 +289,12 @@ export const navigation: NavSection[] = [
         to: '/finance/sales-invoices',
         icon: Receipt,
         permissions: [P.SALES_INVOICE_VIEW],
+      },
+      {
+        label: 'Credit notes',
+        to: '/finance/credit-notes',
+        icon: Receipt,
+        permissions: [P.CREDIT_NOTE_VIEW],
       },
       {
         label: 'Vendor Invoices',

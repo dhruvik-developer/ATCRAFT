@@ -76,6 +76,12 @@ SALES_INVOICE_LIFECYCLE: StateMachine[SalesInvoiceStatus] = StateMachine(
         ),
         Transition(
             SalesInvoiceStatus.ISSUED,
+            SalesInvoiceStatus.CREDITED,
+            permission=Permission.CREDIT_NOTE_CREATE,
+            label="Credited",
+        ),
+        Transition(
+            SalesInvoiceStatus.ISSUED,
             SalesInvoiceStatus.PAID,
             permission=Permission.PAYMENT_RECORD,
             label="Paid",
@@ -285,6 +291,7 @@ async def preview_sales_invoice(
         )
         lines.append(
             SalesInvoiceLineRead(
+                id=dl.id,
                 dispatch_line_id=dl.id,
                 sales_order_line_id=ol.id,
                 item_id=ol.item_id,
@@ -294,6 +301,8 @@ async def preview_sales_invoice(
                 hsn_code=facts[ol.item_id][1],
                 uom_code=units[ol.uom_id],
                 quantity=qty,
+                credited_quantity=ZERO,
+                credited_amount=ZERO,
                 unit_price=Decimal(ol.unit_price),
                 tax_rate=Decimal(ol.tax_rate),
                 subtotal=amounts.gross_amount,

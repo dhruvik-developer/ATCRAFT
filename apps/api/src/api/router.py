@@ -42,6 +42,7 @@ MODULE_ORDER: tuple[str, ...] = (
     "packing",
     "dispatch",
     "finance",
+    "sales_returns",
     "reports",
     "documents",
     "notifications",

@@ -1146,7 +1146,7 @@ class DealerPortalService:
             self.session,
             company_id=self.tenant.company_id,
             user_ids=recipients,
-            notification_type=NotificationType.APPROVAL_PENDING,
+            notification_type=NotificationType.DEALER_ORDER_REQUEST_RECEIVED,
             title=f"New order request from {customer.name}",
             body=(
                 f"{order.code}: {line_count} line(s), "

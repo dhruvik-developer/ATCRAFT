@@ -30,6 +30,8 @@ class SalesInvoiceCancel(BaseModel):
 
 class SalesInvoiceLineRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
     dispatch_line_id: uuid.UUID
     sales_order_line_id: uuid.UUID
     item_id: uuid.UUID
@@ -39,6 +41,8 @@ class SalesInvoiceLineRead(BaseModel):
     hsn_code: str | None
     uom_code: str
     quantity: Decimal
+    credited_quantity: Decimal
+    credited_amount: Decimal
     unit_price: Decimal
     tax_rate: Decimal
     subtotal: Decimal

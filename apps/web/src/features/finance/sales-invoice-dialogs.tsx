@@ -70,6 +70,7 @@ function InvoiceLines({ invoice }: { invoice: SalesInvoicePreview }) {
               'Item',
               'HSN',
               'Quantity',
+              'Credited',
               'Rate',
               'Discount',
               'Taxable',
@@ -92,6 +93,9 @@ function InvoiceLines({ invoice }: { invoice: SalesInvoicePreview }) {
               <td className="whitespace-nowrap p-2">
                 {formatQuantity(line.quantity)} {line.uom_code}
               </td>
+              <td className="whitespace-nowrap p-2">
+                {formatQuantity(line.credited_quantity)} {line.uom_code}
+              </td>
               {[
                 'unit_price',
                 'discount_amount',
@@ -110,6 +114,91 @@ function InvoiceLines({ invoice }: { invoice: SalesInvoicePreview }) {
         </tbody>
       </table>
     </div>
+  )
+}
+
+function CreditNoteDialog({
+  invoice,
+  open,
+  onClose,
+}: {
+  invoice: SalesInvoiceDetail
+  open: boolean
+  onClose: () => void
+}) {
+  const queryClient = useQueryClient()
+  const [quantities, setQuantities] = useState<Record<string, string>>({})
+  const issue = useMutation({
+    mutationFn: () =>
+      api.post('/finance/credit-notes', {
+        sales_invoice_id: invoice.id,
+        note_date: new Date().toISOString().slice(0, 10),
+        reason_type: 'PRICE_ADJUSTMENT',
+        lines: invoice.lines
+          .map((line) => ({
+            sales_invoice_line_id: line.id,
+            quantity: quantities[line.id] || undefined,
+          }))
+          .filter((line) => line.quantity),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: salesInvoiceKeys.all })
+      void queryClient.invalidateQueries({ queryKey: ['finance', 'credit-notes'] })
+      toast.success('Credit note issued')
+      onClose()
+    },
+  })
+  useEffect(() => {
+    if (!open) setQuantities({})
+  }, [open])
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent size="lg">
+        <DialogHeader>
+          <DialogTitle>Issue credit note</DialogTitle>
+          <DialogDescription>Select quantities to credit against {invoice.code}.</DialogDescription>
+        </DialogHeader>
+        <DialogBody className="space-y-4">
+          {invoice.lines.map((line) => {
+            const remaining = Number(line.quantity) - Number(line.credited_quantity)
+            return (
+              <div key={line.id} className="grid gap-2 sm:grid-cols-[1fr_10rem]">
+                <div>
+                  <p className="font-medium">{line.description}</p>
+                  <p className="text-sm text-muted-foreground">
+                    Remaining: {remaining} {line.uom_code}
+                  </p>
+                </div>
+                <Input
+                  aria-label={`Credit quantity for ${line.description}`}
+                  type="number"
+                  min="0"
+                  max={remaining}
+                  step="any"
+                  value={quantities[line.id] ?? ''}
+                  onChange={(event) =>
+                    setQuantities((current) => ({ ...current, [line.id]: event.target.value }))
+                  }
+                />
+              </div>
+            )
+          })}
+          {issue.error && <FieldError message={issue.error.message} />}
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => issue.mutate()}
+            disabled={Object.values(quantities).every((value) => !value)}
+            loading={issue.isPending}
+          >
+            Issue credit note
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -241,6 +330,7 @@ export function SalesInvoiceDetailDialog({
     enabled: Boolean(invoiceId) && can(P.SALES_INVOICE_VIEW),
   })
   const [cancelOpen, setCancelOpen] = useState(false)
+  const [creditOpen, setCreditOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [reasonTouched, setReasonTouched] = useState(false)
   const job = useReportJob()
@@ -366,6 +456,13 @@ export function SalesInvoiceDetailDialog({
                     </Button>
                   </div>
                 )}
+                {can(P.CREDIT_NOTE_CREATE) &&
+                  invoice.status !== 'CANCELLED' &&
+                  invoice.status !== 'CREDITED' && (
+                    <Button variant="outline" onClick={() => setCreditOpen(true)}>
+                      Issue credit note
+                    </Button>
+                  )}
                 <ReportJobPanel controller={job} label="Sales invoice PDF" />
               </>
             )}
@@ -417,6 +514,13 @@ export function SalesInvoiceDetailDialog({
         )}
         {cancel.error && <FieldError message={cancel.error.message} />}
       </ConfirmDialog>
+      {invoice && (
+        <CreditNoteDialog
+          invoice={invoice}
+          open={creditOpen}
+          onClose={() => setCreditOpen(false)}
+        />
+      )}
     </>
   )
 }

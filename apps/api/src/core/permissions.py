@@ -50,6 +50,8 @@ class Permission(StrEnum):
     CUSTOMER_DELETE = "customer.delete"
     DEALER_VIEW = "dealer.view"
     DEALER_MANAGE = "dealer.manage"
+    PROMOTION_VIEW = "promotion.view"
+    PROMOTION_MANAGE = "promotion.manage"
     VENDOR_VIEW = "vendor.view"
     VENDOR_CREATE = "vendor.create"
     VENDOR_UPDATE = "vendor.update"
@@ -137,6 +139,11 @@ class Permission(StrEnum):
     SALES_INVOICE_VIEW = "sales_invoice.view"
     SALES_INVOICE_CREATE = "sales_invoice.create"
     SALES_INVOICE_CANCEL = "sales_invoice.cancel"
+    SALES_RETURN_VIEW = "sales_return.view"
+    SALES_RETURN_CREATE = "sales_return.create"
+    CREDIT_NOTE_VIEW = "credit_note.view"
+    CREDIT_NOTE_CREATE = "credit_note.create"
+    CREDIT_NOTE_CANCEL = "credit_note.cancel"
 
     # --- MRP ----------------------------------------------------------------
     MRP_VIEW = "mrp.view"
@@ -385,6 +392,8 @@ _STORE = frozenset(
         Permission.REPORT_VIEW,
         Permission.DASHBOARD_VIEW,
         Permission.NOTIFICATION_VIEW,
+        Permission.SALES_RETURN_VIEW,
+        Permission.SALES_RETURN_CREATE,
     }
 )
 
@@ -423,6 +432,8 @@ _PURCHASE = frozenset(
         Permission.DOCUMENT_VIEW,
         Permission.DOCUMENT_UPLOAD,
         Permission.NOTIFICATION_VIEW,
+        Permission.SALES_RETURN_VIEW,
+        Permission.SALES_RETURN_CREATE,
         Permission.JOB_VIEW,
         # Requisitions and orders name the cost centre they are charged to.
         Permission.COST_CENTRE_VIEW,
@@ -468,6 +479,8 @@ _PRODUCTION = frozenset(
         Permission.DASHBOARD_VIEW,
         Permission.DOCUMENT_VIEW,
         Permission.NOTIFICATION_VIEW,
+        Permission.SALES_RETURN_VIEW,
+        Permission.SALES_RETURN_CREATE,
         # Production and job-work orders name the cost centre they are charged to.
         Permission.COST_CENTRE_VIEW,
     }
@@ -532,6 +545,11 @@ _SALES = frozenset(
         Permission.REPORT_VIEW,
         Permission.DASHBOARD_VIEW,
         Permission.NOTIFICATION_VIEW,
+        Permission.PROMOTION_VIEW,
+        Permission.PROMOTION_MANAGE,
+        Permission.SALES_RETURN_VIEW,
+        Permission.SALES_RETURN_CREATE,
+        Permission.CREDIT_NOTE_VIEW,
     }
 )
 
@@ -548,6 +566,9 @@ _ACCOUNTS = frozenset(
         Permission.SALES_INVOICE_VIEW,
         Permission.SALES_INVOICE_CREATE,
         Permission.SALES_INVOICE_CANCEL,
+        Permission.CREDIT_NOTE_VIEW,
+        Permission.CREDIT_NOTE_CREATE,
+        Permission.CREDIT_NOTE_CANCEL,
         Permission.PURCHASE_ORDER_VIEW,
         Permission.GRN_VIEW,
         Permission.CUSTOMER_VIEW,

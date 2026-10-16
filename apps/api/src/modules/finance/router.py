@@ -47,7 +47,13 @@ from src.core.responses import (
     ApiResponse,
     PaginatedResponse,
 )
-from src.modules.finance import sales_invoice_service, service
+from src.modules.finance import credit_note_service, sales_invoice_service, service
+from src.modules.finance.credit_note_schemas import (
+    CreditNoteCancel,
+    CreditNoteCreate,
+    CreditNoteDetail,
+    CreditNoteSummary,
+)
 from src.modules.finance.models import (
     LedgerAccountType,
     MatchStatus,
@@ -110,6 +116,59 @@ SortDep = Annotated[SortParams, Depends(sort_params)]
 ReasonQuery = Annotated[
     str, Query(min_length=3, max_length=500, description="Why this is being removed")
 ]
+
+
+@router.get(
+    "/credit-notes",
+    response_model=PaginatedResponse[CreditNoteSummary],
+    dependencies=[require_permission(Permission.CREDIT_NOTE_VIEW)],
+)
+async def list_credit_notes(
+    session: DbSession, tenant: Tenant, params: PageDep, sort: SortDep
+) -> PaginatedResponse[CreditNoteSummary]:
+    rows, pagination = await credit_note_service.list_credit_notes(session, tenant, params, sort)
+    return PaginatedResponse[CreditNoteSummary](data=rows, pagination=pagination)
+
+
+@router.post(
+    "/credit-notes",
+    response_model=ApiResponse[CreditNoteDetail],
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[require_permission(Permission.CREDIT_NOTE_CREATE)],
+)
+async def create_credit_note(
+    payload: CreditNoteCreate, session: DbSession, tenant: Tenant
+) -> ApiResponse[CreditNoteDetail]:
+    note = await credit_note_service.issue_credit_note(session, tenant, payload)
+    return ApiResponse[CreditNoteDetail].ok(note, "Credit note issued")
+
+
+@router.get(
+    "/credit-notes/{note_id}",
+    response_model=ApiResponse[CreditNoteDetail],
+    dependencies=[require_permission(Permission.CREDIT_NOTE_VIEW)],
+)
+async def get_credit_note(
+    note_id: uuid.UUID, session: DbSession, tenant: Tenant
+) -> ApiResponse[CreditNoteDetail]:
+    return ApiResponse[CreditNoteDetail].ok(
+        await credit_note_service.get_credit_note(session, tenant, note_id)
+    )
+
+
+@router.post(
+    "/credit-notes/{note_id}/cancel",
+    response_model=ApiResponse[CreditNoteDetail],
+    dependencies=[require_permission(Permission.CREDIT_NOTE_CANCEL)],
+)
+async def cancel_credit_note(
+    note_id: uuid.UUID,
+    payload: CreditNoteCancel,
+    session: DbSession,
+    tenant: Tenant,
+) -> ApiResponse[CreditNoteDetail]:
+    note = await credit_note_service.cancel_credit_note(session, tenant, note_id, payload.reason)
+    return ApiResponse[CreditNoteDetail].ok(note, "Credit note cancelled")
 
 
 # -----------------------------------------------------------------------------
