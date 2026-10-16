@@ -79,6 +79,9 @@ class SalesReturnLine(TenantEntity):
     dispatch_line_id: Mapped[uuid.UUID] = mapped_column(
         GUID, ForeignKey("dispatch_lines.id", ondelete="RESTRICT"), nullable=False
     )
+    qc_inspection_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("qc_inspections.id", ondelete="SET NULL"), nullable=True
+    )
     item_id: Mapped[uuid.UUID] = mapped_column(
         GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=False
     )

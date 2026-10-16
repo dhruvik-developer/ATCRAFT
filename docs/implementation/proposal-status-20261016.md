@@ -1,7 +1,7 @@
 # Proposal versus current code: pending work
 
-Reviewed on 16 October 2026 against `develop` at `b8d8b9f`, including the
-uncommitted returns/dealer work present during the review.
+Reviewed on 17 October 2026 against the current `develop` branch, including
+the committed returns/credit-note work and the return-QC integration.
 
 Source: [Atcraft Manufacturing ERP Development, August 2026, version 1.0](<C:/Users/evenmore/Downloads/Atcraft Manufacturing ERP Development.pdf>),
 24 pages. Both the original and compressed PDFs are scanned documents. The
@@ -42,7 +42,7 @@ feature groups, not a count of individual PDF requirements.
 
 | Priority / state                 | Work to finish                                                         | Proposal references / package                | Current evidence and exact remainder                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | -------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1 - **In progress**              | Customer returns and credit notes                                      | S02.8, P11.T6, P13.M4; A3                    | New `sales_returns` code, permissions/migrations and a page exist, but [New return is disabled](../../apps/web/src/features/sales/sales-returns-page.tsx). Finish dispatch-line selection/creation, receipt into the correct QC/return state, QC settlement and serial disposition, return-linked GST credit notes, accounting, PDF and UI. [Receive currently uses a movement without an explicit QC state](../../apps/api/src/modules/sales_returns/service.py). Credit-note models, schemas and [services](../../apps/api/src/modules/finance/credit_note_service.py) are now being added; route/UI/PDF and return/QC integration still require completion and end-to-end verification. |
+| 1 - **In progress**              | Customer returns and credit notes                                      | S02.8, P11.T6, P13.M4; A3                    | Dispatch-line selection/creation, credit-note issue/cancel routes, list/detail UI, accounting journals and generated contracts are implemented. Received QC-required lines now enter `QC_HOLD` and link to a RETURN inspection. Remaining release gates are QC verdict settlement back to the return owner, serial capture/disposition, automatic return-linked credit notes, credit-note PDF generation and PostgreSQL end-to-end verification. |
 | 1 - Partial                      | Urgent reallocation that the recipient can actually ship               | P03.F8, P05.S5-S9, K05; E2                   | Ranking and request/decision APIs exist. [Recipient reservation is created with `demand_line_id=None`](../../apps/api/src/modules/allocation/service.py); owner line/status synchronization is missing. [Reservations UI](../../apps/web/src/features/inventory/reservations-page.tsx) has no request inbox or approve/reject flow. Finish recipient/donor line updates, shortage-origin requests, usable approval screens and department notifications.                                                                                                                                                                                                                                   |
 | 1 - Partial                      | MRP quantity and date correctness                                      | P05.P2-P4, P06.F2/F6-F8; E3a                 | [MRP engine](../../apps/api/src/modules/mrp/engine.py) explicitly documents bounded component overplanning from live jobs and its two-stage explosion/netting. Common-part grouping exists; level-by-level stock netting, routing/per-level lead-time offsets and expected availability dates remain.                                                                                                                                                                                                                                                                                                                                                                                      |
 | 1 - Partial                      | Automatic sales shortfall planning and full fulfilment trail           | S01.1, S03.13, K02/K08/K10; E1b              | Confirm reserves what is available; [order detail still directs the user to run MRP manually](../../apps/web/src/features/sales/sales-order-detail-page.tsx). Add controlled/idempotent draft planning, shortfall replanning after changes, other-warehouse transfer suggestions, and links across MRP, production, purchases, assembly, job work, QC, packing and returns. [Existing fulfilment links](../../apps/web/src/features/sales/fulfilment-links.tsx) mainly cover dispatch/invoice.                                                                                                                                                                                             |
@@ -98,18 +98,21 @@ These are code/wiring findings, not a fresh signed UAT result.
 | K09 - Incoming quality rejection          | QC disposition exists; linked vendor return/replacement and financial settlement remain E6b.                                                                  |
 | K10 - Another warehouse can supply        | Manual inventory transfer exists; automatic shortage-side transfer suggestion/creation remains E1b/E2/E3b.                                                    |
 
-## Current uncommitted work
+## Current release state
 
-- **Returns/credits:** new `sales_returns` module/page, return/credit tables,
-  credit-note schemas/services, permissions and migrations. This is active
-  development, not an absent module and not a completed release. The disabled
-  creation button and unfinished QC/credit route/UI integration are completion
-  gates. This working tree is changing during the review.
-- **Dealer banners/promotions:** model/migrations/permissions and dealer-service
-  edits are present. Finish APIs/screens/security and tests before marking
-  C3b/C4b delivered.
-- No application source was changed, staged, committed or pushed by this audit.
-  These files were preserved. This report is a new documentation artifact.
+- **Returns/credits:** the core module, permissions, migrations, creation UI,
+  credit-note routes, accounting, list/detail screens and return-QC hold/link
+  are implemented on `develop`. QC verdict callbacks, serial disposition,
+  automatic return crediting and credit-note PDFs remain release gates.
+- **Dealer banners/promotions:** model, migration, permissions and service
+  groundwork exists; the public API, screens, security tests and acceptance
+  evidence are still required.
+- **Migration safety:** the historical Alembic chain is preserved for live
+  upgrade. A separate uncommitted baseline rewrite was isolated and must not be
+  deployed without a deliberate empty-database migration plan.
+- This document is an implementation status report, not a claim that the full
+  proposal is production-complete. The remaining rows require staged releases,
+  database-backed integration tests and restricted-role UAT.
 
 ## Suggested execution order
 

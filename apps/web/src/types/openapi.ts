@@ -28603,6 +28603,8 @@ export interface components {
             dispatch_line_id: string;
             /** Note */
             note?: string | null;
+            /** Qc Inspection Id */
+            qc_inspection_id: string | null;
             /** Quantity */
             quantity: number | string;
             /** Reason Code */

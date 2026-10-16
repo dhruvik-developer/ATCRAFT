@@ -50211,6 +50211,18 @@
             ],
             "title": "Note"
           },
+          "qc_inspection_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qc Inspection Id"
+          },
           "quantity": {
             "anyOf": [
               {
@@ -50238,6 +50250,7 @@
         },
         "required": [
           "dispatch_line_id",
+          "qc_inspection_id",
           "quantity",
           "reason_code"
         ],

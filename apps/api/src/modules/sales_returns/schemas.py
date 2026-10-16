@@ -13,6 +13,7 @@ class SalesReturnLineIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     dispatch_line_id: uuid.UUID
+    qc_inspection_id: uuid.UUID | None
     quantity: Decimal = Field(gt=0)
     reason_code: str = Field(min_length=2, max_length=32)
     note: str | None = Field(default=None, max_length=2000)

@@ -15,9 +15,12 @@ from src.core.permissions import Permission
 from src.core.state_machine import StateMachine, Transition
 from src.modules.audit.service import record_status_change
 from src.modules.dispatch.models import Dispatch, DispatchLine, DispatchStatus, DispatchType
-from src.modules.inventory.models import TransactionType
-from src.modules.inventory.service import MovementRequest, post_movements
+from src.modules.inventory.models import StockState, TransactionType
+from src.modules.inventory.service import MovementRequest, change_stock_state, post_movements
 from src.modules.products.models import Item
+from src.modules.quality.models import QcStage
+from src.modules.quality.schemas import InspectionCreate
+from src.modules.quality.service import create_inspection
 from src.modules.sales_returns.models import SalesReturn, SalesReturnLine, SalesReturnStatus
 from src.modules.sales_returns.repository import SalesReturnRepository
 from src.modules.sales_returns.schemas import (
@@ -281,6 +284,39 @@ async def transition_return(
                         f"{source.line_number}."
                     )
                 source.returned_quantity += line.quantity
+                if line.requires_qc:
+                    await change_stock_state(
+                        session,
+                        tenant,
+                        item_id=line.item_id,
+                        warehouse_id=warehouse_id,
+                        quantity=line.quantity,
+                        from_state=StockState.AVAILABLE,
+                        to_state=StockState.QC_HOLD,
+                        reason=f"{row.code}: customer return inspection",
+                        batch_id=source.batch_id,
+                        reference_type="SALES_RETURN",
+                        reference_id=row.id,
+                        reference_code=row.code,
+                    )
+                    inspection = await create_inspection(
+                        session,
+                        tenant,
+                        InspectionCreate(
+                            item_id=line.item_id,
+                            warehouse_id=warehouse_id,
+                            qc_stage=QcStage.RETURN,
+                            inspected_quantity=line.quantity,
+                            batch_id=source.batch_id,
+                            reference_type="SALES_RETURN",
+                            reference_id=row.id,
+                            reference_code=row.code,
+                            hold_stock=False,
+                            reason=f"Inspection for {row.code}",
+                            remarks=line.note,
+                        ),
+                    )
+                    line.qc_inspection_id = inspection.id
         previous_status = row.status
         row.status = target
         row.updated_by_id = tenant.user_id
