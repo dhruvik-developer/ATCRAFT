@@ -5,6 +5,8 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal
 
+import pytest
+
 from src.modules.job_work.models import JobWorkChallanLine
 from src.modules.job_work.service import capitalised_output_cost, issue_unit_basis
 
@@ -60,6 +62,59 @@ def test_capitalised_cost_records_the_rounding_residual() -> None:
     assert cost.unit_cost == Decimal("3.333333")
     assert cost.rounding_residual == Decimal("10") - cost.unit_cost * Decimal("3")
     assert cost.rounding_residual == Decimal("0.000001")
+
+
+@pytest.mark.parametrize(
+    ("input_quantity", "good", "rejected", "material_unit"),
+    [("100", "90", "10", "100"), ("10", "80", "20", "10"), ("100", "8", "2", "1000")],
+)
+def test_good_and_returned_rejects_share_input_value_without_duplicate_material(
+    input_quantity: str, good: str, rejected: str, material_unit: str
+) -> None:
+    lines = [_challan_line(quantity=input_quantity, unit_value="100")]
+    output = Decimal(good)
+    rejected_output = Decimal(rejected)
+    delivered = output + rejected_output
+    good_cost = capitalised_output_cost(
+        input_for_output=Decimal(input_quantity),
+        challan_lines=lines,
+        line_charge=output * Decimal("12.50"),
+        output_quantity=output,
+        delivered_output_quantity=delivered,
+    )
+    rejected_cost = capitalised_output_cost(
+        input_for_output=Decimal(input_quantity),
+        challan_lines=lines,
+        line_charge=Decimal("0"),
+        output_quantity=rejected_output,
+        delivered_output_quantity=delivered,
+    )
+    assert good_cost is not None and rejected_cost is not None
+    assert good_cost.unit_cost == Decimal(material_unit) + Decimal("12.50")
+    assert rejected_cost.unit_cost == Decimal(material_unit)
+    assert good_cost.input_value + rejected_cost.input_value == Decimal(input_quantity) * 100
+
+
+def test_fractional_raw_shares_are_not_rounded_before_valuing_returned_output() -> None:
+    lines = [_challan_line(quantity="1", unit_value="10000")]
+    good = capitalised_output_cost(
+        input_for_output=Decimal("1"),
+        challan_lines=lines,
+        line_charge=Decimal("0"),
+        output_quantity=Decimal("2"),
+        delivered_output_quantity=Decimal("3"),
+    )
+    rejected = capitalised_output_cost(
+        input_for_output=Decimal("1"),
+        challan_lines=lines,
+        line_charge=Decimal("0"),
+        output_quantity=Decimal("1"),
+        delivered_output_quantity=Decimal("3"),
+    )
+    assert good is not None and rejected is not None
+    assert good.unit_cost == rejected.unit_cost == Decimal("3333.333333")
+    assert good.input_value + rejected.input_value == Decimal("10000")
+    assert good.rounding_residual + rejected.rounding_residual == Decimal("0.000001")
 
 
 def test_capitalised_cost_is_none_without_good_output_or_basis() -> None:

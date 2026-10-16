@@ -48,6 +48,14 @@ from src.modules.documents.models import Document, DocumentCategory
 from src.modules.documents.service import resolve_storage_path
 from src.modules.inventory import service as inventory_service
 from src.modules.inventory.models import TransactionType
+from src.modules.job_work.models import (
+    JobWorkChallan,
+    JobWorkChallanLine,
+    JobWorkOrder,
+    JobWorkOrderLine,
+    JobWorkOrderStatus,
+    JobWorkProcess,
+)
 from src.modules.packing import service as packing_service
 from src.modules.packing.models import PackingOrderStatus
 from src.modules.packing.schemas import PackingOrderCreate, PackingOrderLineIn
@@ -248,7 +256,7 @@ def _assert_completed(job: dict[str, Any], *, job_id: str, report_key: str) -> s
     assert document_id is not None
     assert job["download_url"] == (
         reports_service.job_download_url(job_id)
-        if report_key == "INVENTORY_VALUATION"
+        if report_key in {"INVENTORY_VALUATION", "JOB_WORK_CHALLAN"}
         else reports_service.document_download_url(document_id)
     )
     return str(document_id)
@@ -341,6 +349,169 @@ async def _packing_in_progress(engine: Any, tenant: TenantContext) -> uuid.UUID:
 # -----------------------------------------------------------------------------
 # The journeys
 # -----------------------------------------------------------------------------
+
+
+async def _issued_job_work_challan(engine: Any, tenant: TenantContext) -> uuid.UUID:
+    """An issued consignment with real parties and goods for the PDF worker."""
+    async with _factory(engine)() as session, transaction(session):
+        warehouse = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code=_code("WH")
+        )
+        vendor = await seed_support.seed_vendor(
+            session, company_id=tenant.company_id, code=_code("VEN")
+        )
+        item = await seed_support.seed_item(
+            session, company_id=tenant.company_id, code=_code("RAW")
+        )
+        order = JobWorkOrder(
+            company_id=tenant.company_id,
+            code=_code("JW"),
+            vendor_id=vendor.id,
+            process_type=JobWorkProcess.PVD,
+            expected_return_date=date(2026, 10, 30),
+            warehouse_id=warehouse.id,
+            return_warehouse_id=warehouse.id,
+            status=JobWorkOrderStatus.ISSUED,
+        )
+        session.add(order)
+        await session.flush()
+        line = JobWorkOrderLine(
+            company_id=tenant.company_id,
+            job_work_order_id=order.id,
+            line_number=1,
+            item_id=item.id,
+            uom_id=item.base_uom_id,
+            quantity_to_issue=Decimal("10"),
+            issued_quantity=Decimal("10"),
+            expected_output_item_id=item.id,
+            expected_output_quantity=Decimal("10"),
+        )
+        session.add(line)
+        await session.flush()
+        challan = JobWorkChallan(
+            company_id=tenant.company_id,
+            code=_code("JWC"),
+            job_work_order_id=order.id,
+            vendor_id=vendor.id,
+            challan_date=date(2026, 10, 16),
+            expected_return_date=date(2026, 10, 30),
+            total_quantity=Decimal("10"),
+            total_value=Decimal("1000"),
+        )
+        session.add(challan)
+        await session.flush()
+        session.add(
+            JobWorkChallanLine(
+                company_id=tenant.company_id,
+                challan_id=challan.id,
+                job_work_order_line_id=line.id,
+                line_number=1,
+                item_id=item.id,
+                uom_id=item.base_uom_id,
+                quantity=Decimal("10"),
+                unit_value=Decimal("100"),
+                total_value=Decimal("1000"),
+            )
+        )
+        return challan.id
+
+
+async def test_job_work_view_holder_can_retrieve_only_its_own_challan_export(
+    client: AsyncClient, engine: Any, tenant: TenantContext, principal: Principal
+) -> None:
+    from src.core.clock import utcnow
+    from src.main import app
+
+    operator = replace(principal, permissions=frozenset({str(Permission.JOB_WORK_VIEW)}))
+    app.dependency_overrides[get_current_principal] = lambda: operator
+    challan_id = await _issued_job_work_challan(engine, tenant)
+    accepted = await client.post(f"{_prefix()}/job-work/challans/{challan_id}/pdf")
+    assert accepted.status_code == 202, accepted.text
+    job_id = accepted.json()["data"]["job_id"]
+    status_url = accepted.json()["data"]["status_url"]
+    download_url = reports_service.job_download_url(job_id)
+    queued = await _job(client, status_url)
+    _assert_queued(queued, job_id=job_id, report_key="JOB_WORK_CHALLAN")
+    assert (await client.get(download_url)).status_code == 404
+
+    outcome = await _run_worker(
+        report_tasks.generate_job_work_challan,
+        job_work_challan_id=str(challan_id),
+        snapshot_id=job_id,
+        company_id=str(tenant.company_id),
+        user_id=str(tenant.user_id),
+    )
+    assert outcome["status"] == "COMPLETED", outcome
+    completed = await _job(client, status_url)
+    document_id = _assert_completed(completed, job_id=job_id, report_key="JOB_WORK_CHALLAN")
+    async with _factory(engine)() as session:
+        snapshot = await ReportSnapshotRepository(session, tenant).get_or_404(uuid.UUID(job_id))
+    downloaded = await client.get(completed["download_url"])
+    assert downloaded.status_code == 200, downloaded.text
+    assert downloaded.content.startswith(b"%PDF-")
+    assert downloaded.headers["x-content-type-options"] == "nosniff"
+
+    # Originating-job access cannot be used for general reports or arbitrary
+    # document ids, even by the same operator who generated this PDF.
+    assert (await client.get(f"{_prefix()}/reports/catalogue")).status_code == 403
+    assert (await client.get(f"{_prefix()}/documents")).status_code == 403
+    assert (await client.get(f"{_prefix()}/documents/{document_id}/download")).status_code == 403
+    substituted = await client.get(download_url, params={"document_id": str(uuid.uuid4())})
+    assert substituted.status_code == 200
+    assert substituted.content == downloaded.content
+
+    for intruder in (
+        replace(operator, user_id=uuid.uuid4()),
+        replace(operator, company_id=uuid.uuid4()),
+        replace(operator, permissions=frozenset({str(Permission.INVENTORY_VALUATION_VIEW)})),
+    ):
+        app.dependency_overrides[get_current_principal] = lambda user=intruder: user
+        assert (await client.get(status_url)).status_code == 404
+        assert (await client.get(download_url)).status_code == 404
+
+    app.dependency_overrides[get_current_principal] = lambda: replace(
+        operator, permissions=frozenset()
+    )
+    assert (await client.get(status_url)).status_code == 403
+    assert (await client.get(download_url)).status_code == 403
+
+    for outsider in (
+        replace(principal, vendor_id=uuid.uuid4()),
+        replace(principal, customer_id=uuid.uuid4()),
+    ):
+        assert not reports_service._owns_job_work_challan_export(snapshot, outsider)
+        app.dependency_overrides[get_current_principal] = lambda user=outsider: user
+        assert (await client.get(status_url)).status_code == 403
+        assert (await client.get(download_url)).status_code == 403
+
+    # The exception is for the exact document-only challan key, even when a
+    # different job is owned by this operator and names the very same document.
+    async with _factory(engine)() as session, transaction(session):
+        unrelated = reports_service.new_job_snapshot(ReportKey.PACKING_LIST, {}, now=utcnow())
+        unrelated.status = reports_service.ReportJobStatus.COMPLETED
+        unrelated.document_id = uuid.UUID(document_id)
+        unrelated.generated_at = utcnow()
+        ReportSnapshotRepository(session, tenant).add(unrelated)
+        await session.flush()
+        unrelated_id = unrelated.id
+    app.dependency_overrides[get_current_principal] = lambda: operator
+    assert (await client.get(reports_service.job_status_url(unrelated_id))).status_code == 404
+    assert (await client.get(reports_service.job_download_url(unrelated_id))).status_code == 404
+
+    # Existing internal report readers can still share a colleague's job, but
+    # their download continues to require the general document-view right.
+    reader = replace(
+        principal,
+        user_id=uuid.uuid4(),
+        permissions=frozenset({str(Permission.REPORT_VIEW), str(Permission.DOCUMENT_VIEW)}),
+    )
+    app.dependency_overrides[get_current_principal] = lambda: reader
+    assert (await client.get(status_url)).status_code == 200
+    assert (await client.get(download_url)).status_code == 200
+    app.dependency_overrides[get_current_principal] = lambda: replace(
+        reader, permissions=frozenset({str(Permission.REPORT_VIEW)})
+    )
+    assert (await client.get(download_url)).status_code == 403
 
 
 async def test_the_inventory_valuation_export_is_a_job_that_files_a_workbook(

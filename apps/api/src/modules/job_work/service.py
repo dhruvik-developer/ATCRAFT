@@ -109,7 +109,9 @@ taken, named, and is changeable in one place.
 * **Processed output is received at its capitalised cost** (:func:`capitalised_output_cost`):
   the input the good output consumed, valued at the frozen challan issue cost -
   the ledger's FIFO draw captured on the challan line when the material left -
-  plus the receipt charge the line accrued, per good unit. The price is read
+  plus the receipt charge the line accrued, per good unit. Returned rejects
+  carry their proportional share of that input value without a processing
+  charge; their material is not also folded into the good units. The price is read
   from challans before posting, so it is exact rather than a second read of
   layers the posting itself consumes. Process loss within the allowance is
   expensed as scrap (as before) rather than absorbed into the good units, and
@@ -493,6 +495,9 @@ class LineReceiptPlan:
     scrap_quantity: Decimal
     excess_loss_quantity: Decimal
     input_consumed_quantity: Decimal
+    #: Rejected output destroyed at the vendor, in input units. Separate from
+    #: process loss: it earns neither an automatic recovery nor loss approval.
+    rejected_scrap_input_quantity: Decimal = ZERO
 
 
 def plan_line_receipt(
@@ -633,6 +638,11 @@ def plan_line_receipt(
         scrap_quantity=scrap,
         excess_loss_quantity=excess,
         input_consumed_quantity=consumed,
+        rejected_scrap_input_quantity=(
+            to_quantity(for_output * rejected / delivered_output)
+            if action is RejectionAction.SCRAP_AT_VENDOR and delivered_output > ZERO
+            else ZERO
+        ),
     )
 
 
@@ -673,10 +683,10 @@ def issue_unit_basis(challan_lines: Sequence[JobWorkChallanLine]) -> Decimal | N
 
 @dataclass(frozen=True, slots=True)
 class CapitalisedCost:
-    """What one receipt line's good output is booked at."""
+    """What one receipt line's output pool is booked at."""
 
     #: Posted on the output movement: the input it consumed, valued at the
-    #: frozen issue cost, plus the processing charge it earned, per good unit.
+    #: frozen issue cost, plus the processing charge it earned, per output unit.
     unit_cost: Decimal
     #: The input value folded into it (input-for-output at the frozen basis).
     input_value: Decimal
@@ -692,32 +702,42 @@ def capitalised_output_cost(
     challan_lines: Sequence[JobWorkChallanLine],
     line_charge: Decimal,
     output_quantity: Decimal,
+    delivered_output_quantity: Decimal | None = None,
 ) -> CapitalisedCost | None:
-    """Book one receipt line's good output at input cost plus processing charge.
+    """Book an output pool at its share of input cost plus its earned charge.
+
+    ``input_for_output`` covers all delivered output. When good and rejected
+    output share that input, ``delivered_output_quantity`` allocates its frozen
+    value proportionally between the two pools. Do not round the input shares
+    to quantity scale: a fraction of a raw unit still has value. Only good
+    output earns a processing charge; rejected output is priced with zero.
 
     Pure: the arithmetic behind P13.M5, exercised without a database. None when
-    the line returned no good output - there is nothing to divide by - or when
+    this pool has no output - there is nothing to divide by - or when
     the line has no challan history, in which case the movement keeps the
     engine's standard-cost default.
     """
-    good = to_quantity(output_quantity)
-    if good <= ZERO:
+    output = to_quantity(output_quantity)
+    if output <= ZERO:
         return None
     basis = issue_unit_basis(challan_lines)
     if basis is None:
         return None
-    # ASSUMPTION: only the input the good output consumed is capitalised, at
-    # the frozen challan issue cost, plus the receipt charge the line accrued.
+    # ASSUMPTION: each delivered pool carries its share of the input value at
+    # the frozen challan issue cost. Only good output earns a receipt charge.
     # Process loss within the allowance is expensed as scrap (as today) rather
     # than absorbed into the good units, and the later invoice price variance
     # is expensed too. docs/assumptions.md §E7b-2.
-    material = to_quantity(input_for_output) * basis
+    delivered = (
+        output if delivered_output_quantity is None else to_quantity(delivered_output_quantity)
+    )
+    material = to_quantity(input_for_output) * basis * output / delivered
     total = material + Decimal(line_charge)
-    unit = to_unit_price(total / good)
+    unit = to_unit_price(total / output)
     return CapitalisedCost(
         unit_cost=unit,
         input_value=material,
-        rounding_residual=total - unit * good,
+        rounding_residual=total - unit * output,
     )
 
 
@@ -2150,10 +2170,11 @@ def _build_receipt_movements(
     reason: str,
     occurred_at: datetime | None,
     capitalised_costs: Mapping[int, Decimal] | None = None,
+    rejected_costs: Mapping[int, Decimal] | None = None,
 ) -> tuple[list[MovementRequest], dict[int, int]]:
     """Every ledger row one receipt writes, as one batch.
 
-    Four movement shapes, and each says something different about where a
+    These movement shapes each say something different about where a
     quantity went:
 
     * ``JOB_WORK_RECEIPT`` into ``AVAILABLE`` (or ``QC_HOLD``) at the return
@@ -2170,7 +2191,9 @@ def _build_receipt_movements(
       available again. The closed section-83 vocabulary has no "job work
       consume"; this is the same word production uses for components eaten into
       a different finished item, which is what happened;
-    * ``SCRAP`` from ``JOB_WORK`` - the process loss, out of the pool and gone.
+    * ``SCRAP`` from ``JOB_WORK`` - process loss or the input share of rejected
+      output destroyed at the vendor. Only process loss enters ``scrap_index``
+      and the excess-loss recovery calculation.
 
     They are returned as one list so
     :func:`~src.modules.inventory.service.post_movements` locks every affected
@@ -2185,6 +2208,7 @@ def _build_receipt_movements(
     scrap_index: dict[int, int] = {}
     output_state = StockState.QC_HOLD if order.requires_qc else StockState.AVAILABLE
     capitalised = capitalised_costs or {}
+    rejected = rejected_costs or {}
 
     for entry in planned:
         line, plan = entry.order_line, entry.plan
@@ -2213,7 +2237,10 @@ def _build_receipt_movements(
                     **common,
                 )
             )
-        if plan.rejected_quantity > ZERO:
+        if (
+            plan.rejected_quantity > ZERO
+            and entry.entry.rejection_action is RejectionAction.RETURN_TO_STOCK
+        ):
             movements.append(
                 MovementRequest(
                     item_id=line.expected_output_item_id,
@@ -2224,20 +2251,36 @@ def _build_receipt_movements(
                     # valuation, and excluded from available_quantity so nothing
                     # can be promised out of it.
                     stock_state=StockState.DAMAGED,
+                    # Returned rejects carry only their share of the frozen
+                    # input value. The good output carries the processing fee.
+                    unit_cost=rejected.get(line.line_number),
                     **common,
                 )
             )
-        if plan.input_for_output > ZERO:
+        delivered_input = plan.input_for_output - plan.rejected_scrap_input_quantity
+        if delivered_input > ZERO:
             movements.append(
                 MovementRequest(
                     item_id=line.item_id,
                     warehouse_id=order.warehouse_id,
-                    quantity=plan.input_for_output,
+                    quantity=delivered_input,
                     transaction_type=TransactionType.MATERIAL_ISSUE,
                     # Draws the job-work pool down without touching on-hand: the
                     # material never comes back as itself, it comes back as the
                     # output item posted above.
                     stock_state=StockState.JOB_WORK,
+                    **common,
+                )
+            )
+        if plan.rejected_scrap_input_quantity > ZERO:
+            movements.append(
+                MovementRequest(
+                    item_id=line.item_id,
+                    warehouse_id=order.warehouse_id,
+                    quantity=plan.rejected_scrap_input_quantity,
+                    transaction_type=TransactionType.SCRAP,
+                    from_state=StockState.JOB_WORK,
+                    stock_state=StockState.SCRAP,
                     **common,
                 )
             )
@@ -2393,22 +2436,21 @@ async def receive(
             totals["consumed"] += row.plan.input_consumed_quantity
 
         # The charge is apportioned across the lines that earned it, so a
-        # per-line vendor query and the header agree to the last paisa. The final
-        # line absorbs the rounding remainder rather than leaving a stray
-        # fraction unattributed. This runs before the posting because the
+        # per-line vendor query and the header agree to the last paisa. Round
+        # cumulative good-output shares so no rejected-only line earns a charge
+        # and accumulated rounding cannot make the final charge negative.
+        # This runs before the posting because the
         # capitalised output cost below folds each line's share in.
-        charge_remaining = charge
+        allocated_output = ZERO
+        allocated_charge = ZERO
         line_charges: list[tuple[PlannedLine, Decimal]] = []
-        for position, row in enumerate(planned):
-            is_last = position == len(planned) - 1
-            line_charge = (
-                charge_remaining
-                if is_last
-                else to_money(
-                    charge * row.plan.output_quantity / good_output if good_output > ZERO else ZERO
-                )
+        for row in planned:
+            allocated_output += row.plan.output_quantity
+            cumulative_charge = to_money(
+                charge * allocated_output / good_output if good_output > ZERO else ZERO
             )
-            charge_remaining = to_money(charge_remaining - line_charge)
+            line_charge = cumulative_charge - allocated_charge
+            allocated_charge = cumulative_charge
             line_charges.append((row, line_charge))
 
         # P13.M5: what each line's good output is booked at - the input it
@@ -2420,15 +2462,39 @@ async def receive(
             [row.order_line.id for row in planned]
         )
         costing: dict[int, CapitalisedCost] = {}
+        rejected_costing: dict[int, CapitalisedCost] = {}
         for row, line_charge in line_charges:
+            delivered_output = row.plan.output_quantity + row.plan.rejected_quantity
+            input_for_output = row.plan.input_for_output
+            if row.entry.rejection_action is RejectionAction.SCRAP_AT_VENDOR:
+                # A scrap movement must use input quantity scale. The good
+                # output carries exactly the remainder drawn as MATERIAL_ISSUE,
+                # rather than a second independently rounded input share.
+                input_for_output -= row.plan.rejected_scrap_input_quantity
+                delivered_output = row.plan.output_quantity
+            challan_lines = challan_grouped.get(row.order_line.id, [])
             cost = capitalised_output_cost(
-                input_for_output=row.plan.input_for_output,
-                challan_lines=challan_grouped.get(row.order_line.id, []),
+                input_for_output=input_for_output,
+                challan_lines=challan_lines,
                 line_charge=line_charge,
                 output_quantity=row.plan.output_quantity,
+                delivered_output_quantity=delivered_output,
             )
             if cost is not None:
                 costing[row.order_line.line_number] = cost
+            rejected_cost = (
+                capitalised_output_cost(
+                    input_for_output=row.plan.input_for_output,
+                    challan_lines=challan_lines,
+                    line_charge=ZERO,
+                    output_quantity=row.plan.rejected_quantity,
+                    delivered_output_quantity=delivered_output,
+                )
+                if row.entry.rejection_action is RejectionAction.RETURN_TO_STOCK
+                else None
+            )
+            if rejected_cost is not None:
+                rejected_costing[row.order_line.line_number] = rejected_cost
 
         movements, scrap_index = _build_receipt_movements(
             planned,
@@ -2436,6 +2502,7 @@ async def receive(
             reason=movement_reason,
             occurred_at=payload.occurred_at,
             capitalised_costs={number: cost.unit_cost for number, cost in costing.items()},
+            rejected_costs={number: cost.unit_cost for number, cost in rejected_costing.items()},
         )
         posted = await post_movements(session, tenant, movements)
         # The debit is priced from the cost the ledger actually used for the
@@ -2624,6 +2691,19 @@ async def receive(
                         "rounding_residual": str(cost.rounding_residual),
                     }
                     for number, cost in sorted(costing.items())
+                },
+                "rejected_costing": {
+                    str(number): {
+                        "unit_cost": str(cost.unit_cost),
+                        "input_value": str(cost.input_value),
+                        "rounding_residual": str(cost.rounding_residual),
+                    }
+                    for number, cost in sorted(rejected_costing.items())
+                },
+                "rejected_scrap_input": {
+                    str(row.order_line.line_number): str(row.plan.rejected_scrap_input_quantity)
+                    for row in planned
+                    if row.plan.rejected_scrap_input_quantity > ZERO
                 },
             },
             context={

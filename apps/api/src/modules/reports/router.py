@@ -259,7 +259,12 @@ async def dashboard(session: DbSession, tenant: Tenant) -> ApiResponse[Dashboard
         "points at the generated file in the document store."
     ),
     dependencies=[
-        require_permission(Permission.REPORT_VIEW, Permission.INVENTORY_VALUATION_VIEW, mode="any"),
+        require_permission(
+            Permission.REPORT_VIEW,
+            Permission.INVENTORY_VALUATION_VIEW,
+            Permission.JOB_WORK_VIEW,
+            mode="any",
+        ),
         Depends(forbid_vendor_users),
         Depends(forbid_dealer_users),
     ],
@@ -277,7 +282,12 @@ async def get_job(
     summary="Download the generated file authorized by its originating job",
     response_class=StreamingResponse,
     dependencies=[
-        require_permission(Permission.REPORT_VIEW, Permission.INVENTORY_VALUATION_VIEW, mode="any"),
+        require_permission(
+            Permission.REPORT_VIEW,
+            Permission.INVENTORY_VALUATION_VIEW,
+            Permission.JOB_WORK_VIEW,
+            mode="any",
+        ),
         Depends(forbid_vendor_users),
         Depends(forbid_dealer_users),
     ],

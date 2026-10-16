@@ -934,6 +934,22 @@ aggregations on every request (§25). The order of escalation is fixed:
 
 Inventory availability is **never** served from cache (§34).
 
+### Job-work output costs and exports
+
+Good output and physically returned rejects share the frozen challan input
+value; processing charges accrue only to good output. Vendor-side rejected
+scrap moves its rounded input share from JOB_WORK to SCRAP without creating
+DAMAGED output or triggering the separate process-loss recovery. Receipt audit
+captures the allocation and residuals; `JOB_WORK_COST` sums each receipt's good
+input share before valuing an order line, rather than redistributing material
+across lots with different rejection rates.
+
+An internal operator with `job_work.view` can poll/download their own
+`JOB_WORK_CHALLAN` job, scoped by tenant, creator and exact key. The job endpoint
+opens only its bound document and grants no general report/document access.
+`JOB_WORK_COST` files retain `item.cost_view` protection on generic document
+reads as well as report/job routes.
+
 
 ### Sales fulfilment and issued tax invoices
 

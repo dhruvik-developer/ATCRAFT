@@ -460,9 +460,13 @@ function receiveDefaults(order: JobWorkOrderDetail | undefined): ReceiveFormValu
     lines: linesOf(order).map((line) => ({
       line_number: line.line_number,
       label: `Line ${line.line_number} - ${line.item_id.slice(0, 8)}`,
-      // Pre-filled with everything still at the vendor: a full return is the
-      // common case, and the rejection and unworked columns are the exceptions.
-      received_quantity: stillAtVendor(line),
+      // Outstanding is in input units; Received is in output units. Apply the
+      // order's frozen yield, just as the receipt service does in reverse.
+      received_quantity: toDecimal(stillAtVendor(line))
+        .times(toDecimal(line.expected_output_quantity))
+        .div(toDecimal(line.quantity_to_issue))
+        .toDecimalPlaces(4)
+        .toFixed(),
       rejected_quantity: '',
       returned_quantity: '',
       rejection_action: 'RETURN_TO_STOCK',

@@ -1281,6 +1281,7 @@ def job_read(snapshot: ReportSnapshot) -> ReportJobRead:
             (
                 job_download_url(snapshot.id)
                 if _is_valuation_export(snapshot)
+                or snapshot.report_key == ReportKey.JOB_WORK_CHALLAN
                 else document_download_url(snapshot.document_id)
             )
             if snapshot.document_id
@@ -1382,6 +1383,23 @@ def _owns_valuation_export(snapshot: ReportSnapshot, principal: Principal) -> bo
     )
 
 
+def _owns_job_work_challan_export(snapshot: ReportSnapshot, principal: Principal) -> bool:
+    """Let an internal operator retrieve only the challan PDF they queued.
+
+    The originating endpoint requires job-work view, not general report or
+    document access. The exception is bound to the server-created job and its
+    creator so it grants neither another operator's export nor arbitrary files.
+    """
+    return (
+        not principal.is_vendor_user
+        and not principal.is_dealer_user
+        and snapshot.company_id == principal.company_id
+        and snapshot.created_by_id == principal.user_id
+        and snapshot.report_key == ReportKey.JOB_WORK_CHALLAN
+        and principal.has(Permission.JOB_WORK_VIEW)
+    )
+
+
 async def _accessible_job(
     session: AsyncSession, tenant: TenantContext, principal: Principal, job_id: uuid.UUID
 ) -> ReportSnapshot:
@@ -1406,7 +1424,9 @@ async def _accessible_job(
             and not principal.has(REPORT_CATALOGUE[snapshot.report_key].permission)
         )
         or not (
-            principal.has(Permission.REPORT_VIEW) or _owns_valuation_export(snapshot, principal)
+            principal.has(Permission.REPORT_VIEW)
+            or _owns_valuation_export(snapshot, principal)
+            or _owns_job_work_challan_export(snapshot, principal)
         )
     ):
         # A job outside this principal's scope must not reveal its parameters,
@@ -1426,14 +1446,16 @@ async def open_job_download(
 ) -> DocumentDownload:
     """Open only the file bound to a job the originating operation allows.
 
-    The finance exporter can read its own valuation without gaining general
-    report/document access. Existing report readers retain their document-view
-    requirement. No caller-provided document id is accepted on this path.
+    Finance and job-work operators can read their own originating exports
+    without gaining general report/document access. Existing report readers
+    retain their document-view requirement. No caller-provided document id is
+    accepted on this path.
     """
     snapshot = await _accessible_job(session, tenant, principal, job_id)
-    if not _owns_valuation_export(snapshot, principal) and not principal.has(
-        Permission.DOCUMENT_VIEW
-    ):
+    owns_export = _owns_valuation_export(snapshot, principal) or _owns_job_work_challan_export(
+        snapshot, principal
+    )
+    if not owns_export and not principal.has(Permission.DOCUMENT_VIEW):
         raise PermissionDeniedError(str(Permission.DOCUMENT_VIEW))
     if snapshot.status != ReportJobStatus.COMPLETED or snapshot.document_id is None:
         raise NotFoundError("Report job file", job_id, code=ErrorCode.FILE_NOT_FOUND)
@@ -1774,11 +1796,24 @@ def production_cost_document_read_policy(
     )
 
 
+def job_work_cost_document_read_policy(
+    tenant: TenantContext,
+    principal: Principal | None,
+    document_id: InstrumentedAttribute[Any],
+) -> ColumnElement[bool] | None:
+    if principal is None or principal.has(Permission.ITEM_COST_VIEW):
+        return None
+    return ReportSnapshotRepository.report_key_document_visibility(
+        tenant, document_id, report_key=ReportKey.JOB_WORK_COST
+    )
+
+
 register_document_read_policy("finance_valuation", valuation_document_read_policy)
 register_document_read_policy(
     "catalogue_report_warehouse_scope", catalogue_report_document_read_policy
 )
 register_document_read_policy("production_cost_permission", production_cost_document_read_policy)
+register_document_read_policy("job_work_cost_permission", job_work_cost_document_read_policy)
 
 
 __all__ = [

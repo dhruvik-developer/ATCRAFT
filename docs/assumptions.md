@@ -3116,6 +3116,16 @@ loss within the allowance is expensed as scrap rather than absorbed into the
 good units; the later invoice price variance is expensed too; the sub-paisa
 rounding remainder is recorded on the receipt audit, not posted anywhere.
 
+Good output and rejected output returned to DAMAGED share the frozen material
+value proportionally; only good output earns processing charges. For
+`SCRAP_AT_VENDOR`, the rejected input share rounds once to input quantity scale
+(four places), moves from JOB_WORK to SCRAP, and good output carries the
+remaining input value. Rejected scrap stays distinct from process-loss scrap:
+it triggers neither automatic vendor recovery nor excess-loss approval. The
+receipt audit records good/rejected cost residuals and the rejected input share
+scrapped. The cost report calculates the same allocation per receipt before
+summing lots.
+
 **Why.** The contract never stated a costing policy, so output used to arrive
 at the output item's standard cost and neither the material nor the processing
 charge reached stock value. Capitalising only the input the good output
@@ -3167,8 +3177,12 @@ charge-back for rejected output invents a commercial policy the contract does
 not state.
 
 **Where.** Nowhere - deliberately. `JobWorkSourceType.REWORK` with
-`source_id` = the receipt is the traceability link; "Send for rework" raises
-it through the standard order create.
+`source_id` = the receipt is the traceability link. "Create rework draft"
+prefills a draft only for physically returned rejects. Creating the draft moves
+no stock, and the form states that ordinary approval/issuing uses AVAILABLE
+stock. Issuing DAMAGED stock for a new rework order needs a separate reservation
+policy and is not implemented by this action. Scrapped and vendor-held rejects
+cannot seed this draft action.
 
 **Impact if wrong.** If the client wants rejected-output charge-backs, add a
 vendor debit through B3a's recovery mechanism behind a setting that defaults

@@ -26,6 +26,7 @@ const details = {
   '/procurement/purchase-orders/:poId': '/procurement/purchase-orders',
   '/procurement/rfqs/:rfqId': '/procurement/rfqs',
   '/production/:orderId': '/production',
+  '/job-work/:orderId': '/job-work',
   '/mrp/runs/:runId': '/mrp/runs',
 }
 const widths = (process.env.READINESS_WIDTHS ?? '375,768,1440').split(',').map(Number)

@@ -88,6 +88,7 @@ from src.modules.job_work.models import (
     JobWorkOrderStatus,
     JobWorkReceipt,
     JobWorkReceiptLine,
+    RejectionAction,
 )
 from src.modules.mrp.models import MrpRequirement, MrpRun, MrpRunStatus
 from src.modules.organization.models import CostCentre, Department
@@ -848,12 +849,37 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
             .group_by(JobWorkChallanLine.job_work_order_line_id)
             .subquery()
         )
+        input_for_output = (
+            JobWorkReceiptLine.input_consumed_quantity
+            - JobWorkReceiptLine.returned_unprocessed_quantity
+            - JobWorkReceiptLine.scrap_quantity
+        )
+        # Returned rejects have their own inventory value. Apportion material
+        # to good output within each receipt before summing: an over-delivery
+        # may cap that receipt's input, so an order-wide ratio would restate it.
+        delivered = func.nullif(
+            JobWorkReceiptLine.output_quantity + JobWorkReceiptLine.rejected_quantity, 0
+        )
+        good_input = func.coalesce(
+            case(
+                (
+                    JobWorkReceiptLine.rejection_action == RejectionAction.SCRAP_AT_VENDOR,
+                    # Destruction posts input quantities at four places. The
+                    # remaining input belongs to good output, matching the
+                    # receipt's movement allocation without losing a fraction.
+                    input_for_output
+                    - func.round(
+                        input_for_output * JobWorkReceiptLine.rejected_quantity / delivered, 4
+                    ),
+                ),
+                else_=input_for_output * JobWorkReceiptLine.output_quantity / delivered,
+            ),
+            0,
+        )
         actuals = (
             select(
                 JobWorkReceiptLine.job_work_order_line_id.label("order_line_id"),
-                func.sum(JobWorkReceiptLine.input_consumed_quantity).label("consumed"),
-                func.sum(JobWorkReceiptLine.returned_unprocessed_quantity).label("returned"),
-                func.sum(JobWorkReceiptLine.scrap_quantity).label("scrap"),
+                func.sum(good_input).label("good_input"),
                 func.sum(JobWorkReceiptLine.output_quantity).label("output"),
                 func.sum(JobWorkReceiptLine.charges).label("charges"),
                 func.sum(JobWorkReceiptLine.vendor_debit_amount).label("debits"),
@@ -864,15 +890,11 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
             .subquery()
         )
 
-        consumed = func.coalesce(actuals.c.consumed, 0)
-        returned = func.coalesce(actuals.c.returned, 0)
-        scrap = func.coalesce(actuals.c.scrap, 0)
         output = func.coalesce(actuals.c.output, 0)
         charges = func.coalesce(actuals.c.charges, 0)
         debits = func.coalesce(actuals.c.debits, 0)
         unit_basis = func.coalesce(basis.c.unit_basis, 0)
-        for_output = consumed - returned - scrap
-        input_cost = for_output * unit_basis
+        input_cost = func.coalesce(actuals.c.good_input, 0) * unit_basis
 
         stmt = (
             select(

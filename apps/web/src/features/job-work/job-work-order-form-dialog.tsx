@@ -505,7 +505,7 @@ export function JobWorkOrderFormDialog({
             {amending
               ? 'Only a draft can be amended: from approval the order holds hard reservations, and from issue it holds company material on somebody else’s premises. The vendor cannot be changed - that would be a different order.'
               : rework
-                ? 'The rejected output goes back out as a new order with the receipt as its source. It is raised as a draft like any other order.'
+                ? 'Start a draft linked to this receipt, with the rejected item and quantity prefilled.'
                 : 'The order is raised as a draft. Nothing is reserved and no stock moves until it is approved and issued under a challan.'}
           </DialogDescription>
         </DialogHeader>
@@ -528,6 +528,14 @@ export function JobWorkOrderFormDialog({
           noValidate
         >
           <DialogBody className="space-y-5">
+            {(rework || detail?.source_type === 'REWORK') && (
+              <Alert variant="warning">
+                <AlertDescription>
+                  Creating a draft does not move rejected stock. This order can issue available
+                  stock only.
+                </AlertDescription>
+              </Alert>
+            )}
             {amending && detailQuery.isLoading && <Skeleton className="h-40 w-full" />}
 
             {amending && detailQuery.error && (

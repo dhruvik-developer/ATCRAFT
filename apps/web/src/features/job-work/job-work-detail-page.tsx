@@ -66,6 +66,13 @@ interface TimelineEvent {
   detail?: string
 }
 
+interface CardLoadState {
+  isLoading: boolean
+  isFetching: boolean
+  error: Error | null
+  onRefresh: () => void
+}
+
 /** Approved, issued, every challan, every receipt, QC, closed - in order. */
 function useTimeline(
   order: JobWorkOrderDetail | undefined,
@@ -197,7 +204,13 @@ function LinesCard({ order }: { order: JobWorkOrderDetail }) {
   )
 }
 
-function ReconciliationCard({ report }: { report: ReconciliationReport }) {
+function ReconciliationCard({
+  report,
+  isLoading,
+  isFetching,
+  error,
+  onRefresh,
+}: { report: ReconciliationReport | undefined } & CardLoadState) {
   type ReportLine = NonNullable<ReconciliationReport['lines']>[number]
   const columns = useMemo<ColumnDef<ReportLine, unknown>[]>(
     () => [
@@ -275,33 +288,44 @@ function ReconciliationCard({ report }: { report: ReconciliationReport }) {
         <CardTitle>Reconciliation</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {isLoading && <p role="status">Loading reconciliation...</p>}
         <DataTable
           columns={columns}
-          data={report.lines ?? []}
+          data={report?.lines ?? []}
+          isLoading={isLoading}
+          isFetching={isFetching}
+          error={error}
+          onRefresh={onRefresh}
           getRowId={(row) => String(row.line_number)}
           emptyTitle="Nothing issued yet"
           emptyDescription="The reconciliation appears once material has left for the vendor."
         />
-        <dl className="grid gap-2 text-sm sm:grid-cols-2">
-          <div className="flex items-center justify-between gap-4">
-            <dt className="text-muted-foreground">Outstanding (order books)</dt>
-            <dd className="tabular font-medium">{formatQuantity(report.total_outstanding)}</dd>
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <dt className="text-muted-foreground">Job-work pool (live ledger)</dt>
-            <dd className="tabular font-medium">{formatQuantity(report.stock_in_job_work_pool)}</dd>
-          </div>
-        </dl>
-        {!toDecimal(report.stock_in_job_work_pool).gte(toDecimal(report.total_outstanding)) && (
-          <Alert variant="warning">
-            <AlertTitle>The pool cannot cover the books</AlertTitle>
-            <AlertDescription>
-              The order&apos;s outstanding exceeds the ledger&apos;s live job-work pool for the same
-              items and warehouse. Either a movement was posted outside job work or a receipt was
-              recorded without one.
-            </AlertDescription>
-          </Alert>
+        {report && !error && (
+          <dl className="grid gap-2 text-sm sm:grid-cols-2">
+            <div className="flex items-center justify-between gap-4">
+              <dt className="text-muted-foreground">Outstanding (order books)</dt>
+              <dd className="tabular font-medium">{formatQuantity(report.total_outstanding)}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <dt className="text-muted-foreground">Job-work pool (live ledger)</dt>
+              <dd className="tabular font-medium">
+                {formatQuantity(report.stock_in_job_work_pool)}
+              </dd>
+            </div>
+          </dl>
         )}
+        {report &&
+          !error &&
+          !toDecimal(report.stock_in_job_work_pool).gte(toDecimal(report.total_outstanding)) && (
+            <Alert variant="warning">
+              <AlertTitle>The pool cannot cover the books</AlertTitle>
+              <AlertDescription>
+                The order&apos;s outstanding exceeds the ledger&apos;s live job-work pool for the
+                same items and warehouse. Either a movement was posted outside job work or a receipt
+                was recorded without one.
+              </AlertDescription>
+            </Alert>
+          )}
       </CardContent>
     </Card>
   )
@@ -310,10 +334,14 @@ function ReconciliationCard({ report }: { report: ReconciliationReport }) {
 function ReceiptsCard({
   receipts,
   onRework,
+  isLoading,
+  isFetching,
+  error,
+  onRefresh,
 }: {
   receipts: ReceiptRow[] | undefined
   onRework: (prefill: ReworkPrefill) => void
-}) {
+} & CardLoadState) {
   const { can } = useAuth()
   const canRework = can(P.JOB_WORK_CREATE)
   const columns = useMemo<ColumnDef<ReceiptRow, unknown>[]>(
@@ -375,7 +403,8 @@ function ReceiptsCard({
         meta: { align: 'right' },
         cell: ({ row }) => {
           const rejectedLines = (row.original.lines ?? []).filter(
-            (line) => Number(line.rejected_quantity) > 0,
+            (line) =>
+              Number(line.rejected_quantity) > 0 && line.rejection_action === 'RETURN_TO_STOCK',
           )
           // Rework the worst line first: the prefill names one line's output,
           // and the planner adjusts from there.
@@ -399,10 +428,10 @@ function ReceiptsCard({
                   ],
                 })
               }
-              title={`Send ${worst.rejected_quantity} rejected unit(s) back for rework`}
+              title={`Create a draft for ${worst.rejected_quantity} returned rejected unit(s)`}
             >
               <Repeat />
-              Rework
+              Create rework draft
             </Button>
           )
         },
@@ -417,9 +446,14 @@ function ReceiptsCard({
         <CardTitle>Receipts</CardTitle>
       </CardHeader>
       <CardContent>
+        {isLoading && <p role="status">Loading receipts...</p>}
         <DataTable
           columns={columns}
           data={receipts ?? []}
+          isLoading={isLoading}
+          isFetching={isFetching}
+          error={error}
+          onRefresh={onRefresh}
           getRowId={(row) => row.id}
           emptyTitle="Nothing received yet"
           emptyDescription="Lots returning from the vendor appear here with their QC outcome."
@@ -662,9 +696,22 @@ export default function JobWorkDetailPage() {
 
         <LinesCard order={order} />
 
-        {reconciliationQuery.data && <ReconciliationCard report={reconciliationQuery.data} />}
+        <ReconciliationCard
+          report={reconciliationQuery.data}
+          isLoading={reconciliationQuery.isLoading}
+          isFetching={reconciliationQuery.isFetching}
+          error={reconciliationQuery.error}
+          onRefresh={() => void reconciliationQuery.refetch()}
+        />
 
-        <ReceiptsCard receipts={receiptsQuery.data} onRework={setRework} />
+        <ReceiptsCard
+          receipts={receiptsQuery.data}
+          onRework={setRework}
+          isLoading={receiptsQuery.isLoading}
+          isFetching={receiptsQuery.isFetching}
+          error={receiptsQuery.error}
+          onRefresh={() => void receiptsQuery.refetch()}
+        />
 
         <ChallansCard
           challans={challansQuery.data}

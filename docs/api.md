@@ -114,6 +114,13 @@ this limited access. Internal `report.view` readers retain their existing job
 visibility and need `document.view` to download files. Vendor accounts cannot
 use these internal job routes.
 
+An internal `job_work.view` holder can likewise poll and download their own
+`JOB_WORK_CHALLAN` PDF through its job URL without general report/document
+rights. The service checks tenant, creator and the exact job key; this exception
+does not grant access to another operator's exports, the report catalogue, or
+arbitrary document IDs. Generated `JOB_WORK_COST` files retain `item.cost_view`
+protection on document lists, metadata and downloads.
+
 `GET /inventory/batches` accepts `search` and normal `page`/`limit` parameters.
 Its optional `batch_id` filter resolves a selected batch outside the current
 page; it remains scoped to the verified tenant and any supplied `item_id`.

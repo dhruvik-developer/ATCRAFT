@@ -490,6 +490,19 @@ attachment. Recognizable legacy valuation files without scope evidence are hidde
 from restricted readers. Empty assignments and platform superusers retain access
 within the verified company.
 
+## Owned job-work challan files (E7b)
+
+An internal `job_work.view` holder may read and download a challan job they
+created. Tenant, creator and the exact `JOB_WORK_CHALLAN` key must match; the
+download accepts only the authorized job ID and opens its bound file. This
+exception grants no report catalogue or general document access. Vendor and
+dealer accounts cannot use these routes. Other report readers retain their
+existing document-view requirement.
+
+`JOB_WORK_COST` exports also require `item.cost_view` through the generic
+document list, metadata and download routes. Knowing a generated file ID does
+not bypass the report's cost permission.
+
 ## Pre-production checklist
 
 - [ ] `JWT_SECRET` generated with `secrets.token_urlsafe(64)`, unique per environment

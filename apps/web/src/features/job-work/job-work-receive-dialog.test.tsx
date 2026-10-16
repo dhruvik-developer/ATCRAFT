@@ -70,13 +70,13 @@ const DETAIL: JobWorkOrderDetail = {
   lines: [LINE],
 }
 
-function renderReceive(permissions: string[]) {
+function renderReceive(permissions: string[], detail = DETAIL) {
   return renderScreen(
     <JobWorkReceiveDialog open onOpenChange={() => {}} orderId="jw-1" orderCode="JW-0001" />,
     {
       permissions: [P.JOB_WORK_VIEW, P.JOB_WORK_RECEIVE, ...permissions],
       routes: {
-        'GET /job-work/jw-1': ok(DETAIL),
+        'GET /job-work/jw-1': ok(detail),
         'POST /job-work/jw-1/receive': ok({ received: true }),
       },
     },
@@ -84,6 +84,32 @@ function renderReceive(permissions: string[]) {
 }
 
 describe('the receive dialog request body', () => {
+  it.each([
+    ['50', '0', '50'],
+    ['200', '30', '140'],
+  ])(
+    'converts outstanding input to output units for expected yield %s',
+    async (expected, received, output) => {
+      const { user, fetch } = renderReceive([], {
+        ...DETAIL,
+        lines: [{ ...LINE, expected_output_quantity: expected, received_quantity: received }],
+      })
+
+      await waitFor(() => expect(screen.getByLabelText('Received')).toHaveValue(output))
+      await user.type(
+        screen.getByRole('textbox', { name: 'Reason' }),
+        'Full remaining output returned',
+      )
+      await user.click(screen.getByRole('button', { name: 'Record receipt' }))
+
+      await waitFor(() =>
+        expect(fetch.requestFor('POST', '/job-work/jw-1/receive')).toMatchObject({
+          lines: [{ output_quantity: output }],
+        }),
+      )
+    },
+  )
+
   it('sends the close-line flag, the rejection action with its reason, and the vendor challan date', async () => {
     const { user, fetch } = renderReceive([P.JOB_WORK_CLOSE])
 

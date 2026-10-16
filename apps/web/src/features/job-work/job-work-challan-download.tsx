@@ -34,6 +34,7 @@ export function ChallanDownload({
   const job = useReportJob(queued ? jobId : null)
 
   const queue = async () => {
+    setJobId(null)
     setQueued(true)
     setFailed(null)
     try {
@@ -63,6 +64,23 @@ export function ChallanDownload({
   }
 
   const status = job.data?.status
+  if (job.error) {
+    return (
+      <div className="max-w-xs space-y-1">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void job.refetch()}
+          loading={job.isFetching}
+        >
+          Retry status
+        </Button>
+        <p role="alert" className="break-words text-xs text-destructive">
+          Could not check the challan: {job.error.message}
+        </p>
+      </div>
+    )
+  }
   if (status === 'COMPLETED') {
     return (
       <Button variant="outline" size="sm" onClick={() => void download()} loading={downloading}>
@@ -77,15 +95,22 @@ export function ChallanDownload({
     (status === 'FAILED' ? (job.data?.error_message ?? 'Generation failed - try again') : null)
 
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={() => void queue()}
-      loading={queued && status !== 'FAILED'}
-      title={failedMessage ?? `Queue the PDF for ${challanCode}`}
-    >
-      <FileDown />
-      {queued ? 'Generating...' : 'PDF'}
-    </Button>
+    <div className="max-w-xs space-y-1">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => void queue()}
+        loading={queued && status !== 'FAILED'}
+        title={failedMessage ?? `Queue the PDF for ${challanCode}`}
+      >
+        <FileDown />
+        {failedMessage ? 'Retry PDF' : queued ? 'Generating...' : 'PDF'}
+      </Button>
+      {failedMessage && (
+        <p role="alert" className="break-words text-xs text-destructive">
+          {failedMessage}
+        </p>
+      )}
+    </div>
   )
 }

@@ -9,11 +9,11 @@
  * output: a rework order raised from the rejected receipt line.
  */
 
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
-import { ok, renderScreen } from '@/test/harness'
+import { fail, ok, renderScreen, type RouteTable } from '@/test/harness'
 
 import JobWorkDetailPage from './job-work-detail-page'
 import type {
@@ -177,7 +177,7 @@ const RECONCILIATION: ReconciliationReport = {
   ],
 }
 
-function renderDetail(permissions: string[]) {
+function renderDetail(permissions: string[], routes: RouteTable = {}) {
   return renderScreen(<JobWorkDetailPage />, {
     permissions: [P.JOB_WORK_VIEW, ...permissions],
     route: '/job-work/jw-1',
@@ -188,6 +188,7 @@ function renderDetail(permissions: string[]) {
       'GET /job-work/jw-1/challans': ok(CHALLANS),
       'GET /job-work/jw-1/receipts': ok(RECEIPTS),
       'GET /job-work/jw-1/reconciliation': ok(RECONCILIATION),
+      ...routes,
     },
   })
 }
@@ -214,10 +215,85 @@ describe('the job-work order detail page', () => {
     const { user } = renderDetail([P.JOB_WORK_CREATE])
 
     await screen.findByRole('heading', { name: 'JW-0001' })
-    await user.click(screen.getByRole('button', { name: /Rework/ }))
+    await user.click(screen.getByRole('button', { name: 'Create rework draft' }))
 
-    // The rejected output goes back out as a new order, not an edit.
+    // This seeds a linked draft; issuing damaged stock is not supported.
     expect(await screen.findByRole('heading', { name: 'New rework order' })).toBeVisible()
+    expect(
+      screen.getByText(
+        'Creating a draft does not move rejected stock. This order can issue available stock only.',
+      ),
+    ).toBeVisible()
+  })
+
+  it.each(['SCRAP_AT_VENDOR', 'REWORK_AT_VENDOR'] as const)(
+    'does not offer a new rework draft for %s rejects',
+    async (action) => {
+      renderDetail([P.JOB_WORK_CREATE], {
+        'GET /job-work/jw-1/receipts': ok(
+          RECEIPTS.map((receipt) => ({
+            ...receipt,
+            lines: receipt.lines?.map((line) => ({ ...line, rejection_action: action })),
+          })),
+        ),
+      })
+
+      await screen.findByText('JW-0001/R1')
+      expect(screen.queryByRole('button', { name: 'Create rework draft' })).toBeNull()
+    },
+  )
+
+  it('keeps receipt and reconciliation loading distinct from empty material accounts', async () => {
+    let resolveReceipts!: (body: ReturnType<typeof ok>) => void
+    let resolveReconciliation!: (body: ReturnType<typeof ok>) => void
+    renderDetail([], {
+      'GET /job-work/jw-1/receipts': () =>
+        new Promise((resolve) => {
+          resolveReceipts = resolve
+        }),
+      'GET /job-work/jw-1/reconciliation': () =>
+        new Promise((resolve) => {
+          resolveReconciliation = resolve
+        }),
+    })
+
+    await screen.findByRole('heading', { name: 'JW-0001' })
+    expect(screen.getByText('Loading receipts...')).toBeVisible()
+    expect(screen.getByText('Loading reconciliation...')).toBeVisible()
+    expect(screen.queryByText('Nothing received yet')).toBeNull()
+    expect(screen.queryByText('Nothing issued yet')).toBeNull()
+
+    resolveReceipts(ok(RECEIPTS))
+    resolveReconciliation(ok(RECONCILIATION))
+    await screen.findByText('Job-work pool (live ledger)')
+    await waitFor(() => expect(screen.queryByText('Loading receipts...')).toBeNull())
+  })
+
+  it('shows failed material reads and retries them instead of claiming nothing was received', async () => {
+    let receiptsFailed = true
+    let reconciliationFailed = true
+    const { user } = renderDetail([], {
+      'GET /job-work/jw-1/receipts': () =>
+        receiptsFailed
+          ? fail(503, 'SERVICE_UNAVAILABLE', 'Receipts could not be read')
+          : ok(RECEIPTS),
+      'GET /job-work/jw-1/reconciliation': () =>
+        reconciliationFailed
+          ? fail(503, 'SERVICE_UNAVAILABLE', 'Reconciliation could not be read')
+          : ok(RECONCILIATION),
+    })
+
+    expect(await screen.findByText('Receipts could not be read')).toBeVisible()
+    expect(await screen.findByText('Reconciliation could not be read')).toBeVisible()
+    expect(screen.queryByText('Nothing received yet')).toBeNull()
+    expect(screen.queryByText('Nothing issued yet')).toBeNull()
+
+    receiptsFailed = false
+    reconciliationFailed = false
+    for (const retry of screen.getAllByRole('button', { name: 'Try again' }))
+      await user.click(retry)
+    expect(await screen.findByText('Job-work pool (live ledger)')).toBeVisible()
+    await waitFor(() => expect(screen.queryByText('Receipts could not be read')).toBeNull())
   })
 
   it('denies the page without the job-work read right', async () => {
