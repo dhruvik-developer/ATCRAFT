@@ -3242,6 +3242,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/job-work/challans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Company-wide delivery-challan register
+         * @description Every job-work delivery challan, newest despatch first, with vendor, order and date filters. The register the GST delivery challan is filed from: each row names the consignment, and the full document with its lines is one per-order call away.
+         */
+        get: operations["challan_register_api_v1_job_work_challans_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/job-work/charges": {
         parameters: {
             query?: never;
@@ -3274,6 +3294,26 @@ export interface paths {
          * @description Every row is stock the company still owns and still values - it is at somebody else's premises and held in the JOB_WORK state, so it is counted in the valuation and in stock reports but cannot be promised to anyone. Aggregated from what was issued against what has been accounted back, with the ageing measured from the despatch rather than from the promised return date.
          */
         get: operations["pending_at_vendor_api_v1_job_work_pending_at_vendor_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/job-work/vendor-ledger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One job-work vendor's material account for a period
+         * @description Per input item: what was already at the vendor when the period opened, what the challans sent, what the receipts accounted back - good output, unworked returns, process loss - and what is still out, beside the processing charges accrued, billed and debited. Returned whole rather than paginated: the rows are aggregated in the database and a vendor's item set is small.
+         */
+        get: operations["vendor_ledger_api_v1_job_work_vendor_ledger_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6806,6 +6846,26 @@ export interface paths {
         };
         /** Inventory valuation */
         get: operations["inventory_valuation_api_v1_reports_inventory_valuation_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/job-work-cost": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Job-work cost
+         * @description Job-work order lines costed at the frozen challan issue cost plus accrued processing charges, with vendor debits and cost per unit. Requires item-cost visibility.
+         */
+        get: operations["job_work_cost_api_v1_reports_job_work_cost_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -11721,6 +11781,20 @@ export interface components {
         /** ApiResponse[VendorInvoiceDetail] */
         ApiResponse_VendorInvoiceDetail_: {
             data?: components["schemas"]["VendorInvoiceDetail"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[VendorLedgerReport] */
+        ApiResponse_VendorLedgerReport_: {
+            data?: components["schemas"]["VendorLedgerReport"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -21159,6 +21233,22 @@ export interface components {
              */
             success: boolean;
         };
+        /** PaginatedResponse[ChallanRead] */
+        PaginatedResponse_ChallanRead_: {
+            /** Data */
+            data?: components["schemas"]["ChallanRead"][];
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            pagination?: components["schemas"]["OffsetPagination"];
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
         /** PaginatedResponse[ComponentRead] */
         PaginatedResponse_ComponentRead_: {
             /** Data */
@@ -25778,7 +25868,7 @@ export interface components {
          *     catalogue asserts at import that every member has exactly one definition.
          * @enum {string}
          */
-        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "SHIFT_PRODUCTION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "SCRAP_REGISTER" | "CONSUMPTION_BY_DEPARTMENT" | "PURCHASE_ORDER" | "PACKING_LIST" | "SALES_INVOICE" | "REWORK_RATE" | "PRODUCTION_COST";
+        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "SHIFT_PRODUCTION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "SCRAP_REGISTER" | "CONSUMPTION_BY_DEPARTMENT" | "PURCHASE_ORDER" | "PACKING_LIST" | "SALES_INVOICE" | "REWORK_RATE" | "PRODUCTION_COST" | "JOB_WORK_COST" | "JOB_WORK_CHALLAN";
         /**
          * RequisitionBatchConversionRequest
          * @description The batch form: several approved requisitions converted together.
@@ -30884,6 +30974,68 @@ export interface components {
             round_off_amount?: number | string | null;
             /** Vendor Invoice Number */
             vendor_invoice_number?: string | null;
+        };
+        /**
+         * VendorLedgerItemRow
+         * @description One input item on a job-work vendor's material account.
+         *
+         *     All quantities are in the input item's own unit. ``received_output_quantity``
+         *     is the good processed output the line's material turned into, in the
+         *     *output* item's unit - the two agree only for a 1:1 yield in the same UoM,
+         *     so the reconcilable identity on this row is
+         *     ``closing = opening + issued - input_consumed``, with
+         *     ``input_consumed = received_output_as_input + returned + scrap`` held on
+         *     the receipt lines underneath.
+         */
+        VendorLedgerItemRow: {
+            /** Charges Accrued */
+            charges_accrued: string;
+            /** Charges Billed */
+            charges_billed: string;
+            /** Closing Quantity */
+            closing_quantity: string;
+            /** Input Consumed Quantity */
+            input_consumed_quantity: string;
+            /** Issued Quantity */
+            issued_quantity: string;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Opening Quantity */
+            opening_quantity: string;
+            /** Received Output Quantity */
+            received_output_quantity: string;
+            /** Returned Quantity */
+            returned_quantity: string;
+            /** Scrap Quantity */
+            scrap_quantity: string;
+            /** Vendor Debits */
+            vendor_debits: string;
+        };
+        /**
+         * VendorLedgerReport
+         * @description A job-work vendor's material account for a period (E7b/P10.M10).
+         */
+        VendorLedgerReport: {
+            /**
+             * Date From
+             * Format: date
+             */
+            date_from: string;
+            /**
+             * Date To
+             * Format: date
+             */
+            date_to: string;
+            /** Items */
+            items?: components["schemas"]["VendorLedgerItemRow"][];
+            /**
+             * Vendor Id
+             * Format: uuid
+             */
+            vendor_id: string;
         };
         /** VendorLinkCreate */
         VendorLinkCreate: {
@@ -54229,6 +54381,118 @@ export interface operations {
             };
         };
     };
+    challan_register_api_v1_job_work_challans_get: {
+        parameters: {
+            query?: {
+                /** @description Challan code or vehicle number */
+                search?: string | null;
+                vendor_id?: string | null;
+                /** @description Only this order's challans */
+                job_work_order_id?: string | null;
+                /** @description Despatched on or after this date */
+                date_from?: string | null;
+                /** @description Despatched on or before this date */
+                date_to?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+                /** @description Field to sort by */
+                sort_by?: string | null;
+                /** @description Sort direction */
+                sort_dir?: "asc" | "desc";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedResponse_ChallanRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     vendor_charges_api_v1_job_work_charges_get: {
         parameters: {
             query: {
@@ -54364,6 +54628,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaginatedResponse_PendingAtVendorRow_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    vendor_ledger_api_v1_job_work_vendor_ledger_get: {
+        parameters: {
+            query: {
+                /** @description The job worker */
+                vendor_id: string;
+                /** @description First date in the period */
+                date_from: string;
+                /** @description Last date in the period */
+                date_to: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_VendorLedgerReport_"];
                 };
             };
             /** @description Malformed request */
@@ -79403,6 +79766,129 @@ export interface operations {
     inventory_valuation_api_v1_reports_inventory_valuation_get: {
         parameters: {
             query?: {
+                item_id?: string | null;
+                warehouse_id?: string | null;
+                vendor_id?: string | null;
+                customer_id?: string | null;
+                category_id?: string | null;
+                work_center_id?: string | null;
+                cost_centre_id?: string | null;
+                status?: string | null;
+                /** @description Age threshold in days, where the report uses one */
+                min_days?: number | null;
+                search?: string | null;
+                /** @description 1-based page number */
+                page?: number;
+                /** @description Rows per page */
+                limit?: number;
+                /** @description Include an exact total row count */
+                with_total?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report, paginated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Too large to return inline. Generated in the background; poll the status URL. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    job_work_cost_api_v1_reports_job_work_cost_get: {
+        parameters: {
+            query?: {
+                /** @description First day of the period, inclusive */
+                date_from?: string | null;
+                /** @description Last day of the period, inclusive */
+                date_to?: string | null;
                 item_id?: string | null;
                 warehouse_id?: string | null;
                 vendor_id?: string | null;

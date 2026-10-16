@@ -68,6 +68,7 @@ from src.modules.reports.schemas import (
     DispatchRow,
     InventoryValuationRow,
     ItemMovementRow,
+    JobWorkCostRow,
     JobWorkPendingRow,
     MachineUtilisationRow,
     MrpShortageRow,
@@ -626,6 +627,32 @@ async def production_cost(
 ) -> PaginatedResponse[ProductionCostRow] | AcceptedJobResponse:
     return await _run(
         session, tenant, principal, response, ReportKey.PRODUCTION_COST, period, filters, page
+    )
+
+
+@router.get(
+    "/job-work-cost",
+    response_model=None,
+    summary="Job-work cost",
+    description=(
+        "Job-work order lines costed at the frozen challan issue cost plus accrued "
+        "processing charges, with vendor debits and cost per unit. Requires "
+        "item-cost visibility."
+    ),
+    responses=REPORT_RESPONSES,
+    dependencies=[require_permission(Permission.REPORT_VIEW)],
+)
+async def job_work_cost(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    response: Response,
+    period: PeriodDep,
+    filters: FilterDep,
+    page: PageDep,
+) -> PaginatedResponse[JobWorkCostRow] | AcceptedJobResponse:
+    return await _run(
+        session, tenant, principal, response, ReportKey.JOB_WORK_COST, period, filters, page
     )
 
 

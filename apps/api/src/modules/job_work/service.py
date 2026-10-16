@@ -106,11 +106,14 @@ taken, named, and is changeable in one place.
   allowance**, priced at the material's own moving-average cost from the scrap
   movement. It is not a penalty and not a re-charge of the processing fee -
   those would both be numbers this module invented.
-* **Processed output is received at the output item's standard cost** (the
-  inventory engine's documented fallback when no unit cost is supplied). The
-  processing charge is expensed through the vendor ledger rather than
-  capitalised into the output item's stock value; capitalising it would require
-  a costing policy the contract does not state.
+* **Processed output is received at its capitalised cost** (:func:`capitalised_output_cost`):
+  the input the good output consumed, valued at the frozen challan issue cost -
+  the ledger's FIFO draw captured on the challan line when the material left -
+  plus the receipt charge the line accrued, per good unit. The price is read
+  from challans before posting, so it is exact rather than a second read of
+  layers the posting itself consumes. Process loss within the allowance is
+  expensed as scrap (as before) rather than absorbed into the good units, and
+  the later invoice price variance is expensed too. docs/assumptions.md §E7b-2.
 * **Batch-tracked and serial-tracked items are refused** on both the input and
   the output side. The inventory engine requires a batch on every movement of a
   batch-tracked item and a serial on every movement of a serialised one, and
@@ -126,7 +129,7 @@ taken, named, and is changeable in one place.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -156,7 +159,7 @@ from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
-from src.core.types import ZERO, to_money, to_quantity
+from src.core.types import ZERO, to_money, to_quantity, to_unit_price
 from src.modules.allocation.models import DemandType, ReservationType
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
@@ -637,6 +640,78 @@ def loss_percentage(*, scrap_quantity: Decimal, input_consumed: Decimal) -> Deci
     if consumed <= ZERO:
         return ZERO
     return (Decimal(scrap_quantity) * Decimal("100") / consumed).quantize(Decimal("0.0001"))
+
+
+def issue_unit_basis(challan_lines: Sequence[JobWorkChallanLine]) -> Decimal | None:
+    """One order line's frozen issue cost: the quantity-weighted average of what
+    its challans declared.
+
+    Each challan line captured the ledger's FIFO draw when the material left,
+    so this is the FIFO value of the input - frozen, auditable, and readable
+    without touching the cost layers the issue has long since consumed. None
+    when the line has no challan history: the caller then falls back to the
+    engine's standard-cost default rather than inventing a price.
+    """
+    total_quantity = to_quantity(
+        sum((to_quantity(Decimal(row.quantity)) for row in challan_lines), start=ZERO)
+    )
+    if total_quantity <= ZERO:
+        return None
+    total_value = sum(
+        (to_quantity(Decimal(row.quantity)) * Decimal(row.unit_value) for row in challan_lines),
+        start=ZERO,
+    )
+    return total_value / total_quantity
+
+
+@dataclass(frozen=True, slots=True)
+class CapitalisedCost:
+    """What one receipt line's good output is booked at."""
+
+    #: Posted on the output movement: the input it consumed, valued at the
+    #: frozen issue cost, plus the processing charge it earned, per good unit.
+    unit_cost: Decimal
+    #: The input value folded into it (input-for-output at the frozen basis).
+    input_value: Decimal
+    #: ``input_value + charge - unit_cost * output``: the sub-paisa remainder
+    #: the six-place price cannot hold. Recorded on the receipt audit, not
+    #: posted anywhere - it is dust, but it is accounted-for dust.
+    rounding_residual: Decimal
+
+
+def capitalised_output_cost(
+    *,
+    input_for_output: Decimal,
+    challan_lines: Sequence[JobWorkChallanLine],
+    line_charge: Decimal,
+    output_quantity: Decimal,
+) -> CapitalisedCost | None:
+    """Book one receipt line's good output at input cost plus processing charge.
+
+    Pure: the arithmetic behind P13.M5, exercised without a database. None when
+    the line returned no good output - there is nothing to divide by - or when
+    the line has no challan history, in which case the movement keeps the
+    engine's standard-cost default.
+    """
+    good = to_quantity(output_quantity)
+    if good <= ZERO:
+        return None
+    basis = issue_unit_basis(challan_lines)
+    if basis is None:
+        return None
+    # ASSUMPTION: only the input the good output consumed is capitalised, at
+    # the frozen challan issue cost, plus the receipt charge the line accrued.
+    # Process loss within the allowance is expensed as scrap (as today) rather
+    # than absorbed into the good units, and the later invoice price variance
+    # is expensed too. docs/assumptions.md §E7b-2.
+    material = to_quantity(input_for_output) * basis
+    total = material + Decimal(line_charge)
+    unit = to_unit_price(total / good)
+    return CapitalisedCost(
+        unit_cost=unit,
+        input_value=material,
+        rounding_residual=total - unit * good,
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -2064,6 +2139,7 @@ def _build_receipt_movements(
     order: JobWorkOrder,
     reason: str,
     occurred_at: datetime | None,
+    capitalised_costs: Mapping[int, Decimal] | None = None,
 ) -> tuple[list[MovementRequest], dict[int, int]]:
     """Every ledger row one receipt writes, as one batch.
 
@@ -2071,7 +2147,10 @@ def _build_receipt_movements(
     quantity went:
 
     * ``JOB_WORK_RECEIPT`` into ``AVAILABLE`` (or ``QC_HOLD``) at the return
-      warehouse - the processed output arriving as its own item;
+      warehouse - the processed output arriving as its own item, booked at its
+      capitalised cost (input at the frozen issue value plus the receipt
+      charge) when ``capitalised_costs`` names the line, at the item's
+      standard cost otherwise;
     * ``JOB_WORK_RECEIPT`` into ``DAMAGED`` - output the vendor made badly and
       sent back; present and counted, not promisable;
     * ``JOB_WORK_RECEIPT`` from ``JOB_WORK`` into ``AVAILABLE`` at the source
@@ -2095,6 +2174,7 @@ def _build_receipt_movements(
     movements: list[MovementRequest] = []
     scrap_index: dict[int, int] = {}
     output_state = StockState.QC_HOLD if order.requires_qc else StockState.AVAILABLE
+    capitalised = capitalised_costs or {}
 
     for entry in planned:
         line, plan = entry.order_line, entry.plan
@@ -2114,6 +2194,12 @@ def _build_receipt_movements(
                     quantity=plan.output_quantity,
                     transaction_type=TransactionType.JOB_WORK_RECEIPT,
                     stock_state=output_state,
+                    # P13.M5: the output carries what it cost - the input it
+                    # consumed at the frozen challan issue value plus the
+                    # processing charge this lot accrued for it. None keeps the
+                    # engine's standard-cost default (no challan history, or a
+                    # line older than the costing rule).
+                    unit_cost=capitalised.get(line.line_number),
                     **common,
                 )
             )
@@ -2275,17 +2361,6 @@ async def receive(
 
         receipt_date = payload.receipt_date or today()
         movement_reason = f"Job work {order.code} received: {payload.reason}"[:255]
-        movements, scrap_index = _build_receipt_movements(
-            planned, order=order, reason=movement_reason, occurred_at=payload.occurred_at
-        )
-        posted = await post_movements(session, tenant, movements)
-        # The debit is priced from the cost the ledger actually used for the
-        # scrap, not from a price list - so the vendor is charged what the
-        # company was carrying for the material it lost.
-        scrap_costs = {
-            line_number: Decimal(posted[index].unit_cost)
-            for line_number, index in scrap_index.items()
-        }
 
         good_output = to_quantity(sum((row.plan.output_quantity for row in planned), start=ZERO))
         charge = receipt_charge(
@@ -2310,10 +2385,10 @@ async def receive(
         # The charge is apportioned across the lines that earned it, so a
         # per-line vendor query and the header agree to the last paisa. The final
         # line absorbs the rounding remainder rather than leaving a stray
-        # fraction unattributed.
+        # fraction unattributed. This runs before the posting because the
+        # capitalised output cost below folds each line's share in.
         charge_remaining = charge
-        apportioned: list[tuple[PlannedLine, Decimal, Decimal]] = []
-        debit_total = ZERO
+        line_charges: list[tuple[PlannedLine, Decimal]] = []
         for position, row in enumerate(planned):
             is_last = position == len(planned) - 1
             line_charge = (
@@ -2324,6 +2399,46 @@ async def receive(
                 )
             )
             charge_remaining = to_money(charge_remaining - line_charge)
+            line_charges.append((row, line_charge))
+
+        # P13.M5: what each line's good output is booked at - the input it
+        # consumed, valued at the frozen challan issue cost, plus the charge it
+        # earned. Read before posting, from challans that can no longer change,
+        # so the price is exact rather than a second read of layers the posting
+        # itself is about to consume.
+        challan_grouped = await JobWorkChallanRepository(session, tenant).list_for_order_lines(
+            [row.order_line.id for row in planned]
+        )
+        costing: dict[int, CapitalisedCost] = {}
+        for row, line_charge in line_charges:
+            cost = capitalised_output_cost(
+                input_for_output=row.plan.input_for_output,
+                challan_lines=challan_grouped.get(row.order_line.id, []),
+                line_charge=line_charge,
+                output_quantity=row.plan.output_quantity,
+            )
+            if cost is not None:
+                costing[row.order_line.line_number] = cost
+
+        movements, scrap_index = _build_receipt_movements(
+            planned,
+            order=order,
+            reason=movement_reason,
+            occurred_at=payload.occurred_at,
+            capitalised_costs={number: cost.unit_cost for number, cost in costing.items()},
+        )
+        posted = await post_movements(session, tenant, movements)
+        # The debit is priced from the cost the ledger actually used for the
+        # scrap, not from a price list - so the vendor is charged what the
+        # company was carrying for the material it lost.
+        scrap_costs = {
+            line_number: Decimal(posted[index].unit_cost)
+            for line_number, index in scrap_index.items()
+        }
+
+        apportioned: list[tuple[PlannedLine, Decimal, Decimal]] = []
+        debit_total = ZERO
+        for row, line_charge in line_charges:
             debit = to_money(
                 row.plan.excess_loss_quantity * scrap_costs.get(row.order_line.line_number, ZERO)
             )
@@ -2489,6 +2604,17 @@ async def receive(
                 "input_consumed": receipt.total_input_consumed,
                 "charges": receipt.total_charges,
                 "vendor_debit_amount": receipt.vendor_debit_amount,
+                # P13.M5: what each costed line's output was booked at, and the
+                # sub-paisa remainder the six-place price could not hold. A line
+                # absent here kept the engine's standard-cost default.
+                "costing": {
+                    str(number): {
+                        "unit_cost": str(cost.unit_cost),
+                        "input_value": str(cost.input_value),
+                        "rounding_residual": str(cost.rounding_residual),
+                    }
+                    for number, cost in sorted(costing.items())
+                },
             },
             context={
                 "reason": payload.reason,
@@ -3113,6 +3239,7 @@ __all__ = [
     "QC_REFERENCE_RECEIPT",
     "AllocationPort",
     "AllocationService",
+    "CapitalisedCost",
     "InspectionReaderPort",
     "InspectionVerdict",
     "LineReceiptPlan",
@@ -3121,6 +3248,7 @@ __all__ = [
     "awaiting_quality_verdicts",
     "billable_lines",
     "cancel_order",
+    "capitalised_output_cost",
     "challan_detail",
     "close_order",
     "create_order",
@@ -3131,6 +3259,7 @@ __all__ = [
     "held_output_by_item",
     "input_equivalent",
     "issue_order",
+    "issue_unit_basis",
     "job_work_charges_for_period",
     "list_challan_register",
     "list_challans",

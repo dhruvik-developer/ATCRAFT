@@ -9646,6 +9646,88 @@
           }
         },
         {
+          "name": "Company-wide delivery-challan register",
+          "request": {
+            "description": "Every job-work delivery challan, newest despatch first, with vendor, order and date filters. The register the GST delivery challan is filed from: each row names the consignment, and the full document with its lines is one per-order call away.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "job-work",
+                "challans"
+              ],
+              "query": [
+                {
+                  "description": "Challan code or vehicle number",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "Only this order's challans",
+                  "disabled": true,
+                  "key": "job_work_order_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "Despatched on or after this date",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Despatched on or before this date",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                },
+                {
+                  "description": "Field to sort by",
+                  "disabled": true,
+                  "key": "sort_by",
+                  "value": ""
+                },
+                {
+                  "description": "Sort direction",
+                  "disabled": true,
+                  "key": "sort_dir",
+                  "value": "asc"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/job-work/challans?"
+            }
+          }
+        },
+        {
           "name": "Delete a draft job work order",
           "request": {
             "description": "Only a DRAFT may be deleted. Anything further along is cancelled instead.",
@@ -9877,6 +9959,46 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/job-work?"
+            }
+          }
+        },
+        {
+          "name": "One job-work vendor's material account for a period",
+          "request": {
+            "description": "Per input item: what was already at the vendor when the period opened, what the challans sent, what the receipts accounted back - good output, unworked returns, process loss - and what is still out, beside the processing charges accrued, billed and debited. Returned whole rather than paginated: the rows are aggregated in the database and a vendor's item set is small.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "job-work",
+                "vendor-ledger"
+              ],
+              "query": [
+                {
+                  "description": "The job worker",
+                  "disabled": false,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "First date in the period",
+                  "disabled": false,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last date in the period",
+                  "disabled": false,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/job-work/vendor-ledger?"
             }
           }
         },
@@ -21770,6 +21892,118 @@
                 }
               ],
               "raw": "{{base_url}}/api/v1/reports/inventory-valuation?"
+            }
+          }
+        },
+        {
+          "name": "Job-work cost",
+          "request": {
+            "description": "Job-work order lines costed at the frozen challan issue cost plus accrued processing charges, with vendor debits and cost per unit. Requires item-cost visibility.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "reports",
+                "job-work-cost"
+              ],
+              "query": [
+                {
+                  "description": "First day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "Last day of the period, inclusive",
+                  "disabled": true,
+                  "key": "date_to",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "item_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "warehouse_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "vendor_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "customer_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "category_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "work_center_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "cost_centre_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": ""
+                },
+                {
+                  "description": "Age threshold in days, where the report uses one",
+                  "disabled": true,
+                  "key": "min_days",
+                  "value": "0"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "search",
+                  "value": ""
+                },
+                {
+                  "description": "1-based page number",
+                  "disabled": true,
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "description": "Rows per page",
+                  "disabled": true,
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "description": "Include an exact total row count",
+                  "disabled": true,
+                  "key": "with_total",
+                  "value": "True"
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/reports/job-work-cost?"
             }
           }
         },

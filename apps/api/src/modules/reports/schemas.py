@@ -229,6 +229,31 @@ class JobWorkPendingRow(ReportRowBase):
     ageing_bucket: str = ""
 
 
+class JobWorkCostRow(ReportRowBase):
+    """What one job-work order line's output really cost (E7b/P13.M5).
+
+    ``input_cost`` values the input the line's good output consumed at the
+    frozen challan issue cost - the ledger's FIFO draw when the material left -
+    and ``cost_per_unit`` adds the processing charges the receipts accrued.
+    Null while the line has returned no good output: there is nothing to divide
+    by yet.
+    """
+
+    job_work_order_id: uuid.UUID
+    code: str
+    line_number: int
+    vendor_code: str
+    vendor_name: str
+    process_type: str
+    status: str
+    output_item_code: str
+    input_cost: Decimal
+    charges: Decimal
+    debits: Decimal
+    output_quantity: Decimal
+    cost_per_unit: Decimal | None = None
+
+
 class QcRejectionRow(ReportRowBase):
     inspection_id: uuid.UUID
     code: str
@@ -630,6 +655,7 @@ __all__ = [
     "DispatchRow",
     "InventoryValuationRow",
     "ItemMovementRow",
+    "JobWorkCostRow",
     "JobWorkPendingRow",
     "MachineUtilisationRow",
     "MrpShortageRow",

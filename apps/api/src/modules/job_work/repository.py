@@ -277,6 +277,29 @@ class JobWorkChallanRepository(BaseRepository[JobWorkChallan]):
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
+    async def list_for_order_lines(
+        self, order_line_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, list[JobWorkChallanLine]]:
+        """Challan lines grouped by the order line they declared, in one statement.
+
+        The receipt-costing read: an order line's frozen issue cost is the
+        quantity-weighted average of what its challans declared.
+        """
+        if not order_line_ids:
+            return {}
+        stmt = (
+            select(JobWorkChallanLine)
+            .where(
+                JobWorkChallanLine.company_id == self.tenant.company_id,
+                JobWorkChallanLine.job_work_order_line_id.in_(list(dict.fromkeys(order_line_ids))),
+            )
+            .order_by(JobWorkChallanLine.job_work_order_line_id, JobWorkChallanLine.id)
+        )
+        grouped: dict[uuid.UUID, list[JobWorkChallanLine]] = {}
+        for row in (await self.session.execute(stmt)).scalars().all():
+            grouped.setdefault(row.job_work_order_line_id, []).append(row)
+        return grouped
+
     def _filtered(self, filters: ChallanFilters) -> Select[Any]:
         stmt = self._scoped()
         if filters.vendor_id is not None:

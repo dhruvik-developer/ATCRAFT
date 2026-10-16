@@ -80,7 +80,15 @@ from src.modules.inventory.service import (
     SCRAP_LANDING_TYPES,
     TARGET_QUALIFIED_TYPES,
 )
-from src.modules.job_work.models import JobWorkOrder, JobWorkOrderLine, JobWorkOrderStatus
+from src.modules.job_work.models import (
+    ISSUED_OR_LATER_STATUSES,
+    JobWorkChallanLine,
+    JobWorkOrder,
+    JobWorkOrderLine,
+    JobWorkOrderStatus,
+    JobWorkReceipt,
+    JobWorkReceiptLine,
+)
 from src.modules.mrp.models import MrpRequirement, MrpRun, MrpRunStatus
 from src.modules.organization.models import CostCentre, Department
 from src.modules.procurement.models import (
@@ -808,6 +816,92 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
                 JobWorkOrder.status.in_(PENDING_JOB_WORK_STATUSES),
             )
             .order_by(JobWorkOrder.expected_return_date.asc(), JobWorkOrder.code.asc())
+        )
+        if filters.vendor_id:
+            stmt = stmt.where(JobWorkOrder.vendor_id == filters.vendor_id)
+        if filters.status:
+            stmt = stmt.where(JobWorkOrder.status == filters.status)
+        if filters.search:
+            stmt = stmt.where(JobWorkOrder.code.ilike(f"%{filters.search.strip()}%"))
+        return stmt
+
+    # --- 6b. job-work cost ----------------------------------------------------
+
+    def job_work_cost(self, period: ReportPeriod, filters: ReportFilters) -> Select[Any]:
+        """What each job-work order line's output really cost (E7b/P13.M5).
+
+        The input is valued at the frozen challan issue cost - the ledger's FIFO
+        draw captured when the material left - times the input the good output
+        consumed; the processing charges the receipts accrued are added on top.
+        Orders enter by expected return date, like the pending report, with
+        cumulative actuals however many lots the vendor delivered in.
+        """
+        basis = (
+            select(
+                JobWorkChallanLine.job_work_order_line_id.label("order_line_id"),
+                (
+                    func.sum(JobWorkChallanLine.quantity * JobWorkChallanLine.unit_value)
+                    / func.nullif(func.sum(JobWorkChallanLine.quantity), 0)
+                ).label("unit_basis"),
+            )
+            .where(JobWorkChallanLine.company_id == self._company)
+            .group_by(JobWorkChallanLine.job_work_order_line_id)
+            .subquery()
+        )
+        actuals = (
+            select(
+                JobWorkReceiptLine.job_work_order_line_id.label("order_line_id"),
+                func.sum(JobWorkReceiptLine.input_consumed_quantity).label("consumed"),
+                func.sum(JobWorkReceiptLine.returned_unprocessed_quantity).label("returned"),
+                func.sum(JobWorkReceiptLine.scrap_quantity).label("scrap"),
+                func.sum(JobWorkReceiptLine.output_quantity).label("output"),
+                func.sum(JobWorkReceiptLine.charges).label("charges"),
+                func.sum(JobWorkReceiptLine.vendor_debit_amount).label("debits"),
+            )
+            .join(JobWorkReceipt, JobWorkReceipt.id == JobWorkReceiptLine.receipt_id)
+            .where(JobWorkReceiptLine.company_id == self._company)
+            .group_by(JobWorkReceiptLine.job_work_order_line_id)
+            .subquery()
+        )
+
+        consumed = func.coalesce(actuals.c.consumed, 0)
+        returned = func.coalesce(actuals.c.returned, 0)
+        scrap = func.coalesce(actuals.c.scrap, 0)
+        output = func.coalesce(actuals.c.output, 0)
+        charges = func.coalesce(actuals.c.charges, 0)
+        debits = func.coalesce(actuals.c.debits, 0)
+        unit_basis = func.coalesce(basis.c.unit_basis, 0)
+        for_output = consumed - returned - scrap
+        input_cost = for_output * unit_basis
+
+        stmt = (
+            select(
+                JobWorkOrder.id.label("job_work_order_id"),
+                JobWorkOrder.code.label("code"),
+                JobWorkOrderLine.line_number.label("line_number"),
+                Vendor.code.label("vendor_code"),
+                Vendor.name.label("vendor_name"),
+                JobWorkOrder.process_type.label("process_type"),
+                JobWorkOrder.status.label("status"),
+                Item.code.label("output_item_code"),
+                input_cost.label("input_cost"),
+                charges.label("charges"),
+                debits.label("debits"),
+                output.label("output_quantity"),
+                ((input_cost + charges) / func.nullif(output, 0)).label("cost_per_unit"),
+            )
+            .join(JobWorkOrderLine, JobWorkOrderLine.job_work_order_id == JobWorkOrder.id)
+            .join(Vendor, Vendor.id == JobWorkOrder.vendor_id)
+            .join(Item, Item.id == JobWorkOrderLine.expected_output_item_id)
+            .outerjoin(basis, basis.c.order_line_id == JobWorkOrderLine.id)
+            .outerjoin(actuals, actuals.c.order_line_id == JobWorkOrderLine.id)
+            .where(
+                JobWorkOrder.company_id == self._company,
+                JobWorkOrderLine.company_id == self._company,
+                JobWorkOrder.expected_return_date.between(period.date_from, period.date_to),
+                JobWorkOrder.status.in_(ISSUED_OR_LATER_STATUSES),
+            )
+            .order_by(JobWorkOrder.code.asc(), JobWorkOrderLine.line_number.asc())
         )
         if filters.vendor_id:
             stmt = stmt.where(JobWorkOrder.vendor_id == filters.vendor_id)

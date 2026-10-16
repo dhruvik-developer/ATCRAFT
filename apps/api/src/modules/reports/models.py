@@ -109,6 +109,16 @@ class ReportKey(StrEnum):
     REWORK_RATE = "REWORK_RATE"
     #: Actual and release-standard cost for closed production orders.
     PRODUCTION_COST = "PRODUCTION_COST"
+    #: Material, processing and loss cost of job-work orders: what each line's
+    #: output really cost (WP E7b). A catalogue report, read from challans and
+    #: receipts.
+    JOB_WORK_COST = "JOB_WORK_COST"
+    #: A rendered document rather than a tabular report: the GST Rule 55
+    #: delivery challan PDF for one job-work challan (WP E7b). It has a job row
+    #: here - ``GET /reports/jobs/{id}`` is what the client polls - but no
+    #: ``ReportDefinition``, because there are no rows to page, count or cache.
+    #: See :data:`DOCUMENT_ONLY_REPORT_KEYS`.
+    JOB_WORK_CHALLAN = "JOB_WORK_CHALLAN"
 
 
 #: Members of :class:`ReportKey` whose artefact is produced by a dedicated task
@@ -119,7 +129,12 @@ class ReportKey(StrEnum):
 #: definition, a route of its own under ``/reports`` or a catalogue descriptor,
 #: and ``service`` asserts both halves at import.
 DOCUMENT_ONLY_REPORT_KEYS: frozenset[ReportKey] = frozenset(
-    {ReportKey.PACKING_LIST, ReportKey.SALES_INVOICE, ReportKey.PURCHASE_ORDER}
+    {
+        ReportKey.PACKING_LIST,
+        ReportKey.SALES_INVOICE,
+        ReportKey.PURCHASE_ORDER,
+        ReportKey.JOB_WORK_CHALLAN,
+    }
 )
 
 

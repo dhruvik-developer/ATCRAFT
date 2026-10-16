@@ -86,6 +86,7 @@ from src.modules.reports.schemas import (
     DispatchRow,
     InventoryValuationRow,
     ItemMovementRow,
+    JobWorkCostRow,
     JobWorkPendingRow,
     MachineUtilisationRow,
     MrpShortageRow,
@@ -745,6 +746,19 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         ),
         row_model=ProductionCostRow,
         build=lambda repo, ctx: repo.production_cost(ctx.require_period(), ctx.filters),
+        requires_period=True,
+        cacheable=False,
+        permission=Permission.ITEM_COST_VIEW,
+    ),
+    ReportKey.JOB_WORK_COST: ReportDefinition(
+        key=ReportKey.JOB_WORK_COST,
+        title="Job-work cost",
+        description=(
+            "Job-work order lines with input cost at the frozen challan issue cost, "
+            "processing charges accrued, vendor debits and cost per unit of output."
+        ),
+        row_model=JobWorkCostRow,
+        build=lambda repo, ctx: repo.job_work_cost(ctx.require_period(), ctx.filters),
         requires_period=True,
         cacheable=False,
         permission=Permission.ITEM_COST_VIEW,
