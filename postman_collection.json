@@ -26722,7 +26722,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"dispatch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"lines\": [\n    {\n      \"dispatch_line_id\": {},\n      \"quantity\": {},\n      \"reason_code\": {},\n      \"note\": {},\n      \"requires_qc\": {}\n    }\n  ],\n  \"notes\": \"\",\n  \"return_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source\": \"ERP\"\n}"
+              "raw": "{\n  \"dispatch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"lines\": [\n    {\n      \"dispatch_line_id\": {},\n      \"qc_inspection_id\": {},\n      \"quantity\": {},\n      \"reason_code\": {},\n      \"note\": {},\n      \"requires_qc\": {}\n    }\n  ],\n  \"notes\": \"\",\n  \"return_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source\": \"ERP\"\n}"
             },
             "description": "Create Sales Return",
             "header": [
