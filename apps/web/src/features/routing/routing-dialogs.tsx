@@ -19,7 +19,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
 import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { Controller, useFieldArray, useForm } from 'react-hook-form'
+import { Controller, useFieldArray, useForm, useWatch, type Control } from 'react-hook-form'
 import { z } from 'zod'
 
 import { DataTable } from '@/components/data-table'
@@ -53,7 +53,7 @@ import {
 import { CostCentreSelect } from '@/features/admin/cost-centre-select'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
-import { api } from '@/lib/api-client'
+import { api, emptyOnPermissionError } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import {
@@ -74,6 +74,7 @@ import {
   MACHINE_STATUS_VARIANT,
   isApprovable,
   isObsoletable,
+  workableMachinesOf,
   type Machine,
   type RoutingCost,
   type RoutingDetail,
@@ -103,6 +104,120 @@ function useWorkCenterIndex(enabled: boolean) {
     for (const centre of query.data?.data ?? []) map.set(centre.id, centre)
     return map
   }, [query.data])
+}
+
+/**
+ * The machine register for the per-operation picker.
+ *
+ * One bounded fetch, filtered per row by work centre: machines only make sense
+ * inside their own cell, and the API refuses a machine from any other. The key
+ * is built from the same parameters the production booking's machine lookup
+ * uses, so the two share one cached page rather than fetching the register
+ * twice. Retired and inactive machines never reach a picker - the API refuses
+ * them on the way in, so offering them would only produce a 422.
+ */
+const MACHINE_REGISTER_PARAMS = {
+  limit: LOOKUP_LIST_LIMIT,
+  is_active: true,
+  with_total: false,
+  sort_by: 'code',
+  sort_dir: 'asc',
+} as const
+
+function useMachineRegister(enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.routing.machines(MACHINE_REGISTER_PARAMS),
+    queryFn: async (): Promise<Machine[]> => {
+      try {
+        const page = await api.getPage<Machine>('/routing/machines', {
+          params: { ...MACHINE_REGISTER_PARAMS },
+        })
+        return page.data
+      } catch (error) {
+        return emptyOnPermissionError<Machine>(error)
+      }
+    },
+    staleTime: staleTimes.reference,
+    enabled,
+  })
+}
+
+/**
+ * The machine picker for one routing operation row.
+ *
+ * A row-level component rather than inline controls: it watches only its own
+ * row's work centre and outsourced flag, so typing in a time field does not
+ * re-render every row's picker. The list is the whole active register filtered
+ * to the row's work centre - a machine belongs to exactly one cell, and the
+ * API refuses any other - and the select is cleared when the centre changes
+ * (by the centre's own `onValueChange` below) and disabled for outsourced
+ * steps, which run on the vendor's equipment.
+ */
+function OperationMachineSelect({
+  control,
+  index,
+  enabled,
+  error,
+}: {
+  control: Control<RoutingValues>
+  index: number
+  enabled: boolean
+  error: string | undefined
+}) {
+  const workCenterId = useWatch({ control, name: `operations.${index}.work_center_id` })
+  const outsourced = useWatch({ control, name: `operations.${index}.is_outsourced` })
+  const register = useMachineRegister(enabled)
+  const options = useMemo(
+    () => (workCenterId ? workableMachinesOf(register.data ?? [], workCenterId) : []),
+    [register.data, workCenterId],
+  )
+  const placeholder = outsourced
+    ? 'Not applicable for job work'
+    : !workCenterId
+      ? 'Choose the work centre first'
+      : register.isLoading
+        ? 'Loading...'
+        : options.length > 0
+          ? 'Choose a machine, if any'
+          : 'No workable machines in this centre'
+
+  return (
+    <div>
+      <Label htmlFor={`op-machine-${index}`} className="text-xs">
+        Machine
+      </Label>
+      <Controller
+        control={control}
+        name={`operations.${index}.machine_id`}
+        render={({ field }) => (
+          <Select
+            value={field.value ?? SELECT_NONE}
+            onValueChange={(value) => field.onChange(value === SELECT_NONE ? null : value)}
+            disabled={outsourced || !workCenterId}
+          >
+            <SelectTrigger id={`op-machine-${index}`} className="mt-1" aria-label="Machine">
+              <SelectValue placeholder={placeholder} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={SELECT_NONE}>No machine</SelectItem>
+              {/* A choice the register cannot resolve stays visible and
+                  submittable: without it an edit would silently clear a
+                  machine the account may not read. */}
+              {field.value && !options.some((machine) => machine.id === field.value) && (
+                <SelectItem value={field.value}>Selected machine</SelectItem>
+              )}
+              {options.map((machine) => (
+                <SelectItem key={machine.id} value={machine.id}>
+                  {machine.code} - {machine.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      />
+      <FieldError message={error} />
+    </div>
+  )
 }
 
 // ------------------------------------------------------- routing detail -----
@@ -145,6 +260,12 @@ export function RoutingDetailDialog({
   })
 
   const centres = useWorkCenterIndex(open)
+  const machineRegister = useMachineRegister(open)
+  const machines = useMemo(() => {
+    const map = new Map<string, Machine>()
+    for (const machine of machineRegister.data ?? []) map.set(machine.id, machine)
+    return map
+  }, [machineRegister.data])
 
   const operations = useMemo(
     () => [...(detail.data?.operations ?? [])].sort((a, b) => a.sequence - b.sequence),
@@ -195,6 +316,33 @@ export function RoutingDetailDialog({
                 </span>
               )}
             </span>
+          )
+        },
+      },
+      {
+        id: 'machine',
+        header: 'Machine',
+        enableSorting: false,
+        // The register is soft-read: an account that plans routings but may
+        // not read the machine register still sees the routing, with a dash
+        // where the machine would be rather than a failed panel.
+        cell: ({ row }) => {
+          if (row.original.is_outsourced) {
+            return <span className="text-muted-foreground">Job work</span>
+          }
+          if (!row.original.machine_id) {
+            return <span className="text-muted-foreground">Any</span>
+          }
+          const machine = machines.get(row.original.machine_id)
+          return machine ? (
+            <span>
+              {machine.code}
+              <span className="block max-w-[12rem] truncate text-2xs text-muted-foreground">
+                {machine.name}
+              </span>
+            </span>
+          ) : (
+            <span className="text-muted-foreground">Assigned</span>
           )
         },
       },
@@ -280,7 +428,7 @@ export function RoutingDetailDialog({
         ),
       },
     ],
-    [centres, costBySequence],
+    [centres, costBySequence, machines],
   )
 
   const routing = detail.data
@@ -489,33 +637,46 @@ export function RoutingDetailDialog({
  * rejected outright - so the form collects at least one rather than posting a
  * bare header and earning a 422 nobody can read.
  */
-const operationSchema = z.object({
-  operation_code: z
-    .string()
-    .trim()
-    .min(1, 'An operation code is required')
-    .max(64, 'At most 64 characters'),
-  operation_name: z
-    .string()
-    .trim()
-    .min(1, 'An operation name is required')
-    .max(255, 'At most 255 characters'),
-  work_center_id: z.string().min(1, 'Every operation runs on a work centre'),
-  setup_time_minutes: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
-  run_time_per_unit_minutes: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
-  queue_time_minutes: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
-  move_time_minutes: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
-  process_cost: z.string().trim().regex(DECIMAL, 'Enter an amount with up to 4 decimals'),
-  is_outsourced: z.boolean(),
-  qc_required: z.boolean(),
-  // Carried, not edited. `RoutingUpdate.operations` replaces the list wholesale,
-  // so anything the form does not send back is destroyed - and a machine
-  // assignment or an outworker silently dropped on an unrelated edit is exactly
-  // the kind of loss nobody notices until the job reaches the floor.
-  machine_id: z.string().nullable(),
-  job_work_vendor_id: z.string().nullable(),
-  notes: z.string().nullable(),
-})
+const operationSchema = z
+  .object({
+    operation_code: z
+      .string()
+      .trim()
+      .min(1, 'An operation code is required')
+      .max(64, 'At most 64 characters'),
+    operation_name: z
+      .string()
+      .trim()
+      .min(1, 'An operation name is required')
+      .max(255, 'At most 255 characters'),
+    work_center_id: z.string().min(1, 'Every operation runs on a work centre'),
+    setup_time_minutes: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
+    run_time_per_unit_minutes: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
+    queue_time_minutes: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
+    move_time_minutes: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
+    process_cost: z.string().trim().regex(DECIMAL, 'Enter an amount with up to 4 decimals'),
+    is_outsourced: z.boolean(),
+    qc_required: z.boolean(),
+    // Assigned, not just carried. `RoutingUpdate.operations` replaces the list
+    // wholesale, so the form sends the machine back on every edit - and a
+    // machine silently dropped on an unrelated edit is exactly the kind of loss
+    // nobody notices until the job reaches the floor.
+    machine_id: z.string().nullable(),
+    job_work_vendor_id: z.string().nullable(),
+    notes: z.string().nullable(),
+  })
+  .superRefine((operation, context) => {
+    // Mirrors `RoutingOperationIn._outsourced_steps_have_no_machine`: an
+    // outsourced step runs on the vendor's equipment, so the tick clears the
+    // machine and a machine set beside it is refused here rather than as a 422.
+    if (operation.is_outsourced && operation.machine_id) {
+      context.addIssue({
+        code: 'custom',
+        path: ['machine_id'],
+        message: 'An outsourced operation cannot be assigned to an in-house machine.',
+      })
+    }
+  })
 
 const routingSchema = z.object({
   code: z.string().trim().min(1, 'Code is required').max(64, 'Code is at most 64 characters'),
@@ -586,6 +747,7 @@ export function RoutingFormDialog({
     handleSubmit,
     reset,
     setError,
+    setValue,
     formState: { errors },
   } = useForm<RoutingValues>({
     resolver: zodResolver(routingSchema),
@@ -871,9 +1033,12 @@ export function RoutingFormDialog({
                         render={({ field: centre }) => (
                           <Select
                             value={centre.value || SELECT_NONE}
-                            onValueChange={(value) =>
+                            onValueChange={(value) => {
                               centre.onChange(value === SELECT_NONE ? '' : value)
-                            }
+                              // A machine belongs to exactly one cell, so the
+                              // choice cannot outlive a change of work centre.
+                              setValue(`operations.${index}.machine_id`, null)
+                            }}
                           >
                             <SelectTrigger
                               id={`op-wc-${index}`}
@@ -910,6 +1075,15 @@ export function RoutingFormDialog({
                         <Trash2 />
                       </Button>
                     </div>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <OperationMachineSelect
+                      control={control}
+                      index={index}
+                      enabled={open}
+                      error={errors.operations?.[index]?.machine_id?.message}
+                    />
                   </div>
 
                   <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -1002,7 +1176,15 @@ export function RoutingFormDialog({
                             <Checkbox
                               id={`op-outsourced-${index}`}
                               checked={flag.value}
-                              onCheckedChange={(checked) => flag.onChange(checked === true)}
+                              onCheckedChange={(checked) => {
+                                const outsourced = checked === true
+                                flag.onChange(outsourced)
+                                // An outsourced step runs on the vendor's
+                                // equipment: ticking it releases the machine.
+                                if (outsourced) {
+                                  setValue(`operations.${index}.machine_id`, null)
+                                }
+                              }}
                             />
                           )}
                         />

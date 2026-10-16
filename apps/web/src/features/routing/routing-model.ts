@@ -185,3 +185,10 @@ export interface Machine {
   created_at: string
   updated_at: string
 }
+
+/** Machines of one work centre that may still take work. */
+export function workableMachinesOf(rows: readonly Machine[], workCenterId: string): Machine[] {
+  return rows.filter(
+    (row) => row.work_center_id === workCenterId && row.is_active && row.status !== 'RETIRED',
+  )
+}
