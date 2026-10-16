@@ -749,6 +749,14 @@ The generic document list, metadata, download, and delete routes also hide the
 generated artefact unless the caller has `item.cost_view`; a document ID cannot
 bypass the report permission.
 
+The WIP-by-order endpoint returns one live order per row. It joins two
+tenant-scoped grouped aggregates: posted material issue cost less posted return
+cost, and operation cost to date. Running clocked operations accrue elapsed time
+through query time; outsourced operations are excluded. Because this exposes
+cost, `/production/wip` requires both `production_order.view` and
+`production_cost.view`. Its `late_only` filter is applied consistently by both
+the order and work-centre WIP endpoints.
+
 ### QC verdict to owner (`quality.owners`)
 
 Quality sits downstream of procurement, assembly, job work and production, so it may call

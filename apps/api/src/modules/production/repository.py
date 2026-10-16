@@ -45,7 +45,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, case, func, select, tuple_
+from sqlalchemy import Select, and_, case, func, or_, select, tuple_
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
@@ -141,7 +141,7 @@ class ProductionItem:
 
 @dataclass(frozen=True, slots=True)
 class WipOrderAggregate:
-    """One live job with its work-order counts already resolved."""
+    """One live job with its operation counts and value already resolved."""
 
     production_order_id: uuid.UUID
     code: str
@@ -158,6 +158,7 @@ class WipOrderAggregate:
     actual_start_date: date | None
     open_work_orders: int
     total_work_orders: int
+    wip_value: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -496,11 +497,11 @@ class ProductionOrderRepository(BaseRepository[ProductionOrder]):
         return await self.list_page(params, stmt=stmt)
 
     def _wip_stmt(self, filters: WipFilters) -> Select[Any]:
-        """Live jobs with their work-order counts, computed by the database.
+        """Live jobs with their work-order counts and value, computed in batches.
 
-        Scalar sub-selects rather than a join and GROUP BY: the header row would
-        otherwise be multiplied by its operations and need a DISTINCT over every
-        column on the page.
+        Counts remain scalar sub-selects so joins cannot multiply the header
+        rows. Material and operation values are separate grouped aggregates,
+        joined once for the whole page rather than queried once per order.
         """
         open_count = (
             select(func.count())
@@ -522,25 +523,119 @@ class ProductionOrderRepository(BaseRepository[ProductionOrder]):
             .scalar_subquery()
         )
 
-        stmt = select(
-            ProductionOrder.id.label("production_order_id"),
-            ProductionOrder.code,
-            ProductionOrder.status,
-            ProductionOrder.item_id,
-            ProductionOrder.warehouse_id,
-            ProductionOrder.plant_id,
-            ProductionOrder.priority,
-            ProductionOrder.planned_quantity,
-            ProductionOrder.produced_quantity,
-            ProductionOrder.rejected_quantity,
-            ProductionOrder.planned_start_date,
-            ProductionOrder.planned_end_date,
-            ProductionOrder.actual_start_date,
-            open_count.label("open_work_orders"),
-            total_count.label("total_work_orders"),
-        ).where(
-            ProductionOrder.company_id == self.tenant.company_id,
-            ProductionOrder.status.in_(sorted(str(s) for s in OPEN_PRODUCTION_STATUSES)),
+        material_costs = (
+            select(
+                MaterialIssue.production_order_id.label("production_order_id"),
+                func.sum(
+                    case(
+                        (
+                            MaterialIssue.issue_type == MaterialIssueType.ISSUE,
+                            MaterialIssueLine.total_cost,
+                        ),
+                        else_=-MaterialIssueLine.total_cost,
+                    )
+                ).label("material_cost"),
+            )
+            .join(MaterialIssueLine, MaterialIssueLine.material_issue_id == MaterialIssue.id)
+            .where(
+                MaterialIssue.company_id == self.tenant.company_id,
+                MaterialIssueLine.company_id == self.tenant.company_id,
+                MaterialIssue.status == MaterialIssueStatus.POSTED,
+            )
+            .group_by(MaterialIssue.production_order_id)
+            .subquery()
+        )
+
+        # WIP valuation includes elapsed time for a running operation. Its
+        # close-time cost is still calculated from completed clockings; this is
+        # a live estimate, not a change to the frozen final-cost calculation.
+        # ASSUMPTION: docs/assumptions.md §E7-3.
+        elapsed_minutes = case(
+            (
+                and_(
+                    WorkOrder.actual_start_at.is_not(None),
+                    WorkOrder.actual_end_at.is_not(None),
+                ),
+                func.greatest(
+                    func.extract("epoch", WorkOrder.actual_end_at - WorkOrder.actual_start_at) / 60,
+                    0,
+                ),
+            ),
+            (
+                WorkOrder.status == WorkOrderStatus.COMPLETED,
+                WorkOrder.planned_setup_minutes + WorkOrder.planned_run_minutes,
+            ),
+            (
+                and_(
+                    WorkOrder.status == WorkOrderStatus.IN_PROGRESS,
+                    WorkOrder.actual_start_at.is_not(None),
+                    WorkOrder.actual_end_at.is_(None),
+                ),
+                func.greatest(
+                    func.extract("epoch", func.now() - WorkOrder.actual_start_at) / 60,
+                    0,
+                ),
+            ),
+            else_=0,
+        )
+        operation_ran = or_(
+            elapsed_minutes > 0,
+            WorkOrder.status == WorkOrderStatus.COMPLETED,
+        )
+        operation_cost = case(
+            (WorkOrder.is_outsourced.is_(True), 0),
+            else_=(
+                elapsed_minutes / 60 * WorkOrder.work_center_cost_per_hour
+                + case(
+                    (operation_ran, WorkOrder.work_center_setup_cost + WorkOrder.process_cost),
+                    else_=0,
+                )
+            ),
+        )
+        operation_costs = (
+            select(
+                WorkOrder.production_order_id.label("production_order_id"),
+                func.sum(operation_cost).label("operation_cost"),
+            )
+            .where(WorkOrder.company_id == self.tenant.company_id)
+            .group_by(WorkOrder.production_order_id)
+            .subquery()
+        )
+
+        stmt = (
+            select(
+                ProductionOrder.id.label("production_order_id"),
+                ProductionOrder.code,
+                ProductionOrder.status,
+                ProductionOrder.item_id,
+                ProductionOrder.warehouse_id,
+                ProductionOrder.plant_id,
+                ProductionOrder.priority,
+                ProductionOrder.planned_quantity,
+                ProductionOrder.produced_quantity,
+                ProductionOrder.rejected_quantity,
+                ProductionOrder.planned_start_date,
+                ProductionOrder.planned_end_date,
+                ProductionOrder.actual_start_date,
+                open_count.label("open_work_orders"),
+                total_count.label("total_work_orders"),
+                (
+                    func.coalesce(material_costs.c.material_cost, 0)
+                    + func.coalesce(operation_costs.c.operation_cost, 0)
+                ).label("wip_value"),
+            )
+            .where(
+                ProductionOrder.company_id == self.tenant.company_id,
+                ProductionOrder.status.in_(sorted(str(s) for s in OPEN_PRODUCTION_STATUSES)),
+            )
+            .outerjoin(
+                material_costs,
+                material_costs.c.production_order_id == ProductionOrder.id,
+            )
+            .outerjoin(
+                operation_costs,
+                operation_costs.c.production_order_id == ProductionOrder.id,
+            )
         )
 
         if filters.warehouse_id is not None:
@@ -611,6 +706,7 @@ class ProductionOrderRepository(BaseRepository[ProductionOrder]):
                 actual_start_date=row.actual_start_date,
                 open_work_orders=int(row.open_work_orders),
                 total_work_orders=int(row.total_work_orders),
+                wip_value=Decimal(str(row.wip_value)),
             )
             for row in rows
         ]
@@ -889,7 +985,7 @@ class WorkOrderRepository(BaseRepository[WorkOrder]):
         return await self.list_page(params, stmt=stmt)
 
     async def load_by_work_centre(
-        self, filters: WipFilters, params: PageParams
+        self, filters: WipFilters, params: PageParams, *, as_of: date
     ) -> tuple[list[WorkCentreLoad], OffsetPagination]:
         """Outstanding load per work centre, aggregated by the database.
 
@@ -944,6 +1040,8 @@ class WorkOrderRepository(BaseRepository[WorkOrder]):
             stmt = stmt.where(ProductionOrder.warehouse_id == filters.warehouse_id)
         if filters.item_id is not None:
             stmt = stmt.where(ProductionOrder.item_id == filters.item_id)
+        if filters.late_only:
+            stmt = stmt.where(ProductionOrder.planned_end_date < as_of)
 
         # Busiest cell first: the board is read to find the bottleneck.
         stmt = stmt.order_by(func.count().desc(), WorkOrder.work_center_id)

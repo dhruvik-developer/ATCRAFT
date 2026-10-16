@@ -9,10 +9,11 @@
  */
 
 import { fireEvent, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { P } from '@/lib/permissions'
-import { ok, page, renderScreen } from '@/test/harness'
+import { toast } from '@/lib/toast'
+import { fail, ok, page, renderScreen } from '@/test/harness'
 
 import ProductionDetailPage from './production-detail-page'
 import type { ProductionOrderDetail } from './production-model'
@@ -306,6 +307,54 @@ describe('cancelling an order', () => {
     expect(await screen.findByRole('heading', { name: 'PRD-0001' })).toBeVisible()
     expect(screen.queryByRole('button', { name: /^cancel$/i })).toBeNull()
   })
+})
+
+describe('production transition validation', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  it.each([
+    {
+      action: 'complete',
+      status: 'IN_PROCESS',
+      permission: P.PRODUCTION_ENTRY_CREATE,
+      field: 'produced_quantity',
+    },
+    {
+      action: 'close',
+      status: 'COMPLETED',
+      permission: P.PRODUCTION_ORDER_CLOSE,
+      field: 'closure_note',
+    },
+  ] as const)(
+    'reports server field errors when $action is refused',
+    async ({ action, status, permission, field }) => {
+      const errorToast = vi.spyOn(toast, 'error')
+      const { user } = renderDetail([P.PRODUCTION_ORDER_VIEW, permission], {
+        [`GET /production/${ORDER_ID}`]: ok(detail({ status })),
+        'GET /routing/shifts': page([]),
+        [`POST /production/${ORDER_ID}/${action}`]: fail(
+          422,
+          'VALIDATION_ERROR',
+          'Invalid request',
+          {
+            fields: { [field]: ['The supplied value is outside the allowed range'] },
+          },
+        ),
+      })
+
+      await user.click(await screen.findByRole('button', { name: new RegExp(`^${action}$`, 'i') }))
+      await user.click(
+        await screen.findByRole('button', { name: new RegExp(`^${action} order$`, 'i') }),
+      )
+      await waitFor(() =>
+        expect(errorToast).toHaveBeenCalledWith(
+          'Could not update this production order',
+          `${field}: The supplied value is outside the allowed range`,
+        ),
+      )
+      expect(screen.getByRole('dialog')).toBeVisible()
+    },
+  )
 })
 
 describe('where the order is charged', () => {

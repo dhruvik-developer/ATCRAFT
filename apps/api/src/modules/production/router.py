@@ -249,9 +249,14 @@ WipFilterDep = Annotated[WipFilters, Depends(wip_filters)]
     description=(
         "Every job that is released, issued or in process, most urgent first, with "
         "the balance still to make and how many of its operations are still open. "
-        "`late_only` narrows it to jobs whose planned finish has already passed."
+        "WIP value is posted net material issue cost plus operation cost to date. "
+        "`late_only` narrows it to jobs whose planned finish has already passed. "
+        "Requires both production-order view and production-cost view permissions."
     ),
-    dependencies=[require_permission(Permission.PRODUCTION_ORDER_VIEW)],
+    dependencies=[
+        require_permission(Permission.PRODUCTION_ORDER_VIEW),
+        require_permission(Permission.PRODUCTION_COST_VIEW),
+    ],
 )
 async def get_wip_by_order(
     session: DbSession, tenant: Tenant, filters: WipFilterDep, params: PageDep

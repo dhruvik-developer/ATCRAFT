@@ -14,7 +14,7 @@ branch_labels = None
 depends_on = None
 
 _TABLE = "report_snapshots"
-_CONSTRAINT = "report_key_is_known"
+_CONSTRAINT = "ck_report_snapshots_report_key_is_known"
 _INDEX = "ix_production_orders_company_status_updated_at"
 _PREVIOUS_KEYS = (
     "SALES_ORDER_STATUS",

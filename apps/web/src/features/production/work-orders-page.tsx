@@ -62,6 +62,7 @@ import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
 import { WipBoardPanel } from './wip-board-panel'
+import { WipByOrderPanel } from './wip-by-order-panel'
 import {
   WorkOrderAssignDialog,
   WorkOrderTransitionDialog,
@@ -102,6 +103,7 @@ const FILTER_KEYS = [
 const TABS = [
   { value: 'queue', label: 'Queue', icon: ClipboardList },
   { value: 'board', label: 'Load by work centre', icon: Factory },
+  { value: 'wip', label: 'WIP by order', icon: Factory },
 ] as const
 
 export default function WorkOrdersPage() {
@@ -115,8 +117,10 @@ export default function WorkOrdersPage() {
   // not on the view right this page is reached with, and not on any of the
   // production-order rights.
   const canManage = can(P.WORK_ORDER_MANAGE)
+  const canViewWip = can(P.PRODUCTION_ORDER_VIEW) && can(P.PRODUCTION_COST_VIEW)
 
-  const tab = searchParams.get('tab') ?? 'queue'
+  const requestedTab = searchParams.get('tab') ?? 'queue'
+  const tab = requestedTab === 'wip' && !canViewWip ? 'queue' : requestedTab
   const shiftId = searchParams.get('shift_id') ?? ''
   const status = searchParams.get('status') ?? ''
   const workCentreId = searchParams.get('work_center_id') ?? ''
@@ -461,12 +465,14 @@ export default function WorkOrdersPage() {
 
       <Tabs value={tab} onValueChange={changeTab}>
         <TabsList>
-          {TABS.map(({ value, label, icon: Icon }) => (
-            <TabsTrigger key={value} value={value}>
-              <Icon className="h-4 w-4" aria-hidden />
-              {label}
-            </TabsTrigger>
-          ))}
+          {TABS.filter(({ value }) => value !== 'wip' || canViewWip).map(
+            ({ value, label, icon: Icon }) => (
+              <TabsTrigger key={value} value={value}>
+                <Icon className="h-4 w-4" aria-hidden />
+                {label}
+              </TabsTrigger>
+            ),
+          )}
         </TabsList>
 
         <TabsContent value="queue">
@@ -620,6 +626,12 @@ export default function WorkOrdersPage() {
               runs the other way: pick a cell here and its queue opens. */}
           <WipBoardPanel onSelectWorkCentre={showQueueForWorkCentre} />
         </TabsContent>
+
+        {canViewWip && (
+          <TabsContent value="wip">
+            <WipByOrderPanel />
+          </TabsContent>
+        )}
       </Tabs>
 
       {canManage && (

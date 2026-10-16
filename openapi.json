@@ -62469,6 +62469,11 @@
             "format": "uuid",
             "title": "Warehouse Id",
             "type": "string"
+          },
+          "wip_value": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Wip Value",
+            "type": "string"
           }
         },
         "required": [
@@ -62488,7 +62493,8 @@
           "actual_start_date",
           "days_late",
           "open_work_orders",
-          "total_work_orders"
+          "total_work_orders",
+          "wip_value"
         ],
         "title": "WipOrderRow",
         "type": "object"
@@ -119566,7 +119572,7 @@
     },
     "/api/v1/production/wip": {
       "get": {
-        "description": "Every job that is released, issued or in process, most urgent first, with the balance still to make and how many of its operations are still open. `late_only` narrows it to jobs whose planned finish has already passed.",
+        "description": "Every job that is released, issued or in process, most urgent first, with the balance still to make and how many of its operations are still open. WIP value is posted net material issue cost plus operation cost to date. `late_only` narrows it to jobs whose planned finish has already passed. Requires both production-order view and production-cost view permissions.",
         "operationId": "get_wip_by_order_api_v1_production_wip_get",
         "parameters": [
           {

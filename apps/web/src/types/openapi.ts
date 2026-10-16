@@ -5526,7 +5526,7 @@ export interface paths {
         };
         /**
          * Work in progress, by order
-         * @description Every job that is released, issued or in process, most urgent first, with the balance still to make and how many of its operations are still open. `late_only` narrows it to jobs whose planned finish has already passed.
+         * @description Every job that is released, issued or in process, most urgent first, with the balance still to make and how many of its operations are still open. WIP value is posted net material issue cost plus operation cost to date. `late_only` narrows it to jobs whose planned finish has already passed. Requires both production-order view and production-cost view permissions.
          */
         get: operations["get_wip_by_order_api_v1_production_wip_get"];
         put?: never;
@@ -32285,6 +32285,8 @@ export interface components {
              * Format: uuid
              */
             warehouse_id: string;
+            /** Wip Value */
+            wip_value: string;
         };
         /**
          * WipWorkCentreRow

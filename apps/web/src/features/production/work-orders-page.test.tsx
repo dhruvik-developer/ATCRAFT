@@ -35,6 +35,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
+import { formatMoney } from '@/lib/format'
 import { ok, page, renderScreen } from '@/test/harness'
 
 import type { WorkOrder } from './work-order-model'
@@ -247,6 +248,76 @@ describe('what each status offers', () => {
 // ------------------------------------------------------------- the query ---
 
 describe('what the queue asks the API for', () => {
+  it('offers the WIP-by-order tab only to users allowed to view production costs', async () => {
+    const withoutCostAccess = renderScreen(<WorkOrdersPage />, {
+      permissions: [P.WORK_ORDER_VIEW, P.PRODUCTION_ORDER_VIEW],
+      routes: queue([]),
+    })
+    // The queue is empty, so the lookup-driven cell labels `queueSettled`
+    // waits for never render. The empty state proves the list has resolved.
+    await screen.findByText('No operations here')
+    expect(screen.queryByRole('tab', { name: 'WIP by order' })).toBeNull()
+    withoutCostAccess.unmount()
+
+    const requests: URL[] = []
+    const row = {
+      production_order_id: 'po-9',
+      code: 'PO-0009',
+      status: 'RELEASED',
+      item_id: 'item-1',
+      warehouse_id: 'warehouse-1',
+      plant_id: 'plant-1',
+      priority: 1,
+      planned_quantity: '100.0000',
+      produced_quantity: '25.0000',
+      rejected_quantity: '0.0000',
+      balance_quantity: '75.0000',
+      planned_start_date: '2026-01-01',
+      planned_end_date: '2026-01-02',
+      actual_start_date: '2026-01-01',
+      days_late: 3,
+      open_work_orders: 2,
+      total_work_orders: 4,
+      wip_value: '1234.50',
+    }
+    const { user } = renderScreen(<WorkOrdersPage />, {
+      permissions: [
+        P.WORK_ORDER_VIEW,
+        P.PRODUCTION_ORDER_VIEW,
+        P.PRODUCTION_COST_VIEW,
+        P.PLANT_VIEW,
+        P.WAREHOUSE_VIEW,
+        P.ITEM_VIEW,
+      ],
+      routes: {
+        ...queue([]),
+        'GET /organization/plants': page([{ id: 'plant-1', code: 'P1', name: 'Main plant' }]),
+        'GET /warehouses': page([]),
+        'GET /production/wip': ({ url }) => {
+          requests.push(url)
+          return page([row])
+        },
+      },
+    })
+    await screen.findByText('No operations here')
+
+    await user.click(screen.getByRole('tab', { name: 'WIP by order' }))
+
+    expect(await screen.findByRole('link', { name: 'Open production order PO-0009' })).toBeVisible()
+    expect(screen.getByText('3 days late')).toBeVisible()
+    expect(screen.getByText('2 / 4')).toBeVisible()
+    expect(screen.getByText(formatMoney('1234.50'))).toBeVisible()
+    expect(screen.getByRole('combobox', { name: 'Filter by plant' })).toBeVisible()
+    expect(screen.getByRole('combobox', { name: 'Filter by warehouse' })).toBeVisible()
+    expect(screen.getByRole('combobox', { name: 'Filter by item' })).toBeVisible()
+    expect(screen.getByRole('checkbox', { name: 'Late only' })).toBeVisible()
+
+    await user.click(screen.getByRole('checkbox', { name: 'Late only' }))
+    await waitFor(() => {
+      expect(requests.at(-1)?.searchParams.get('late_only')).toBe('true')
+    })
+  })
+
   it('spends a job id on the path and never sends it twice', async () => {
     // `GET /production/{id}/work-orders` overwrites any `production_order_id` in
     // the query string with the path segment. Sending both is how a filter comes

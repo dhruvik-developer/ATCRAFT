@@ -3828,6 +3828,7 @@ async def wip_orders(
             days_late=max(0, (as_of - row.planned_end_date).days),
             open_work_orders=row.open_work_orders,
             total_work_orders=row.total_work_orders,
+            wip_value=to_money(row.wip_value),
         )
         for row in rows
     ], pagination
@@ -3843,7 +3844,7 @@ async def wip_work_centres(
     response cannot honestly carry both.
     """
     rows, pagination = await WorkOrderRepository(session, tenant).load_by_work_centre(
-        filters, params
+        filters, params, as_of=today()
     )
     return [
         WipWorkCentreRow(

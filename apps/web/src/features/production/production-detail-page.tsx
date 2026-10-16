@@ -63,6 +63,7 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { ApiError, api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
+import { reportFieldErrors } from '@/lib/form-errors'
 import {
   formatDate,
   formatDateTime,
@@ -1040,6 +1041,7 @@ export default function ProductionDetailPage() {
         `${updated.code} is now ${humanise(updated.status).toLowerCase()}.`,
       )
     },
+    onError: (error) => reportFieldErrors(error, 'Could not update this production order'),
   })
 
   const cancelOrder = useMutation({

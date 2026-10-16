@@ -65,6 +65,7 @@ export const workOrderKeys = {
   /** `GET /production/{order_id}/work-orders` - the operations of one job. */
   ofOrder: (orderId: string, params: unknown) =>
     [...queryKeys.production.all, 'work-orders', 'of-order', orderId, params] as const,
+  wipOrders: (params: unknown) => [...queryKeys.production.all, 'wip', 'orders', params] as const,
   wipWorkCentres: (params: unknown) =>
     [...queryKeys.production.all, 'wip', 'work-centres', params] as const,
 }
@@ -90,6 +91,9 @@ export type WorkOrderTransitionPayload = SchemaOf<'WorkOrderTransitionRequest'>
  * the row identity.
  */
 export type WipWorkCentreRow = SchemaOf<'WipWorkCentreRow'>
+
+/** One live production order and its current net WIP valuation. */
+export type WipOrderRow = SchemaOf<'WipOrderRow'>
 
 /** One row of `GET /routing/work-centers` (`WorkCenterRead`). */
 export type WorkCentreOption = SchemaOf<'WorkCenterRead'>

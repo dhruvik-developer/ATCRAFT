@@ -17525,7 +17525,7 @@
         {
           "name": "Work in progress, by order",
           "request": {
-            "description": "Every job that is released, issued or in process, most urgent first, with the balance still to make and how many of its operations are still open. `late_only` narrows it to jobs whose planned finish has already passed.",
+            "description": "Every job that is released, issued or in process, most urgent first, with the balance still to make and how many of its operations are still open. WIP value is posted net material issue cost plus operation cost to date. `late_only` narrows it to jobs whose planned finish has already passed. Requires both production-order view and production-cost view permissions.",
             "header": [],
             "method": "GET",
             "url": {

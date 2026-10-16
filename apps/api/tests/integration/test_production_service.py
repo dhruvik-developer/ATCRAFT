@@ -48,6 +48,7 @@ from src.core.errors import (
 from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
+from src.core.types import to_money
 from src.modules.allocation.models import DemandType, ReservationStatus, StockReservation
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.bom.models import Bom, BomLine, BomOperation, BomStatus, BomType
@@ -67,10 +68,13 @@ from src.modules.job_work.models import (
 from src.modules.organization.models import Company
 from src.modules.production import service
 from src.modules.production.models import (
+    MaterialIssue,
+    MaterialIssueLine,
     MaterialIssueStatus,
     MaterialIssueType,
     ProductionOrderComponent,
     ProductionOrderStatus,
+    WorkOrder,
     WorkOrderStatus,
 )
 from src.modules.production.schemas import (
@@ -459,12 +463,12 @@ async def stocked(db: AsyncSession, tenant: TenantContext, masters):
 
 
 async def make_order(db, tenant, masters, *, quantity: str = "100", **kwargs):
+    kwargs.setdefault("planned_start_date", today())
+    kwargs.setdefault("planned_end_date", today() + timedelta(days=5))
     payload = ProductionOrderCreate(
         item_id=masters["kit"].id,
         planned_quantity=Decimal(quantity),
         warehouse_id=masters["warehouse"].id,
-        planned_start_date=today(),
-        planned_end_date=today() + timedelta(days=5),
         **kwargs,
     )
     return await service.create_order(db, tenant, payload)
@@ -1689,17 +1693,107 @@ async def test_the_wip_boards_report_the_live_job_by_order_and_by_work_centre(
     await release(db, tenant, order)
     await issue_everything(db, tenant, planner, order)
 
+    component = (await components_of(db, tenant, order))[0]
+    returned, _ = await service.create_material_issue(
+        db,
+        tenant,
+        order.id,
+        MaterialIssueCreate(
+            reason="Return unused material",
+            lines=[
+                MaterialIssueLineIn(
+                    line_number=1,
+                    component_id=component.id,
+                    quantity=(Decimal(component.issued_quantity) / 2).quantize(Decimal("0.0001")),
+                )
+            ],
+        ),
+        issue_type=MaterialIssueType.RETURN,
+    )
+    await service.post_material_issue(db, tenant, planner, returned.id, MaterialIssuePostRequest())
+
+    database_now = (await db.execute(select(func.now()))).scalar_one()
+    work_order = (
+        await db.execute(
+            select(WorkOrder).where(
+                WorkOrder.company_id == tenant.company_id,
+                WorkOrder.production_order_id == order.id,
+            )
+        )
+    ).scalar_one()
+    await service.transition_work_order(
+        db,
+        tenant,
+        work_order.id,
+        WorkOrderTransitionRequest(
+            status=WorkOrderStatus.IN_PROGRESS,
+            occurred_at=database_now - timedelta(hours=1),
+        ),
+    )
+
+    material_rows = (
+        await db.execute(
+            select(MaterialIssue.issue_type, MaterialIssueLine.total_cost)
+            .join(MaterialIssueLine, MaterialIssueLine.material_issue_id == MaterialIssue.id)
+            .where(
+                MaterialIssue.company_id == tenant.company_id,
+                MaterialIssue.production_order_id == order.id,
+                MaterialIssue.status == MaterialIssueStatus.POSTED,
+            )
+        )
+    ).all()
+    material_value = sum(
+        (
+            Decimal(row.total_cost)
+            if row.issue_type is MaterialIssueType.ISSUE
+            else -Decimal(row.total_cost)
+        )
+        for row in material_rows
+    )
+    operation_value = to_money(
+        Decimal(work_order.work_center_cost_per_hour)
+        + Decimal(work_order.work_center_setup_cost)
+        + Decimal(work_order.process_cost)
+    )
+
     orders, _ = await service.wip_orders(db, tenant, WipFilters(), PageParams())
     row = next(r for r in orders if r.production_order_id == order.id)
     assert row.balance_quantity == Decimal("100.0000")
     assert row.open_work_orders == 1
     assert row.total_work_orders == 1
+    assert row.wip_value == to_money(material_value + operation_value)
 
     centres, _ = await service.wip_work_centres(db, tenant, WipFilters(), PageParams())
     centre = next(c for c in centres if c.work_center_id == stocked["work_centre"].id)
+    assert centre.in_progress_work_orders == 1
+    assert centre.pending_work_orders == 0
+    # Under way: the setup is spent, so only the run time is still to come.
+    assert centre.remaining_minutes == Decimal("100.0000")
+
+
+async def test_late_only_filters_the_work_centre_wip_board(db, tenant, stocked, approver):
+    from src.modules.production.schemas import WipFilters
+
+    late_order = await make_order(
+        db,
+        tenant,
+        stocked,
+        planned_start_date=today() - timedelta(days=5),
+        planned_end_date=today() - timedelta(days=1),
+    )
+    await db.flush()
+    await approve(db, tenant, approver, late_order)
+    await release(db, tenant, late_order)
+
+    future_order = await make_order(db, tenant, stocked)
+    future_order.planned_end_date = today() + timedelta(days=5)
+    await db.flush()
+    await approve(db, tenant, approver, future_order)
+    await release(db, tenant, future_order)
+
+    rows, _ = await service.wip_work_centres(db, tenant, WipFilters(late_only=True), PageParams())
+    centre = next(r for r in rows if r.work_center_id == stocked["work_centre"].id)
     assert centre.pending_work_orders == 1
-    # Nothing made yet: the whole planned setup and run is still to come.
-    assert centre.remaining_minutes == Decimal("130.0000")
 
 
 async def test_another_tenant_cannot_see_or_touch_this_companys_jobs(

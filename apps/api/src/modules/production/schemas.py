@@ -685,6 +685,7 @@ class WipOrderRow(BaseModel):
     days_late: int
     open_work_orders: int
     total_work_orders: int
+    wip_value: Decimal
 
 
 class WipWorkCentreRow(BaseModel):

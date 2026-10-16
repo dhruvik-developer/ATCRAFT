@@ -2974,6 +2974,26 @@ was formally closed. A new timestamp is not added solely for this report.
 closed, not the day the work physically ended. If the business wants the latter,
 the report period should use `actual_end_date` and name the report accordingly.
 
+## §E7-3. WIP includes accrued time for running operations
+
+**Assumed.** WIP value is the net cost of posted material issues and returns,
+plus operation cost to date. A running, clocked operation accrues its work-centre
+hourly rate from `actual_start_at` through the time of the query. Its setup and
+process charges are included once it has started. Outsourced operations are not
+included. This is a live estimate; final closed-order costing continues to use
+completed clockings. The endpoint requires both production-order view and
+production-cost view permissions because it exposes monetary cost.
+
+**Why.** Excluding a currently running operation would report no operation cost
+for work that is actively consuming capacity. The final-cost calculation remains
+unchanged because its actual end time is the authoritative completed duration.
+
+**Where.** `src/modules/production/repository.py` - `ProductionOrderRepository._wip_stmt`.
+
+**Impact if wrong.** If the business wants WIP to include only completed
+operations, remove the in-progress elapsed-time branch; the final-cost model is
+independent of this estimate.
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant
