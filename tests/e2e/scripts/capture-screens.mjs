@@ -138,6 +138,7 @@ const SCREENS = [
   { file: '52-work-orders', route: '/production/work-orders', title: 'Work orders' },
   { file: '53-assembly', route: '/assembly', title: 'Assembly' },
   { file: '54-job-work', route: '/job-work', title: 'Job work' },
+  { file: '55-job-work-detail', route: '@jobWork', title: 'A job work order' },
 
   // --- quality, packing, dispatch ----------------------------------------
   { file: '60-quality', route: '/quality', title: 'Quality inspections' },
@@ -260,6 +261,7 @@ const details = {
   '@salesOrder': '/sales-orders',
   '@purchaseOrder': '/procurement/purchase-orders',
   '@production': '/production',
+  '@jobWork': '/job-work',
 }
 const resolved = {}
 for (const [token, listRoute] of Object.entries(details)) {

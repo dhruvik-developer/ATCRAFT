@@ -295,7 +295,7 @@ function buildLines(values: JobWorkFormValues): JobWorkOrderLineCreate[] {
 const returnWarehouse = (values: JobWorkFormValues): string =>
   values.return_warehouse_id || values.warehouse_id
 
-function buildCreate(values: JobWorkFormValues): JobWorkOrderCreate {
+function buildCreate(values: JobWorkFormValues, rework?: ReworkPrefill | null): JobWorkOrderCreate {
   return {
     vendor_id: values.vendor_id,
     process_type: values.process_type,
@@ -313,10 +313,11 @@ function buildCreate(values: JobWorkFormValues): JobWorkOrderCreate {
     tax_rate: values.tax_rate.trim() === '' ? null : values.tax_rate.trim(),
     sac_code: values.sac_code.trim() === '' ? null : values.sac_code.trim(),
     requires_qc: values.requires_qc,
-    // The API pairs these two: a MANUAL order must carry no source id, and any
-    // other source type must carry one. An order raised by MRP, a production
-    // order or a rework decision arrives from that module, never from here.
-    source_type: 'MANUAL',
+    // A rework order names the receipt whose rejected output it reprocesses;
+    // anything else is MANUAL with no source. The pairing is the API's:
+    // MANUAL must carry no source id, any other source type must carry one.
+    source_type: rework ? 'REWORK' : 'MANUAL',
+    source_id: rework ? rework.sourceId : null,
     notes: orNull(values.notes),
     lines: buildLines(values),
   }
@@ -379,15 +380,46 @@ function indicativeCharge(
 
 // ---------------------------------------------------------------- dialog ----
 
+/**
+ * A rejected receipt line, ready to go back to the vendor for rework.
+ *
+ * The rejected output item becomes the new order's input: rework restores it
+ * rather than transforming it into something else, so input and expected
+ * output start as the same item and the planner adjusts from there. The vendor
+ * stays editable - the same vendor, or one the user picks.
+ */
+export interface ReworkPrefill {
+  /** The receipt whose rejected output is being reprocessed. */
+  sourceId: string
+  vendorId: string
+  lines: { item_id: string; quantity_to_issue: string }[]
+}
+
+function reworkValues(rework: ReworkPrefill): JobWorkFormValues {
+  return {
+    ...emptyValues(),
+    vendor_id: rework.vendorId,
+    notes: '',
+    lines: rework.lines.map((line) => ({
+      ...emptyLine(),
+      item_id: line.item_id,
+      quantity_to_issue: line.quantity_to_issue,
+    })),
+  }
+}
+
 export function JobWorkOrderFormDialog({
   open,
   onOpenChange,
   order = null,
+  rework = null,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** The draft being amended. Absent when raising a new order. */
   order?: JobWorkOrderRow | null
+  /** Rejected output to send back out. Only read when raising, never amending. */
+  rework?: ReworkPrefill | null
 }) {
   const { can } = useAuth()
   const queryClient = useQueryClient()
@@ -413,21 +445,22 @@ export function JobWorkOrderFormDialog({
   const { fields, append, remove } = useFieldArray({ control, name: 'lines' })
 
   // A new order is seeded when the dialog opens; an amendment waits for the
-  // lines to land, exactly as the issue and receive dialogs do.
+  // lines to land, exactly as the issue and receive dialogs do. A rework
+  // prefill seeds the same blank form from the rejected receipt line.
   useEffect(() => {
     if (!open) return
     if (!amending) {
-      reset(emptyValues())
+      reset(rework ? reworkValues(rework) : emptyValues())
       return
     }
     if (detail) reset(valuesFrom(detail))
-  }, [open, amending, detail, reset])
+  }, [open, amending, detail, rework, reset])
 
   const save = useMutation({
     mutationFn: (values: JobWorkFormValues) =>
       order
         ? api.patch<JobWorkOrderDetail>(`/job-work/${order.id}`, buildUpdate(values))
-        : api.post<JobWorkOrderDetail>('/job-work', buildCreate(values)),
+        : api.post<JobWorkOrderDetail>('/job-work', buildCreate(values, rework)),
     onSuccess: (saved) => {
       // Only the job-work caches. A draft holds no reservation and has moved no
       // stock, so inventory and allocation are not stale - approval is the step
@@ -437,7 +470,9 @@ export function JobWorkOrderFormDialog({
         amending ? success.updated('Job work order') : success.created('Job work order'),
         amending
           ? `${saved.code} is updated. It still needs approval before material can be issued.`
-          : `${saved.code} is saved as a draft. Approve it before issuing material to the vendor.`,
+          : rework
+            ? `${saved.code} is saved as a rework draft linked to the rejected receipt.`
+            : `${saved.code} is saved as a draft. Approve it before issuing material to the vendor.`,
       )
       onOpenChange(false)
     },
@@ -463,11 +498,15 @@ export function JobWorkOrderFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="xl">
         <DialogHeader>
-          <DialogTitle>{order ? `Amend ${order.code}` : 'New job work order'}</DialogTitle>
+          <DialogTitle>
+            {order ? `Amend ${order.code}` : rework ? 'New rework order' : 'New job work order'}
+          </DialogTitle>
           <DialogDescription>
             {amending
               ? 'Only a draft can be amended: from approval the order holds hard reservations, and from issue it holds company material on somebody else’s premises. The vendor cannot be changed - that would be a different order.'
-              : 'The order is raised as a draft. Nothing is reserved and no stock moves until it is approved and issued under a challan.'}
+              : rework
+                ? 'The rejected output goes back out as a new order with the receipt as its source. It is raised as a draft like any other order.'
+                : 'The order is raised as a draft. Nothing is reserved and no stock moves until it is approved and issued under a challan.'}
           </DialogDescription>
         </DialogHeader>
 

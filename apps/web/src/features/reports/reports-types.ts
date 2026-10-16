@@ -47,6 +47,8 @@ export type ReportKey =
   | 'SCRAP_REGISTER'
   | 'CONSUMPTION_BY_DEPARTMENT'
   | 'PACKING_LIST'
+  | 'JOB_WORK_COST'
+  | 'JOB_WORK_CHALLAN'
 
 /**
  * A rendering hint derived on the server from the row model's field type.

@@ -2842,7 +2842,7 @@
         {
           "route": "/job-work",
           "title": "Job work",
-          "purpose": "Processing done outside the factory: handles going out for PVD, castings to a machinist, finished parts out for laser marking. The single most important thing this screen exists to make visible is that material sent to a job worker is still yours. It leaves the factory on a challan but it never leaves the books - it is company stock held in a job-work state, still counted in valuation, still attributable to a vendor, a challan and an order line. What it stops being is available, so nobody can be promised it. The second tab, Pending at vendor, is where you see how much of your working capital is currently sitting outside the factory and how long it has been there. The third tab, Invoices, is where the vendor's bills for that work are raised and tracked against what each receipt earned.",
+          "purpose": "Processing done outside the factory: handles going out for PVD, castings to a machinist, finished parts out for laser marking. The single most important thing this screen exists to make visible is that material sent to a job worker is still yours. It leaves the factory on a challan but it never leaves the books - it is company stock held in a job-work state, still counted in valuation, still attributable to a vendor, a challan and an order line. What it stops being is available, so nobody can be promised it. The tabs read the story in order: Orders, then Pending at vendor (how much working capital is sitting outside the factory and how long it has been there), then Challans (every delivery challan, with the GST Rule 55 PDF), then Vendor ledger (one vendor's material account for a period), then Invoices (the vendor's bills for that work, raised and tracked against what each receipt earned). Opening an order shows its detail page: lines, timeline, reconciliation, receipts with their QC outcome, and challans.",
           "whoUses": "The planner raises and approves the order, the storekeeper issues the material and receives it back, and the plant manager approves and closes.",
           "keyActions": [
             {
@@ -2917,10 +2917,11 @@
             "Tick 'Output must be inspected' if the returned goods have to go through QC.",
             "Add the lines: the item going out, the quantity, what it comes back as (leave blank if the same item comes back), the expected output quantity if the yield is not one for one, and the agreed loss percentage.",
             "Save the draft, then Approve it. Approval reserves the material.",
-            "Press Issue to vendor. Enter the challan date, the expected return, the vehicle number and the quantities going out. The challan is raised and the stock moves into the job-work state - still yours, no longer available.",
-            "The material sits at the vendor. Watch it on the Pending at vendor tab.",
-            "When a lot comes back, press Receive output. Split it across Received (good processed output), Rejected (what the vendor spoiled) and Returned unworked (material that came back exactly as it went).",
-            "Repeat for each lot until everything is back. Then Close the order."
+            "Press Issue to vendor. Enter the challan date, the expected return, the vehicle number, the transporter if a carrier took the goods, and the quantities going out. The challan is raised and the stock moves into the job-work state - still yours, no longer available.",
+            "The material sits at the vendor. Watch it on the Pending at vendor tab, or open the order for its timeline.",
+            "When a lot comes back, press Receive output. Split it across Received (good processed output), Rejected (what the vendor spoiled) and Returned unworked (material that came back exactly as it went), and record the vendor's challan number and date. A rejected quantity needs a disposition - back to stock, kept at the vendor for rework, or scrapped there - and a reason. Tick Close line to write off whatever is still out as process loss; loss beyond the agreed allowance needs the excess-loss approval, which only the senior job-work right gives, and is debited to the vendor.",
+            "Repeat for each lot until everything is back. Then Close the order.",
+            "Rejected output that should go back for rework gets a new order from the receipt: Send for rework raises it with the receipt as its source, so the history stays linked."
           ],
           "permission": "The screen needs the right to view job work. The actions are split across four different rights on purpose: raising, amending, cancelling and deleting a draft all need the right to create job work orders; issuing needs the right to issue; receiving needs the right to receive; and approving and closing both need the senior job-work right that the plant manager holds and the planner who raises orders does not. That separation is deliberate - the person who raises an order is not the person who approves it.",
           "rules": [
@@ -2939,7 +2940,41 @@
             "Batch-tracked and serial-tracked items cannot be sent for job work, in either direction. There is no way to name a batch or a serial on the challan, so it is refused at order entry rather than after the material has left the building.",
             "Only items flagged for job work on the item master, and still active, can be put on a line."
           ],
-          "notes": "Two gaps worth flagging to whoever assembles the deck. First, there is no detail page for a job work order: the challans it travelled under, the history of lots received against it, and the issued-versus-received reconciliation report all exist in the system but have no screen. The order's lines are only visible inside the Issue and Receive dialogs. Second, the Receive dialog has no control for approving loss beyond the agreed allowance and no control for closing a line and writing off the shortfall - so a receipt where the vendor lost more than the allowance will be refused on this screen with a message saying it needs approval, and there is nowhere here to give it. Also: the row menu offers 'Issue to vendor' on orders that have already been issued, but the system only accepts an issue against an approved order, so a second challan raised from that menu will be refused. Vendor names come from the vendor master and fall back to a dash; items are shown as the first eight characters of their identifier, since the list carries no item code."
+          "notes": "The received output is booked at what it cost - the input it consumed at the frozen challan issue value plus the processing charge the receipt accrued - not at the output item's standard cost. The Job-work cost report reads the same figures back per order line. The delivery challan PDF is generated in the background: queue it from a challan row and download it once the job completes."
+        },
+        {
+          "route": "/job-work/:id",
+          "title": "One job work order",
+          "purpose": "Everything one job-work order means: its lines with issued, received, rejected, scrap and still-at-vendor quantities; its timeline from approval through every challan and receipt to QC and close; the reconciliation of what went out against what came back, shown beside the ledger's live job-work pool so a divergence between the two is visible; every receipt with its QC outcome and a way to send rejected output back for rework; and every challan with its delivery challan PDF.",
+          "whoUses": "The planner following an order, the storekeeper receiving its lots, and the plant manager checking the reconciliation before paying the vendor.",
+          "keyActions": [
+            {
+              "action": "Read the reconciliation",
+              "how": "The Reconciliation section on the order page",
+              "note": "Issued against accounted-back per line, with the loss against the line's allowance and the excess beyond it. If the order's outstanding exceeds the ledger's pool, something was posted outside job work."
+            },
+            {
+              "action": "Download a delivery challan",
+              "how": "The Challans section, then PDF, then Download PDF",
+              "note": "The PDF is rendered in the background to GST Rule 55 - parties with GSTIN, HSN, quantities, values, vehicle and transporter - and filed in the document store."
+            },
+            {
+              "action": "Send rejected output for rework",
+              "how": "The Rework button on a receipt with rejected output",
+              "note": "Raises a new order with the receipt as its source, prefilled with the rejected item and quantity. It is a draft like any other order until approved."
+            }
+          ],
+          "flow": [
+            "Open the order from the Orders tab.",
+            "Check the timeline for where the consignment stands.",
+            "Read the reconciliation before approving the vendor's bill."
+          ],
+          "permission": "Viewing a job work order needs the right to view job work. Issuing and receiving from the page need their own rights, as on the list; approval and close stay on the orders list, where the audit reason is collected.",
+          "rules": [
+            "The reconciliation's outstanding is the order's books; the pool is the live ledger. The pool covers the books - shared positions mean it is usually larger, never smaller.",
+            "A rework order is a new order with a source, not an edit of the old one. The rejected output stays accounted for on the original receipt."
+          ],
+          "notes": "The vendor ledger tab answers the same questions per vendor and period, with a CSV export; the Job-work cost report answers what each line's output really cost."
         },
         {
           "route": "/production/shift-roster",
@@ -4312,7 +4347,7 @@
             "Read the table, page through it, or use the search box to find a row.",
             "If the result was too large to show, wait for the download strip and press Download to open the spreadsheet."
           ],
-          "notes": "Twenty-four reports exist and every one of them is listed above \u2014 this list is worth its own page in the deck. Two things to be accurate about. First, the six filters are the same on every report, so the screen offers a Customer filter on a machine-utilisation report where it does nothing; that is a known simplification, not a fault. Second, the filter set has no category picker even though the system would accept one, and the Status filter expects the exact status word rather than offering a dropdown. The management dashboard tiles (open orders, stock value, QC pending and so on) are a separate screen, not part of this one. The packing list PDF is produced from the Packing screen, not from here.",
+          "notes": "Twenty-six reports exist and every one of them is listed above \u2014 this list is worth its own page in the deck. Two things to be accurate about. First, the six filters are the same on every report, so the screen offers a Customer filter on a machine-utilisation report where it does nothing; that is a known simplification, not a fault. Second, the filter set has no category picker even though the system would accept one, and the Status filter expects the exact status word rather than offering a dropdown. The management dashboard tiles (open orders, stock value, QC pending and so on) are a separate screen, not part of this one. The packing list PDF is produced from the Packing screen, not from here.",
           "permission": "Needs the right to view reports \u2014 that one right opens every report in the catalogue. Producing a large report as a downloadable file additionally needs the right to export reports; without it, a report that returns too many rows is refused with a message asking you to narrow the dates or filters instead.",
           "rules": [
             "A report period may cover at most 366 days. An unbounded query over years of history is how a reporting screen takes the whole system down, so the limit is enforced rather than suggested.",

@@ -43,6 +43,11 @@ export const jobWorkKeys = {
   detail: (id: string) => ['job-work', 'detail', id] as const,
   pendingAtVendor: (params: unknown) => ['job-work', 'pending-at-vendor', params] as const,
   billableLines: (orderId: string) => ['job-work', 'billable-lines', orderId] as const,
+  challans: (params: unknown) => ['job-work', 'challans', params] as const,
+  orderChallans: (orderId: string) => ['job-work', 'order-challans', orderId] as const,
+  receipts: (orderId: string) => ['job-work', 'receipts', orderId] as const,
+  reconciliation: (orderId: string) => ['job-work', 'reconciliation', orderId] as const,
+  vendorLedger: (params: unknown) => ['job-work', 'vendor-ledger', params] as const,
 }
 
 // ------------------------------------------------------------ vocabulary ----
@@ -86,6 +91,25 @@ export const RATE_BASES = ['PER_PIECE', 'PER_KG', 'LOT'] as const satisfies read
 
 /** What raised the order (`JobWorkSourceType`). */
 export type JobWorkSourceType = SchemaOf<'JobWorkSourceType'>
+
+/** What happens to output the vendor produced badly (`RejectionAction`). */
+export type RejectionAction = SchemaOf<'RejectionAction'>
+
+export const REJECTION_ACTIONS = [
+  'RETURN_TO_STOCK',
+  'REWORK_AT_VENDOR',
+  'SCRAP_AT_VENDOR',
+] as const satisfies readonly RejectionAction[]
+
+/**
+ * Over-receipt tolerance the API allows before refusing a lot.
+ *
+ * Mirrors `EXCESS_RECEIPT_TOLERANCE_PERCENT` in
+ * `apps/api/src/modules/job_work/service.py`: a vendor may return up to this
+ * much more output than the order expected. Shown so a storekeeper keying a
+ * slightly generous lot knows where the refusal comes from.
+ */
+export const EXCESS_RECEIPT_TOLERANCE_PERCENT = '2%'
 
 /** Statuses in which company stock is physically sitting at a vendor. */
 export const AT_VENDOR_STATUSES: readonly JobWorkStatus[] = ['ISSUED', 'PARTIALLY_RECEIVED']
@@ -235,6 +259,31 @@ export const pendingRowKey = (row: PendingAtVendorRow): string =>
  */
 export type BillableLine = SchemaOf<'BillableLine'>
 
+/** One row of `GET /job-work/challans` (`ChallanRead`, without its lines). */
+export type ChallanRow = SchemaOf<'ChallanRead'>
+
+/** One lot received back against an order (`GET /job-work/{id}/receipts`). */
+export type ReceiptRow = SchemaOf<'ReceiptRead'>
+
+/** `GET /job-work/{id}/reconciliation` (`ReconciliationReport`). */
+export type ReconciliationReport = SchemaOf<'ReconciliationReport'>
+
+/** One input item on a vendor's material account (`VendorLedgerItemRow`). */
+export type VendorLedgerItemRow = SchemaOf<'VendorLedgerItemRow'>
+
+/** `GET /job-work/vendor-ledger` (`VendorLedgerReport`). */
+export type VendorLedgerReport = SchemaOf<'VendorLedgerReport'>
+
+/** A queued background job (`AcceptedJobResponse` data half). */
+export type QueuedJobData = {
+  job_id: string
+  status: string
+  status_url: string
+}
+
+/** Status of a background report job (`GET /reports/jobs/{id}`). */
+export type ReportJob = SchemaOf<'ReportJobRead'>
+
 // ----------------------------------------------------------------- reads ----
 
 /**
@@ -268,6 +317,75 @@ export function useBillableLines(orderId: string, enabled: boolean) {
     staleTime: staleTimes.transactional,
     enabled: enabled && Boolean(orderId),
   })
+}
+
+/** Every delivery challan raised for one order, with its lines. */
+export function useOrderChallans(orderId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: jobWorkKeys.orderChallans(orderId),
+    queryFn: () => api.get<ChallanRow[]>(`/job-work/${orderId}/challans`),
+    staleTime: staleTimes.transactional,
+    enabled: enabled && Boolean(orderId),
+  })
+}
+
+/** Every lot received back against one order, with its lines. */
+export function useOrderReceipts(orderId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: jobWorkKeys.receipts(orderId),
+    queryFn: () => api.get<ReceiptRow[]>(`/job-work/${orderId}/receipts`),
+    staleTime: staleTimes.transactional,
+    enabled: enabled && Boolean(orderId),
+  })
+}
+
+/** Issued vs received vs loss for one order, beside the live job-work pool. */
+export function useReconciliation(orderId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: jobWorkKeys.reconciliation(orderId),
+    queryFn: () => api.get<ReconciliationReport>(`/job-work/${orderId}/reconciliation`),
+    staleTime: staleTimes.transactional,
+    enabled: enabled && Boolean(orderId),
+  })
+}
+
+export interface VendorLedgerParams {
+  vendorId: string | null
+  dateFrom: string
+  dateTo: string
+}
+
+/** One vendor's material account for a period. Whole, like the reconciliation. */
+export function useVendorLedger({ vendorId, dateFrom, dateTo }: VendorLedgerParams) {
+  return useQuery({
+    queryKey: jobWorkKeys.vendorLedger({ vendorId, dateFrom, dateTo }),
+    queryFn: () =>
+      api.get<VendorLedgerReport>('/job-work/vendor-ledger', {
+        params: { vendor_id: vendorId, date_from: dateFrom, date_to: dateTo },
+      }),
+    staleTime: staleTimes.transactional,
+    enabled: Boolean(vendorId) && Boolean(dateFrom) && Boolean(dateTo),
+  })
+}
+
+/**
+ * Poll a background report job until it leaves QUEUED/RUNNING.
+ *
+ * A challan PDF is rendered by Celery, so the Download button queues and then
+ * watches the same job row the packing list uses. Polling stops at a terminal
+ * state; the caller reads `download_url` from there.
+ */
+export function useReportJob(jobId: string | null) {
+  const job = useQuery({
+    queryKey: ['reports', 'jobs', jobId] as const,
+    queryFn: () => api.get<ReportJob>(`/reports/jobs/${jobId}`),
+    enabled: Boolean(jobId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      return status === 'QUEUED' || status === 'RUNNING' ? 1500 : false
+    },
+  })
+  return job
 }
 
 // ------------------------------------------------------------ url filters ---

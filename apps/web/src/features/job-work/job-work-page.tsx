@@ -13,6 +13,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
 import {
   Ban,
+  BookOpen,
   CheckCircle2,
   ClipboardCheck,
   Lock,
@@ -22,6 +23,7 @@ import {
   Pencil,
   Plus,
   Receipt,
+  ScrollText,
   Trash2,
   Truck,
   X,
@@ -110,9 +112,11 @@ import { JobWorkOrderFormDialog } from './job-work-order-form-dialog'
 /**
  * Bills raised against job-work orders live in their own chunk: the tab pulls
  * the vendor-invoice match dialog with it, which the orders panel must not
- * pay for.
+ * pay for. The challan register and the vendor ledger are split the same way.
  */
 const JobWorkInvoicesTab = lazy(() => import('./job-work-invoices-tab'))
+const JobWorkChallansTab = lazy(() => import('./job-work-challans-tab'))
+const JobWorkLedgerTab = lazy(() => import('./job-work-ledger-tab'))
 
 const reasonReady = (value: string): boolean => {
   const trimmed = value.trim()
@@ -347,7 +351,15 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
       {
         accessorKey: 'code',
         header: 'Order',
-        cell: ({ row }) => <span className="font-medium">{row.original.code}</span>,
+        cell: ({ row }) => (
+          <Link
+            to={`/job-work/${row.original.id}`}
+            className="font-medium hover:underline"
+            title="Open this order"
+          >
+            {row.original.code}
+          </Link>
+        ),
       },
       {
         // The row carries `vendor_id` and no name. The bounded vendor options
@@ -1015,7 +1027,12 @@ export default function JobWorkPage() {
 
   const requested = searchParams.get('tab') ?? ''
   const tab =
-    requested === 'pending' || (requested === 'invoices' && canSeeInvoices) ? requested : 'orders'
+    requested === 'pending' ||
+    requested === 'challans' ||
+    requested === 'ledger' ||
+    (requested === 'invoices' && canSeeInvoices)
+      ? requested
+      : 'orders'
 
   // Switching tab drops the list parameters: a status filter typed against the
   // orders means nothing against the pending-at-vendor view, and carrying it
@@ -1060,6 +1077,14 @@ export default function JobWorkPage() {
             <Truck className="h-3.5 w-3.5" aria-hidden />
             Pending at vendor
           </TabsTrigger>
+          <TabsTrigger value="challans">
+            <ScrollText className="h-3.5 w-3.5" aria-hidden />
+            Challans
+          </TabsTrigger>
+          <TabsTrigger value="ledger">
+            <BookOpen className="h-3.5 w-3.5" aria-hidden />
+            Vendor ledger
+          </TabsTrigger>
           {canSeeInvoices && (
             <TabsTrigger value="invoices">
               <Receipt className="h-3.5 w-3.5" aria-hidden />
@@ -1074,6 +1099,18 @@ export default function JobWorkPage() {
 
         <TabsContent value="pending">
           <PendingPanel />
+        </TabsContent>
+
+        <TabsContent value="challans">
+          <Suspense fallback={<PanelLoader />}>
+            <JobWorkChallansTab />
+          </Suspense>
+        </TabsContent>
+
+        <TabsContent value="ledger">
+          <Suspense fallback={<PanelLoader />}>
+            <JobWorkLedgerTab />
+          </Suspense>
         </TabsContent>
 
         {canSeeInvoices && (

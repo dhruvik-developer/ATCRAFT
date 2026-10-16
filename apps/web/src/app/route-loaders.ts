@@ -58,6 +58,7 @@ export const routeLoaders = {
   '/production/planning': () => import('@/features/production/planning-page'),
   '/assembly': () => import('@/features/assembly/assembly-page'),
   '/job-work': () => import('@/features/job-work/job-work-page'),
+  '/job-work/:orderId': () => import('@/features/job-work/job-work-detail-page'),
   '/quality': () => import('@/features/quality/quality-page'),
   '/quality/templates': () => import('@/features/quality/qc-templates-page'),
   '/packing': () => import('@/features/packing/packing-page'),

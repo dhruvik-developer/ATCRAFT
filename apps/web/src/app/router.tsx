@@ -47,6 +47,7 @@ const ProductionPage = lazy(routeLoaders['/production'])
 const ProductionDetailPage = lazy(routeLoaders['/production/:orderId'])
 const AssemblyPage = lazy(routeLoaders['/assembly'])
 const JobWorkPage = lazy(routeLoaders['/job-work'])
+const JobWorkDetailPage = lazy(routeLoaders['/job-work/:orderId'])
 const QualityPage = lazy(routeLoaders['/quality'])
 const PackingPage = lazy(routeLoaders['/packing'])
 const DispatchPage = lazy(routeLoaders['/dispatch'])
@@ -321,6 +322,7 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
   },
   { path: '/assembly', element: <AssemblyPage />, permissions: [P.ASSEMBLY_ORDER_VIEW] },
   { path: '/job-work', element: <JobWorkPage />, permissions: [P.JOB_WORK_VIEW] },
+  { path: '/job-work/:orderId', element: <JobWorkDetailPage />, permissions: [P.JOB_WORK_VIEW] },
 
   { path: '/quality', element: <QualityPage />, permissions: [P.QC_VIEW] },
   { path: '/packing', element: <PackingPage />, permissions: [P.PACKING_VIEW] },

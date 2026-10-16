@@ -3086,6 +3086,94 @@ called from `create_bom` and `approve_bom`.
 freezing, the roll-up would have to read live routing data - which contradicts
 the snapshot-at-commitment rule the rest of the module follows.
 
+## §E7b-1. Rejected and scrap quantities are shown, not outstanding
+
+**Assumed.** `JOB_WORK_PENDING` carries `rejected_quantity` and
+`scrap_quantity` per order beside issued, received and pending. Rejected
+output is accounted for - it sits in damaged stock, with the vendor for
+rework, or as scrap - so it is never part of the pending figure the vendor is
+chased for.
+
+**Why.** The gap audit (K07) found rejected quantity captured but never shown
+afterwards, which reads as material unaccounted for. Stating it on the same
+row as the pending balance keeps the two from being confused.
+
+**Where.** `src/modules/reports/repository.py` - `job_work_pending`;
+`JobWorkPendingRow`.
+
+**Impact if wrong.** If rejected output should age like outstanding stock
+until a rework order consumes it, the pending definition would have to add the
+`REWORK_AT_VENDOR` share back in.
+
+## §E7b-2. Receipt output is capitalised at input cost plus the receipt charge
+
+**Assumed.** A job-work receipt books good output at (frozen challan issue
+value of the input it consumed + the receipt charge it earned) per good unit.
+The input value is the quantity-weighted challan `unit_value` - the ledger's
+FIFO draw captured when the material left - read before posting, so the price
+is exact rather than a second read of layers the posting consumes. Process
+loss within the allowance is expensed as scrap rather than absorbed into the
+good units; the later invoice price variance is expensed too; the sub-paisa
+rounding remainder is recorded on the receipt audit, not posted anywhere.
+
+**Why.** The contract never stated a costing policy, so output used to arrive
+at the output item's standard cost and neither the material nor the processing
+charge reached stock value. Capitalising only the input the good output
+consumed is the conservative half of full absorption costing: normal loss
+keeps its existing P&L treatment and the change is bounded to the output
+movement's unit cost.
+
+**Where.** `src/modules/job_work/service.py` - `capitalised_output_cost`,
+`issue_unit_basis`, `receive`, `JOB_WORK_COST` report.
+
+**Impact if wrong.** If normal process loss should be absorbed into the good
+units, add the within-allowance scrap value to `input_value`. If invoice
+price variance should revalue the output instead, revaluation belongs on the
+invoice approval, which is a second posting against stock the receipt has
+already Passed on.
+
+## §E7b-3. The vendor ledger closes on input consumed, not output received
+
+**Assumed.** Every vendor-ledger row closes as opening + issued - consumed,
+where consumed is the input drawn out of the job-work pool. Good output is
+shown in output units beside it, because input and output are different items
+whenever the process changes what the thing is and the two cannot be netted.
+`charges_billed` is what approved job-work invoices have billed of the
+period's receipt lines - a billed-to-date figure for those lines, not a
+period cash figure.
+
+**Why.** Netting output units against input units would restate the yield on
+every row. The pool identity is the one the reconciliation already proves per
+order; the ledger states it per vendor and period.
+
+**Where.** `src/modules/job_work/service.py` - `vendor_ledger`.
+
+**Impact if wrong.** If finance needs billed-per-period rather than
+billed-of-period-lines, invoice approvals must stamp a period on the
+`invoiced_amount` movement - the line only carries the cumulative figure.
+
+## §E7b-4. No vendor-portal job work and no automatic rejected-output debit
+
+**Assumed.** Vendor-portal and vendor-app job work (spec section 6, A01.M8)
+is not built here: it is C2 territory with its own scope and security
+model, and this package closes the staff-side completion flow only. Likewise
+there is no automatic vendor debit for rejected output and no setting for
+one: the only debit posted is the excess-loss value beyond the agreed
+allowance, through the receipt path that already carries approvals.
+
+**Why.** A half-scoped portal (endpoints without the vendor-scope review C1a
+requires) would be a security hole dressed as a feature, and an automatic
+charge-back for rejected output invents a commercial policy the contract does
+not state.
+
+**Where.** Nowhere - deliberately. `JobWorkSourceType.REWORK` with
+`source_id` = the receipt is the traceability link; "Send for rework" raises
+it through the standard order create.
+
+**Impact if wrong.** If the client wants rejected-output charge-backs, add a
+vendor debit through B3a's recovery mechanism behind a setting that defaults
+to off, as the spec anticipates.
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant
