@@ -768,6 +768,8 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
                 JobWorkOrderLine.job_work_order_id.label("job_work_order_id"),
                 func.sum(JobWorkOrderLine.issued_quantity).label("issued_quantity"),
                 func.sum(JobWorkOrderLine.received_output_quantity).label("received_quantity"),
+                func.sum(JobWorkOrderLine.rejected_quantity).label("rejected_quantity"),
+                func.sum(JobWorkOrderLine.scrap_quantity).label("scrap_quantity"),
             )
             .join(JobWorkOrder, JobWorkOrder.id == JobWorkOrderLine.job_work_order_id)
             .where(
@@ -794,6 +796,8 @@ class ReportQueryRepository(BaseRepository[InventorySummary]):
                 issued.label("issued_quantity"),
                 received.label("received_quantity"),
                 (issued - received).label("pending_quantity"),
+                func.coalesce(totals.c.rejected_quantity, 0).label("rejected_quantity"),
+                func.coalesce(totals.c.scrap_quantity, 0).label("scrap_quantity"),
                 JobWorkOrder.total_charges.label("total_charges"),
             )
             .join(Vendor, Vendor.id == JobWorkOrder.vendor_id)

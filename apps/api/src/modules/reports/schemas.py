@@ -217,6 +217,13 @@ class JobWorkPendingRow(ReportRowBase):
     issued_quantity: Decimal
     received_quantity: Decimal
     pending_quantity: Decimal
+    #: Output the vendor produced badly, still traceable to the order. Shown
+    #: rather than folded into pending: rejected stock is accounted for, not
+    #: outstanding (docs/assumptions.md §E7b-1).
+    rejected_quantity: Decimal = Decimal("0")
+    #: Input written off as process loss. Included in ``received_quantity``
+    #: upstream; repeated here so the report reads without a second lookup.
+    scrap_quantity: Decimal = Decimal("0")
     total_charges: Decimal
     days_overdue: int = 0
     ageing_bucket: str = ""
