@@ -37,6 +37,7 @@ from src.modules.job_work import service
 from src.modules.job_work.models import JobWorkOrderStatus, JobWorkProcess
 from src.modules.job_work.schemas import (
     BillableLine,
+    ChallanFilters,
     ChallanRead,
     IssueRequest,
     IssueResult,
@@ -53,6 +54,7 @@ from src.modules.job_work.schemas import (
     ReceiveRequest,
     ReconciliationReport,
     VendorChargeRow,
+    VendorLedgerReport,
 )
 
 router = APIRouter(prefix="/job-work", tags=["Job Work"], responses=COMMON_ERROR_RESPONSES)
@@ -180,6 +182,80 @@ async def vendor_charges(
         params=params,
     )
     return PaginatedResponse[VendorChargeRow](data=rows, pagination=pagination)
+
+
+def challan_filters(
+    search: Annotated[
+        str | None, Query(max_length=120, description="Challan code or vehicle number")
+    ] = None,
+    vendor_id: Annotated[uuid.UUID | None, Query()] = None,
+    job_work_order_id: Annotated[
+        uuid.UUID | None, Query(description="Only this order's challans")
+    ] = None,
+    date_from: Annotated[date | None, Query(description="Despatched on or after this date")] = None,
+    date_to: Annotated[date | None, Query(description="Despatched on or before this date")] = None,
+) -> ChallanFilters:
+    return ChallanFilters(
+        search=search,
+        vendor_id=vendor_id,
+        job_work_order_id=job_work_order_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+ChallanFilterDep = Annotated[ChallanFilters, Depends(challan_filters)]
+
+
+@router.get(
+    "/challans",
+    response_model=PaginatedResponse[ChallanRead],
+    summary="Company-wide delivery-challan register",
+    description=(
+        "Every job-work delivery challan, newest despatch first, with vendor, order "
+        "and date filters. The register the GST delivery challan is filed from: "
+        "each row names the consignment, and the full document with its lines is "
+        "one per-order call away."
+    ),
+    dependencies=[require_permission(Permission.JOB_WORK_VIEW)],
+)
+async def challan_register(
+    session: DbSession,
+    tenant: Tenant,
+    filters: ChallanFilterDep,
+    params: PageDep,
+    sort: SortDep,
+) -> PaginatedResponse[ChallanRead]:
+    rows, pagination = await service.list_challan_register(session, tenant, filters, params, sort)
+    return PaginatedResponse[ChallanRead](data=rows, pagination=pagination)
+
+
+@router.get(
+    "/vendor-ledger",
+    response_model=ApiResponse[VendorLedgerReport],
+    summary="One job-work vendor's material account for a period",
+    description=(
+        "Per input item: what was already at the vendor when the period opened, "
+        "what the challans sent, what the receipts accounted back - good output, "
+        "unworked returns, process loss - and what is still out, beside the "
+        "processing charges accrued, billed and debited. Returned whole rather "
+        "than paginated: the rows are aggregated in the database and a vendor's "
+        "item set is small."
+    ),
+    dependencies=[require_permission(Permission.JOB_WORK_VIEW)],
+)
+async def vendor_ledger(
+    session: DbSession,
+    tenant: Tenant,
+    vendor_id: Annotated[uuid.UUID, Query(description="The job worker")],
+    date_from: Annotated[date, Query(description="First date in the period")],
+    date_to: Annotated[date, Query(description="Last date in the period")],
+) -> ApiResponse[VendorLedgerReport]:
+    return ApiResponse[VendorLedgerReport].ok(
+        await service.vendor_ledger(
+            session, tenant, vendor_id=vendor_id, date_from=date_from, date_to=date_to
+        )
+    )
 
 
 # -----------------------------------------------------------------------------

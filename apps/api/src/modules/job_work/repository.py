@@ -33,7 +33,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, and_, delete, func, select
+from sqlalchemy import Select, and_, case, delete, func, select
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
@@ -54,6 +54,7 @@ from src.modules.job_work.models import (
     JobWorkSourceType,
 )
 from src.modules.job_work.schemas import (
+    ChallanFilters,
     JobWorkOrderFilters,
     PendingAtVendorRow,
     VendorChargeRow,
@@ -275,6 +276,70 @@ class JobWorkChallanRepository(BaseRepository[JobWorkChallan]):
             .order_by(JobWorkChallan.challan_date, JobWorkChallan.code)
         )
         return list((await self.session.execute(stmt)).scalars().all())
+
+    def _filtered(self, filters: ChallanFilters) -> Select[Any]:
+        stmt = self._scoped()
+        if filters.vendor_id is not None:
+            stmt = stmt.where(JobWorkChallan.vendor_id == filters.vendor_id)
+        if filters.job_work_order_id is not None:
+            stmt = stmt.where(JobWorkChallan.job_work_order_id == filters.job_work_order_id)
+        if filters.date_from is not None:
+            stmt = stmt.where(JobWorkChallan.challan_date >= filters.date_from)
+        if filters.date_to is not None:
+            stmt = stmt.where(JobWorkChallan.challan_date <= filters.date_to)
+        return self._apply_search(stmt, filters.search)
+
+    async def list_page_filtered(
+        self, filters: ChallanFilters, params: PageParams, sort: SortParams
+    ) -> tuple[list[JobWorkChallan], OffsetPagination]:
+        """Company-wide challan register, newest despatch first (E7b/P10.M3)."""
+        order_by = sort.resolve(self.sortable_fields, JobWorkChallan.challan_date.desc())
+        return await self.list_page(params, stmt=self._filtered(filters), order_by=order_by)
+
+    async def issued_by_item(
+        self, vendor_id: uuid.UUID, date_from: date, date_to: date
+    ) -> dict[uuid.UUID, tuple[Decimal, Decimal]]:
+        """Challaned quantities per input item: (before the period, in the period).
+
+        One grouped scan of the vendor's challan lines. The challan carries the
+        vendor and the date; the line carries the input item and quantity.
+        """
+        before = func.sum(
+            case(
+                (JobWorkChallan.challan_date < date_from, JobWorkChallanLine.quantity),
+                else_=Decimal("0"),
+            )
+        )
+        period = func.sum(
+            case(
+                (
+                    and_(
+                        JobWorkChallan.challan_date >= date_from,
+                        JobWorkChallan.challan_date <= date_to,
+                    ),
+                    JobWorkChallanLine.quantity,
+                ),
+                else_=Decimal("0"),
+            )
+        )
+        stmt = (
+            select(
+                JobWorkChallanLine.item_id.label("item_id"),
+                before.label("issued_before"),
+                period.label("issued_period"),
+            )
+            .join(JobWorkChallan, JobWorkChallan.id == JobWorkChallanLine.challan_id)
+            .where(
+                JobWorkChallanLine.company_id == self.tenant.company_id,
+                JobWorkChallan.vendor_id == vendor_id,
+                JobWorkChallan.challan_date <= date_to,
+            )
+            .group_by(JobWorkChallanLine.item_id)
+        )
+        return {
+            row.item_id: (Decimal(str(row.issued_before)), Decimal(str(row.issued_period)))
+            for row in (await self.session.execute(stmt)).all()
+        }
 
 
 class JobWorkChallanLineRepository(BaseRepository[JobWorkChallanLine]):
@@ -500,6 +565,74 @@ class JobWorkReceiptRepository(BaseRepository[JobWorkReceipt]):
             has_next=has_next,
             has_previous=params.page > 1,
         )
+
+    async def consumed_by_item(
+        self, vendor_id: uuid.UUID, date_from: date, date_to: date
+    ) -> dict[uuid.UUID, dict[str, Decimal]]:
+        """Receipt-line totals per input item for one vendor.
+
+        The line is read through its order line for the input item: the receipt
+        line itself names only the output item, which is a different code
+        whenever the process changes what the thing is. Money follows the same
+        grain - charges are apportioned per receipt line, so they attribute to
+        the input item that earned them without a second query.
+        """
+        before = JobWorkReceipt.receipt_date < date_from
+        in_period = and_(
+            JobWorkReceipt.receipt_date >= date_from,
+            JobWorkReceipt.receipt_date <= date_to,
+        )
+
+        def _sum(column: Any, condition: Any = None) -> Any:
+            if condition is None:
+                return func.coalesce(func.sum(column), 0)
+            return func.coalesce(func.sum(case((condition, column), else_=0)), 0)
+
+        stmt = (
+            select(
+                JobWorkOrderLine.item_id.label("item_id"),
+                _sum(JobWorkReceiptLine.input_consumed_quantity, before).label("consumed_before"),
+                _sum(JobWorkReceiptLine.input_consumed_quantity, in_period).label(
+                    "consumed_period"
+                ),
+                _sum(JobWorkReceiptLine.output_quantity, in_period).label("output_period"),
+                _sum(JobWorkReceiptLine.returned_unprocessed_quantity, in_period).label(
+                    "returned_period"
+                ),
+                _sum(JobWorkReceiptLine.scrap_quantity, in_period).label("scrap_period"),
+                _sum(JobWorkReceiptLine.charges, in_period).label("charges_period"),
+                _sum(JobWorkReceiptLine.invoiced_amount, in_period).label("billed_period"),
+                _sum(JobWorkReceiptLine.vendor_debit_amount, in_period).label("debits_period"),
+            )
+            .join(JobWorkReceipt, JobWorkReceipt.id == JobWorkReceiptLine.receipt_id)
+            .join(
+                JobWorkOrderLine,
+                JobWorkOrderLine.id == JobWorkReceiptLine.job_work_order_line_id,
+            )
+            .where(
+                JobWorkReceiptLine.company_id == self.tenant.company_id,
+                JobWorkReceipt.vendor_id == vendor_id,
+                JobWorkReceipt.receipt_date <= date_to,
+            )
+            .group_by(JobWorkOrderLine.item_id)
+        )
+        out: dict[uuid.UUID, dict[str, Decimal]] = {}
+        for row in (await self.session.execute(stmt)).all():
+            mapping = row._mapping
+            out[row.item_id] = {
+                name: Decimal(str(mapping[name]))
+                for name in (
+                    "consumed_before",
+                    "consumed_period",
+                    "output_period",
+                    "returned_period",
+                    "scrap_period",
+                    "charges_period",
+                    "billed_period",
+                    "debits_period",
+                )
+            }
+        return out
 
 
 class JobWorkOrderRepository(BaseRepository[JobWorkOrder]):

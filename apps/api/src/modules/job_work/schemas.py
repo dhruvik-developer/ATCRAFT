@@ -259,6 +259,16 @@ class JobWorkOrderFilters(BaseModel):
     created_to: datetime | None = None
 
 
+class ChallanFilters(BaseModel):
+    """Company-wide challan register filters (E7b/P10.M3)."""
+
+    search: str | None = None
+    vendor_id: uuid.UUID | None = None
+    job_work_order_id: uuid.UUID | None = None
+    date_from: date | None = None
+    date_to: date | None = None
+
+
 # -----------------------------------------------------------------------------
 # Lifecycle payloads
 # -----------------------------------------------------------------------------
@@ -648,6 +658,45 @@ class VendorChargeRow(BaseModel):
     output_quantity: Decimal
 
 
+class VendorLedgerItemRow(BaseModel):
+    """One input item on a job-work vendor's material account.
+
+    All quantities are in the input item's own unit. ``received_output_quantity``
+    is the good processed output the line's material turned into, in the
+    *output* item's unit - the two agree only for a 1:1 yield in the same UoM,
+    so the reconcilable identity on this row is
+    ``closing = opening + issued - input_consumed``, with
+    ``input_consumed = received_output_as_input + returned + scrap`` held on
+    the receipt lines underneath.
+    """
+
+    item_id: uuid.UUID
+    opening_quantity: Decimal
+    issued_quantity: Decimal
+    #: Input accounted back out of the job-work pool in the period.
+    input_consumed_quantity: Decimal
+    #: Good processed output received in the period, in output units.
+    received_output_quantity: Decimal
+    returned_quantity: Decimal
+    scrap_quantity: Decimal
+    closing_quantity: Decimal
+    #: Processing charges the period's receipts accrued for this item's lines.
+    charges_accrued: Decimal
+    #: Of those lines' charges, what approved job-work invoices have billed.
+    charges_billed: Decimal
+    #: Excess-loss value the period's receipts debited to the vendor.
+    vendor_debits: Decimal
+
+
+class VendorLedgerReport(BaseModel):
+    """A job-work vendor's material account for a period (E7b/P10.M10)."""
+
+    vendor_id: uuid.UUID
+    date_from: date
+    date_to: date
+    items: list[VendorLedgerItemRow] = Field(default_factory=list)
+
+
 class BillableLine(BaseModel):
     """One receipt line a job-work invoice may bill.
 
@@ -682,6 +731,7 @@ class BillableLine(BaseModel):
 __all__ = [
     "PENDING_AT_VENDOR_MAX",
     "BillableLine",
+    "ChallanFilters",
     "ChallanLineRead",
     "ChallanRead",
     "IssueLineIn",
@@ -706,4 +756,6 @@ __all__ = [
     "ReconciliationLine",
     "ReconciliationReport",
     "VendorChargeRow",
+    "VendorLedgerItemRow",
+    "VendorLedgerReport",
 ]

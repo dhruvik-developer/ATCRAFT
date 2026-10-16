@@ -194,6 +194,7 @@ from src.modules.job_work.repository import (
 from src.modules.job_work.schemas import (
     PENDING_AT_VENDOR_MAX,
     BillableLine,
+    ChallanFilters,
     ChallanLineRead,
     ChallanRead,
     IssueRequest,
@@ -214,6 +215,8 @@ from src.modules.job_work.schemas import (
     ReconciliationLine,
     ReconciliationReport,
     VendorChargeRow,
+    VendorLedgerItemRow,
+    VendorLedgerReport,
 )
 from src.modules.organization.service import require_cost_centre
 
@@ -1074,6 +1077,94 @@ async def list_challans(
         [challan.id for challan in challans]
     )
     return [challan_detail(challan, grouped.get(challan.id, [])) for challan in challans]
+
+
+async def list_challan_register(
+    session: AsyncSession,
+    tenant: TenantContext,
+    filters: ChallanFilters,
+    params: PageParams,
+    sort: SortParams,
+) -> tuple[list[ChallanRead], OffsetPagination]:
+    """Company-wide delivery-challan register, newest despatch first (E7b/P10.M3).
+
+    The per-order ``list_challans`` answers "what travelled under this order";
+    this answers "what left the factory, for whom, and when" - the register the
+    GST delivery challan is filed from and the ITC-04 return would be built on.
+    Lines are omitted: a register row names the consignment, and the full
+    document is one ``list_challans`` call away.
+    """
+    rows, pagination = await JobWorkChallanRepository(session, tenant).list_page_filtered(
+        filters, params, sort
+    )
+    return [ChallanRead.model_validate(row) for row in rows], pagination
+
+
+async def vendor_ledger(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    vendor_id: uuid.UUID,
+    date_from: date,
+    date_to: date,
+) -> VendorLedgerReport:
+    """One job-work vendor's material account for a period (E7b/P10.M10).
+
+    Per input item: what was already at the vendor when the period opened, what
+    the challans sent, what the receipts accounted back (good output, unworked
+    returns, process loss), and what is still out - beside the processing
+    charges the period accrued, what invoices have billed of those lines, and
+    the excess-loss value debited. The reconcilable identity on every row is
+    ``closing = opening + issued - consumed``; ``consumed`` is the input drawn
+    out of the job-work pool, not the output received, because the two are
+    different items whenever the process changes what the thing is.
+    """
+    _assert_period(date_from, date_to)
+    vendor = await VendorLookupRepository(session, tenant).load(vendor_id)
+    if vendor is None:
+        raise NotFoundError("Vendor", vendor_id)
+
+    issued = await JobWorkChallanRepository(session, tenant).issued_by_item(
+        vendor_id, date_from, date_to
+    )
+    consumed = await JobWorkReceiptRepository(session, tenant).consumed_by_item(
+        vendor_id, date_from, date_to
+    )
+
+    rows: list[VendorLedgerItemRow] = []
+    for item_id in sorted(set(issued) | set(consumed)):
+        issued_before, issued_period = issued.get(item_id, (ZERO, ZERO))
+        parts = consumed.get(
+            item_id,
+            {
+                "consumed_before": ZERO,
+                "consumed_period": ZERO,
+                "output_period": ZERO,
+                "returned_period": ZERO,
+                "scrap_period": ZERO,
+                "charges_period": ZERO,
+                "billed_period": ZERO,
+                "debits_period": ZERO,
+            },
+        )
+        opening = to_quantity(issued_before - parts["consumed_before"])
+        consumed_period = to_quantity(parts["consumed_period"])
+        rows.append(
+            VendorLedgerItemRow(
+                item_id=item_id,
+                opening_quantity=opening,
+                issued_quantity=to_quantity(issued_period),
+                input_consumed_quantity=consumed_period,
+                received_output_quantity=to_quantity(parts["output_period"]),
+                returned_quantity=to_quantity(parts["returned_period"]),
+                scrap_quantity=to_quantity(parts["scrap_period"]),
+                closing_quantity=to_quantity(opening + issued_period - consumed_period),
+                charges_accrued=to_money(parts["charges_period"]),
+                charges_billed=to_money(parts["billed_period"]),
+                vendor_debits=to_money(parts["debits_period"]),
+            )
+        )
+    return VendorLedgerReport(vendor_id=vendor_id, date_from=date_from, date_to=date_to, items=rows)
 
 
 async def list_receipts(
@@ -3041,6 +3132,7 @@ __all__ = [
     "input_equivalent",
     "issue_order",
     "job_work_charges_for_period",
+    "list_challan_register",
     "list_challans",
     "list_orders",
     "list_pending_at_vendor",
@@ -3060,5 +3152,6 @@ __all__ = [
     "resolve_inspection_reader_port",
     "resolve_quality_port",
     "update_order",
+    "vendor_ledger",
     "yield_ratio",
 ]
