@@ -13,7 +13,8 @@ class SalesReturnLineIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     dispatch_line_id: uuid.UUID
-    qc_inspection_id: uuid.UUID | None
+    qc_inspection_id: uuid.UUID | None = None
+    serial_ids: list[uuid.UUID] = Field(default_factory=list, max_length=10_000)
     quantity: Decimal = Field(gt=0)
     reason_code: str = Field(min_length=2, max_length=32)
     note: str | None = Field(default=None, max_length=2000)
@@ -42,6 +43,8 @@ class SalesReturnLineRead(BaseModel):
     id: uuid.UUID
     dispatch_line_id: uuid.UUID
     item_id: uuid.UUID
+    serial_ids: list[uuid.UUID]
+    qc_inspection_id: uuid.UUID | None
     quantity: Decimal
     credited_quantity: Decimal
     reason_code: str

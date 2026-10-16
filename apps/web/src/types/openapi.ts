@@ -28604,7 +28604,7 @@ export interface components {
             /** Note */
             note?: string | null;
             /** Qc Inspection Id */
-            qc_inspection_id: string | null;
+            qc_inspection_id?: string | null;
             /** Quantity */
             quantity: number | string;
             /** Reason Code */
@@ -28614,6 +28614,8 @@ export interface components {
              * @default true
              */
             requires_qc: boolean;
+            /** Serial Ids */
+            serial_ids?: string[];
         };
         /** SalesReturnLineRead */
         SalesReturnLineRead: {
@@ -28636,12 +28638,16 @@ export interface components {
             item_id: string;
             /** Note */
             note: string | null;
+            /** Qc Inspection Id */
+            qc_inspection_id: string | null;
             /** Quantity */
             quantity: string;
             /** Reason Code */
             reason_code: string;
             /** Requires Qc */
             requires_qc: boolean;
+            /** Serial Ids */
+            serial_ids: string[];
         };
         /**
          * SalesReturnSource

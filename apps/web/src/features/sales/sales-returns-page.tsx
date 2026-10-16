@@ -53,6 +53,7 @@ function NewSalesReturnDialog({
   const [dispatchId, setDispatchId] = useState('')
   const [warehouseId, setWarehouseId] = useState('')
   const [quantities, setQuantities] = useState<Record<string, string>>({})
+  const [serials, setSerials] = useState<Record<string, string>>({})
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const [notes, setNotes] = useState('')
   const dispatches = useQuery({
@@ -87,6 +88,10 @@ function NewSalesReturnDialog({
           .map((line) => ({
             dispatch_line_id: line.id,
             quantity: quantities[line.id],
+            serial_ids: (serials[line.id] ?? '')
+              .split(',')
+              .map((serial) => serial.trim())
+              .filter(Boolean),
             reason_code: reasons[line.id]?.trim() || 'CUSTOMER_RETURN',
             requires_qc: true,
           })),
@@ -97,6 +102,7 @@ function NewSalesReturnDialog({
       onClose()
       setDispatchId('')
       setQuantities({})
+      setSerials({})
       setReasons({})
       setNotes('')
     },
@@ -121,6 +127,7 @@ function NewSalesReturnDialog({
               onValueChange={(value) => {
                 setDispatchId(value)
                 setQuantities({})
+                setSerials({})
                 setReasons({})
               }}
             >
@@ -162,6 +169,11 @@ function NewSalesReturnDialog({
                   <div>
                     <p className="font-mono text-xs">{line.item_id}</p>
                     <p className="text-sm text-muted-foreground">Dispatched: {line.quantity}</p>
+                    {line.serial_ids.length > 0 && (
+                      <p className="break-all text-xs text-muted-foreground">
+                        Available serial IDs: {line.serial_ids.join(', ')}
+                      </p>
+                    )}
                   </div>
                   <Input
                     aria-label={`Return quantity for ${line.item_id}`}
@@ -175,6 +187,17 @@ function NewSalesReturnDialog({
                       setQuantities((current) => ({ ...current, [line.id]: event.target.value }))
                     }
                   />
+                  {line.serial_ids.length > 0 && (
+                    <Input
+                      aria-label={`Returned serial IDs for ${line.item_id}`}
+                      placeholder="Serial IDs, comma separated"
+                      value={serials[line.id] ?? ''}
+                      onChange={(event) =>
+                        setSerials((current) => ({ ...current, [line.id]: event.target.value }))
+                      }
+                      className="sm:col-span-3"
+                    />
+                  )}
                   <Input
                     aria-label={`Return reason for ${line.item_id}`}
                     placeholder="Reason"

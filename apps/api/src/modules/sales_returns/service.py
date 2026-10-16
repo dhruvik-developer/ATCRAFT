@@ -193,6 +193,50 @@ async def create_return(
                     "Return quantity exceeds the remaining quantity for line "
                     f"{dispatch_line.line_number}."
                 )
+            serial_ids = list(dict.fromkeys(line_in.serial_ids))
+            if len(serial_ids) != len(line_in.serial_ids):
+                raise BusinessRuleError(
+                    f"Return line {dispatch_line.line_number} contains duplicate serials."
+                )
+            if item.is_serial_tracked:
+                if len(serial_ids) != line_in.quantity:
+                    raise BusinessRuleError(
+                        f"Serial-tracked item {item.code} needs one serial per returned unit."
+                    )
+                shipped_serials = set(dispatch_line.serial_ids)
+                if not set(serial_ids).issubset(shipped_serials):
+                    raise BusinessRuleError(
+                        f"Every returned serial for line {dispatch_line.line_number} must have "
+                        "been shipped on that dispatch line."
+                    )
+                prior_lines = list(
+                    (
+                        await session.execute(
+                            select(SalesReturnLine)
+                            .join(
+                                SalesReturn,
+                                SalesReturn.id == SalesReturnLine.sales_return_id,
+                            )
+                            .where(
+                                SalesReturnLine.company_id == tenant.company_id,
+                                SalesReturnLine.dispatch_line_id == dispatch_line.id,
+                                SalesReturnLine.sales_return_id != row.id,
+                                SalesReturn.status != SalesReturnStatus.CANCELLED,
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                already_returned = {
+                    serial_id for prior in prior_lines for serial_id in prior.serial_ids
+                }
+                if already_returned.intersection(serial_ids):
+                    raise BusinessRuleError(
+                        f"A serial on line {dispatch_line.line_number} has already been returned."
+                    )
+            elif serial_ids:
+                raise BusinessRuleError(f"Item {item.code} is not serial tracked.")
             session.add(
                 SalesReturnLine(
                     company_id=tenant.company_id,
@@ -201,6 +245,7 @@ async def create_return(
                     dispatch_line_id=dispatch_line.id,
                     item_id=dispatch_line.item_id,
                     quantity=line_in.quantity,
+                    serial_ids=serial_ids,
                     reason_code=line_in.reason_code,
                     note=line_in.note,
                     requires_qc=line_in.requires_qc,
@@ -279,20 +324,44 @@ async def transition_return(
                 .all()
             )
             dispatch_by_id = {line.id: line for line in dispatch_lines}
-            movements = [
-                MovementRequest(
-                    item_id=line.item_id,
-                    warehouse_id=warehouse_id,
-                    quantity=line.quantity,
-                    transaction_type=TransactionType.CUSTOMER_RETURN,
-                    reference_type=SALES_RETURN_REFERENCE,
-                    reference_id=row.id,
-                    reference_code=row.code,
-                    reason="Customer sales return received",
-                    batch_id=dispatch_by_id[line.dispatch_line_id].batch_id,
-                )
-                for line in lines
-            ]
+            movements: list[MovementRequest] = []
+            for line in lines:
+                source = dispatch_by_id[line.dispatch_line_id]
+                if line.serial_ids:
+                    if line.requires_qc:
+                        raise BusinessRuleError(
+                            "QC-required serial returns are not supported until inspection "
+                            "disposition can name each returned serial."
+                        )
+                    movements.extend(
+                        MovementRequest(
+                            item_id=line.item_id,
+                            warehouse_id=warehouse_id,
+                            quantity=Decimal("1"),
+                            transaction_type=TransactionType.CUSTOMER_RETURN,
+                            reference_type=SALES_RETURN_REFERENCE,
+                            reference_id=row.id,
+                            reference_code=row.code,
+                            reason="Customer sales return received",
+                            batch_id=source.batch_id,
+                            serial_id=serial_id,
+                        )
+                        for serial_id in line.serial_ids
+                    )
+                else:
+                    movements.append(
+                        MovementRequest(
+                            item_id=line.item_id,
+                            warehouse_id=warehouse_id,
+                            quantity=line.quantity,
+                            transaction_type=TransactionType.CUSTOMER_RETURN,
+                            reference_type=SALES_RETURN_REFERENCE,
+                            reference_id=row.id,
+                            reference_code=row.code,
+                            reason="Customer sales return received",
+                            batch_id=source.batch_id,
+                        )
+                    )
             await post_movements(session, tenant, movements)
             for line in lines:
                 source = dispatch_by_id[line.dispatch_line_id]

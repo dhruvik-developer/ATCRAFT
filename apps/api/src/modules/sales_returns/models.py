@@ -5,7 +5,17 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.models import TenantEntity, sql_in_list
@@ -85,6 +95,9 @@ class SalesReturnLine(TenantEntity):
     item_id: Mapped[uuid.UUID] = mapped_column(
         GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=False
     )
+    serial_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(GUID), nullable=False, server_default=text("'{}'::uuid[]"), default=list
+    )
     quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
     credited_quantity: Mapped[Decimal] = mapped_column(
         Quantity, nullable=False, default=Decimal("0"), server_default="0"
@@ -99,6 +112,10 @@ class SalesReturnLine(TenantEntity):
         ),
         Index("ix_sales_return_lines_return", "company_id", "sales_return_id"),
         CheckConstraint("quantity > 0", name="sales_return_line_quantity_positive"),
+        CheckConstraint(
+            "cardinality(serial_ids) <= quantity",
+            name="sales_return_line_serial_count_bounded",
+        ),
         CheckConstraint(
             "credited_quantity >= 0 AND credited_quantity <= quantity",
             name="sales_return_line_credited_bounded",

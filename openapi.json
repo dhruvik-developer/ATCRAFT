@@ -50246,11 +50246,19 @@
             "default": true,
             "title": "Requires Qc",
             "type": "boolean"
+          },
+          "serial_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "title": "Serial Ids",
+            "type": "array"
           }
         },
         "required": [
           "dispatch_line_id",
-          "qc_inspection_id",
           "quantity",
           "reason_code"
         ],
@@ -50290,6 +50298,18 @@
             ],
             "title": "Note"
           },
+          "qc_inspection_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qc Inspection Id"
+          },
           "quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Quantity",
@@ -50302,12 +50322,22 @@
           "requires_qc": {
             "title": "Requires Qc",
             "type": "boolean"
+          },
+          "serial_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Serial Ids",
+            "type": "array"
           }
         },
         "required": [
           "id",
           "dispatch_line_id",
           "item_id",
+          "serial_ids",
+          "qc_inspection_id",
           "quantity",
           "credited_quantity",
           "reason_code",
