@@ -201,9 +201,14 @@ describe('using it wrongly', () => {
     // A default here would render a toggle that changes nothing - the kind of
     // defect that ships because it looks like it works.
     const quiet = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const suppressErrorEvent = (event: ErrorEvent) => event.preventDefault()
+    window.addEventListener('error', suppressErrorEvent)
 
-    expect(() => render(<Probe />)).toThrow(/ThemeProvider/)
-
-    quiet.mockRestore()
+    try {
+      expect(() => render(<Probe />)).toThrow(/ThemeProvider/)
+    } finally {
+      window.removeEventListener('error', suppressErrorEvent)
+      quiet.mockRestore()
+    }
   })
 })

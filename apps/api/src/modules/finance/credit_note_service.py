@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
@@ -33,6 +33,11 @@ from src.modules.finance.models import (
     SalesInvoiceLine,
     SalesInvoiceStatus,
     SystemAccount,
+)
+from src.modules.finance.sales_invoice_service import (
+    issued_credit_total,
+    sales_invoice_status_after_payment,
+    transition_sales_invoice,
 )
 from src.modules.finance.service import (
     JournalLine,
@@ -179,12 +184,15 @@ async def issue_credit_note(
         ).scalar_one_or_none()
         if invoice is None:
             raise NotFoundError("Sales invoice", payload.sales_invoice_id)
-        if invoice.status not in (
-            SalesInvoiceStatus.ISSUED,
-            SalesInvoiceStatus.PARTIALLY_PAID,
+        if invoice.status in (SalesInvoiceStatus.CANCELLED, SalesInvoiceStatus.CREDITED):
+            raise BusinessRuleError(
+                "Credit notes are not supported for cancelled or fully credited invoices."
+            )
+        if invoice.status == SalesInvoiceStatus.PAID and not (
+            payload.reason_type.value == "RETURN" and payload.sales_return_id is not None
         ):
             raise BusinessRuleError(
-                "Credit notes are supported only for issued or partially paid invoices."
+                "A paid invoice can only receive a credit for a linked customer return."
             )
         if invoice.currency != await company_currency(session, tenant):
             raise BusinessRuleError("The invoice currency does not match the company currency.")
@@ -234,7 +242,13 @@ async def issue_credit_note(
             tax_total += tax
 
         total = to_money(taxable_total + tax_total)
-        if total <= ZERO or invoice.paid_amount + total > invoice.total_amount:
+        existing_credited_total = await issued_credit_total(session, tenant, invoice.id)
+        credit_ceiling = (
+            invoice.total_amount
+            if invoice.status == SalesInvoiceStatus.PAID
+            else invoice.total_amount - invoice.paid_amount
+        )
+        if total <= ZERO or existing_credited_total + total > credit_ceiling:
             raise BusinessRuleError("The credit note exceeds the invoice receivable balance.")
         if payload.reason_type.value == "RETURN" and payload.sales_return_id is None:
             raise BusinessRuleError("A return credit note must reference a sales return.")
@@ -319,20 +333,19 @@ async def issue_credit_note(
             )
             source.credited_quantity += quantity or ZERO
             source.credited_amount += taxable
-        credited_total = await session.scalar(
-            select(func.coalesce(func.sum(CreditNote.total_amount), 0)).where(
-                CreditNote.company_id == tenant.company_id,
-                CreditNote.sales_invoice_id == invoice.id,
-                CreditNote.status == CreditNoteStatus.ISSUED,
-            )
-        )
-        credited_total = Decimal(str(credited_total or ZERO))
-        invoice.status = (
-            SalesInvoiceStatus.CREDITED
-            if invoice.paid_amount + credited_total >= invoice.total_amount
-            else sales_invoice_status_after_credit(
-                invoice.paid_amount, credited_total, invoice.total_amount
-            )
+        credited_total = await issued_credit_total(session, tenant, invoice.id)
+        await transition_sales_invoice(
+            session,
+            tenant,
+            invoice,
+            (
+                SalesInvoiceStatus.CREDITED
+                if invoice.paid_amount + credited_total >= invoice.total_amount
+                else sales_invoice_status_after_credit(
+                    invoice.paid_amount, credited_total, invoice.total_amount
+                )
+            ),
+            reason=f"Credit note {row.code} issued",
         )
         await session.flush()
     return await get_credit_note(session, tenant, row.id)
@@ -398,20 +411,17 @@ async def cancel_credit_note(
         row.cancelled_at = utcnow()
         row.cancellation_reason = reason
         row.cancelled_by_id = tenant.user_id
-        credited_total = await session.scalar(
-            select(func.coalesce(func.sum(CreditNote.total_amount), 0)).where(
-                CreditNote.company_id == tenant.company_id,
-                CreditNote.sales_invoice_id == invoice.id,
-                CreditNote.status == CreditNoteStatus.ISSUED,
-            )
-        )
-        credited_total = Decimal(str(credited_total or ZERO))
-        invoice.status = (
-            SalesInvoiceStatus.CREDITED
-            if invoice.paid_amount + credited_total >= invoice.total_amount
-            else sales_invoice_status_after_credit(
-                invoice.paid_amount, credited_total, invoice.total_amount
-            )
+        credited_total = await issued_credit_total(session, tenant, invoice.id)
+        await transition_sales_invoice(
+            session,
+            tenant,
+            invoice,
+            sales_invoice_status_after_payment(
+                total_amount=invoice.total_amount,
+                paid_amount=invoice.paid_amount,
+                credited_amount=credited_total,
+            ),
+            reason=f"Credit note {row.code} cancelled",
         )
         await record_status_change(
             session,

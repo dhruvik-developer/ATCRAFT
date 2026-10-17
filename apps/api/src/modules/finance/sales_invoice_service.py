@@ -7,6 +7,7 @@ from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
@@ -28,6 +29,8 @@ from src.modules.customers.schemas import OutstandingAdjustment
 from src.modules.customers.service import apply_outstanding_delta, get_customer_for_order
 from src.modules.dispatch.models import DispatchStatus, DispatchType
 from src.modules.finance.models import (
+    CreditNote,
+    CreditNoteStatus,
     PartyType,
     SalesInvoice,
     SalesInvoiceLine,
@@ -94,6 +97,18 @@ SALES_INVOICE_LIFECYCLE: StateMachine[SalesInvoiceStatus] = StateMachine(
         ),
         Transition(
             SalesInvoiceStatus.PARTIALLY_PAID,
+            SalesInvoiceStatus.CREDITED,
+            permission=Permission.CREDIT_NOTE_CREATE,
+            label="Credited",
+        ),
+        Transition(
+            SalesInvoiceStatus.PAID,
+            SalesInvoiceStatus.CREDITED,
+            permission=Permission.CREDIT_NOTE_CREATE,
+            label="Credited",
+        ),
+        Transition(
+            SalesInvoiceStatus.PARTIALLY_PAID,
             SalesInvoiceStatus.ISSUED,
             permission=Permission.PAYMENT_RECORD,
             label="Receipt released",
@@ -111,6 +126,24 @@ SALES_INVOICE_LIFECYCLE: StateMachine[SalesInvoiceStatus] = StateMachine(
             label="Receipt released",
         ),
         Transition(
+            SalesInvoiceStatus.CREDITED,
+            SalesInvoiceStatus.ISSUED,
+            permission=Permission.CREDIT_NOTE_CANCEL,
+            label="Credit cancelled",
+        ),
+        Transition(
+            SalesInvoiceStatus.CREDITED,
+            SalesInvoiceStatus.PARTIALLY_PAID,
+            permission=Permission.CREDIT_NOTE_CANCEL,
+            label="Credit cancelled",
+        ),
+        Transition(
+            SalesInvoiceStatus.CREDITED,
+            SalesInvoiceStatus.PAID,
+            permission=Permission.CREDIT_NOTE_CANCEL,
+            label="Credit cancelled",
+        ),
+        Transition(
             SalesInvoiceStatus.ISSUED,
             SalesInvoiceStatus.CANCELLED,
             permission=Permission.SALES_INVOICE_CANCEL,
@@ -123,13 +156,28 @@ SALES_INVOICE_LIFECYCLE: StateMachine[SalesInvoiceStatus] = StateMachine(
 
 
 def sales_invoice_status_after_payment(
-    *, total_amount: Decimal, paid_amount: Decimal
+    *, total_amount: Decimal, paid_amount: Decimal, credited_amount: Decimal = ZERO
 ) -> SalesInvoiceStatus:
+    if credited_amount > ZERO and paid_amount + credited_amount >= total_amount:
+        return SalesInvoiceStatus.CREDITED
     if paid_amount <= ZERO:
         return SalesInvoiceStatus.ISSUED
-    if paid_amount >= total_amount:
+    if paid_amount >= total_amount - credited_amount:
         return SalesInvoiceStatus.PAID
     return SalesInvoiceStatus.PARTIALLY_PAID
+
+
+async def issued_credit_total(
+    session: AsyncSession, tenant: TenantContext, invoice_id: uuid.UUID
+) -> Decimal:
+    value = await session.scalar(
+        select(func.coalesce(func.sum(CreditNote.total_amount), 0)).where(
+            CreditNote.company_id == tenant.company_id,
+            CreditNote.sales_invoice_id == invoice_id,
+            CreditNote.status == CreditNoteStatus.ISSUED,
+        )
+    )
+    return Decimal(str(value or ZERO))
 
 
 def apportion_discount(
@@ -507,8 +555,10 @@ async def issue_sales_invoice(
     return await get_sales_invoice(session, tenant, invoice.id)
 
 
-def _summary(invoice: SalesInvoice, blocked: bool) -> SalesInvoiceSummary:
-    balance = to_money(invoice.total_amount - invoice.paid_amount)
+def _summary(
+    invoice: SalesInvoice, blocked: bool, credited_amount: Decimal = ZERO
+) -> SalesInvoiceSummary:
+    balance = to_money(invoice.total_amount - invoice.paid_amount - credited_amount)
     within_window = utcnow() - invoice.issued_at <= timedelta(hours=INVOICE_CANCEL_WINDOW_HOURS)
     return SalesInvoiceSummary(
         **{
@@ -537,12 +587,24 @@ async def list_sales_invoices(
     repo = SalesInvoiceRepository(session, tenant)
     rows, pagination = await repo.list_filtered(filters, params, sort)
     ids = [row.id for row in rows]
+    credited_rows = await session.execute(
+        select(CreditNote.sales_invoice_id, func.sum(CreditNote.total_amount))
+        .where(
+            CreditNote.company_id == tenant.company_id,
+            CreditNote.sales_invoice_id.in_(ids),
+            CreditNote.status == CreditNoteStatus.ISSUED,
+        )
+        .group_by(CreditNote.sales_invoice_id)
+    )
+    credited = {invoice_id: Decimal(str(total or ZERO)) for invoice_id, total in credited_rows}
     blocked = (
         await repo.allocation_ids(ids)
         | await repo.credited_ids(ids)
         | await repo.closed_order_ids(ids)
     )
-    return [_summary(row, row.id in blocked) for row in rows], pagination
+    return [
+        _summary(row, row.id in blocked, credited.get(row.id, ZERO)) for row in rows
+    ], pagination
 
 
 async def get_sales_invoice(
@@ -556,12 +618,13 @@ async def get_sales_invoice(
         or bool(await repo.credited_ids([invoice.id]))
         or bool(await repo.closed_order_ids([invoice.id]))
     )
+    credited_amount = await issued_credit_total(session, tenant, invoice.id)
     values = {
         field: getattr(invoice, field)
         for field in SalesInvoiceDetail.model_fields
         if field not in {"lines", "payments", "balance_amount", "overdue_days", "can_cancel"}
     }
-    values.update(_summary(invoice, blocked).model_dump())
+    values.update(_summary(invoice, blocked, credited_amount).model_dump())
     return SalesInvoiceDetail(
         **values,
         lines=[SalesInvoiceLineRead.model_validate(line) for line in await repo.lines(invoice.id)],
@@ -750,6 +813,16 @@ async def _set_sales_receipt_allocations(
         from src.core.errors import NotFoundError
 
         raise NotFoundError("Sales invoice", next(iter(affected - set(invoices))))
+    credited_rows = await session.execute(
+        select(CreditNote.sales_invoice_id, func.sum(CreditNote.total_amount))
+        .where(
+            CreditNote.company_id == tenant.company_id,
+            CreditNote.sales_invoice_id.in_(affected),
+            CreditNote.status == CreditNoteStatus.ISSUED,
+        )
+        .group_by(CreditNote.sales_invoice_id)
+    )
+    credited = {invoice_id: Decimal(str(total or ZERO)) for invoice_id, total in credited_rows}
     for key, amount in requested.items():
         invoice = invoices[key]
         if invoice.customer_id != payment.party_id:
@@ -762,7 +835,12 @@ async def _set_sales_receipt_allocations(
             raise BusinessRuleError(
                 "Only issued or partially paid sales invoices can receive an allocation."
             )
-        if amount > to_money(invoice.total_amount - invoice.paid_amount) + amounts.get(key, ZERO):
+        if amount > to_money(
+            invoice.total_amount
+            - invoice.paid_amount
+            - credited.get(invoice.id, ZERO)
+            + amounts.get(key, ZERO)
+        ):
             raise BusinessRuleError(f"{invoice.code}: allocation exceeds its outstanding balance.")
     for key in affected:
         invoice = invoices[key]
@@ -789,7 +867,9 @@ async def _set_sales_receipt_allocations(
             tenant,
             invoice,
             sales_invoice_status_after_payment(
-                total_amount=invoice.total_amount, paid_amount=invoice.paid_amount
+                total_amount=invoice.total_amount,
+                paid_amount=invoice.paid_amount,
+                credited_amount=credited.get(invoice.id, ZERO),
             ),
             reason=f"Receipt allocation {payment.code}",
         )

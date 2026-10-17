@@ -11,6 +11,10 @@ from src.modules.finance.credit_note_service import (
     sales_invoice_status_after_credit,
 )
 from src.modules.finance.models import CreditNoteStatus, SalesInvoiceStatus
+from src.modules.finance.sales_invoice_service import (
+    SALES_INVOICE_LIFECYCLE,
+    sales_invoice_status_after_payment,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -49,4 +53,29 @@ def test_partial_credit_keeps_invoice_open_until_the_receivable_is_zero() -> Non
     assert (
         sales_invoice_status_after_credit(Decimal("20"), Decimal("80"), Decimal("100"))
         is SalesInvoiceStatus.CREDITED
+    )
+
+
+def test_payment_status_nets_issued_credit_notes() -> None:
+    assert (
+        sales_invoice_status_after_payment(
+            total_amount=Decimal("100"),
+            paid_amount=Decimal("80"),
+            credited_amount=Decimal("20"),
+        )
+        is SalesInvoiceStatus.CREDITED
+    )
+    assert (
+        sales_invoice_status_after_payment(
+            total_amount=Decimal("100"),
+            paid_amount=Decimal("80"),
+            credited_amount=Decimal("10"),
+        )
+        is SalesInvoiceStatus.PARTIALLY_PAID
+    )
+
+
+def test_credit_invoice_can_reopen_after_cancellation() -> None:
+    assert SALES_INVOICE_LIFECYCLE.can_transition(
+        SalesInvoiceStatus.CREDITED, SalesInvoiceStatus.PAID
     )

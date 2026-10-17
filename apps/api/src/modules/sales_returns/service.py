@@ -298,6 +298,23 @@ async def transition_return(
             .scalars()
             .all()
         )
+        if target == SalesReturnStatus.CLOSED:
+            inspection_ids = [line.qc_inspection_id for line in lines if line.qc_inspection_id]
+            if inspection_ids:
+                settled_count = await session.scalar(
+                    select(func.count(QcInspection.id)).where(
+                        QcInspection.company_id == tenant.company_id,
+                        QcInspection.id.in_(inspection_ids),
+                        QcInspection.result != InspectionResult.PENDING,
+                        QcInspection.rework_quantity == 0,
+                        QcInspection.hold_quantity == 0,
+                    )
+                )
+                if settled_count != len(inspection_ids):
+                    raise BusinessRuleError(
+                        "A return with pending QC inspections cannot be closed."
+                    )
+                await _issue_return_credit_note(session, tenant, row.id, lines)
         if target == SalesReturnStatus.RECEIVED:
             dispatch = (
                 await session.execute(
@@ -551,17 +568,12 @@ async def _issue_return_credit_note(
     """
     from src.modules.finance.credit_note_schemas import CreditNoteCreate, CreditNoteLineIn
     from src.modules.finance.credit_note_service import issue_credit_note
-    from src.modules.finance.models import CreditNote, CreditNoteReason, SalesInvoiceLine
-
-    existing = await session.scalar(
-        select(CreditNote.id).where(
-            CreditNote.company_id == tenant.company_id,
-            CreditNote.sales_return_id == return_id,
-            CreditNote.status != "CANCELLED",
-        )
+    from src.modules.finance.models import (
+        CreditNote,
+        CreditNoteLine,
+        CreditNoteReason,
+        SalesInvoiceLine,
     )
-    if existing is not None:
-        return
 
     dispatch_line_ids = [line.dispatch_line_id for line in lines]
     invoice_lines = list(
@@ -579,6 +591,27 @@ async def _issue_return_credit_note(
         .all()
     )
     by_dispatch_line = {line.dispatch_line_id: line for line in invoice_lines}
+    existing_lines = list(
+        (
+            await session.execute(
+                select(CreditNoteLine)
+                .join(CreditNote, CreditNote.id == CreditNoteLine.credit_note_id)
+                .where(
+                    CreditNote.company_id == tenant.company_id,
+                    CreditNote.sales_return_id == return_id,
+                    CreditNote.status != "CANCELLED",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    credited_by_invoice_line: dict[uuid.UUID, Decimal] = {}
+    for existing_line in existing_lines:
+        credited_by_invoice_line[existing_line.sales_invoice_line_id] = (
+            credited_by_invoice_line.get(existing_line.sales_invoice_line_id, ZERO)
+            + Decimal(existing_line.quantity or ZERO)
+        )
     credit_lines = []
     eligible_by_return_line: dict[uuid.UUID, Decimal] = {}
     for return_line in lines:
@@ -596,6 +629,9 @@ async def _issue_return_credit_note(
             if inspection is None:
                 raise NotFoundError("QC inspection", return_line.qc_inspection_id)
             eligible_quantity = Decimal(inspection.accepted_quantity)
+        if eligible_quantity <= ZERO:
+            continue
+        eligible_quantity -= credited_by_invoice_line.get(invoice_line.id, ZERO)
         if eligible_quantity <= ZERO:
             continue
         credit_lines.append(

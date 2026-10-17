@@ -1,5 +1,10 @@
 # Proposal versus current code: pending work
 
+> **Production readiness refresh — 17 October 2026:** the full proposal is not
+> ready for production sign-off. See the [current release review](production-readiness-20261017.md)
+> for actual CI results, reproduced financial defects and remaining UI/API gaps.
+> That review supersedes this document's release-status assertions.
+
 Reviewed on 17 October 2026 against the current `develop` branch, including
 the committed returns/credit-note work and the return-QC integration.
 

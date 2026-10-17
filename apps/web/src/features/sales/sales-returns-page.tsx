@@ -93,7 +93,7 @@ function NewSalesReturnDialog({
               .map((serial) => serial.trim())
               .filter(Boolean),
             reason_code: reasons[line.id]?.trim() || 'CUSTOMER_RETURN',
-            requires_qc: true,
+            requires_qc: !(serials[line.id] ?? '').trim(),
           })),
       }),
     onSuccess: () => {
