@@ -95,6 +95,40 @@ async def get_credit_note(
     return _detail(row, await _lines(session, tenant, row.id))
 
 
+async def queue_credit_note_pdf(
+    session: AsyncSession, tenant: TenantContext, note_id: uuid.UUID
+) -> str:
+    from src.modules.reports import service as reports_service
+    from src.modules.reports.models import ReportKey
+    from src.modules.reports.repository import ReportSnapshotRepository
+
+    note = await session.scalar(
+        select(CreditNote).where(
+            CreditNote.company_id == tenant.company_id,
+            CreditNote.id == note_id,
+        )
+    )
+    if note is None:
+        raise NotFoundError("Credit note", note_id)
+    async with transaction(session):
+        job = reports_service.new_job_snapshot(
+            ReportKey.CREDIT_NOTE, {"credit_note_id": str(note.id)}, now=utcnow()
+        )
+        job.expires_at = None
+        ReportSnapshotRepository(session, tenant).add(job)
+        await session.flush()
+    await reports_service.dispatch_job(
+        session,
+        tenant,
+        job,
+        task_name="reports.generate_credit_note",
+        queue="reports",
+        task_kwargs={"credit_note_id": str(note.id)},
+        subject="The credit note PDF",
+    )
+    return str(job.id)
+
+
 async def list_credit_notes(
     session: AsyncSession, tenant: TenantContext, params: PageParams, sort: SortParams
 ) -> tuple[list[CreditNoteSummary], OffsetPagination]:

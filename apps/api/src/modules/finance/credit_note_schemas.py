@@ -67,6 +67,7 @@ class CreditNoteSummary(BaseModel):
     total_amount: Decimal
     buyer_name: str
     issued_at: datetime
+    pdf_document_id: uuid.UUID | None
     cancelled_at: datetime | None
     cancellation_reason: str | None
 

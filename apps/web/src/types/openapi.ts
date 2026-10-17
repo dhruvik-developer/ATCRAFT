@@ -2077,6 +2077,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/finance/credit-notes/{note_id}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Credit Note Pdf */
+        post: operations["credit_note_pdf_api_v1_finance_credit_notes__note_id__pdf_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/finance/customer-adjustments": {
         parameters: {
             query?: never;
@@ -15301,6 +15318,8 @@ export interface components {
              * Format: date
              */
             note_date: string;
+            /** Pdf Document Id */
+            pdf_document_id: string | null;
             reason_type: components["schemas"]["CreditNoteReason"];
             /**
              * Sales Invoice Id
@@ -15407,6 +15426,8 @@ export interface components {
              * Format: date
              */
             note_date: string;
+            /** Pdf Document Id */
+            pdf_document_id: string | null;
             reason_type: components["schemas"]["CreditNoteReason"];
             /**
              * Sales Invoice Id
@@ -26265,7 +26286,7 @@ export interface components {
          *     catalogue asserts at import that every member has exactly one definition.
          * @enum {string}
          */
-        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "SHIFT_PRODUCTION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "SCRAP_REGISTER" | "CONSUMPTION_BY_DEPARTMENT" | "PURCHASE_ORDER" | "PACKING_LIST" | "SALES_INVOICE" | "REWORK_RATE" | "PRODUCTION_COST" | "JOB_WORK_COST" | "JOB_WORK_CHALLAN";
+        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "SHIFT_PRODUCTION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "SCRAP_REGISTER" | "CONSUMPTION_BY_DEPARTMENT" | "PURCHASE_ORDER" | "PACKING_LIST" | "SALES_INVOICE" | "CREDIT_NOTE" | "REWORK_RATE" | "PRODUCTION_COST" | "JOB_WORK_COST" | "JOB_WORK_CHALLAN";
         /**
          * RequisitionBatchConversionRequest
          * @description The batch form: several approved requisitions converted together.
@@ -47129,6 +47150,100 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_CreditNoteDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    credit_note_pdf_api_v1_finance_credit_notes__note_id__pdf_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                note_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
                 };
             };
             /** @description Malformed request */

@@ -1,11 +1,13 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 
 import { DataTable } from '@/components/data-table'
 import { FieldError, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/features/auth/auth-context'
+import { ReportJobPanel } from '@/features/reports/job-panel'
+import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
 import { useListQuery } from '@/hooks/use-list-query'
 import { formatDate, formatMoney } from '@/lib/format'
 import { P } from '@/lib/permissions'
@@ -29,6 +31,7 @@ type CreditNoteDetail = CreditNoteRow & {
   taxable_amount: string
   tax_amount: string
   issued_at: string
+  pdf_document_id: string | null
   cancelled_at: string | null
   cancellation_reason: string | null
   lines: Array<{
@@ -54,6 +57,12 @@ export default function CreditNotesPage() {
     queryKey: ['finance', 'credit-notes', 'detail', selected?.id ?? ''],
     queryFn: () => api.get<CreditNoteDetail>(`/finance/credit-notes/${selected?.id}`),
     enabled: Boolean(selected),
+  })
+  const job = useReportJob()
+  const pdf = useMutation({
+    mutationFn: () =>
+      api.post<AcceptedJobData>(`/finance/credit-notes/${selected?.id}/pdf`, undefined),
+    onSuccess: (accepted) => job.start(accepted),
   })
   const list = useListQuery<CreditNoteRow>({
     path: '/finance/credit-notes',
@@ -109,6 +118,11 @@ export default function CreditNotesPage() {
     await list.refetch()
   }
 
+  async function generatePdf() {
+    if (!selected) return
+    pdf.mutate()
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -137,7 +151,13 @@ export default function CreditNotesPage() {
         <div className="rounded-lg border border-border bg-card p-4 text-sm">
           <div className="flex items-center justify-between">
             <strong>{selected.code}</strong>
-            <Button variant="ghost" onClick={() => setSelected(null)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                job.reset()
+                setSelected(null)
+              }}
+            >
               Close
             </Button>
           </div>
@@ -209,6 +229,19 @@ export default function CreditNotesPage() {
               Cancel credit note
             </Button>
           )}
+          {can(P.CREDIT_NOTE_VIEW) && (
+            <Button
+              variant="outline"
+              className="mt-4 ml-2"
+              loading={pdf.isPending}
+              onClick={() => void generatePdf()}
+            >
+              Generate PDF
+            </Button>
+          )}
+          <div className="mt-4">
+            <ReportJobPanel controller={job} label="Credit note PDF" />
+          </div>
         </div>
       )}
     </div>

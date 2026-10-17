@@ -53,6 +53,7 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+from sqlalchemy import select
 
 from src.core.clock import utcnow
 from src.core.database import session_scope, transaction
@@ -70,7 +71,9 @@ from src.modules.documents.service import (
     default_expiry,
     resolve_storage_path,
 )
-from src.modules.finance import sales_invoice_service
+from src.modules.finance import credit_note_service, sales_invoice_service
+from src.modules.finance.credit_note_pdf import render_credit_note_pdf
+from src.modules.finance.models import CreditNote
 from src.modules.finance.repository import InventoryValuationRepository
 from src.modules.finance.sales_invoice_pdf import render_sales_invoice_pdf
 from src.modules.finance.sales_invoice_repository import (
@@ -96,6 +99,7 @@ XLSX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sh
 #: packing order" is one indexed lookup on ``documents``.
 PACKING_LIST_ENTITY = "packing_order"
 SALES_INVOICE_ENTITY = "sales_invoice"
+CREDIT_NOTE_ENTITY = "credit_note"
 
 #: Page geometry. 15 mm margins keep the table inside the printable area of every
 #: office printer we have met, without wasting a column of width.
@@ -1103,6 +1107,122 @@ async def generate_sales_invoice(
         "size_bytes": size_bytes,
         "checksum_sha256": checksum,
         "line_count": len(data.get("lines", [])),
+    }
+
+
+@async_task(name="reports.generate_credit_note", queue="reports")
+async def generate_credit_note(
+    credit_note_id: str,
+    snapshot_id: str,
+    company_id: str,
+    user_id: str,
+    request_id: str | None = None,
+    **_: Any,
+) -> dict[str, Any]:
+    """Render and file a credit-note PDF using the standard report lifecycle."""
+    tenant = TenantContext(company_id=uuid.UUID(company_id), user_id=uuid.UUID(user_id))
+    note_id = uuid.UUID(credit_note_id)
+    snapshot_uuid = uuid.UUID(snapshot_id)
+    moment = utcnow()
+    try:
+        async with session_scope() as session:
+            try:
+                snapshot = await reports_service.start_snapshot(session, tenant, snapshot_uuid)
+            except InvalidStateTransitionError:
+                log.warning("reports.credit_note_not_queued", snapshot_id=snapshot_id)
+                return {
+                    "snapshot_id": snapshot_id,
+                    "status": "SKIPPED",
+                    "reason": "the job is no longer queued",
+                }
+            detail = await credit_note_service.get_credit_note(session, tenant, note_id)
+            payload = await anyio.to_thread.run_sync(
+                render_credit_note_pdf, detail.model_dump(mode="json")
+            )
+            checksum = hashlib.sha256(payload).hexdigest()
+            rule = KNOWN_TYPES[PDF_MIME_TYPE]
+            storage_key = build_storage_key(
+                category=DocumentCategory.REPORT,
+                company_id=tenant.company_id,
+                rule=rule,
+                moment=moment,
+                file_id=new_id(),
+            )
+            destination = resolve_storage_path(storage_key)
+            await anyio.to_thread.run_sync(_write_bytes, destination, payload)
+            try:
+                document = Document(
+                    file_name=f"credit-note-{detail.code}.pdf",
+                    storage_key=storage_key,
+                    mime_type=PDF_MIME_TYPE,
+                    size_bytes=len(payload),
+                    checksum_sha256=checksum,
+                    category=DocumentCategory.REPORT,
+                    entity_type=CREDIT_NOTE_ENTITY,
+                    entity_id=note_id,
+                    uploaded_by_id=tenant.user_id,
+                    is_public=False,
+                    expires_at=default_expiry(DocumentCategory.REPORT, moment),
+                )
+                DocumentRepository(session, tenant).add(document)
+                await session.flush()
+                note = (
+                    await session.execute(
+                        select(CreditNote)
+                        .where(
+                            CreditNote.company_id == tenant.company_id,
+                            CreditNote.id == note_id,
+                        )
+                        .with_for_update()
+                    )
+                ).scalar_one_or_none()
+                if note is None:
+                    raise BusinessRuleError("Credit note disappeared while rendering.")
+                note.pdf_document_id = document.id
+                await record_audit(
+                    session,
+                    company_id=tenant.company_id,
+                    action=AuditAction.DATA_EXPORT,
+                    entity_type=CREDIT_NOTE_ENTITY,
+                    entity_id=note_id,
+                    entity_code=detail.code,
+                    summary=(
+                        f"Generated the credit note PDF for {detail.code} ({len(payload)} bytes)"
+                    ),
+                    user_id=tenant.user_id,
+                    new_values={
+                        "document_id": document.id,
+                        "file_name": document.file_name,
+                        "size_bytes": document.size_bytes,
+                        "checksum_sha256": checksum,
+                        "line_count": len(detail.lines),
+                    },
+                )
+                await reports_service.complete_snapshot(
+                    session,
+                    tenant,
+                    snapshot_id=snapshot.id,
+                    row_count=len(detail.lines),
+                    document_id=document.id,
+                )
+            except Exception:
+                await anyio.to_thread.run_sync(_unlink, destination)
+                raise
+            document_id = str(document.id)
+    except Exception as exc:
+        async with session_scope() as session:
+            await reports_service.fail_snapshot(
+                session, tenant, snapshot_id=snapshot_uuid, error=_failure_message(exc)
+            )
+        raise
+    return {
+        "snapshot_id": snapshot_id,
+        "status": "COMPLETED",
+        "credit_note_id": credit_note_id,
+        "document_id": document_id,
+        "size_bytes": len(payload),
+        "checksum_sha256": checksum,
+        "line_count": len(detail.lines),
     }
 
 

@@ -6059,6 +6059,35 @@
           }
         },
         {
+          "name": "Credit Note Pdf",
+          "request": {
+            "description": "Credit Note Pdf",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "credit-notes",
+                ":note_id",
+                "pdf"
+              ],
+              "raw": "{{base_url}}/api/v1/finance/credit-notes/{note_id}/pdf",
+              "variable": [
+                {
+                  "description": "note_id of the record",
+                  "key": "note_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Delete a draft invoice that was never used",
           "request": {
             "description": "Anything past DRAFT is cancelled instead, so the trail survives.",

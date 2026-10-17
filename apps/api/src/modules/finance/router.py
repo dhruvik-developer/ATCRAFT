@@ -171,6 +171,23 @@ async def cancel_credit_note(
     return ApiResponse[CreditNoteDetail].ok(note, "Credit note cancelled")
 
 
+@router.post(
+    "/credit-notes/{note_id}/pdf",
+    response_model=AcceptedJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[require_permission(Permission.CREDIT_NOTE_VIEW)],
+)
+async def credit_note_pdf(
+    note_id: uuid.UUID, session: DbSession, tenant: Tenant
+) -> AcceptedJobResponse:
+    job_id = await credit_note_service.queue_credit_note_pdf(session, tenant, note_id)
+    return AcceptedJobResponse.create(
+        job_id=job_id,
+        status_url=reports_service.job_status_url(job_id),
+        message="Credit note PDF queued",
+    )
+
+
 # -----------------------------------------------------------------------------
 # Chart of accounts
 # -----------------------------------------------------------------------------

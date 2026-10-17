@@ -104,7 +104,9 @@ These are code/wiring findings, not a fresh signed UAT result.
   credit-note routes, accounting, list/detail screens, return-QC hold/link and
   idempotent quality-owner settlement callback and automatic return-linked
   crediting are implemented on `develop`. Non-QC serial capture is implemented;
-  serial QC disposition and credit-note PDFs remain release gates.
+  credit-note PDF queueing, rendering, audited document storage and the frontend
+  polling/download flow are implemented. Serial QC disposition and PostgreSQL
+  end-to-end verification remain release gates.
 - **Dealer banners/promotions:** model, migration, permissions and service
   groundwork exists; the public API, screens, security tests and acceptance
   evidence are still required.

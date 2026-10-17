@@ -13827,6 +13827,18 @@
             "title": "Note Date",
             "type": "string"
           },
+          "pdf_document_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdf Document Id"
+          },
           "reason_type": {
             "$ref": "#/components/schemas/CreditNoteReason"
           },
@@ -13881,6 +13893,7 @@
           "total_amount",
           "buyer_name",
           "issued_at",
+          "pdf_document_id",
           "cancelled_at",
           "cancellation_reason",
           "lines"
@@ -14103,6 +14116,18 @@
             "title": "Note Date",
             "type": "string"
           },
+          "pdf_document_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdf Document Id"
+          },
           "reason_type": {
             "$ref": "#/components/schemas/CreditNoteReason"
           },
@@ -14157,6 +14182,7 @@
           "total_amount",
           "buyer_name",
           "issued_at",
+          "pdf_document_id",
           "cancelled_at",
           "cancellation_reason"
         ],
@@ -43297,6 +43323,7 @@
           "PURCHASE_ORDER",
           "PACKING_LIST",
           "SALES_INVOICE",
+          "CREDIT_NOTE",
           "REWORK_RATE",
           "PRODUCTION_COST",
           "JOB_WORK_COST",
@@ -85407,6 +85434,124 @@
           }
         ],
         "summary": "Cancel Credit Note",
+        "tags": [
+          "Finance"
+        ]
+      }
+    },
+    "/api/v1/finance/credit-notes/{note_id}/pdf": {
+      "post": {
+        "operationId": "credit_note_pdf_api_v1_finance_credit_notes__note_id__pdf_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "note_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Note Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptedJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Credit Note Pdf",
         "tags": [
           "Finance"
         ]
