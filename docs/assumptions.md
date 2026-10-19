@@ -1003,7 +1003,8 @@ centre would stop a company that has not set up its centres yet from raising a
 single order - the same day-one reasoning that has the finance module provision
 its control accounts on first use (`DEFAULT_CHART`).
 
-**Where.** The `cost_centre_id` columns (migration `3746fadd0b86`);
+**Where.** The `cost_centre_id` columns (now part of baseline migration
+`20261021_0100`);
 `src/modules/finance/service.py` - `_post_invoice_journal`, where a line with no
 centre on an invoice with none posts the unallocated leg.
 
@@ -1171,15 +1172,21 @@ model does with `bank_account_number_masked`.
 **Assumed.** `cost_centre.view` and `cost_centre.manage` are new permissions in
 the Organisation group. The ACCOUNTS preset holds both; the purchase and
 production presets and PLANNER hold view. A deployed system role (SUPER_ADMIN,
-ADMIN) gets both through migration `e1eed3775093`; a client-owned role on an
-existing deployment does not, and is granted from Settings -> Roles.
+ADMIN) gets both through the historical data migration `e1eed3775093`; a
+client-owned role on an existing deployment does not, and is granted from
+Settings -> Roles. The baseline carries the schema, not that data step: existing
+databases are stamped after verification, and fresh databases get the current
+preset when they are seeded.
 
 **Why.** The centre is the analytic dimension of the ledger, so its master is
 the accounts team's to keep; buyers and the shop floor name centres on their
 documents and need to see them. Client-owned roles are never rewritten from a
 preset - the `2f5e08c7ba61` precedent.
 
-**Where.** `src/core/permissions.py`; migration `e1eed3775093`.
+**Where.** `src/core/permissions.py`; the historical system-role grant is
+`e1eed3775093`, preserved at tag `pre-migration-squash-20261019`. Existing
+databases are stamped, so it is not replayed; fresh databases get the current
+preset when seeded.
 
 **Impact if wrong.** Move the strings between presets; existing roles change
 only through Settings -> Roles.
@@ -1238,7 +1245,10 @@ manager scoped to Handles sees and is assigned Lever Handles orders.
 **Where.** `src/modules/procurement/service_rules.py` -
 `resolve_procurement_category`, `single_order_category`, `scope_covers_category`;
 `src/modules/procurement/service.py` - `_order_category`, `_plan_conversion`;
-migration `159ffb5b9cb4` (the backfill).
+the schema is part of baseline migration `20261021_0100`. The historical data
+backfill (`159ffb5b9cb4`) is preserved at tag `pre-migration-squash-20261019`
+and is not replayed, because existing databases are stamped and fresh databases
+have no rows to backfill.
 
 **Impact if wrong.** If Atcraft wants one order per item category regardless of
 how the vendor is qualified, `resolve_procurement_category` returns the item's
@@ -1452,7 +1462,10 @@ disposal consumes the oldest scrap costs and does not change on-hand valuation.
 it from a later receipt would invent a cost the ledger never charged.
 
 **Where.** `src/modules/inventory/service.py` - scrap layer draw and
-`ScrapDisposalService`; migration `20261012_1703_backfill_scrap_cost_layers`.
+`ScrapDisposalService`; the schema is part of baseline migration
+`20261021_0100`. The historical data backfill
+(`20261012_1703_backfill_scrap_cost_layers`) is preserved at tag
+`pre-migration-squash-20261019` and is not replayed.
 
 **Impact if wrong.** If scrap should be valued at current standard cost, the
 SCRAP queue and the backfill both go.
@@ -2068,7 +2081,9 @@ The serial-disposition migration backfills those serials into
 and could issue the corresponding credit immediately. Reclassifying that
 history as pending QC would contradict both the ledger and existing credits.
 
-**Where.** `20261018_0100_sales_return_unit_dispositions` migration.
+**Where.** Baseline migration `20261021_0100` (historically
+`20261018_0100_sales_return_unit_dispositions`; its data backfill is preserved
+at tag `pre-migration-squash-20261019`).
 
 **Impact if wrong.** Review historical no-QC serial return documents before
 deploying the migration; incorrect backfill would require correcting the

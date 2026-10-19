@@ -430,8 +430,9 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
 - **A hand-written frontend type is compared with nothing.** `ItemDetail` in
   `features/items/item-model.ts` is declared by hand rather than as
   `SchemaOf<'...'>`, so `tsc` checks it against no contract at all. When
-  `items.valuation_method` was dropped from the API - migration `7e8eb4bdd0ed`,
-  every item is FIFO - the interface kept declaring it and
+  `items.valuation_method` was dropped from the API (now part of baseline
+  migration `20261021_0100`; every item is FIFO) - the interface kept declaring
+  it and
   `item-detail-page.tsx` kept drawing a "Valuation" row from it. `humanise`
   returns `'-'` for `undefined`, so every item in the ERP showed a labelled row
   with a dash in it for months, on a screen people read daily, with a green

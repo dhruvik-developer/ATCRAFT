@@ -189,9 +189,8 @@ class TestMovementsThatDoNotChangeHands:
     def test_a_unit_in_a_warehouse_is_left_alone(
         self, transaction_type: TransactionType, status: SerialStatus
     ) -> None:
-        if (status, transaction_type) == _RETURN_RELEASE:
-            pytest.skip("A QC release resolves a customer return - see its own case.")
-        assert _transition(status, transaction_type) is None
+        expected = SerialStatus.IN_STOCK if (status, transaction_type) == _RETURN_RELEASE else None
+        assert _transition(status, transaction_type) is expected
 
     @pytest.mark.parametrize(
         "transaction_type",

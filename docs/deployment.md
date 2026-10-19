@@ -29,8 +29,14 @@ git pull --ff-only origin main
 3. Stop Nginx, API, frontend, Celery worker, and Celery beat so no request or
    background task writes during the schema transition.
 4. Take a PostgreSQL dump when this is an existing deployment.
-5. Update/start PostgreSQL and Redis, then run `alembic upgrade head` from the
-   new backend image.
+5. Update/start PostgreSQL and Redis. A fresh database runs
+   `alembic upgrade head` from the new backend image. A database created before
+   the 2026-10-19 migration squash must record exactly revision `20261020_0100`,
+   be verified on a clone, and then be stamped with
+   `alembic stamp --purge 20261021_0100`; see
+   `docs/implementation/migration-squash-20261021.md`. An earlier revision must
+   be upgraded through the old chain at tag `pre-migration-squash-20261019`
+   first. Never run the baseline upgrade against a populated pre-squash database.
 6. Start the new release only after migration succeeds and wait for all health
    checks. The backend health check uses `/health/ready`, which checks both
    PostgreSQL and Redis.

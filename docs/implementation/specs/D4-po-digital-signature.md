@@ -3,6 +3,15 @@ Lane B, round 5, step 2 (after D1). Placeholder `§D4-n`.
 
 Proposal: Future Enhancement "Digital signature on PO" — client now wants it present.
 
+> **Decision — 19 October 2026 (supersedes the approach below):** the client
+> selected **certificate-backed DSC/PAdES** for PO signatures, not the
+> application-level Ed25519 design in this draft. Do not implement the Ed25519
+> design. The signing model, legal requirements, certificate profile and
+> procurement plan are in
+> [d4-dsc-pades-compliance-20261019.md](../d4-dsc-pades-compliance-20261019.md).
+> Implementation is gated on legal/counterparty confirmation and certificate
+> procurement; this spec will be rewritten around the approved model.
+
 Approach (`§D4-1`, binding): an **application-level digital signature** — Ed25519 over a canonical digest of the
 approved PO — embedded in the PO PDF as a visible signature block plus a QR code that opens a public verification page.
 It is tamper-evident and verifiable by the vendor without an account. No new dependency: Ed25519 from `cryptography`,

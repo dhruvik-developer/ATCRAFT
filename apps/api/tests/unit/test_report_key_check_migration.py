@@ -52,6 +52,12 @@ CONSTRAINT_LABEL = "report_key_is_known"
 #: does. The closing parenthesis must be in the same string, so an f-string that
 #: builds the list at run time never matches here.
 _SQL_IN_LIST = re.compile(r"report_key\s+IN\s*\(([^)]*)\)", re.IGNORECASE)
+#: The squashed baseline carries pg_dump's canonical form:
+#: ``(report_key)::text = ANY ((ARRAY['A'::character varying, ...])::text[])``.
+_SQL_ANY_ARRAY = re.compile(
+    r"report_key\)?(?:::text)?\s*=\s*ANY\s*\(\s*\(?ARRAY\[(.*?)\]",
+    re.IGNORECASE | re.DOTALL,
+)
 _QUOTED = re.compile(r"'([^']*)'")
 
 
@@ -170,6 +176,11 @@ def _string_values(node: ast.expr, assigned: dict[str, ast.expr]) -> tuple[str, 
     return tuple(values)
 
 
+def _any_array_keys(text: str) -> tuple[str, ...] | None:
+    match = _SQL_ANY_ARRAY.search(text)
+    return None if match is None else tuple(_QUOTED.findall(match.group(1)))
+
+
 def _established_keys(migration: _Migration) -> frozenset[str]:
     """The key list the migration's ``upgrade()`` leaves the CHECK holding."""
     upgrade = next(
@@ -181,6 +192,8 @@ def _established_keys(migration: _Migration) -> frozenset[str]:
         None,
     )
     assert upgrade is not None, f"{migration.path.name} has no upgrade()"
+
+    assigned = _module_assignments(migration.tree)
 
     spelled = [
         match.group(1)
@@ -195,7 +208,41 @@ def _established_keys(migration: _Migration) -> frozenset[str]:
         )
         return frozenset(_QUOTED.findall(spelled[0]))
 
-    assigned = _module_assignments(migration.tree)
+    array_spelled = [
+        keys
+        for node in ast.walk(upgrade)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        for keys in [_any_array_keys(node.value)]
+        if keys
+    ]
+    if array_spelled:
+        assert len(array_spelled) == 1, (
+            f"{migration.path.name} spells report_key = ANY (ARRAY[...]) "
+            f"{len(array_spelled)} times in upgrade()"
+        )
+        return frozenset(array_spelled[0])
+
+    # The baseline keeps its DDL in a module-level tuple and loops over it, so
+    # the CHECK text lives outside upgrade()'s own AST. Only follow that indirection
+    # when upgrade() actually consumes the tuple.
+    schema_statements = assigned.get("SCHEMA_STATEMENTS")
+    if schema_statements is not None and any(
+        isinstance(node, ast.Name) and node.id == "SCHEMA_STATEMENTS" for node in ast.walk(upgrade)
+    ):
+        array_spelled = [
+            keys
+            for node in ast.walk(schema_statements)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+            for keys in [_any_array_keys(node.value)]
+            if keys
+        ]
+        if array_spelled:
+            assert len(array_spelled) == 1, (
+                f"{migration.path.name} spells report_key = ANY (ARRAY[...]) "
+                f"{len(array_spelled)} times in SCHEMA_STATEMENTS"
+            )
+            return frozenset(array_spelled[0])
+
     passed = [
         values
         for node in ast.walk(upgrade)

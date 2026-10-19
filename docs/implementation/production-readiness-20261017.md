@@ -14,6 +14,28 @@ provides the requirement IDs and broader work-package mapping. This report
 refreshes the release decision using current source, fresh checks, disposable
 PostgreSQL probes and the actual GitHub Actions results.
 
+> **Update — 19 October 2026.** The 58-revision Alembic chain was squashed to
+> one verified baseline, `20261021_0100`. The baseline was generated from the
+> migrated head schema, not from ORM metadata, so the deployed constraints,
+> defaults, indexes, CHECK vocabularies and append-only triggers are preserved.
+> Old-chain and baseline databases matched on 134 tables, 2,771 columns, 3,392
+> constraints, 1,054 indexes, 4 triggers and 284 functions; the development
+> database and a clone were verified and stamped with
+> `alembic stamp --purge 20261021_0100` without changing data. See
+> [migration-squash-20261021.md](migration-squash-20261021.md). The 74
+> migration/model differences noted below are intentionally unchanged by the
+> squash and still require reviewed forward migrations.
+>
+> Current local verification after the returns/reallocation/debit-note and
+> migration-squash work: backend full suite **5,506 passed, 0 skipped**;
+> frontend **1,091 passed in 85 files**; Ruff, mypy, ESLint, Prettier,
+> typecheck and contract checks clean. Browser/responsive UAT and the full
+> production-stack e2e job remain open. For D4, the client selected
+> certificate-backed DSC/PAdES over an app-only signature; the
+> [compliance and procurement memo](d4-dsc-pades-compliance-20261019.md) is
+> ready, and implementation is gated on legal/compliance confirmation and
+> certificate procurement.
+
 ## Release gates currently failing
 
 The [CI run for the reviewed application commit](https://github.com/dhruvik-developer/ATCRAFT/actions/runs/38987034788)
@@ -24,7 +46,7 @@ is **failed**, with these observed results:
 | Backend dependency audit        | `pip-audit` reports **17 advisories in two locked packages**, PyJWT 2.13.0 and urllib3 2.7.0. The quality job stops before its lint, typing, contract and unit-test steps. Update and regenerate the locks, then rerun the security gate.                                                                          |
 | Production backend image        | Trivy reports **11 high/critical OS findings and 12 high/critical Python-package findings**. These overlap with dependency-audit findings; they are not 40 distinct vulnerabilities. The backend scan fails and the frontend image scan is skipped. Review applicability, patch/rebuild and obtain a passing scan. |
 | Production-stack end-to-end job | `atcraft-e2e-celery-worker-1` becomes **unhealthy** during stack startup. Seeding and the browser journeys are skipped. This run does not prove the deployed worker/PDF/notification flows or browser journeys work.                                                                                               |
-| Migration/model agreement       | The historical migration chain upgrades an empty PostgreSQL database to `20261017_0120`, but comparison with current ORM metadata returns **74 diff entries**. See the qualification below.                                                                                                                        |
+| Migration/model agreement       | The verified baseline `20261021_0100` upgrades an empty database and matches the old head catalogue, but comparison with current ORM metadata still returns **74 diff entries** (intentionally unchanged by the squash). See the qualification below.                                                                                                                        |
 
 The CI failures above are direct observations from the reviewed run, not a claim
 that every reported dependency advisory has an exploitable path in this ERP.
@@ -124,7 +146,7 @@ selected status. Credit-note list/detail/PDF UI is now implemented; the earlier
 | Backend integration/API suite | The reviewed GitHub CI run reports **1,870 passed**. These are CI results, not a claimed fresh rerun of the whole suite locally.                                                                                                                                                                                                                                    |
 | Frontend validation           | Fresh local lint, TypeScript, contract check and production build passed, including bundle budgets and credential scan. The same application's GitHub CI run reports **1,080 frontend tests in 83 files passed**, with npm audit, formatting and build passing.                                                                                                     |
 | Additional local frontend run | A duplicate full local Vitest run encountered timeouts under concurrent load/low available memory and was stopped without final totals. Those timeouts are not established code regressions; the completed CI result above is the full-suite evidence.                                                                                                              |
-| Fresh database                | Real empty PostgreSQL migration upgrade to the single historical head `20261017_0120`, reference-data seed and demonstration-data load passed. Migration/model comparison detected the differences below. The exclusively owned database was dropped after review.                                                                                                  |
+| Fresh database                | At review time, an empty PostgreSQL database upgraded to the then-head `20261017_0120`, and the reference-data seed and demonstration-data load passed; migration/model comparison detected the differences below. After the 19 October squash, the baseline `20261021_0100` is tested from empty by `test_migration_baseline.py`; the 74 differences are intentionally unchanged. The exclusively owned database was dropped after review.                                                                                                  |
 | Financial edge cases          | Disposable PostgreSQL service probes reproduced all five defects in the first findings table. These cases are not covered by the passing existing lifecycle-only return/credit tests.                                                                                                                                                                               |
 | Browser/responsive coverage   | The Browser runtime reported no available browser, so this review could not perform a fresh interactive/responsive sign-off. Earlier [UI readiness evidence](../ui-readiness.md) covered 52 registered routes before the current returns/credits work; the current registry has 56. That earlier evidence does not certify every new screen or business transition. |
 

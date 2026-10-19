@@ -57,6 +57,19 @@ completion, and download with only purchase-return view permission.
 Remaining: add the missing procurement cost-centre carrier and complete the
 QC-originated return/replacement workflow.
 
+**Additional progress — 19 October 2026 (migration baseline):** the
+58-revision Alembic chain was squashed to one baseline, `20261021_0100`,
+generated from the verified head schema. A fresh old-chain database and a fresh
+baseline database matched on 134 tables, 2,771 columns, 3,392 constraints,
+1,054 indexes, 4 triggers and 284 functions. The live development database and
+a clone matched the baseline and were stamped with
+`alembic stamp --purge 20261021_0100`; data counts were unchanged. The old chain
+is preserved at git tag `pre-migration-squash-20261019`. See
+[migration-squash-20261021.md](migration-squash-20261021.md) for evidence,
+fresh/existing database procedures and recovery. The squash preserves the
+deployed schema, including its known migration/model drift; those differences
+still need forward migrations.
+
 ## What is already implemented
 
 | Area                          | Current implementation; avoid reopening old completed work                                                                                                                                                                                                              |
@@ -117,7 +130,7 @@ for that full scope, while remaining distinct from the PDF's Must Have tier.
 | WhatsApp/SMS - D2                                   | In-app/email/Web Push exist; WhatsApp/SMS providers, consent, templates, delivery history and workers do not.                                                                          |
 | Courier integration/auto tracking - D3              | Manual tracking fields/updates exist; provider accounts/client/webhook/polling/refresh and admin UI do not.                                                                            |
 | Vendor rating/payment dashboard                     | Rating and payment summary/list APIs exist. Vendor-facing dashboard UI and the scheduled/refined rating policy remain.                                                                 |
-| PO application signature - D4                       | PO PDFs exist; signing/digest records, approval integration, QR verification and history do not. Certificate DSC/PAdES is an optional upgrade, not an additional baseline requirement. |
+| PO application signature - D4                       | PO PDFs exist; signing/digest records, approval integration, QR verification and history do not. The client selected certificate-backed DSC/PAdES rather than an app-only signature; the [compliance/procurement memo](d4-dsc-pades-compliance-20261019.md) is ready, and legal/compliance confirmation plus certificate procurement precede implementation. |
 | Public catalogue, ITC-04, ZPL/loading-scan variants | Optional in the implementation specs; keep separate from missing mandatory proposal workflows.                                                                                         |
 
 ## Ten proposal scenarios

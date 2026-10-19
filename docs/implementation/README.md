@@ -12,7 +12,14 @@ and [the traceability audit](trace/trace.json).
 
 ## Current checkpoint
 
-Updated 14 October 2026. **Round 2 integrated into `main` at `768a3e7` (single migration head `7f3070625160`).** All five lanes built, reviewed, merged, verified.
+Updated 19 October 2026. The 58-revision migration chain has been squashed to
+one verified baseline, `20261021_0100`; see
+[migration-squash-20261021.md](migration-squash-20261021.md). The D4/PAdES
+compliance and procurement plan is in
+[d4-dsc-pades-compliance-20261019.md](d4-dsc-pades-compliance-20261019.md). Work
+continues on `develop`; the round-2 integration table below is historical.
+
+### Round-2 integration checkpoint (14 October 2026)
 
 | Lane | Branch | Round-2 packages | State |
 |---|---|---|---|

@@ -46,4 +46,4 @@ Round 1 is being built now. Rounds 2–5 are specified but not built yet. Read a
 | D1-duplicate-po-actions | R5 / B | Duplicate PO actions (merge, increase quantity, create with approval confirmed at approval, cancel request); category and BOM-demand duplicate rules; PO amendment flow (rev N, vendor re-accepts) |
 | D2-whatsapp-sms-channels | R4 / B | WhatsApp Cloud API and SMS (MSG91/generic) channels behind configuration; consent; templates admin; delivery log |
 | D3-courier-api-auto-tracking | R4 / A | Courier integration (Shiprocket provider + generic webhook); auto tracking status for outbound dispatches and inbound shipments; admin page; refresh button |
-| D4-po-digital-signature | R5 / B | Ed25519 application-level digital signature on approved POs; QR + public verification page; revision on amendment |
+| D4-po-digital-signature | R5 / B | Certificate-backed DSC/PAdES signature on approved POs; QR + public verification page; revision on amendment. Gated on legal/counterparty and certificate procurement; Ed25519 draft superseded |

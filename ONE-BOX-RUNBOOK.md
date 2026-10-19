@@ -767,6 +767,17 @@ path; new code is never served against the old schema.
 The standalone `migrate` command is for recovery and operator inspection. A
 normal release must not split `up` and `migrate` into separate steps.
 
+**Pre-squash databases (before 2026-10-19).** The first release onto a database
+that still records revision `20261020_0100` must not use the normal `upgrade`
+path: the 58-revision chain was replaced by a single baseline, and replaying it
+against populated data is destructive. Confirm the target's `alembic_version` is
+exactly `20261020_0100`; an earlier revision must first be upgraded through the
+old chain at tag `pre-migration-squash-20261019`. Then verify a clone and run
+`alembic stamp --purge 20261021_0100` in the maintenance window before starting
+the new release. The normal `up` then sees head and performs no schema work. See
+`docs/implementation/migration-squash-20261021.md` for the verification,
+stamp and recovery procedure.
+
 ---
 
 ## Backup and restore

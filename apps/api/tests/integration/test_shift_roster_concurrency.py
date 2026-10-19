@@ -29,7 +29,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from sqlalchemy import func, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -213,7 +213,14 @@ async def test_two_supervisors_planning_one_operator_leave_exactly_one_plan(
 async def test_two_raw_writes_past_the_service_still_leave_exactly_one_plan(
     engine: Any, roster_schema: tuple[str, dict[str, uuid.UUID]]
 ) -> None:
-    """The EXCLUDE constraint is the backstop for a writer that took no lock."""
+    """The EXCLUDE constraint is the backstop for a writer that took no lock.
+
+    Two truly simultaneous inserts can also make PostgreSQL abort one of them
+    with a deadlock while it resolves the exclusion check. Both outcomes are a
+    refusal; the invariant under test is that the operator has exactly one
+    PLANNED window. The service path, which takes the roster advisory lock, is
+    tested above to return the named overlap error instead.
+    """
     _, ids = roster_schema
     await _cancel_everything(engine, ids)
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
@@ -244,6 +251,10 @@ async def test_two_raw_writes_past_the_service_still_leave_exactly_one_plan(
                     )
             except IntegrityError as exc:
                 return "refused" if "ex_shift_assignments_operator_window" in str(exc) else "other"
+            except DBAPIError as exc:
+                if getattr(exc.orig, "sqlstate", None) == "40P01":
+                    return "deadlocked"
+                return "other"
             return "written"
 
     first = asyncio.create_task(write(0))
@@ -251,5 +262,5 @@ async def test_two_raw_writes_past_the_service_still_leave_exactly_one_plan(
     gate.set()
     outcomes = await asyncio.wait_for(asyncio.gather(first, second), timeout=60)
 
-    assert sorted(outcomes) == ["refused", "written"]
+    assert sorted(outcomes) in (["deadlocked", "written"], ["refused", "written"])
     assert await _planned(engine, ids) == 1
