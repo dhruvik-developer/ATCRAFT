@@ -25750,6 +25750,8 @@ export interface components {
              * Format: uuid
              */
             to_demand_id: string;
+            /** To Demand Line Id */
+            to_demand_line_id?: string | null;
             to_demand_type: components["schemas"]["DemandType"];
             /**
              * Warehouse Id
@@ -25815,6 +25817,8 @@ export interface components {
              * Format: uuid
              */
             to_demand_id: string;
+            /** To Demand Line Id */
+            to_demand_line_id?: string | null;
             to_demand_type: components["schemas"]["DemandType"];
             /** To Reservation Id */
             to_reservation_id?: string | null;

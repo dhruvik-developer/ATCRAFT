@@ -21,7 +21,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.common.codes import clean_text
 from src.modules.allocation.models import (
@@ -205,6 +205,7 @@ class ReallocationRequestCreate(BaseModel):
     quantity: PositiveQuantity
     to_demand_type: DemandType
     to_demand_id: uuid.UUID
+    to_demand_line_id: uuid.UUID | None = None
     to_demand_code: str | None = Field(default=None, max_length=64)
     #: The requesting demand's own urgency, compared against each donor's. A
     #: request that is not more urgent than the stock it wants has no candidates.
@@ -212,6 +213,12 @@ class ReallocationRequestCreate(BaseModel):
     required_date: date | None = None
     reason: Reason
     from_reservation_id: uuid.UUID | None = None
+
+    @model_validator(mode="after")
+    def _sales_order_requires_line(self) -> ReallocationRequestCreate:
+        if self.to_demand_type is DemandType.SALES_ORDER and self.to_demand_line_id is None:
+            raise ValueError("A sales-order reallocation must identify its demand line.")
+        return self
 
     @field_validator("to_demand_code")
     @classmethod
@@ -253,6 +260,7 @@ class ReallocationRequestRead(BaseModel):
 
     to_demand_type: DemandType
     to_demand_id: uuid.UUID
+    to_demand_line_id: uuid.UUID | None = None
     to_demand_code: str | None = None
 
     item_id: uuid.UUID

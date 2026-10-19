@@ -473,6 +473,14 @@ async def available_to_promise(session, tenant, *, item_id, warehouse_id=None) -
 `reservation_type` ∈ `HARD | SOFT`. Hard reservations are never taken by
 reallocation without an approved `ReallocationRequest`.
 
+An urgent reallocation to `SALES_ORDER` must identify its `to_demand_line_id`
+(`sales_order_lines.id`).
+Approval locks sales-order headers and lines before the inventory balance,
+then releases the donor and extends or creates the recipient reservation in the
+same transaction. Both sales lines' `reservation_id`, allocated quantity and
+derived fulfilment status are synchronized and audited; a fully covered
+recipient or newly short donor advances through the sales-order state machine.
+
 ---
 
 ### 4.6 Putaway, scrap and internal consumption

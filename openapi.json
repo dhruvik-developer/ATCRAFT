@@ -41973,6 +41973,18 @@
             "title": "To Demand Id",
             "type": "string"
           },
+          "to_demand_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Demand Line Id"
+          },
           "to_demand_type": {
             "$ref": "#/components/schemas/DemandType"
           },
@@ -42181,6 +42193,18 @@
             "format": "uuid",
             "title": "To Demand Id",
             "type": "string"
+          },
+          "to_demand_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Demand Line Id"
           },
           "to_demand_type": {
             "$ref": "#/components/schemas/DemandType"

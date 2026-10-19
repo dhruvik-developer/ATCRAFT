@@ -1445,10 +1445,131 @@ async def reallocate(
             location_id=donor_preview.location_id,
             batch_id=donor_preview.batch_id,
         )
+        sales_targets: list[tuple[uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]] = []
+        donor_target_key: tuple[uuid.UUID, uuid.UUID] | None = None
+        recipient_target_key: tuple[uuid.UUID, uuid.UUID] | None = None
+        if donor_preview.demand_type is DemandType.SALES_ORDER:
+            if donor_preview.demand_line_id is None:
+                raise BusinessRuleError(
+                    "A sales-order donor reservation must identify its demand line.",
+                    details={"reservation_id": str(donor_preview.id)},
+                )
+            donor_target_key = (donor_preview.demand_id, donor_preview.demand_line_id)
+            sales_targets.append(
+                (
+                    donor_preview.demand_id,
+                    donor_preview.demand_line_id,
+                    donor_preview.item_id,
+                    donor_preview.warehouse_id,
+                )
+            )
+        if request.to_demand_type is DemandType.SALES_ORDER:
+            demand_line_id = _recipient_demand_line_id(request)
+            if demand_line_id is None:
+                raise BusinessRuleError(
+                    "A sales-order reallocation must identify its demand line.",
+                    details={"request_id": str(request.id)},
+                )
+            recipient_target_key = (request.to_demand_id, demand_line_id)
+            sales_targets.append(
+                (
+                    request.to_demand_id,
+                    demand_line_id,
+                    request.item_id,
+                    request.warehouse_id,
+                )
+            )
+        donor_target = None
+        recipient_target = None
+        if sales_targets:
+            from src.modules.sales.service import lock_reallocation_targets
+
+            targets = await lock_reallocation_targets(session, tenant, targets=sales_targets)
+            donor_target = targets.get(donor_target_key) if donor_target_key else None
+            recipient_target = targets.get(recipient_target_key) if recipient_target_key else None
         balance = await engine.lock_balance(grain)
-        donor = await engine.lock_reservation(request.from_reservation_id)
+        recipient_line = recipient_target.line if recipient_target is not None else None
+
+        reservation_ids = [request.from_reservation_id]
+        if donor_target is not None:
+            donor_reservation_id = donor_target.line.reservation_id
+            if donor_reservation_id is None:
+                raise BusinessRuleError(
+                    "The donor sales-order line has no linked reservation.",
+                    details={"sales_order_line_id": str(donor_target.line.id)},
+                )
+            reservation_ids.append(donor_reservation_id)
+        if recipient_line is not None and recipient_line.reservation_id is not None:
+            reservation_ids.append(recipient_line.reservation_id)
+        locked_reservations = await engine.reservations.lock_reservations(reservation_ids)
+        donor = locked_reservations.get(request.from_reservation_id)
+        if donor is None:
+            raise NotFoundError("Stock reservation", request.from_reservation_id)
 
         amount = to_quantity(request.quantity)
+        if donor_target is not None:
+            donor_line = donor_target.line
+            donor_remaining = remaining_of(
+                donor.quantity, donor.consumed_quantity, donor.released_quantity
+            )
+            if (
+                donor_line.reservation_id != donor.id
+                or to_quantity(donor_line.allocated_quantity) != donor_remaining
+            ):
+                raise BusinessRuleError(
+                    "The donor sales-order line and reservation disagree about allocated quantity.",
+                    details={
+                        "sales_order_line_id": str(donor_line.id),
+                        "line_allocated": str(donor_line.allocated_quantity),
+                        "reservation_remaining": str(donor_remaining),
+                    },
+                )
+        if (
+            recipient_line is not None
+            and recipient_line.reservation_id is None
+            and to_quantity(recipient_line.allocated_quantity) != ZERO
+        ):
+            raise BusinessRuleError(
+                "The recipient sales-order line has allocated quantity but no reservation.",
+                details={"sales_order_line_id": str(recipient_line.id)},
+            )
+        existing_recipient = (
+            locked_reservations.get(recipient_line.reservation_id)
+            if recipient_line is not None and recipient_line.reservation_id is not None
+            else None
+        )
+        if recipient_line is not None and recipient_line.reservation_id is not None:
+            if existing_recipient is None:
+                raise NotFoundError("Stock reservation", recipient_line.reservation_id)
+            if existing_recipient.id == donor.id:
+                raise BusinessRuleError("The donor cannot also be the recipient reservation.")
+            if (
+                existing_recipient.demand_type is not DemandType.SALES_ORDER
+                or existing_recipient.demand_id != request.to_demand_id
+                or existing_recipient.demand_line_id != recipient_line.id
+                or existing_recipient.item_id != request.item_id
+                or existing_recipient.warehouse_id != request.warehouse_id
+                or existing_recipient.status not in OPEN_RESERVATION_STATUSES
+            ):
+                raise BusinessRuleError(
+                    "The sales-order line's current reservation does not match this demand.",
+                    details={"sales_order_line_id": str(recipient_line.id)},
+                )
+            existing_remaining = remaining_of(
+                existing_recipient.quantity,
+                existing_recipient.consumed_quantity,
+                existing_recipient.released_quantity,
+            )
+            if existing_remaining != to_quantity(recipient_line.allocated_quantity):
+                raise BusinessRuleError(
+                    "The sales-order line and its reservation disagree about allocated quantity.",
+                    details={
+                        "sales_order_line_id": str(recipient_line.id),
+                        "line_allocated": str(recipient_line.allocated_quantity),
+                        "reservation_remaining": str(existing_remaining),
+                    },
+                )
+
         plan = plan_release(
             quantity=donor.quantity,
             consumed_quantity=donor.consumed_quantity,
@@ -1473,6 +1594,18 @@ async def reallocate(
         donor.released_at = utcnow()
         donor.release_reason = release_note
         engine.reservations.touch(donor)
+        if donor_target is not None:
+            from src.modules.sales.service import release_reallocation_from_line
+
+            await release_reallocation_from_line(
+                session,
+                tenant,
+                donor_target,
+                reservation_id=donor.id,
+                reservation_remaining=plan.remaining_after,
+                quantity=plan.applied_quantity,
+                reallocation_request_id=request.id,
+            )
 
         # ASSUMPTION: the granted reservation is HARD, and inherits the
         # requester's urgency from the request's impact summary. A person
@@ -1480,32 +1613,59 @@ async def reallocate(
         # soft placeholder would let the next request take it back without
         # anybody approving that too.
         requester = (request.impact_summary or {}).get("requester") or {}
-        recipient = StockReservation(
-            item_id=donor.item_id,
-            warehouse_id=donor.warehouse_id,
-            location_id=donor.location_id,
-            batch_id=donor.batch_id,
-            demand_type=request.to_demand_type,
-            demand_id=request.to_demand_id,
-            demand_line_id=None,
-            demand_code=request.to_demand_code,
-            reservation_type=ReservationType.HARD,
-            quantity=amount,
-            consumed_quantity=ZERO,
-            released_quantity=ZERO,
-            status=ReservationStatus.ACTIVE,
-            priority=_parse_priority(requester.get("priority")),
-            required_date=_parse_iso_date(requester.get("required_date")),
-            reason=f"Reallocated from {donor.demand_type} "
-            f"{donor.demand_code or donor.demand_id}: {request.reason}"[:255],
-        )
-        engine.reservations.add(recipient)
+        recipient = existing_recipient
+        if recipient is None:
+            recipient = StockReservation(
+                item_id=donor.item_id,
+                warehouse_id=donor.warehouse_id,
+                location_id=donor.location_id,
+                batch_id=donor.batch_id,
+                demand_type=request.to_demand_type,
+                demand_id=request.to_demand_id,
+                demand_line_id=_recipient_demand_line_id(request),
+                demand_code=request.to_demand_code,
+                reservation_type=ReservationType.HARD,
+                quantity=amount,
+                consumed_quantity=ZERO,
+                released_quantity=ZERO,
+                status=ReservationStatus.ACTIVE,
+                priority=_parse_priority(requester.get("priority")),
+                required_date=_parse_iso_date(requester.get("required_date")),
+                reason=f"Reallocated from {donor.demand_type} "
+                f"{donor.demand_code or donor.demand_id}: {request.reason}"[:255],
+            )
+            engine.reservations.add(recipient)
+        else:
+            recipient.quantity = to_quantity(Decimal(recipient.quantity) + amount)
+            recipient.reservation_type = ReservationType.HARD
+            recipient.priority = min(recipient.priority, _parse_priority(requester.get("priority")))
+            requested_date = _parse_iso_date(requester.get("required_date"))
+            if requested_date is not None and (
+                recipient.required_date is None or requested_date < recipient.required_date
+            ):
+                recipient.required_date = requested_date
+            recipient.reason = (
+                f"Reallocation from {donor.demand_code or donor.demand_id}: {request.reason}"
+            )[:255]
+        engine.reservations.touch(recipient)
         engine.apply_reserve(balance, amount, item=item, warehouse_code=warehouse_code)
         # Flushed before the impact summary is written: the primary key is a
         # Python-side column default, so `recipient.id` is None until the INSERT
         # is emitted, and stamping "None" into the summary would lose the only
         # link from the request to the reservation it created.
         await session.flush()
+
+        if recipient_target is not None:
+            from src.modules.sales.service import apply_reallocation_to_line
+
+            await apply_reallocation_to_line(
+                session,
+                tenant,
+                recipient_target,
+                reservation_id=recipient.id,
+                quantity=amount,
+                reallocation_request_id=request.id,
+            )
 
         request.status = ReallocationStatus.APPROVED
         request.approved_by_id = approved_by
@@ -2265,6 +2425,10 @@ class AllocationService:
             created = executed.get("to_reservation_id")
             if isinstance(created, str):
                 read.to_reservation_id = uuid.UUID(created)
+            requester = (row.impact_summary or {}).get("requester") or {}
+            demand_line_id = requester.get("demand_line_id")
+            if isinstance(demand_line_id, str):
+                read.to_demand_line_id = uuid.UUID(demand_line_id)
             reads.append(read)
         return reads
 
@@ -2331,9 +2495,16 @@ def _impact_summary(
             "priority": payload.priority,
             "required_date": (payload.required_date.isoformat() if payload.required_date else None),
             "quantity_needed": str(payload.quantity),
+            "demand_line_id": str(payload.to_demand_line_id) if payload.to_demand_line_id else None,
         },
         "candidates_considered": considered,
     }
+
+
+def _recipient_demand_line_id(request: ReallocationRequest) -> uuid.UUID | None:
+    requester = (request.impact_summary or {}).get("requester") or {}
+    raw = requester.get("demand_line_id")
+    return uuid.UUID(raw) if raw else None
 
 
 __all__ = [

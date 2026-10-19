@@ -41,6 +41,7 @@ const ITEM = {
 }
 const WAREHOUSE = { id: 'wh000000-0000-7000-8000-000000000001', code: 'MAIN', name: 'Main store' }
 const DEMAND_ID = '0192f5a0-0000-7000-8000-000000000abc'
+const DEMAND_LINE_ID = '0192f5a0-0000-7000-8000-000000000def'
 
 function reservation(overrides: Partial<ReservationRow> = {}): ReservationRow {
   return {
@@ -54,7 +55,7 @@ function reservation(overrides: Partial<ReservationRow> = {}): ReservationRow {
     batch_id: null,
     demand_type: 'SALES_ORDER',
     demand_id: DEMAND_ID,
-    demand_line_id: null,
+    demand_line_id: DEMAND_LINE_ID,
     demand_code: 'SO/2026-27/00184',
     reservation_type: 'HARD',
     status: 'ACTIVE',
@@ -513,6 +514,7 @@ describe('suggesting a reallocation', () => {
     from_reservation_type: 'HARD' as const,
     to_demand_type: 'SALES_ORDER' as const,
     to_demand_id: DEMAND_ID,
+    to_demand_line_id: DEMAND_LINE_ID,
     to_demand_code: 'SO/2026-27/00184',
     item_id: ITEM.id,
     item_code: ITEM.code,
@@ -599,6 +601,7 @@ describe('suggesting a reallocation', () => {
     expect(typeof body.quantity).toBe('string')
     expect(body.to_demand_type).toBe('SALES_ORDER')
     expect(body.to_demand_id).toBe(DEMAND_ID)
+    expect(body.to_demand_line_id).toBe(DEMAND_LINE_ID)
     expect(body.item_id).toBe(ITEM.id)
     expect(body.warehouse_id).toBe(WAREHOUSE.id)
   })
@@ -631,6 +634,81 @@ describe('suggesting a reallocation', () => {
 })
 
 describe('states a person can act on', () => {
+  it('shows and authorizes the reallocation approval inbox', async () => {
+    const pendingRequest = {
+      id: 'rq000000-0000-7000-8000-000000000001',
+      status: 'PENDING' as const,
+      from_reservation_id: 'rs000000-0000-7000-8000-000000000009',
+      from_demand_type: 'PRODUCTION_ORDER' as const,
+      from_demand_id: 'pd000000-0000-7000-8000-000000000001',
+      from_demand_code: 'PO/2026-27/00042',
+      from_reservation_type: 'HARD' as const,
+      to_demand_type: 'SALES_ORDER' as const,
+      to_demand_id: DEMAND_ID,
+      to_demand_line_id: DEMAND_LINE_ID,
+      to_demand_code: 'SO/2026-27/00184',
+      item_id: ITEM.id,
+      item_code: ITEM.code,
+      item_name: ITEM.name,
+      warehouse_id: WAREHOUSE.id,
+      warehouse_code: WAREHOUSE.code,
+      quantity: '5.2500',
+      reason: 'Customer escalation',
+      approved_at: null,
+      decision_note: null,
+      to_reservation_id: null,
+      candidates: [],
+    }
+    const { user, fetch } = renderScreen(<ReservationsPage />, {
+      permissions: [P.RESERVATION_VIEW, P.ALLOCATION_VIEW, P.ALLOCATION_APPROVE],
+      routes: {
+        ...baseRoutes(),
+        'GET /allocation/reallocation-requests': page([pendingRequest]),
+        'POST /allocation/reallocation-requests/rq000000-0000-7000-8000-000000000001/approve': ok({
+          ...pendingRequest,
+          status: 'EXECUTED',
+        }),
+      },
+    })
+
+    expect(await screen.findByText('Reallocation approval inbox')).toBeInTheDocument()
+    expect(await screen.findByText('SO/2026-27/00184')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Approve' }))
+    await user.click(await screen.findByRole('button', { name: 'Approve and reallocate' }))
+    await expect
+      .poll(() =>
+        fetch.calls.some(
+          (call) =>
+            call.method === 'POST' &&
+            call.path.endsWith('/rq000000-0000-7000-8000-000000000001/approve'),
+        ),
+      )
+      .toBe(true)
+  })
+
+  it('does not read the approval queue without both view and approve rights', () => {
+    const { fetch } = renderScreen(<ReservationsPage />, {
+      permissions: [P.RESERVATION_VIEW, P.ALLOCATION_APPROVE],
+      routes: baseRoutes(),
+    })
+
+    expect(screen.queryByText('Reallocation approval inbox')).not.toBeInTheDocument()
+    expect(fetch.calls.map((call) => call.path)).not.toContain('/allocation/reallocation-requests')
+  })
+
+  it('requires a sales demand-line link before offering reallocation', async () => {
+    const { user } = renderScreen(<ReservationsPage />, {
+      permissions: [P.RESERVATION_VIEW, P.ALLOCATION_REALLOCATE],
+      routes: baseRoutes([reservation({ demand_line_id: null })]),
+    })
+
+    const menu = await openRowMenu(user)
+    expect(within(menu).getByRole('menuitem', { name: /demand line required/i })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    )
+  })
+
   it('explains an empty list rather than showing a bare grid', async () => {
     renderScreen(<ReservationsPage />, {
       permissions: [P.RESERVATION_VIEW],

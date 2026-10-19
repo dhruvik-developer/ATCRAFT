@@ -700,6 +700,7 @@ function ReallocationDialog({
         quantity: values.quantity.trim(),
         to_demand_type: reservation.demand_type,
         to_demand_id: reservation.demand_id,
+        to_demand_line_id: reservation.demand_line_id,
         to_demand_code: reservation.demand_code,
         priority: reservation.priority,
         required_date: reservation.required_date,
@@ -941,6 +942,172 @@ function ReallocationDialog({
   )
 }
 
+function ReallocationInbox() {
+  const queryClient = useQueryClient()
+  const [decision, setDecision] = useState<{
+    request: ReallocationRequest
+    action: 'approve' | 'reject'
+  } | null>(null)
+  const list = useListQuery<ReallocationRequest>({
+    path: '/allocation/reallocation-requests',
+    queryKey: queryKeys.allocation.reallocationRequests,
+    namespace: 'reallocation',
+    filters: { status: 'PENDING' },
+    defaultSortBy: 'created_at',
+    defaultSortDir: 'asc',
+    staleTime: staleTimes.live,
+    refetchOnWindowFocus: true,
+  })
+
+  const decide = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: 'approve' | 'reject' }) =>
+      api.post<ReallocationRequest>(`/allocation/reallocation-requests/${id}/${action}`, {}),
+    onSuccess: (_result, variables) => {
+      setDecision(null)
+      toast.success(
+        variables.action === 'approve' ? 'Reallocation approved' : 'Reallocation rejected',
+        'The approval queue and reservation list were refreshed.',
+      )
+      void queryClient.invalidateQueries({ queryKey: queryKeys.allocation.all })
+    },
+    onError: (error) => toast.error('Could not decide reallocation', error.message),
+  })
+
+  const columns = useMemo<ColumnDef<ReallocationRequest, unknown>[]>(
+    () => [
+      {
+        id: 'requested',
+        header: 'Requested',
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div>
+            <span className="font-medium">
+              {row.original.to_demand_code ?? humanise(row.original.to_demand_type)}
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              from{' '}
+              {row.original.from_demand_code ?? humanise(row.original.from_demand_type ?? 'donor')}
+            </span>
+          </div>
+        ),
+      },
+      {
+        id: 'item',
+        header: 'Item / warehouse',
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div>
+            <span className="font-mono text-xs">
+              {row.original.item_code ?? row.original.item_id}
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              {row.original.warehouse_code ?? row.original.warehouse_id}
+            </span>
+          </div>
+        ),
+      },
+      {
+        id: 'quantity',
+        header: 'Quantity',
+        enableSorting: false,
+        meta: { align: 'right' },
+        cell: ({ row }) => formatQuantity(row.original.quantity),
+      },
+      {
+        id: 'reason',
+        header: 'Reason',
+        enableSorting: false,
+        cell: ({ row }) => <span className="max-w-[22rem] truncate">{row.original.reason}</span>,
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        enableSorting: false,
+        enableHiding: false,
+        meta: { align: 'right' },
+        cell: ({ row }) => (
+          <div className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              onClick={() => setDecision({ request: row.original, action: 'approve' })}
+              loading={decide.isPending}
+            >
+              Approve
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setDecision({ request: row.original, action: 'reject' })}
+              loading={decide.isPending}
+            >
+              Reject
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [decide],
+  )
+
+  return (
+    <section className="mb-6 space-y-3">
+      <div>
+        <h2 className="text-lg font-semibold">Reallocation approval inbox</h2>
+        <p className="text-sm text-muted-foreground">
+          Approving releases the donor reservation and links the new reservation to the recipient
+          demand line.
+        </p>
+      </div>
+      <DataTable
+        columns={columns}
+        data={list.data}
+        pagination={list.pagination}
+        isLoading={list.isLoading}
+        isFetching={list.isFetching}
+        error={list.error}
+        onPageChange={list.setPage}
+        onLimitChange={list.setLimit}
+        onSortChange={list.setSort}
+        onRefresh={() => void list.refetch()}
+        getRowId={(row) => row.id}
+        emptyTitle="No reallocation requests await approval"
+        emptyDescription="Urgent stock requests will appear here when planners raise them."
+      />
+      <ConfirmDialog
+        open={decision !== null}
+        onOpenChange={(open) => {
+          if (!open && !decide.isPending) setDecision(null)
+        }}
+        destructive={decision?.action === 'reject'}
+        title={
+          decision?.action === 'approve'
+            ? 'Approve this reallocation?'
+            : 'Reject this reallocation?'
+        }
+        description={
+          decision && (
+            <>
+              {decision.action === 'approve' ? 'Move' : 'Do not move'}{' '}
+              <span className="font-medium">{formatQuantity(decision.request.quantity)}</span> of{' '}
+              <span className="font-medium">
+                {decision.request.item_code ?? decision.request.item_id}
+              </span>{' '}
+              from {decision.request.from_demand_code ?? 'the donor demand'} to{' '}
+              {decision.request.to_demand_code ?? 'the requesting demand'}?{' '}
+              {decision.request.reason}
+            </>
+          )
+        }
+        confirmLabel={decision?.action === 'approve' ? 'Approve and reallocate' : 'Reject request'}
+        loading={decide.isPending}
+        onConfirm={() => {
+          if (decision) decide.mutate({ id: decision.request.id, action: decision.action })
+        }}
+      />
+    </section>
+  )
+}
+
 // --------------------------------------------------------------- page ------
 
 export default function ReservationsPage() {
@@ -949,6 +1116,7 @@ export default function ReservationsPage() {
   const canReserve = can(P.RESERVATION_CREATE)
   const canRelease = can(P.RESERVATION_RELEASE)
   const canReallocate = can(P.ALLOCATION_REALLOCATE)
+  const canApproveReallocation = can(P.ALLOCATION_APPROVE) && can(P.ALLOCATION_VIEW)
 
   const [createOpen, setCreateOpen] = useState(false)
   const [releaseTarget, setReleaseTarget] = useState<ReservationRow | null>(null)
@@ -1126,11 +1294,16 @@ export default function ReservationsPage() {
               <DropdownMenuContent align="end">
                 {canReallocate && (
                   <DropdownMenuItem
-                    disabled={!live}
+                    disabled={
+                      !live ||
+                      (row.original.demand_type === 'SALES_ORDER' && !row.original.demand_line_id)
+                    }
                     onSelect={() => setReallocationTarget(row.original)}
                   >
                     <ArrowLeftRight />
-                    Suggest reallocation
+                    {row.original.demand_type === 'SALES_ORDER' && !row.original.demand_line_id
+                      ? 'Demand line required to reallocate'
+                      : 'Suggest reallocation'}
                   </DropdownMenuItem>
                 )}
                 {canRelease && (
@@ -1154,6 +1327,7 @@ export default function ReservationsPage() {
 
   return (
     <div>
+      {canApproveReallocation && <ReallocationInbox />}
       <PageHeader
         title="Reservations"
         description="Stock promised to a specific order. Reserved quantity is still physically present - it is simply spoken for."

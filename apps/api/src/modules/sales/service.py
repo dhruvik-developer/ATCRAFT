@@ -446,6 +446,203 @@ def line_status_for(
     return SalesOrderLineStatus.PENDING
 
 
+@dataclass(frozen=True)
+class ReallocationTarget:
+    """Sales rows locked in the normal order-header-then-lines sequence."""
+
+    order: SalesOrder
+    lines: list[SalesOrderLine]
+    line: SalesOrderLine
+
+
+async def lock_reallocation_targets(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    targets: Sequence[tuple[uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID]],
+) -> dict[tuple[uuid.UUID, uuid.UUID], ReallocationTarget]:
+    """Lock multiple order headers, then their lines, in a deterministic order."""
+    requested: dict[tuple[uuid.UUID, uuid.UUID], tuple[uuid.UUID, uuid.UUID]] = {}
+    for order_id, line_id, item_id, warehouse_id in targets:
+        key = (order_id, line_id)
+        position = (item_id, warehouse_id)
+        if key in requested and requested[key] != position:
+            raise BusinessRuleError(
+                "A reallocation cannot name one sales line at different stock positions."
+            )
+        requested[key] = position
+
+    orders = SalesOrderRepository(session, tenant)
+    locked_orders: dict[uuid.UUID, SalesOrder] = {}
+    for order_id in sorted({key[0] for key in requested}):
+        order = await orders.lock_for_update(order_id)
+        if order is None:
+            raise NotFoundError(SALES_ORDER_ENTITY, order_id)
+        if SalesOrderStatus(order.status) not in TOP_UP_STATUSES:
+            raise BusinessRuleError(
+                f"{order.code} cannot receive a reallocation while it is {order.status}.",
+                details={"order_id": str(order.id), "status": str(order.status)},
+            )
+        locked_orders[order_id] = order
+
+    line_repository = SalesOrderLineRepository(session, tenant)
+    lines_by_order = {
+        order_id: await line_repository.lock_for_order(order_id)
+        for order_id in sorted(locked_orders)
+    }
+    result: dict[tuple[uuid.UUID, uuid.UUID], ReallocationTarget] = {}
+    for (order_id, line_id), (item_id, warehouse_id) in requested.items():
+        order = locked_orders[order_id]
+        if order.warehouse_id != warehouse_id:
+            raise BusinessRuleError(
+                "The sales order and reallocated stock use different warehouses.",
+                details={"order_id": str(order.id), "warehouse_id": str(order.warehouse_id)},
+            )
+        lines = lines_by_order[order_id]
+        line = next((candidate for candidate in lines if candidate.id == line_id), None)
+        if line is None or line.item_id != item_id:
+            raise NotFoundError("Sales order line", line_id)
+        if SalesOrderLineStatus(line.status) is SalesOrderLineStatus.CANCELLED:
+            raise BusinessRuleError(
+                "A cancelled sales-order line cannot receive a reallocation.",
+                details={"sales_order_line_id": str(line.id)},
+            )
+        result[(order_id, line_id)] = ReallocationTarget(order=order, lines=lines, line=line)
+    return result
+
+
+async def apply_reallocation_to_line(
+    session: AsyncSession,
+    tenant: TenantContext,
+    target: ReallocationTarget,
+    *,
+    reservation_id: uuid.UUID,
+    quantity: Decimal,
+    reallocation_request_id: uuid.UUID,
+) -> None:
+    """Synchronize a reallocated reservation with its sales fulfilment line."""
+    line = target.line
+    amount = to_quantity(quantity)
+    shortfall = to_quantity(
+        Decimal(line.quantity)
+        - Decimal(line.dispatched_quantity)
+        - Decimal(line.allocated_quantity)
+    )
+    if amount > shortfall:
+        raise BusinessRuleError(
+            "The reallocation exceeds the sales-order line's remaining shortfall.",
+            details={
+                "sales_order_line_id": str(line.id),
+                "requested": str(amount),
+                "shortfall": str(max(ZERO, shortfall)),
+            },
+        )
+    line.reservation_id = reservation_id
+    line.allocated_quantity = to_quantity(Decimal(line.allocated_quantity) + amount)
+    line.status = line_status_for(
+        quantity=Decimal(line.quantity),
+        allocated_quantity=Decimal(line.allocated_quantity),
+        dispatched_quantity=Decimal(line.dispatched_quantity),
+    )
+    await session.flush()
+    await record_audit(
+        session,
+        company_id=tenant.company_id,
+        action=AuditAction.UPDATE,
+        entity_type="sales_order_line",
+        entity_id=line.id,
+        entity_code=target.order.code,
+        summary="Synchronized reallocated reservation to sales order line",
+        user_id=tenant.user_id,
+        new_values={
+            "reservation_id": reservation_id,
+            "allocated_quantity": line.allocated_quantity,
+            "status": str(line.status),
+        },
+        context={"reallocation_request_id": reallocation_request_id},
+    )
+    if SalesOrderStatus(target.order.status) is SalesOrderStatus.CONFIRMED and all(
+        SalesOrderLineStatus(candidate.status) is SalesOrderLineStatus.CANCELLED
+        or Decimal(candidate.dispatched_quantity) + Decimal(candidate.allocated_quantity)
+        >= Decimal(candidate.quantity)
+        for candidate in target.lines
+    ):
+        await _transition(
+            session,
+            tenant,
+            target.order,
+            SalesOrderStatus.ALLOCATED,
+            reason="Every sales order line is covered after an approved reallocation",
+            repo=SalesOrderRepository(session, tenant),
+        )
+
+
+async def release_reallocation_from_line(
+    session: AsyncSession,
+    tenant: TenantContext,
+    target: ReallocationTarget,
+    *,
+    reservation_id: uuid.UUID,
+    reservation_remaining: Decimal,
+    quantity: Decimal,
+    reallocation_request_id: uuid.UUID,
+) -> None:
+    """Reduce donor fulfilment by the amount removed from its reservation."""
+    line = target.line
+    before = to_quantity(Decimal(line.allocated_quantity))
+    amount = to_quantity(quantity)
+    expected_remaining = to_quantity(before - amount)
+    after = to_quantity(reservation_remaining)
+    if expected_remaining != after:
+        raise BusinessRuleError(
+            "The donor sales-order line and reservation disagree about remaining allocation.",
+            details={
+                "sales_order_line_id": str(line.id),
+                "line_after": str(expected_remaining),
+                "reservation_after": str(after),
+            },
+        )
+    line.allocated_quantity = after
+    line.reservation_id = reservation_id if after > ZERO else None
+    line.status = line_status_for(
+        quantity=Decimal(line.quantity),
+        allocated_quantity=after,
+        dispatched_quantity=Decimal(line.dispatched_quantity),
+    )
+    await session.flush()
+    await record_audit(
+        session,
+        company_id=tenant.company_id,
+        action=AuditAction.UPDATE,
+        entity_type="sales_order_line",
+        entity_id=line.id,
+        entity_code=target.order.code,
+        summary="Synchronized donor sales order line after reallocation",
+        user_id=tenant.user_id,
+        old_values={"reservation_id": reservation_id, "allocated_quantity": before},
+        new_values={
+            "reservation_id": line.reservation_id,
+            "allocated_quantity": after,
+            "status": str(line.status),
+        },
+        context={"reallocation_request_id": reallocation_request_id},
+    )
+    if SalesOrderStatus(target.order.status) is SalesOrderStatus.ALLOCATED and any(
+        SalesOrderLineStatus(candidate.status) is not SalesOrderLineStatus.CANCELLED
+        and Decimal(candidate.dispatched_quantity) + Decimal(candidate.allocated_quantity)
+        < Decimal(candidate.quantity)
+        for candidate in target.lines
+    ):
+        await _transition(
+            session,
+            tenant,
+            target.order,
+            SalesOrderStatus.CONFIRMED,
+            reason="An approved reallocation left a sales order line short",
+            repo=SalesOrderRepository(session, tenant),
+        )
+
+
 def reservable_quantity(demand: Decimal, available: Decimal) -> Decimal:
     """How much of ``demand`` can be promised from ``available``.
 
@@ -2462,11 +2659,13 @@ __all__ = [
     "OrderTotals",
     "PricedLine",
     "PricingContext",
+    "ReallocationTarget",
     "ReservationPass",
     "ReservationRef",
     "allocate_order",
     "allocation_status",
     "allocation_view",
+    "apply_reallocation_to_line",
     "approve_order",
     "can_approve",
     "cancel_order",
@@ -2484,10 +2683,12 @@ __all__ = [
     "list_orders",
     "live_reservations",
     "live_reserved",
+    "lock_reallocation_targets",
     "order_detail",
     "planned_dispatch_quantities",
     "price_line",
     "prospective_totals",
+    "release_reallocation_from_line",
     "reservable_quantity",
     "resolve_dispatch_plan_port",
     "resolve_tax_treatment",

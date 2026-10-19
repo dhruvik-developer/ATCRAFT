@@ -58,7 +58,13 @@ from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.inventory import service as inv
 from src.modules.inventory.models import InventoryTransaction, StockState, TransactionType
 from src.modules.notifications.models import Notification, NotificationType
-from src.modules.products.models import ItemGroup
+from src.modules.products.models import Item, ItemGroup
+from src.modules.sales.models import (
+    SalesOrder,
+    SalesOrderLine,
+    SalesOrderLineStatus,
+    SalesOrderStatus,
+)
 from tests import seed_support
 from tests.schema_support import prepare_metadata, report_database_setup_failure
 
@@ -758,12 +764,56 @@ class TestSuggestReallocation:
 
 
 class TestReallocationLifecycle:
+    async def _sales_order_line(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        item_id: uuid.UUID,
+        warehouse_id: uuid.UUID,
+        *,
+        quantity: Decimal,
+    ) -> SalesOrderLine:
+        customer = await seed_support.seed_customer(session, company_id=tenant.company_id)
+        order = SalesOrder(
+            company_id=tenant.company_id,
+            code=_code("SO"),
+            customer_id=customer.id,
+            order_date=today(),
+            required_date=today() + timedelta(days=10),
+            warehouse_id=warehouse_id,
+            status=SalesOrderStatus.CONFIRMED,
+            priority=1,
+        )
+        session.add(order)
+        await session.flush()
+        uom_id = await session.scalar(select(Item.base_uom_id).where(Item.id == item_id))
+        assert uom_id is not None
+        line = SalesOrderLine(
+            company_id=tenant.company_id,
+            sales_order_id=order.id,
+            line_number=1,
+            item_id=item_id,
+            quantity=quantity,
+            uom_id=uom_id,
+            unit_price=Decimal("10"),
+        )
+        session.add(line)
+        await session.flush()
+        return line
+
     async def _pending_request(
         self, session: AsyncSession, tenant: TenantContext
     ) -> tuple[ReallocationRequest, StockReservation, uuid.UUID, uuid.UUID]:
         item_id, warehouse_id = await stock_at(session, tenant, "100")
         donor = await reserve_for(
-            session, tenant, item_id, warehouse_id, "100", priority=500, reason="low-urgency order"
+            session,
+            tenant,
+            item_id,
+            warehouse_id,
+            "100",
+            demand_type=DemandType.PRODUCTION_ORDER,
+            priority=500,
+            reason="low-urgency order",
         )
         read = await alloc.AllocationService(session, tenant).create_reallocation_request(
             ReallocationRequestCreate(
@@ -838,6 +888,158 @@ class TestReallocationLifecycle:
         assert recipient.reservation_type is ReservationType.HARD
         assert recipient.priority == 10
         assert recipient.demand_type is DemandType.PRODUCTION_ORDER
+
+    async def test_sales_order_reallocation_links_and_updates_the_recipient_line(self, ctx) -> None:
+        session, tenant, approver, _ = ctx
+        item_id, warehouse_id = await stock_at(session, tenant, "100")
+        donor_line = await self._sales_order_line(
+            session, tenant, item_id, warehouse_id, quantity=Decimal("100")
+        )
+        donor_order = await session.get(SalesOrder, donor_line.sales_order_id)
+        assert donor_order is not None
+        donor = await reserve_for(
+            session,
+            tenant,
+            item_id,
+            warehouse_id,
+            "100",
+            demand_type=DemandType.SALES_ORDER,
+            demand_id=donor_order.id,
+            demand_line_id=donor_line.id,
+            demand_code=donor_order.code,
+            priority=500,
+            reason="donor",
+        )
+        donor_line.reservation_id = donor.id
+        donor_line.allocated_quantity = Decimal("100")
+        donor_line.status = SalesOrderLineStatus.ALLOCATED
+        donor_order.status = SalesOrderStatus.ALLOCATED
+        await session.flush()
+        line = await self._sales_order_line(
+            session, tenant, item_id, warehouse_id, quantity=Decimal("40")
+        )
+        order = await session.get(SalesOrder, line.sales_order_id)
+        assert order is not None
+        request_read = await alloc.AllocationService(session, tenant).create_reallocation_request(
+            ReallocationRequestCreate(
+                item_id=item_id,
+                warehouse_id=warehouse_id,
+                quantity=Decimal("40"),
+                to_demand_type=DemandType.SALES_ORDER,
+                to_demand_id=order.id,
+                to_demand_line_id=line.id,
+                to_demand_code=order.code,
+                priority=1,
+                required_date=today() + timedelta(days=5),
+                reason="urgent customer order",
+            )
+        )
+        request = await session.get(ReallocationRequest, request_read.id)
+        assert request is not None
+
+        await alloc.reallocate(
+            session, approver, request_id=request.id, approved_by=approver.user_id
+        )
+        await session.refresh(line)
+        await session.refresh(order)
+        await session.refresh(donor_line)
+        await session.refresh(donor_order)
+        await session.refresh(donor)
+
+        assert line.reservation_id is not None
+        assert line.allocated_quantity == Decimal("40.0000")
+        assert SalesOrderLineStatus(line.status) is SalesOrderLineStatus.ALLOCATED
+        assert SalesOrderStatus(order.status) is SalesOrderStatus.ALLOCATED
+        recipient = await session.get(StockReservation, line.reservation_id)
+        assert recipient is not None
+        assert recipient.demand_line_id == line.id
+        assert recipient.demand_id == order.id
+        assert recipient.quantity == Decimal("40.0000")
+        assert donor.released_quantity == Decimal("40.0000")
+        assert donor_line.reservation_id == donor.id
+        assert donor_line.allocated_quantity == Decimal("60.0000")
+        assert SalesOrderLineStatus(donor_line.status) is SalesOrderLineStatus.PARTIALLY_ALLOCATED
+        assert SalesOrderStatus(donor_order.status) is SalesOrderStatus.CONFIRMED
+        read = await alloc.AllocationService(session, tenant).get_reallocation_request(request.id)
+        assert read.to_demand_line_id == line.id
+
+    async def test_sales_order_reallocation_extends_its_existing_reservation(self, ctx) -> None:
+        session, tenant, approver, _ = ctx
+        item_id, warehouse_id = await stock_at(session, tenant, "100")
+        line = await self._sales_order_line(
+            session, tenant, item_id, warehouse_id, quantity=Decimal("60")
+        )
+        order = await session.get(SalesOrder, line.sales_order_id)
+        assert order is not None
+        existing = await reserve_for(
+            session,
+            tenant,
+            item_id,
+            warehouse_id,
+            "20",
+            demand_type=DemandType.SALES_ORDER,
+            demand_id=order.id,
+            demand_line_id=line.id,
+            demand_code=order.code,
+            priority=1,
+            reason="initial allocation",
+        )
+        line.reservation_id = existing.id
+        line.allocated_quantity = Decimal("20")
+        line.status = SalesOrderLineStatus.PARTIALLY_ALLOCATED
+        await session.flush()
+        donor = await reserve_for(
+            session,
+            tenant,
+            item_id,
+            warehouse_id,
+            "80",
+            demand_type=DemandType.PRODUCTION_ORDER,
+            priority=500,
+            reason="donor",
+        )
+        request_read = await alloc.AllocationService(session, tenant).create_reallocation_request(
+            ReallocationRequestCreate(
+                item_id=item_id,
+                warehouse_id=warehouse_id,
+                quantity=Decimal("30"),
+                to_demand_type=DemandType.SALES_ORDER,
+                to_demand_id=order.id,
+                to_demand_line_id=line.id,
+                to_demand_code=order.code,
+                priority=1,
+                required_date=today() + timedelta(days=5),
+                reason="urgent customer order",
+            )
+        )
+        request = await session.get(ReallocationRequest, request_read.id)
+        assert request is not None
+
+        await alloc.reallocate(
+            session, approver, request_id=request.id, approved_by=approver.user_id
+        )
+        await session.refresh(line)
+        await session.refresh(existing)
+        await session.refresh(donor)
+
+        assert line.reservation_id == existing.id
+        assert line.allocated_quantity == Decimal("50.0000")
+        assert SalesOrderLineStatus(line.status) is SalesOrderLineStatus.PARTIALLY_ALLOCATED
+        assert existing.quantity == Decimal("50.0000")
+        linked = (
+            (
+                await session.execute(
+                    select(StockReservation).where(
+                        StockReservation.demand_line_id == line.id,
+                        StockReservation.company_id == tenant.company_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert linked == [existing]
+        assert donor.released_quantity == Decimal("30.0000")
 
     async def test_executing_writes_a_reallocation_audit_entry(self, ctx) -> None:
         session, tenant, approver, _ = ctx

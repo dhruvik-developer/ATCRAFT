@@ -417,7 +417,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"quantity\": 0,\n  \"reason\": \"\",\n  \"to_demand_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"to_demand_type\": \"SALES_ORDER\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"from_reservation_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"priority\": 100,\n  \"required_date\": \"2026-01-01\",\n  \"to_demand_code\": \"\"\n}"
+              "raw": "{\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"quantity\": 0,\n  \"reason\": \"\",\n  \"to_demand_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"to_demand_type\": \"SALES_ORDER\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"from_reservation_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"priority\": 100,\n  \"required_date\": \"2026-01-01\",\n  \"to_demand_code\": \"\",\n  \"to_demand_line_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Ranks the reservations that could give up stock and raises a PENDING request against the best one, returning the alternatives it considered. Name `from_reservation_id` to choose a donor yourself - it is accepted only if the engine would have offered it. Nothing is moved until the request is approved.",
             "header": [

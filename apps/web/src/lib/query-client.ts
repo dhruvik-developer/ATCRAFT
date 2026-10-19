@@ -149,6 +149,8 @@ export const queryKeys = {
   allocation: {
     all: ['allocation'] as const,
     reservations: (params: unknown) => ['allocation', 'reservations', params] as const,
+    reallocationRequests: (params: unknown) =>
+      ['allocation', 'reallocation-requests', params] as const,
     atp: (itemId: string, warehouseId?: string) =>
       ['allocation', 'atp', itemId, warehouseId ?? 'all'] as const,
   },

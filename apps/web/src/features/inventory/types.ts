@@ -332,6 +332,7 @@ export interface ReallocationRequest {
   from_reservation_type: 'HARD' | 'SOFT' | null
   to_demand_type: DemandType
   to_demand_id: string
+  to_demand_line_id: string | null
   to_demand_code: string | null
   item_id: string
   item_code: string | null
