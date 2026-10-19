@@ -10,7 +10,7 @@
 # Patch releases and their multi-platform index digests are deliberate release
 # inputs. Dependabot proposes reviewed digest updates, so the same source
 # revision cannot silently rebuild from different base bytes.
-FROM python:3.11.16-slim-bookworm@sha256:528257d48c1da0dcecc2e725d1ae34498d60c965f1241e39cd6a85a8859bdf84 AS base
+FROM python:3.11.17-slim-trixie@sha256:e88e9763f943ec1834f992a4b51e0f24500486803e8bc534e5767af9ea65f6ce AS base
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -67,6 +67,11 @@ ENV PATH="/opt/venv/bin:$PATH" \
 # Runtime-only environment is built independently; test and lint packages were
 # never present in a lower layer and therefore cannot inflate the final image.
 COPY --from=runtime-builder /opt/venv /opt/venv
+
+# The runtime does not need setuptools; its vendored archive handlers include
+# vulnerable code that is otherwise shipped in the image.
+RUN /usr/local/bin/python -m pip uninstall --yes setuptools \
+ && /opt/venv/bin/python -m pip uninstall --yes setuptools
 
 COPY --chown=atcraft:atcraft src/ /app/src/
 COPY --chown=atcraft:atcraft migrations/ /app/migrations/

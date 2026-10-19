@@ -81,6 +81,8 @@ services:
     # a password-reset e-mail waits behind a ten-minute plan. The queues are
     # split across two workers below so the separation actually separates.
     command: ["celery", "-A", "src.workers.celery_app:celery_app", "worker", "--loglevel=INFO", "--concurrency=${CELERY_CONCURRENCY:-4}", "--max-tasks-per-child=200", "-n", "batch@%h", "-Q", "default,mrp,reports"]
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A src.workers.celery_app:celery_app inspect ping -d batch@$$HOSTNAME"]
     environment:
       LOG_JSON: "true"
       # A prefork child builds its own engine, so this is multiplied by

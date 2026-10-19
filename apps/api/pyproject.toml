@@ -39,9 +39,10 @@ dependencies = [
     # --- Security -----------------------------------------------------------
     "argon2-cffi>=23.1",                  # Argon2id password hashing (replaces weak hashing)
     "bcrypt>=4.2",                        # verify-only path for legacy bcrypt hashes on migration
-    "pyjwt>=2.10,<3.0",                   # access/refresh token signing with explicit expiry
+    "pyjwt>=2.15,<3.0",                  # security floor for access/refresh token signing
     "pyotp>=2.9,<3.0",                    # RFC 6238 TOTP generation/verification for MFA
     "cryptography>=50.0,<51.0",           # authenticated encryption for MFA secrets at rest
+    "urllib3>=2.8.0,<3.0",                # security floor for Sentry's HTTP transport
 
     # --- Observability (section 56) ----------------------------------------
     "structlog>=24.4",                    # structured JSON logs with request-id binding
