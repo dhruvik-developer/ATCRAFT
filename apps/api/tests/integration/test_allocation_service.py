@@ -1089,6 +1089,68 @@ class TestReallocationLifecycle:
         assert notification.user_id == donor.created_by_id == tenant.user_id
         assert "reallocated" in notification.body.lower()
 
+    async def test_the_requester_is_notified_when_the_request_is_approved(self, ctx) -> None:
+        """The approval inbox is pull-based; an urgent request should not need
+        the requester to keep refreshing it."""
+        session, tenant, approver, _ = ctx
+        request, _, _, _ = await self._pending_request(session, tenant)
+
+        await alloc.reallocate(
+            session,
+            approver,
+            request_id=request.id,
+            approved_by=approver.user_id,
+            decision_note="customer escalation accepted",
+        )
+
+        notification = (
+            await session.execute(
+                select(Notification).where(
+                    Notification.entity_id == request.id,
+                    Notification.notification_type == NotificationType.APPROVAL_GRANTED,
+                )
+            )
+        ).scalar_one()
+        assert notification.user_id == request.requested_by_id == tenant.user_id
+        assert "approved" in notification.title.lower()
+        assert "customer escalation accepted" in notification.body
+        assert notification.action_url == "/inventory/reservations"
+
+    async def test_the_requester_is_notified_when_the_request_is_rejected(self, ctx) -> None:
+        session, tenant, approver, _ = ctx
+        request, _, _, _ = await self._pending_request(session, tenant)
+
+        await alloc.AllocationService(session, approver).reject_reallocation_request(
+            request.id, decision_note="donor is already kitted"
+        )
+
+        notification = (
+            await session.execute(
+                select(Notification).where(
+                    Notification.entity_id == request.id,
+                    Notification.notification_type == NotificationType.APPROVAL_REJECTED,
+                )
+            )
+        ).scalar_one()
+        assert notification.user_id == request.requested_by_id == tenant.user_id
+        assert "rejected" in notification.title.lower()
+        assert "donor is already kitted" in notification.body
+        # The donor's stock did not move, so no ALLOCATION_CHANGED row should
+        # exist for this request.
+        donor_rows = (
+            (
+                await session.execute(
+                    select(Notification).where(
+                        Notification.entity_id == request.from_reservation_id,
+                        Notification.notification_type == NotificationType.ALLOCATION_CHANGED,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert donor_rows == []
+
     async def test_an_approver_cannot_approve_their_own_request(self, ctx) -> None:
         session, tenant, _, _ = ctx
         request, _, _, _ = await self._pending_request(session, tenant)

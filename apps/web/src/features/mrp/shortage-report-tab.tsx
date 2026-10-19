@@ -20,17 +20,69 @@
  * opening date alone would say five thousand arrives in July.
  */
 
-import { AlertTriangle, Clock, PackageCheck } from 'lucide-react'
-import { useMemo } from 'react'
+import { AlertTriangle, ArrowLeftRight, Clock, PackageCheck } from 'lucide-react'
+import { useMemo, useState } from 'react'
 
 import { DataTable } from '@/components/data-table'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/overlays'
 import { Card, CardContent } from '@/components/ui/primitives'
+import { useAuth } from '@/features/auth/auth-context'
+import { ReallocationRequestDialog } from '@/features/inventory/reallocation-request-dialog'
 import { useListQuery } from '@/hooks/use-list-query'
 import { formatDate, formatQuantity, toDecimal } from '@/lib/format'
+import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 
 import type { MrpRequirementRow } from './mrp-types'
 import type { ColumnDef } from '@tanstack/react-table'
+
+/** A sales-order demand behind an MRP requirement, recovered from provenance. */
+interface SalesDemand {
+  id: string
+  lineId: string
+  code: string | null
+  requiredDate: string | null
+}
+
+function provenanceString(entry: Record<string, unknown>, key: string): string | null {
+  const value = entry[key]
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+/**
+ * The independent sales-order demand(s) this requirement was raised for.
+ *
+ * A component row reached through a BOM has no direct demand of its own - its
+ * provenance names the parent item, not a document - so it offers no
+ * reallocation target. A directly demanded row names the order and line, which
+ * is exactly what a reallocation request needs. Manual demand has no document to
+ * reallocate towards, so it is left out too.
+ */
+function salesDemands(row: MrpRequirementRow): SalesDemand[] {
+  const seen = new Set<string>()
+  const found: SalesDemand[] = []
+  for (const entry of row.source_demands ?? []) {
+    if (entry.source !== 'SALES_ORDER') continue
+    const id = provenanceString(entry, 'source_id')
+    const lineId = provenanceString(entry, 'source_line_id')
+    // The API refuses a sales-order reallocation without its demand line.
+    if (!id || !lineId || seen.has(id)) continue
+    seen.add(id)
+    found.push({
+      id,
+      lineId,
+      code: provenanceString(entry, 'code'),
+      requiredDate: provenanceString(entry, 'required_date'),
+    })
+  }
+  return found
+}
 
 /** A feed's late supply, rendered as the interval it actually spans. */
 function LateInterval({
@@ -69,7 +121,21 @@ function LateInterval({
   )
 }
 
-export function ShortageReportTab({ runId }: { runId: string }) {
+export function ShortageReportTab({
+  runId,
+  warehouseIds = [],
+}: {
+  runId: string
+  /** The run's warehouse scope; a single warehouse pre-fills the request. */
+  warehouseIds?: string[]
+}) {
+  const { can } = useAuth()
+  const [reallocation, setReallocation] = useState<{
+    row: MrpRequirementRow
+    demand: SalesDemand
+  } | null>(null)
+  const canReallocate = can(P.ALLOCATION_REALLOCATE)
+
   const requirements = useListQuery<MrpRequirementRow>({
     path: '/mrp/shortage-report',
     queryKey: (params) => queryKeys.mrp.shortageReport(runId, params),
@@ -176,8 +242,60 @@ export function ShortageReportTab({ runId }: { runId: string }) {
           </span>
         ),
       },
+      {
+        // Offered only where the row is short and names a sales-order demand -
+        // a reallocation gives stock to a real demand, and a BOM component row
+        // has no document to give it to.
+        id: 'reallocation',
+        header: '',
+        enableSorting: false,
+        cell: ({ row }) => {
+          const demands = salesDemands(row.original)
+          if (
+            !canReallocate ||
+            demands.length === 0 ||
+            !toDecimal(row.original.shortage_quantity).greaterThan(0)
+          ) {
+            return null
+          }
+          if (demands.length === 1) {
+            const only = demands[0]
+            if (!only) return null
+            return (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setReallocation({ row: row.original, demand: only })}
+              >
+                <ArrowLeftRight />
+                Request reallocation
+              </Button>
+            )
+          }
+          return (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <ArrowLeftRight />
+                  Reallocate to...
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {demands.map((demand) => (
+                  <DropdownMenuItem
+                    key={`${demand.id}:${demand.lineId ?? ''}`}
+                    onSelect={() => setReallocation({ row: row.original, demand })}
+                  >
+                    {demand.code ?? demand.id}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )
+        },
+      },
     ],
-    [],
+    [canReallocate],
   )
 
   const lateRows = requirements.data.filter((r) =>
@@ -230,6 +348,26 @@ export function ShortageReportTab({ runId }: { runId: string }) {
         (docs/assumptions.md &sect;21). A quantity shown against two dates spans them: the first
         tranche lands on the earlier, the whole amount is in by the later.
       </p>
+
+      {reallocation && (
+        <ReallocationRequestDialog
+          demand={{
+            itemId: reallocation.row.item_id,
+            itemCode: reallocation.row.item_code,
+            // A run scoped to one warehouse names the position; a run scoped to
+            // all of them leaves the choice in the dialog rather than guessing.
+            warehouseId: warehouseIds.length === 1 ? warehouseIds[0] : undefined,
+            demandType: 'SALES_ORDER',
+            demandId: reallocation.demand.id,
+            demandLineId: reallocation.demand.lineId,
+            demandCode: reallocation.demand.code,
+            requiredDate:
+              reallocation.demand.requiredDate ?? reallocation.row.earliest_required_date,
+            shortfallQuantity: reallocation.row.shortage_quantity,
+          }}
+          onClose={() => setReallocation(null)}
+        />
+      )}
     </div>
   )
 }

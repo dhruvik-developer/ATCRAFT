@@ -18,6 +18,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
 import {
+  ArrowLeftRight,
   Ban,
   CheckCircle2,
   ListPlus,
@@ -56,6 +57,7 @@ import {
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import type { CustomerDetail } from '@/features/customers/customer-types'
+import { ReallocationRequestDialog } from '@/features/inventory/reallocation-request-dialog'
 import { WAREHOUSE_LOOKUP_PARAMS, type WarehouseOption } from '@/features/inventory/types'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
@@ -108,6 +110,8 @@ const CreateDispatchDialog = lazy(() =>
 function AllocationPanel({ order }: { order: SalesOrderDetail }) {
   const { can } = useAuth()
   const queryClient = useQueryClient()
+  const [reallocationTarget, setReallocationTarget] = useState<AllocationLineStatus | null>(null)
+  const canReallocate = can(P.ALLOCATION_REALLOCATE)
   const allocation = useQuery({
     queryKey: [...queryKeys.sales.detail(order.id), 'allocation-status'],
     queryFn: () => api.get<SalesOrderAllocation>(`/sales/${order.id}/allocation-status`),
@@ -242,8 +246,23 @@ function AllocationPanel({ order }: { order: SalesOrderDetail }) {
         enableSorting: false,
         cell: ({ row }) => <StatusBadge status={row.original.status} />,
       },
+      {
+        // A short line can be covered by taking stock from a lower-priority
+        // demand before a purchase or production order is raised. The action is
+        // absent on a covered line: there is nothing to reallocate towards.
+        id: 'actions',
+        header: '',
+        enableSorting: false,
+        cell: ({ row }) =>
+          canReallocate && toDecimal(row.original.shortfall_quantity).greaterThan(0) ? (
+            <Button variant="outline" size="sm" onClick={() => setReallocationTarget(row.original)}>
+              <ArrowLeftRight />
+              Request reallocation
+            </Button>
+          ) : null,
+      },
     ],
-    [],
+    [canReallocate],
   )
 
   // Offered only where the top-up can act (its own status rule) and only while a
@@ -305,6 +324,24 @@ function AllocationPanel({ order }: { order: SalesOrderDetail }) {
           emptyTitle="Nothing reserved yet"
           emptyDescription="No reservation exists against these lines."
         />
+
+        {reallocationTarget && (
+          <ReallocationRequestDialog
+            demand={{
+              itemId: reallocationTarget.item_id,
+              itemCode: reallocationTarget.item_code,
+              warehouseId: order.warehouse_id,
+              demandType: 'SALES_ORDER',
+              demandId: order.id,
+              demandLineId: reallocationTarget.line_id,
+              demandCode: order.code,
+              priority: order.priority,
+              requiredDate: reallocationTarget.required_date,
+              shortfallQuantity: reallocationTarget.shortfall_quantity,
+            }}
+            onClose={() => setReallocationTarget(null)}
+          />
+        )}
       </CardContent>
     </Card>
   )

@@ -1062,7 +1062,7 @@ export default function MrpRunDetailPage() {
               after it is needed.
             </p>
           </div>
-          <ShortageReportTab runId={runId} />
+          <ShortageReportTab runId={runId} warehouseIds={run?.warehouse_ids ?? []} />
         </section>
       )}
 

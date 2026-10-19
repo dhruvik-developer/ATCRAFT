@@ -30,6 +30,14 @@ headers through the sales state machine, and provides a permission-gated
 approval inbox on Reservations. The allocation integration tests and the
 Reservations screen tests cover the new behavior.
 
+**E2 remainder — 19 October 2026:** decision notifications now go to the
+requester (`APPROVAL_GRANTED` / `APPROVAL_REJECTED`, with the decision note), a
+reallocation request can be raised directly from a short sales-order line and
+from a directly demanded MRP shortage row (the donor is still chosen by the
+server), and the restricted-role matrix is covered at the HTTP boundary
+(`tests/api/test_allocation_reallocation_http.py`). See
+[`e2-reallocation-uat-20261019.md`](e2-reallocation-uat-20261019.md).
+
 **Additional progress — 19 October 2026:** serial customer returns now enter QC
 hold and require an explicit accepted/damaged/scrapped disposition per serial;
 only accepted units are credited. Paid-return settlement, mixed QC/non-QC
@@ -95,7 +103,7 @@ feature groups, not a count of individual PDF requirements.
 | Priority / state                 | Work to finish                                                         | Proposal references / package                | Current evidence and exact remainder                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | -------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | 1 - Core implemented              | Customer returns and credit notes                                      | S02.8, P11.T6, P13.M4; A3                    | Dispatch-line selection/creation, serial capture, per-serial QC disposition, non-serial RETURN inspections, accepted-only automatic crediting, paid-return customer-credit settlement, issue/cancel routes, list/detail UI, accounting journals, PDF generation and generated contracts are implemented. PostgreSQL integration tests cover serial stock states, mixed QC/non-QC crediting, paid returns and cancellation; restricted-role and live-candidate UAT remain release evidence. |
-| 1 - **Partial**                  | Urgent reallocation that the recipient can actually ship               | P03.F8, P05.S5-S9, K05; E2                   | Ranking and request/decision APIs exist. Sales-order requests now require a demand-line id; approval locks sales orders and lines before stock, releases the donor and extends or creates the recipient's single reservation, synchronizes both lines' allocated quantity/status, advances newly short or fully covered order headers through the state machine, and audits both sides. The [Reservations UI](../../apps/web/src/features/inventory/reservations-page.tsx) now has an approval inbox gated by allocation view and approve rights. Remaining: launch requests directly from actionable sales/MRP shortfalls, notify the requester of decisions, and complete restricted-role UAT for the end-to-end flow. |
+| 1 - **Partial**                  | Urgent reallocation that the recipient can actually ship               | P03.F8, P05.S5-S9, K05; E2                   | Ranking and request/decision APIs exist. Sales-order requests now require a demand-line id; approval locks sales orders and lines before stock, releases the donor and extends or creates the recipient's single reservation, synchronizes both lines' allocated quantity/status, advances newly short or fully covered order headers through the state machine, and audits both sides. The [Reservations UI](../../apps/web/src/features/inventory/reservations-page.tsx) has an approval inbox gated by allocation view and approve rights. Requests can now be raised from a short sales-order line and from a directly demanded MRP shortage row through the shared [reallocation dialog](../../apps/web/src/features/inventory/reallocation-request-dialog.tsx), the requester is notified of the decision, and the restricted-role matrix is covered at the HTTP boundary. See [E2 UAT](e2-reallocation-uat-20261019.md). Full package remains partial: policy settings, priorities, cross-warehouse execution, automatic proposals and spare requests are still open (below). |
 | 1 - Partial                      | MRP quantity and date correctness                                      | P05.P2-P4, P06.F2/F6-F8; E3a                 | [MRP engine](../../apps/api/src/modules/mrp/engine.py) explicitly documents bounded component overplanning from live jobs and its two-stage explosion/netting. Common-part grouping exists; level-by-level stock netting, routing/per-level lead-time offsets and expected availability dates remain.                                                                                                                                                                                                                                                                                                                                                                                      |
 | 1 - Partial                      | Automatic sales shortfall planning and full fulfilment trail           | S01.1, S03.13, K02/K08/K10; E1b              | Confirm reserves what is available; [order detail still directs the user to run MRP manually](../../apps/web/src/features/sales/sales-order-detail-page.tsx). Add controlled/idempotent draft planning, shortfall replanning after changes, other-warehouse transfer suggestions, and links across MRP, production, purchases, assembly, job work, QC, packing and returns. [Existing fulfilment links](../../apps/web/src/features/sales/fulfilment-links.tsx) mainly cover dispatch/invoice.                                                                                                                                                                                             |
 | 1 - Partial                      | Batch/serial goods through every stock flow                            | P03.F6, tracked P08.M11/P09.M6; E8b          | Registers/enforcement and reserved-serial dispatch exist. [GRN](../../apps/api/src/modules/procurement/service.py) refuses serial receipts; [production](../../apps/api/src/modules/production/service.py) refuses batch/serial output; [assembly](../../apps/api/src/modules/assembly/service.py) has tracked-output restrictions; [transfers](../../apps/api/src/modules/inventory/service.py) refuse serial goods. Finish capture/minting, transfers/adjustments and the tracking administration screen. Do not rebuild already implemented serial dispatch.                                                                                                                            |
@@ -162,9 +170,11 @@ These are code/wiring findings, not a fresh signed UAT result.
 - **Dealer banners/promotions:** model, migration, permissions and service
   groundwork exists; the public API, screens, security tests and acceptance
   evidence are still required.
-- **Migration safety:** the historical Alembic chain is preserved for live
-  upgrade. A separate uncommitted baseline rewrite was isolated and must not be
-  deployed without a deliberate empty-database migration plan.
+- **Migration safety:** the historical Alembic chain is preserved at tag
+  `pre-migration-squash-20261019`, and the squashed baseline is verified; see
+  [`migration-squash-20261021.md`](migration-squash-20261021.md). Existing
+  databases are stamped with `alembic stamp --purge 20261021_0100`, never
+  upgraded through the baseline.
 - This document is an implementation status report, not a claim that the full
   proposal is production-complete. The remaining rows require staged releases,
   database-backed integration tests and restricted-role UAT.
@@ -173,9 +183,9 @@ These are code/wiring findings, not a fresh signed UAT result.
 
 1. Finish and verify the active returns/credit and dealer-content work; preserve
    it rather than starting a competing implementation.
-2. Finish E2 shortage-origin requests, requester decision notification and
-   restricted-role UAT, then E3a multi-level netting/dates, then E1b shortfall
-   automation and E3b outputs.
+2. E2 shortage-origin requests, requester decision notification and
+   restricted-role UAT are done; next is E3a multi-level netting/dates, then E1b
+   shortfall automation and E3b outputs.
 3. Build C2a/C2b vendor app/inbound/push in parallel, since much of its backend
    already exists. B4 alerts/approval integration can follow shared workflow
    contracts rather than being invented separately in every screen.

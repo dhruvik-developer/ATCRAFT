@@ -1404,9 +1404,10 @@ async def reallocate(
     ``APPROVED -> EXECUTED`` - because an audit trail that cannot show the
     approval preceding the effect is not an approval trail.
 
-    The donor's owner is notified. Their order just lost material it was
-    promised; finding that out from a shortage report next week is not
-    acceptable.
+    Two people are notified. The donor's owner is told their order just lost
+    material it was promised - finding that out from a shortage report next week
+    is not acceptable - and the requester is told their request was approved, so
+    they do not have to keep polling the approval inbox.
     """
     engine = ReservationEngine(session, tenant)
 
@@ -1788,6 +1789,17 @@ async def reallocate(
             quantity=amount,
             remaining=plan.remaining_after,
         )
+        await _notify_requester_decision(
+            session,
+            tenant,
+            request=request,
+            item_code=item.code,
+            warehouse_code=warehouse_code,
+            quantity=amount,
+            approved=True,
+            decision_note=decision_note,
+            donor_label=f"{donor.demand_type} {donor.demand_code or donor.demand_id}",
+        )
     return request
 
 
@@ -2064,6 +2076,72 @@ async def _notify_donor_owner(
     )
 
 
+async def _notify_requester_decision(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    request: ReallocationRequest,
+    item_code: str,
+    warehouse_code: str,
+    quantity: Decimal,
+    approved: bool,
+    decision_note: str | None,
+    donor_label: str | None = None,
+) -> None:
+    """Tell the person who raised the request what happened to it.
+
+    The approval inbox is pull-based; a requester who raised a request for an
+    urgent order should not have to keep refreshing it to discover the stock was
+    approved or that they need another source. The notification is raised in the
+    decision transaction, so it cannot announce a decision that then rolls back.
+
+    Server-side permissions still gate the inbox and the decision endpoints; this
+    is a courtesy signal, not the authority record. The audit entry remains the
+    authoritative history.
+    """
+    recipient = request.requested_by_id
+    if recipient is None or recipient == tenant.user_id:
+        # A superuser approving their own request does not need a notification
+        # about a decision they just took.
+        return
+
+    target = f"{request.to_demand_type} {request.to_demand_code or request.to_demand_id}"
+    verb = "approved" if approved else "rejected"
+    title = f"Reallocation {verb}: {quantity} {item_code}"
+    if approved:
+        body = (
+            f"Your reallocation request for {quantity} {item_code} at "
+            f"{warehouse_code} for {target} was approved and executed. "
+            f"The stock was taken from {donor_label or 'the selected donor'}."
+        )
+    else:
+        body = (
+            f"Your reallocation request for {quantity} {item_code} at "
+            f"{warehouse_code} for {target} was rejected. "
+            "The donor's stock was not moved."
+        )
+    body += f" Decision note: {decision_note}." if decision_note else " No decision note was given."
+
+    await notify(
+        session,
+        company_id=tenant.company_id,
+        user_ids=[recipient],
+        notification_type=(
+            NotificationType.APPROVAL_GRANTED if approved else NotificationType.APPROVAL_REJECTED
+        ),
+        severity=NotificationSeverity.INFO if approved else NotificationSeverity.WARNING,
+        title=title,
+        body=body,
+        entity_type=AUDIT_ENTITY_REALLOCATION,
+        entity_id=request.id,
+        action_url="/inventory/reservations",
+        # One decision per request; the group key still prevents a duplicate
+        # row if a retried request re-runs the notifier after a transient error.
+        group_key=f"reallocation-decision:{request.id}",
+        actor_id=tenant.user_id,
+    )
+
+
 # -----------------------------------------------------------------------------
 # Router-facing service
 # -----------------------------------------------------------------------------
@@ -2294,6 +2372,19 @@ class AllocationService:
                 user_id=self.tenant.user_id,
                 action=AuditAction.REJECT,
                 reason=decision_note,
+            )
+            item, warehouse_code = await self.engine.resolve_position(
+                request.item_id, request.warehouse_id
+            )
+            await _notify_requester_decision(
+                self.session,
+                self.tenant,
+                request=request,
+                item_code=item.code,
+                warehouse_code=warehouse_code,
+                quantity=to_quantity(request.quantity),
+                approved=False,
+                decision_note=decision_note,
             )
         return (await self._to_request_reads([request]))[0]
 

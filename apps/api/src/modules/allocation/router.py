@@ -275,9 +275,10 @@ async def get_reallocation_request(
     summary="Approve a reallocation and execute it",
     description=(
         "Releases the quantity from the donor and reserves it for the recipient "
-        "in one transaction, audits the change, and notifies whoever committed "
-        "the donor stock. Approval and execution are one step so an approval can "
-        "never sit unapplied, and stock can never move without one."
+        "in one transaction, audits the change, notifies whoever committed the "
+        "donor stock, and notifies the requester that the decision was granted. "
+        "Approval and execution are one step so an approval can never sit "
+        "unapplied, and stock can never move without one."
     ),
     dependencies=[require_permission(Permission.ALLOCATION_APPROVE)],
 )

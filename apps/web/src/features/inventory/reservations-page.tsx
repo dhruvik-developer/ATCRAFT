@@ -62,6 +62,8 @@ import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 
 import { ItemPicker, WarehouseSelect } from './pickers'
+import { DEMAND_ROUTES } from './demand-routes'
+import { ReallocationRequestDialog } from './reallocation-request-dialog'
 import {
   DEMAND_TYPES,
   RESERVATION_STATUSES,
@@ -70,7 +72,6 @@ import {
   isDemandType,
   isReservationType,
   type AvailableToPromise,
-  type DemandType,
   type ReallocationRequest,
   type ReservationCreateBody,
   type ReservationRow,
@@ -102,16 +103,6 @@ const PRIORITY_PATTERN = /^\d{1,4}$/
 
 /** What the API defaults `priority` to, restated so the form can show it. */
 const DEFAULT_RESERVATION_PRIORITY = '100'
-
-/** Where the demand behind a reservation is managed. */
-const DEMAND_ROUTES: Record<DemandType, ((id: string) => string) | null> = {
-  SALES_ORDER: (id) => '/sales-orders/' + id,
-  PRODUCTION_ORDER: (id) => '/production/' + id,
-  ASSEMBLY_ORDER: () => '/assembly',
-  JOB_WORK_ORDER: () => '/job-work',
-  TRANSFER: () => '/inventory/movements',
-  SPARE: null,
-}
 
 // -------------------------------------------------------------- create -----
 
@@ -629,316 +620,6 @@ function ReleaseReservationDialog({
         <FieldError message={form.formState.errors.root?.message} />
       </div>
     </ConfirmDialog>
-  )
-}
-
-// ------------------------------------------------------- reallocation ------
-
-const reallocationSchema = z.object({
-  // Asked for rather than assumed. The row's `remaining_quantity` is what this
-  // demand already *holds*, not what it is short of - claiming that much again
-  // would leave the demand holding twice the stock once an approver signs it,
-  // because executing the request opens a second reservation for the recipient.
-  // Nothing on this screen knows the shortfall, so the planner states it.
-  quantity: z
-    .string()
-    .trim()
-    .refine(
-      (value) => QUANTITY_PATTERN.test(value) && toDecimal(value).greaterThan(0),
-      'Enter how much more is needed, greater than zero and to 4 decimal places.',
-    ),
-  reason: z
-    .string()
-    .trim()
-    .min(5, 'Explain why this demand should take priority over the one losing stock.'),
-})
-
-type ReallocationForm = z.infer<typeof reallocationSchema>
-
-/**
- * Raise a reallocation request against the donor the engine picks.
- *
- * There is no preview step, and there never was one on the server: ranking the
- * donors and raising the request are a single call, because ranking them first
- * and asking the browser to post the winner back would leave a window in which
- * that reservation is taken by somebody else - and would let a client name a
- * donor the engine never offered. So this dialog asks for the shortfall and the
- * reason, sends one request, and then shows what the engine decided and what it
- * turned down.
- *
- * The row it opens from is the demand being *helped*, not the donor: the engine
- * excludes the recipient's own demand from the candidate pool, so this
- * reservation can never be the one that gives way. What the recipient is short
- * of is not on the row - `remaining_quantity` is what it already holds - so the
- * quantity is typed rather than inferred.
- *
- * Nothing moves either way until an approver acts on the PENDING request.
- */
-function ReallocationDialog({
-  reservation,
-  onClose,
-}: {
-  reservation: ReservationRow
-  onClose: () => void
-}) {
-  const queryClient = useQueryClient()
-  const [outcome, setOutcome] = useState<ReallocationRequest | null>(null)
-
-  const form = useForm<ReallocationForm>({
-    resolver: zodResolver(reallocationSchema),
-    defaultValues: { quantity: '', reason: '' },
-  })
-
-  const raise = useMutation({
-    mutationFn: (values: ReallocationForm) =>
-      api.post<ReallocationRequest>('/allocation/reallocation-requests', {
-        item_id: reservation.item_id,
-        warehouse_id: reservation.warehouse_id,
-        // What this demand is short of, as typed - a decimal string all the way
-        // to the wire, never parsed into a double. The engine nets free stock
-        // off it before it ranks a single donor.
-        quantity: values.quantity.trim(),
-        to_demand_type: reservation.demand_type,
-        to_demand_id: reservation.demand_id,
-        to_demand_line_id: reservation.demand_line_id,
-        to_demand_code: reservation.demand_code,
-        priority: reservation.priority,
-        required_date: reservation.required_date,
-        reason: values.reason.trim(),
-      }),
-    onSuccess: (result) => {
-      setOutcome(result)
-      toast.success(
-        'Reallocation requested',
-        formatQuantity(result.quantity) +
-          ' claimed from ' +
-          (result.from_demand_code ?? humanise(result.from_demand_type ?? 'the donor')) +
-          '. The request is ' +
-          humanise(result.status) +
-          '.',
-      )
-      void queryClient.invalidateQueries({ queryKey: queryKeys.allocation.all })
-      void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
-    },
-    onError: (error) => applyFieldErrors(error, form.setError),
-  })
-
-  const chosen = outcome?.candidates.find(
-    (candidate) => candidate.reservation_id === outcome.from_reservation_id,
-  )
-  const alternatives =
-    outcome?.candidates.filter(
-      (candidate) => candidate.reservation_id !== outcome.from_reservation_id,
-    ) ?? []
-
-  return (
-    <Dialog
-      open
-      onOpenChange={(next) => {
-        if (!next) onClose()
-      }}
-    >
-      <DialogContent size="lg">
-        <DialogHeader>
-          <DialogTitle>{outcome ? 'Reallocation requested' : 'Suggest a reallocation'}</DialogTitle>
-          <DialogDescription>
-            {outcome ? (
-              <>
-                The allocation engine chose the donor and raised the request. Nothing has moved: an
-                approver has to sign it first.
-              </>
-            ) : (
-              <>
-                {reservation.demand_code ?? humanise(reservation.demand_type)} already holds{' '}
-                {formatQuantity(reservation.remaining_quantity)} of{' '}
-                {reservation.item_code ?? reservation.item_id} at{' '}
-                {reservation.warehouse_code ?? 'this warehouse'}. Say how much <em>more</em> it
-                needs and the engine ranks the reservations that could give that up, then raises the
-                request against the best one.
-              </>
-            )}
-          </DialogDescription>
-        </DialogHeader>
-
-        <DialogBody className="space-y-4">
-          {!outcome && (
-            <>
-              <Alert>
-                <AlertTitle>Who gives the stock up is decided by the engine</AlertTitle>
-                <AlertDescription>
-                  Donors are ranked on priority, required date and how much of the claim is still
-                  unconsumed. Scoring it in the browser would mean guessing at priorities the server
-                  owns, and the ranking has to be taken under a lock, or two planners promise
-                  themselves the same units.
-                </AlertDescription>
-              </Alert>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="reallocation-quantity" required>
-                  Quantity still needed
-                </Label>
-                {/* A text input, not `type="number"`: the browser normalises a
-                    numeric field through a double, and a 4-decimal quantity
-                    does not survive that round trip. */}
-                <Input
-                  id="reallocation-quantity"
-                  autoFocus
-                  inputMode="decimal"
-                  autoComplete="off"
-                  placeholder="0"
-                  className="max-w-[12rem] text-right tabular"
-                  aria-invalid={Boolean(form.formState.errors.quantity)}
-                  aria-describedby="reallocation-quantity-hint"
-                  {...form.register('quantity')}
-                />
-                <p id="reallocation-quantity-hint" className="text-xs text-muted-foreground">
-                  On top of the {formatQuantity(reservation.remaining_quantity)} this demand is
-                  already holding. Free stock at the position is netted off before any donor is
-                  considered.
-                </p>
-                <FieldError message={form.formState.errors.quantity?.message} />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="reallocation-reason" required>
-                  Reason
-                </Label>
-                <Textarea
-                  id="reallocation-reason"
-                  placeholder="e.g. Customer escalation - SO/2026-27/00184 ships this week"
-                  aria-invalid={Boolean(form.formState.errors.reason)}
-                  {...form.register('reason')}
-                />
-                <FieldError message={form.formState.errors.reason?.message} />
-              </div>
-            </>
-          )}
-
-          {outcome && (
-            <>
-              <div className="rounded-md border border-primary/50 bg-primary/5 p-3">
-                <p className="text-sm font-medium">
-                  Taking {formatQuantity(outcome.quantity)} from{' '}
-                  {outcome.from_demand_code ??
-                    humanise(outcome.from_demand_type ?? 'another reservation')}
-                </p>
-                <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  {outcome.from_reservation_type && (
-                    <Badge
-                      variant={outcome.from_reservation_type === 'HARD' ? 'warning' : 'secondary'}
-                    >
-                      {outcome.from_reservation_type}
-                    </Badge>
-                  )}
-                  <StatusBadge status={outcome.status} />
-                </p>
-                {chosen && chosen.reasons.length > 0 && (
-                  <ul className="mt-2 list-inside list-disc text-xs text-muted-foreground">
-                    {chosen.reasons.map((why) => (
-                      <li key={why}>{why}</li>
-                    ))}
-                  </ul>
-                )}
-                {chosen?.requires_approval && (
-                  <p className="mt-2 text-xs text-warning">
-                    This donor holds a hard reservation, so the request waits for an allocation
-                    approver before any stock moves.
-                  </p>
-                )}
-              </div>
-
-              {alternatives.length > 0 ? (
-                <div>
-                  <p className="mb-2 text-sm font-medium">
-                    Also considered ({alternatives.length})
-                  </p>
-                  <ul className="space-y-2">
-                    {alternatives.map((candidate) => {
-                      const route = DEMAND_ROUTES[candidate.demand_type]
-                      return (
-                        <li
-                          key={candidate.reservation_id}
-                          className="flex items-start justify-between gap-3 rounded-md border p-3"
-                        >
-                          <div className="min-w-0">
-                            <p className="flex flex-wrap items-center gap-2 text-sm">
-                              <span className="font-medium">
-                                {candidate.demand_code ?? humanise(candidate.demand_type)}
-                              </span>
-                              <Badge
-                                variant={
-                                  candidate.reservation_type === 'HARD' ? 'warning' : 'secondary'
-                                }
-                              >
-                                {candidate.reservation_type}
-                              </Badge>
-                              <span className="text-xs text-muted-foreground">
-                                Priority {candidate.priority}
-                              </span>
-                            </p>
-                            {candidate.reasons.length > 0 && (
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                {candidate.reasons.join('. ')}
-                              </p>
-                            )}
-                            {route && (
-                              <Link
-                                to={route(candidate.demand_id)}
-                                className="mt-1 inline-block text-xs text-primary hover:underline"
-                              >
-                                Open the demand
-                              </Link>
-                            )}
-                          </div>
-                          <div className="shrink-0 text-right">
-                            <p className="tabular font-medium">
-                              {formatQuantity(candidate.takeable_quantity)}
-                            </p>
-                            <p className="text-xs text-muted-foreground">could give up</p>
-                            <p className="text-xs text-muted-foreground">
-                              {formatDate(candidate.required_date)}
-                            </p>
-                          </div>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                </div>
-              ) : (
-                <Alert variant="warning">
-                  <AlertTitle>No alternative donor</AlertTitle>
-                  <AlertDescription>
-                    Nothing else holding this item at this warehouse could have given stock up. If
-                    this request is rejected, the shortage has to be covered by a purchase, a
-                    production order or a transfer.
-                  </AlertDescription>
-                </Alert>
-              )}
-            </>
-          )}
-
-          <FieldError message={form.formState.errors.root?.message} />
-        </DialogBody>
-
-        <DialogFooter>
-          {outcome ? (
-            <Button onClick={onClose}>Done</Button>
-          ) : (
-            <>
-              <Button variant="outline" onClick={onClose} disabled={raise.isPending}>
-                Cancel
-              </Button>
-              <Button
-                onClick={form.handleSubmit((values) => raise.mutate(values))}
-                loading={raise.isPending}
-              >
-                Raise reallocation request
-              </Button>
-            </>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   )
 }
 
@@ -1470,8 +1151,21 @@ export default function ReservationsPage() {
       )}
 
       {reallocationTarget && (
-        <ReallocationDialog
-          reservation={reallocationTarget}
+        <ReallocationRequestDialog
+          demand={{
+            itemId: reallocationTarget.item_id,
+            itemCode: reallocationTarget.item_code,
+            itemName: reallocationTarget.item_name,
+            warehouseId: reallocationTarget.warehouse_id,
+            warehouseCode: reallocationTarget.warehouse_code,
+            demandType: reallocationTarget.demand_type,
+            demandId: reallocationTarget.demand_id,
+            demandLineId: reallocationTarget.demand_line_id,
+            demandCode: reallocationTarget.demand_code,
+            priority: reallocationTarget.priority,
+            requiredDate: reallocationTarget.required_date,
+            alreadyHolding: reallocationTarget.remaining_quantity,
+          }}
           onClose={() => setReallocationTarget(null)}
         />
       )}
