@@ -29,7 +29,7 @@ import { api } from '@/lib/api-client'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import type { DispatchDetail, DispatchRow } from '@/features/dispatch/dispatch-types'
 
-type SalesReturnRow = {
+export type SalesReturnRow = {
   id: string
   code: string
   dispatch_id: string
@@ -38,6 +38,19 @@ type SalesReturnRow = {
   source: 'ERP' | 'DEALER_PORTAL'
   created_at?: string
   received_at: string | null
+}
+
+type SalesReturnAction = 'receive' | 'close' | 'cancel'
+
+function availableReturnActions(status: SalesReturnRow['status']): SalesReturnAction[] {
+  switch (status) {
+    case 'DRAFT':
+      return ['receive', 'cancel']
+    case 'RECEIVED':
+      return ['close', 'cancel']
+    default:
+      return []
+  }
 }
 
 function NewSalesReturnDialog({
@@ -241,6 +254,11 @@ export default function SalesReturnsPage() {
   const { can } = useAuth()
   const [selected, setSelected] = useState<string | null>(null)
   const [newReturnOpen, setNewReturnOpen] = useState(false)
+  const [transitionError, setTransitionError] = useState<string | null>(null)
+  const [transitioning, setTransitioning] = useState<{
+    id: string
+    action: SalesReturnAction
+  } | null>(null)
   const list = useListQuery<SalesReturnRow>({
     path: '/sales-returns',
     queryKey: (params) => ['sales-returns', 'list', params],
@@ -248,6 +266,9 @@ export default function SalesReturnsPage() {
     defaultSortDir: 'desc',
     staleTime: staleTimes.transactional,
   })
+
+  const selectedReturn = list.data?.find((row) => row.id === selected) ?? null
+  const availableActions = selectedReturn ? availableReturnActions(selectedReturn.status) : []
 
   const columns = useMemo<ColumnDef<SalesReturnRow, unknown>[]>(
     () => [
@@ -281,9 +302,47 @@ export default function SalesReturnsPage() {
     [],
   )
 
-  async function transition(id: string, action: 'receive' | 'close') {
-    await api.post(`/sales-returns/${id}/${action}`)
-    await list.refetch()
+  async function transition(id: string, action: SalesReturnAction) {
+    if (action === 'cancel') {
+      const promptReason = window.prompt(
+        'Provide a reason for cancelling this return.',
+        'Customer requested cancellation',
+      )
+      if (promptReason === null) {
+        return
+      }
+      const reason = promptReason.trim()
+      if (!reason) {
+        return
+      }
+
+      setTransitionError(null)
+      setTransitioning({ id, action })
+      try {
+        await api.post(`/sales-returns/${id}/cancel`, { reason })
+        setSelected(null)
+        await list.refetch()
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'The return action failed.'
+        setTransitionError(message)
+      } finally {
+        setTransitioning(null)
+      }
+      return
+    }
+
+    setTransitionError(null)
+    setTransitioning({ id, action })
+    try {
+      await api.post(`/sales-returns/${id}/${action}`)
+      setSelected(null)
+      await list.refetch()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The return action failed.'
+      setTransitionError(message)
+    } finally {
+      setTransitioning(null)
+    }
   }
 
   return (
@@ -297,24 +356,41 @@ export default function SalesReturnsPage() {
           ) : undefined
         }
       />
-      {selected && (
+      {selectedReturn && (
         <div className="rounded-lg border border-border bg-card p-4 text-sm">
-          <div className="flex items-center justify-between">
-            <strong>Return {selected}</strong>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <strong>{selectedReturn.code}</strong>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Status: <StatusBadge status={selectedReturn.status} />
+              </div>
+            </div>
             <Button variant="ghost" onClick={() => setSelected(null)}>
-              Close
+              Hide details
             </Button>
           </div>
-          <div className="mt-3 flex gap-2">
-            {can(P.SALES_RETURN_CREATE) && (
-              <>
-                <Button onClick={() => void transition(selected, 'receive')}>Receive</Button>
-                <Button variant="outline" onClick={() => void transition(selected, 'close')}>
-                  Close
+          <div className="mt-3 flex flex-wrap gap-2">
+            {can(P.SALES_RETURN_CREATE) && availableActions.length > 0 ? (
+              availableActions.map((action) => (
+                <Button
+                  key={action}
+                  variant={action === 'cancel' ? 'outline' : 'default'}
+                  disabled={transitioning?.id === selectedReturn.id}
+                  loading={
+                    transitioning?.id === selectedReturn.id && transitioning.action === action
+                  }
+                  onClick={() => void transition(selectedReturn.id, action)}
+                >
+                  {action === 'receive' ? 'Receive' : action === 'close' ? 'Close' : 'Cancel'}
                 </Button>
-              </>
+              ))
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                No actions available for this status.
+              </span>
             )}
           </div>
+          {transitionError && <FieldError message={transitionError} />}
         </div>
       )}
       <DataTable
