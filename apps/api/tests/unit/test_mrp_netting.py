@@ -18,6 +18,9 @@ import pytest
 
 from src.modules.mrp.engine import (
     StockPosition,
+    SupplyArrival,
+    coverage_date,
+    expected_availability,
     is_late_order,
     net_after_stock,
     net_after_supply,
@@ -176,3 +179,74 @@ def test_an_order_due_today_is_not_yet_late() -> None:
 def test_negative_lead_time_is_rejected() -> None:
     with pytest.raises(ValueError, match="lead time"):
         order_date_for(date(2026, 6, 30), -1)
+
+
+# -----------------------------------------------------------------------------
+# Expected availability: when the material is actually there
+# -----------------------------------------------------------------------------
+
+
+def test_a_requirement_covered_by_stock_is_available_from_the_run_date() -> None:
+    assert coverage_date(D("100"), D("200"), supply=[], as_of=date(2026, 6, 1)) == date(2026, 6, 1)
+
+
+def test_availability_is_the_day_the_running_total_crosses_the_requirement() -> None:
+    """20 in stock, then 40 on 10 June and 50 on 20 June: covered on 20 June.
+
+    Not the first arrival (only 60 of the 100 covered) and not the last (the
+    third tranche is never needed).
+    """
+    supply = [
+        SupplyArrival(date(2026, 6, 10), D("40")),
+        SupplyArrival(date(2026, 6, 20), D("50")),
+        SupplyArrival(date(2026, 6, 30), D("10")),
+    ]
+
+    assert coverage_date(D("100"), D("20"), supply=supply, as_of=date(2026, 6, 1)) == date(
+        2026, 6, 20
+    )
+
+
+def test_supply_that_never_covers_the_requirement_has_no_availability_date() -> None:
+    """``None`` is "waiting on the order the plan raises", not "available today"."""
+    supply = [SupplyArrival(date(2026, 6, 10), D("40"))]
+
+    assert coverage_date(D("100"), D("20"), supply=supply, as_of=date(2026, 6, 1)) is None
+
+
+def test_a_late_tranche_still_fixes_the_day_the_material_arrives() -> None:
+    """Short is still short - but the date a buyer can plan around is real.
+
+    The requirement needed the part before the tranche lands; the date the
+    coverage completes is still the tranche's date, which is what the shortage
+    report shows beside the shortage.
+    """
+    supply = [
+        SupplyArrival(date(2026, 7, 20), D("40")),
+        SupplyArrival(date(2026, 7, 10), D("60")),
+    ]
+
+    assert coverage_date(D("100"), D("0"), supply=supply, as_of=date(2026, 6, 1)) == date(
+        2026, 7, 20
+    ), (
+        "sorted by arrival date: the 60 on 10 July does not cover 100, and the "
+        "40 arriving on 20 July completes it"
+    )
+
+
+def test_a_late_order_lands_a_lead_time_from_the_run_date() -> None:
+    """An order date already in the past cannot land on its required date.
+
+    Required 1 June with a 30-day lead means the order should have been placed
+    on 2 May. Placed today (1 June), the earliest it lands is 1 July.
+    """
+    order_date = order_date_for(date(2026, 6, 1), 30)
+
+    assert order_date == date(2026, 5, 2)
+    assert expected_availability(order_date, 30, as_of=date(2026, 6, 1)) == date(2026, 7, 1)
+
+
+def test_an_order_still_in_time_lands_when_the_requirement_needed_it() -> None:
+    order_date = order_date_for(date(2026, 7, 15), 14)
+
+    assert expected_availability(order_date, 14, as_of=date(2026, 6, 1)) == date(2026, 7, 15)

@@ -35,6 +35,21 @@ PostgreSQL probes and the actual GitHub Actions results.
 > [compliance and procurement memo](d4-dsc-pades-compliance-20261019.md) is
 > ready, and implementation is gated on legal/compliance confirmation and
 > certificate procurement.
+>
+> **E3a delivered — 19 October 2026 (MRP engine depth).** MRP now discovers
+> each item's low-level code in batched per-level reads and nets every item
+> once, at its deepest level: gross requirement against free stock and dated
+> in-time supply (including live production output), then only the net
+> shortfall exploded through single-level BOM lines with per-level lead-time
+> offsets. Manufacture suggestions use the routing lead time; expected
+> availability is stamped on requirements, suggestions and demand lines and
+> shown on run detail, the shortage report and sales-order detail, where
+> "Use as promised date" writes the promise through the audited PATCH. The
+> deliberate behaviour change - production output counts as supply before the
+> explosion - is recorded in [assumptions §22](../assumptions.md). Fresh local
+> verification after the change: backend **5,537 passed, 0 skipped**; frontend
+> **1,093 passed in 85 files**; Ruff, mypy, ESLint, typecheck and contract
+> checks clean.
 
 ## Release gates currently failing
 

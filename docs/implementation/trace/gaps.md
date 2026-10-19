@@ -1,3 +1,14 @@
+> **Post-audit update - 19 October 2026 (E3a).** P05.P2-P4 and P06.F2/F6/F7/F8
+> are closed: MRP now discovers low-level codes in batched per-level reads,
+> nets every item exactly once at its deepest level (free stock, then dated
+> in-time supply), explodes only the net shortfall through single-level BOM
+> lines, uses the quantity-dependent routing lead time with per-level date
+> offsets, and stamps expected availability on requirements, suggestions and
+> demand lines - surfaced on run detail, the shortage report, the sales-order
+> detail screen and `GET /mrp/sales-orders/{id}/expected-availability`. The
+> entries below are the pre-E3a audit text and are left as they were.
+> See `docs/implementation/specs/E3a-mrp-engine-depth.md`.
+
 ### S01.1 [PARTIAL] (G1) One integrated system in which a sales order can automatically: check available stock, reserve inventory, calculate shortages, generate production plans, raise
 - gap: Production plans and purchase requirements are not raised automatically from the sales order. Nothing in sales/service.py references MRP, and celery_app.py beat_schedule has no MRP entry, so a planner must start a run and then convert its suggestions. JOB_WORK suggestions cannot be converted at all. There is no lifecycle view centred on the sales order: production orders created by MRP store source_type=MRP_SUGGESTION and source_id=<suggestion id> (production/models.py:124-134), not the sales order, and the order detail page lists no linked production, job-work, packing or dispatch documents. In the base and dev compose files the worker has no -Q (docker-compose.yml:250, docker-compose.dev.yml:66), so asynchronous MRP runs (over 50 lines) never execute outside the prod overlay.
 - planned: None covers the automation or the order-level trace. A2 only fixes the dev worker queue; B4 only adds a 'Production shortage' notification after a run.

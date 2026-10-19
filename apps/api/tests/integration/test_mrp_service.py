@@ -20,13 +20,14 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import func, select, text
+from sqlalchemy import event, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -533,6 +534,155 @@ async def test_an_item_sold_and_used_in_a_bom_nets_its_stock_once(ctx: Ctx) -> N
     assert handle.available_quantity == D("60.0000")
     assert handle.shortage_quantity == D("140.0000")
     assert handle.level == 0
+
+
+@pytest.mark.asyncio
+async def test_a_stocked_sub_assembly_reduces_its_component_demand(ctx: Ctx) -> None:
+    """The proposal's worked example, through a real database.
+
+    100 kits need 200 handles; 50 handles are in stock, so only 150 are built
+    and only those raise handle bodies. The old engine exploded the whole order
+    because the handle was also directly demanded elsewhere in the plan's
+    horizon; level ordering makes the sub-assembly's shortage - not its gross
+    requirement - the quantity exploded.
+    """
+    body = _item(ctx, f"HANDLE-BODY-{uuid.uuid4().hex[:6].upper()}", lead_time_days=5)
+    ctx.session.add(body)
+    await ctx.session.flush()
+
+    # The handle becomes a manufactured sub-assembly with a structure of its
+    # own. Everything else about the master data is unchanged.
+    ctx.handle.production_type = ProductionType.MAKE
+    ctx.handle.can_manufacture = True
+    ctx.handle.can_purchase = False
+    handle_bom = Bom(
+        company_id=ctx.tenant.company_id,
+        code=f"BOM-HANDLE-{uuid.uuid4().hex[:6].upper()}",
+        item_id=ctx.handle.id,
+        version=1,
+        status=BomStatus.APPROVED,
+        bom_type=BomType.PRODUCTION,
+        is_default=True,
+        output_quantity=D("1"),
+        base_uom_id=ctx.uom.id,
+        effective_from=today() - timedelta(days=30),
+        approved_by_id=ctx.tenant.user_id,
+        approved_at=utcnow(),
+    )
+    ctx.session.add(handle_bom)
+    await ctx.session.flush()
+    ctx.session.add(
+        BomLine(
+            company_id=ctx.tenant.company_id,
+            bom_id=handle_bom.id,
+            parent_item_id=ctx.handle.id,
+            line_number=1,
+            component_item_id=body.id,
+            quantity_per=D("4"),
+            uom_id=ctx.uom.id,
+        )
+    )
+    await ctx.session.flush()
+
+    await add_stock(ctx, ctx.handle, ctx.main_warehouse, on_hand="50")
+    await add_sales_order(ctx, code="SO/0001", lines=[(ctx.kit, "100")])
+
+    run = await run_plan(ctx)
+
+    handle = await requirement_for(ctx, run.id, ctx.handle)
+    assert handle is not None
+    assert handle.gross_requirement == D("200.0000")
+    assert handle.shortage_quantity == D("150.0000")
+    assert handle.low_level_code == 1
+
+    body_requirement = await requirement_for(ctx, run.id, body)
+    assert body_requirement is not None
+    assert body_requirement.gross_requirement == D("600.0000"), (
+        "four bodies for each of the 150 handles actually built - not 800"
+    )
+    assert body_requirement.low_level_code == 2
+
+    screw = await requirement_for(ctx, run.id, ctx.screw)
+    assert screw is not None
+    assert screw.gross_requirement == D("600.0000"), "six screws per kit, unmoved"
+
+
+@pytest.mark.asyncio
+async def test_requirement_rows_carry_an_expected_availability_date(ctx: Ctx) -> None:
+    """Every persisted row has a date, and the run summary agrees with them.
+
+    A covered requirement is available from the run date; a short one waits for
+    the order the suggestion raises. Neither is nullable on a completed run.
+    """
+    await add_stock(ctx, ctx.handle, ctx.main_warehouse, on_hand="500")
+    await add_sales_order(ctx, code="SO/0001", lines=[(ctx.kit, "10")])
+
+    run = await run_plan(ctx)
+
+    kit = await requirement_for(ctx, run.id, ctx.kit)
+    handle = await requirement_for(ctx, run.id, ctx.handle)
+    screw = await requirement_for(ctx, run.id, ctx.screw)
+    assert kit is not None and handle is not None and screw is not None
+    for requirement in (kit, handle, screw):
+        assert requirement.expected_available_date is not None
+        assert requirement.low_level_code is not None
+
+    as_of = today()
+    # The handle is fully covered by stock, so it is available now. The kit is
+    # needed in 45 days; its screw is due 10 days earlier, still inside the
+    # screw's 21-day lead, so nothing slips and both rows carry the order date.
+    assert handle.expected_available_date == as_of
+    assert await suggestion_for(ctx, run.id, ctx.handle) is None, "stock covers it"
+    kit_suggestion = await suggestion_for(ctx, run.id, ctx.kit)
+    screw_suggestion = await suggestion_for(ctx, run.id, ctx.screw)
+    assert kit_suggestion is not None and screw_suggestion is not None
+    assert kit.expected_available_date == as_of + timedelta(days=45)
+    assert kit.expected_available_date == kit_suggestion.expected_available_date
+    assert screw.expected_available_date == as_of + timedelta(days=35)
+    assert screw.expected_available_date == screw_suggestion.expected_available_date
+    assert run.result_summary is not None
+    assert run.result_summary["low_level_code_max"] == 1
+
+
+@pytest.mark.asyncio
+async def test_the_sales_order_availability_comes_from_the_latest_completed_plan(
+    ctx: Ctx,
+) -> None:
+    """The sales screen reads the plan's stamped dates, not a fresh calculation.
+
+    The date has to be defensible against the plan it was taken from: the same
+    number the shortage report shows, under the run that produced it.
+    """
+    order = await add_sales_order(ctx, code="SO/0001", lines=[(ctx.kit, "10")])
+    line = (
+        await ctx.session.execute(
+            select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+        )
+    ).scalar_one()
+
+    run = await run_plan(ctx)
+    availability = await service.sales_order_availability(ctx.session, ctx.tenant, order.id)
+
+    assert availability.run_id == run.id
+    assert availability.run_code == run.code
+    assert availability.completed_at == run.completed_at
+    assert len(availability.lines) == 1
+    assert availability.lines[0].sales_order_line_id == line.id
+    assert availability.lines[0].item_id == ctx.kit.id
+    assert availability.lines[0].expected_available_date == today() + timedelta(days=45)
+
+
+@pytest.mark.asyncio
+async def test_an_order_no_completed_plan_has_seen_has_no_availability(ctx: Ctx) -> None:
+    """No plan is an empty report, not an error and not a fabricated today."""
+    order = await add_sales_order(ctx, code="SO/0001", lines=[(ctx.kit, "10")])
+
+    availability = await service.sales_order_availability(ctx.session, ctx.tenant, order.id)
+
+    assert availability.run_id is None
+    assert availability.run_code is None
+    assert availability.completed_at is None
+    assert availability.lines == []
 
 
 @pytest.mark.asyncio
@@ -1353,3 +1503,153 @@ async def test_the_demand_snapshot_survives_the_order_it_came_from(ctx: Ctx) -> 
     assert len(rows) == 1
     assert rows[0].source_code == "SO/0001"
     assert rows[0].quantity == D("100.0000")
+
+
+# -----------------------------------------------------------------------------
+# Cost of a plan
+# -----------------------------------------------------------------------------
+
+
+@contextmanager
+def _captured_sql(session: AsyncSession) -> Iterator[list[str]]:
+    """Every ORM statement the session executes inside the block.
+
+    ``do_orm_execute`` sees the repository's explicit ``session.execute`` calls -
+    the planning feeds and the set-based stamps - but not the flush's inserts,
+    which is the split this test is about: reads and bulk writes must be batched
+    by id set, while ordinary inserts are the work itself.
+    """
+    statements: list[str] = []
+
+    def record(state: Any) -> None:
+        statements.append(str(state.statement))
+
+    event.listen(session.sync_session, "do_orm_execute", record)
+    try:
+        yield statements
+    finally:
+        event.remove(session.sync_session, "do_orm_execute", record)
+
+
+async def add_bom(
+    ctx: Ctx, *, code: str, parent: Item, components: list[tuple[Item, Decimal]]
+) -> None:
+    """One approved single-level structure under ``parent``."""
+    session = ctx.session
+    bom = Bom(
+        company_id=ctx.tenant.company_id,
+        code=code,
+        item_id=parent.id,
+        version=1,
+        status=BomStatus.APPROVED,
+        bom_type=BomType.PRODUCTION,
+        is_default=True,
+        output_quantity=D("1"),
+        base_uom_id=ctx.uom.id,
+        effective_from=today() - timedelta(days=30),
+        approved_by_id=ctx.tenant.user_id,
+        approved_at=utcnow(),
+    )
+    session.add(bom)
+    await session.flush()
+    session.add_all(
+        [
+            BomLine(
+                company_id=ctx.tenant.company_id,
+                bom_id=bom.id,
+                parent_item_id=parent.id,
+                line_number=line_number,
+                component_item_id=component.id,
+                quantity_per=quantity_per,
+                uom_id=ctx.uom.id,
+            )
+            for line_number, (component, quantity_per) in enumerate(components, start=1)
+        ]
+    )
+    await session.flush()
+
+
+async def add_structure(ctx: Ctx, *, prefix: str, breadth: int) -> Item:
+    """A three-level MAKE structure, ``breadth`` sub-assemblies wide.
+
+    Width-parameterisable so the query-count test can hold the depth and the
+    shape constant and move only the number of nodes.
+    """
+    session = ctx.session
+    kit = _item(
+        ctx,
+        f"{prefix}-KIT",
+        item_group=ItemGroup.FINISHED_GOOD,
+        production_type=ProductionType.MAKE,
+        can_manufacture=True,
+        can_purchase=False,
+        can_sell=True,
+        lead_time_days=10,
+    )
+    subs = [
+        _item(
+            ctx,
+            f"{prefix}-SUB-{index:02d}",
+            production_type=ProductionType.MAKE,
+            can_manufacture=True,
+            can_purchase=False,
+            lead_time_days=5,
+        )
+        for index in range(breadth)
+    ]
+    raws = [_item(ctx, f"{prefix}-RAW-{index:02d}", lead_time_days=3) for index in range(breadth)]
+    session.add_all([kit, *subs, *raws])
+    await session.flush()
+    await add_bom(
+        ctx,
+        code=f"BOM-{prefix}-KIT",
+        parent=kit,
+        components=[(sub, D("1")) for sub in subs],
+    )
+    for index, (sub, raw) in enumerate(zip(subs, raws, strict=True)):
+        await add_bom(
+            ctx,
+            code=f"BOM-{prefix}-SUB-{index:02d}",
+            parent=sub,
+            components=[(raw, D("2"))],
+        )
+    return kit
+
+
+@pytest.mark.asyncio
+async def test_a_fifty_part_plan_costs_no_more_queries_than_a_three_part_one(ctx: Ctx) -> None:
+    """Reads batched by id set per level, writes one statement per table (section 32).
+
+    Two runs over the *same* three-level shape, one three sub-assemblies wide and
+    one fifty: every difference between them must be in rows, never in round
+    trips. A per-node query anywhere in discovery, netting or the suggestion
+    writes would make the wide plan cost roughly fifteen times as much, which is
+    the failure this pins. The small order is cancelled first so the second run
+    plans one structure, exactly as the first did.
+    """
+    small_kit = await add_structure(ctx, prefix="SMALL", breadth=3)
+    small_order = await add_sales_order(ctx, code="SO/0001", lines=[(small_kit, "1")])
+
+    with _captured_sql(ctx.session) as small_statements:
+        await run_plan(ctx)
+
+    small_order.status = SalesOrderStatus.CANCELLED
+    small_order.cancellation_reason = "Replaced by the wide scenario"
+    await ctx.session.flush()
+
+    big_kit = await add_structure(ctx, prefix="BIG", breadth=50)
+    await add_sales_order(ctx, code="SO/0002", lines=[(big_kit, "1")])
+
+    with _captured_sql(ctx.session) as big_statements:
+        await run_plan(ctx)
+
+    # Guard against a vacuous pass: the recorder must have seen the planning
+    # feeds at all. A run reads demand, item facts, stock, supply, BOMs and
+    # vendor terms at the very least, so a handful of statements is the floor,
+    # not a ceiling.
+    assert len(small_statements) >= 8, small_statements
+    assert len(big_statements) == len(small_statements), (
+        f"the wide plan executed {len(big_statements)} statements against "
+        f"{len(small_statements)} for the narrow one - a query is scaling with "
+        f"the number of nodes"
+    )

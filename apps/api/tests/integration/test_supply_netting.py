@@ -1538,25 +1538,19 @@ async def test_a_parent_covered_only_in_part_explodes_only_the_uncovered_half(
     assert screw.dependent_demand_quantity == D("60.0000"), "two screws for each of 30 panels"
 
 
-async def test_a_live_job_covers_the_parent_but_its_components_are_still_planned(
+async def test_a_live_job_covers_the_parent_and_its_components(
     ctx: Ctx,
 ) -> None:
-    """A released job is a build that still has to be given its parts.
+    """E3a's binding change: production output is dated supply, like an order.
 
-    This is the half of the old rule that was wrong. Netting the *exploded*
-    quantity against in-progress production assumed a live job had already had
-    its components planned and issued against it. It has not, necessarily:
-    ``production.service.release_order`` reserves material only when
-    ``ReleaseRequest.reserve_material`` asks it to - false is a supported
-    release, for material already staged at the line - and ``_reserve_components``
-    otherwise holds only what happened to be free and reports the remainder as a
-    shortage rather than refusing the release. Issue is a separate document
-    later still. So a RELEASED job can be holding nothing at all, and deleting
-    its component demand is a stockout.
-
-    The frame's own requirement still nets against the job, because those frames
-    are real and ordering them twice would be a duplicate. Only the explosion is
-    left alone.
+    The old rule split the two halves - the frame's requirement netted against
+    the job, but the explosion did not - on the argument that a released job may
+    hold none of its material. E3a binds one rule for both: net against stock and
+    in-time supply, production included, and explode only the net shortfall. The
+    components for the 60 frames the job is building belong to that job; raising
+    them here as well would buy the same steel twice, and a release that cannot
+    reserve its material reports its own shortage rather than relying on the MRP
+    plan to over-order.
     """
     await add_sales_order(ctx, code="SO/0001", lines=[(ctx.frame, "60")], required_in_days=25)
     await add_production_order(
@@ -1574,13 +1568,11 @@ async def test_a_live_job_covers_the_parent_but_its_components_are_still_planned
     assert frame.shortage_quantity == D("0.0000")
     assert await _maybe_suggestion(ctx, run.id, ctx.frame) is None
 
-    screw = await _requirement(ctx, run.id, ctx.screw)
-    assert screw.dependent_demand_quantity == D("120.0000"), (
-        "the live job's components were deleted; the job may hold none of them"
+    assert await _maybe_requirement(ctx, run.id, ctx.screw) is None, (
+        "the job's components are the job's demand, not a second purchase"
     )
-    assert (await _suggestion(ctx, run.id, ctx.screw)).suggested_quantity == D("120.0000")
     assert run.result_summary is not None
-    assert run.result_summary["explosion_count"] == 1
+    assert run.result_summary["explosion_count"] == 0
 
 
 # =============================================================================
@@ -1637,20 +1629,23 @@ async def test_an_item_that_is_sold_and_used_is_netted_at_one_date_not_two(
     assert (await _suggestion(ctx, run.id, ctx.screw)).suggested_quantity == D("160.0000")
 
     assert run.result_summary is not None
-    assert run.result_summary["demand_dates_settled"] is True
-    # The panel is re-decided once, at the date that settled. The cabinet is
-    # decided once. Nothing else moved, so nothing else was re-exploded.
+    assert run.result_summary["low_level_code_max"] == 2
+    # The panel is netted after the cabinet that consumes it, at the date the
+    # cabinet pulled it to. The cabinet and the panel are each exploded once;
+    # nothing is re-decided because nothing is visited twice.
     assert run.result_summary["explosion_count"] == 2
+    assert "demand_dates_settled" not in run.result_summary
 
 
-async def test_the_order_the_settled_date_made_late_is_still_reported(
+async def test_the_order_the_low_level_date_made_late_is_still_reported(
     ctx: Ctx,
 ) -> None:
     """Sixty panels are genuinely on order, and the plan has to say so.
 
-    Settling the date earlier is what turned that order late. Dropping it in
-    silence would leave a buyer holding a purchase order for 60 and a plan
-    demanding 70 with nothing connecting the two.
+    The cabinet's lead time pulling the panel back to an earlier date is what
+    turned that order late. Dropping it in silence would leave a buyer holding a
+    purchase order for 60 and a plan demanding 70 with nothing connecting the
+    two.
     """
     await add_sales_order(ctx, code="SO/0001", lines=[(ctx.panel, "60")], required_in_days=25)
     await add_sales_order(ctx, code="SO/0002", lines=[(ctx.cabinet, "10")], required_in_days=40)

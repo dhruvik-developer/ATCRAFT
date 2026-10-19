@@ -589,27 +589,52 @@ Flow (master rules §14):
 
 ```
 Sales orders (+ manual demand)
-  -> net against finished-goods available
-  -> explode BOM for the shortfall
-  -> MERGE common parts across all demand lines and all branches
-  -> net against inventory available
-  -> net against confirmed incoming POs (by expected date)
-  -> net against in-progress production
+  -> discover the structure level by level:
+       each item's low-level code (the deepest level it appears at)
+       and its single-level effective BOM, batched per level
+  -> plan level by level, shallowest first:
+       gross = direct demand + dependent demand from parents already planned
+       net against free stock, then in-time supply (POs, production)
+       explode only the net shortfall one level down,
+       offsetting each child's date by the parent's own lead time
+  -> MERGE common parts: every item is netted once, at its low-level code
   -> shortage
   -> suggestions
 ```
 
+There is no fixed-point settling pass. The level ordering is the guarantee that
+an item's requirement, its explosion and its suggestion are computed in one
+visit and cannot disagree afterwards. The structure walk is capped at
+`DEFAULT_MAX_EXPLOSION_DEPTH` (20); a deeper structure is refused with
+`BOM_DEPTH_EXCEEDED` rather than truncated.
+
 `mrp_runs`: `code`, `status` (`QUEUED | RUNNING | COMPLETED | FAILED | CANCELLED`),
 `mode` (`SYNC | ASYNC`), `horizon_days`, `warehouse_ids`, `celery_task_id`,
 `started_at`, `completed_at`, `demand_line_count`, `suggestion_count`,
-`error_message`, `parameters` (JSONB), `result_summary` (JSONB).
+`error_message`, `parameters` (JSONB), `result_summary` (JSONB; includes
+`low_level_code_max`, the deepest level the plan netted at).
+
+`mrp_demands`: the demand snapshot the run planned against, one row per source
+line. `expected_available_date` is stamped when the run completes: the date the
+item's merged requirement is expected to be fully covered, after child slippage
+has been rolled up through the demand's BOM provenance.
+
+`mrp_requirements`: `run_id`, `item_id`, `gross_requirement`, the direct and
+dependent split, free stock, in-time and late incoming/in-production supply,
+`shortage_quantity`, provenance in `source_demands` (JSONB), plus
+`low_level_code` (the level the item was netted at) and
+`expected_available_date` (the date coverage completes; when coverage needs the
+plan's own order, the suggestion's achievable arrival).
 
 `mrp_suggestions`: `run_id`, `item_id`, `suggestion_type`
 (`MANUFACTURE | PURCHASE | JOB_WORK | TRANSFER`), `required_quantity`,
 `suggested_quantity` (after min-order-qty / multiple rounding),
 `required_date`, `suggested_order_date` (required date − lead time),
 `shortage_quantity`, `available_quantity`, `incoming_quantity`, `source_demands`
-(JSONB), `status` (`OPEN | CONVERTED | IGNORED`), `converted_to_type`,
+(JSONB), `low_level_code`, `expected_available_date`
+(`max(as_of, suggested_order_date) + lead_time_days` - the date the order can
+physically land, which for a late suggestion is later than the required date),
+`status` (`OPEN | CONVERTED | IGNORED`), `converted_to_type`,
 `converted_to_id`.
 
 **Execution rule (§14):** a run whose demand-line count exceeds

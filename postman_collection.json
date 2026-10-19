@@ -11114,6 +11114,35 @@
               ]
             }
           }
+        },
+        {
+          "name": "When the latest plan expects a sales order to be covered",
+          "request": {
+            "description": "The newest completed run whose demand snapshot contained this order, with the date each line is expected to be covered by stock, dated supply or the order the plan raises. `run_id` is null when no completed run has ever seen the order; that is a normal state, not a 404. Dates come from the plan's stamped demand rows, so they are evidence of what was known when it ran rather than a fresh calculation.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "mrp",
+                "sales-orders",
+                ":order_id",
+                "expected-availability"
+              ],
+              "raw": "{{base_url}}/api/v1/mrp/sales-orders/{order_id}/expected-availability",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
         }
       ],
       "name": "MRP"

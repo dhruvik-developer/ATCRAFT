@@ -66,6 +66,7 @@ from src.modules.mrp.schemas import (
     MrpRunRequest,
     MrpRunSummary,
     MrpSuggestionRead,
+    SalesOrderAvailabilityRead,
     ShortageReportFilters,
     SuggestionConversionResult,
     SuggestionConvertRequest,
@@ -265,6 +266,28 @@ async def list_run_demand(
 ) -> PaginatedResponse[MrpDemandRead]:
     items, pagination = await service.list_run_demand(session, tenant, run_id, params)
     return PaginatedResponse[MrpDemandRead](data=items, pagination=pagination)
+
+
+@router.get(
+    "/sales-orders/{order_id}/expected-availability",
+    response_model=ApiResponse[SalesOrderAvailabilityRead],
+    summary="When the latest plan expects a sales order to be covered",
+    description=(
+        "The newest completed run whose demand snapshot contained this order, "
+        "with the date each line is expected to be covered by stock, dated supply "
+        "or the order the plan raises. `run_id` is null when no completed run has "
+        "ever seen the order; that is a normal state, not a 404. Dates come from "
+        "the plan's stamped demand rows, so they are evidence of what was known "
+        "when it ran rather than a fresh calculation."
+    ),
+    dependencies=[require_permission(Permission.MRP_VIEW)],
+)
+async def sales_order_availability(
+    order_id: uuid.UUID, session: DbSession, tenant: Tenant
+) -> ApiResponse[SalesOrderAvailabilityRead]:
+    return ApiResponse[SalesOrderAvailabilityRead].ok(
+        await service.sales_order_availability(session, tenant, order_id)
+    )
 
 
 @router.get(

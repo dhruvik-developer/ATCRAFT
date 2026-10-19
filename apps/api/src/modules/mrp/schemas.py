@@ -231,12 +231,11 @@ class MrpRunRead(MrpRunSummary):
     the quantities and a date per feed, which is where a client should read them
     from: this text is prose, written in one language, for a human.
 
-    ``result_summary["demand_dates_settled"]`` reports the property those
-    figures rest on: that every item's needed-by date was final before any
-    supply was phased against it. It is ``True`` on any plan a planner will see;
-    ``False`` means a structure so deep the dates were still moving, which is
-    also named in a warning, and the component demand underneath those items may
-    be understated.
+    ``result_summary["low_level_code_max"]`` reports the depth the plan reached:
+    the deepest level any item was netted at, which is also the number of passes
+    the level-by-level calculation took. It is the direct read on how deep the
+    structure in scope is; a structure that could not be levelled at all is
+    refused outright rather than planned approximately.
     """
 
     celery_task_id: str | None = None
@@ -253,7 +252,13 @@ class MrpRunRead(MrpRunSummary):
 
 
 class MrpDemandRead(BaseModel):
-    """One demand line as the run captured it."""
+    """One demand line as the run captured it.
+
+    ``expected_available_date`` is the run's answer for this line: when the
+    item's merged requirement is expected to be fully covered. It is stamped
+    when the run completes - the date depends on the plan - so it is ``None``
+    while a run is queued or running, and on runs planned before E3a.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -267,7 +272,36 @@ class MrpDemandRead(BaseModel):
     quantity: Decimal
     required_date: date
     priority: int
+    expected_available_date: date | None = None
     notes: str | None = None
+
+
+class SalesOrderLineAvailabilityRead(BaseModel):
+    """One sales-order line's place in the latest plan that saw the order."""
+
+    sales_order_line_id: uuid.UUID
+    item_id: uuid.UUID
+    expected_available_date: date | None = None
+
+
+class SalesOrderAvailabilityRead(BaseModel):
+    """The latest completed plan that covered a sales order, keyed by line.
+
+    ``run_id`` is ``None`` when no completed run has ever seen the order. That is
+    a normal state for a fresh order rather than an error, which is why the
+    endpoint answers with an empty report instead of a 404: the sales screen can
+    render "not planned yet" without treating it as a failure.
+
+    The dates come from ``mrp_demands.expected_available_date`` - the per-line
+    copy stamped when the run completes - not from a fresh calculation. A plan is
+    evidence of what was known when it ran; recomputing here would show a date
+    no planner has seen and no audit row explains.
+    """
+
+    run_id: uuid.UUID | None = None
+    run_code: str | None = None
+    completed_at: datetime | None = None
+    lines: list[SalesOrderLineAvailabilityRead] = Field(default_factory=list)
 
 
 class MrpRequirementRead(BaseModel):
@@ -311,7 +345,11 @@ class MrpRequirementRead(BaseModel):
     run_id: uuid.UUID
     item_id: uuid.UUID
     item_code: str
+    #: The shallowest level the item was reached at (0 = directly demanded).
     level: int
+    #: The deepest level it appears at - the level the planner netted it at.
+    #: ``None`` on rows planned before E3a.
+    low_level_code: int | None = None
 
     direct_demand_quantity: Decimal
     dependent_demand_quantity: Decimal
@@ -349,6 +387,10 @@ class MrpRequirementRead(BaseModel):
     net_requirement: Decimal
     shortage_quantity: Decimal
     earliest_required_date: date
+    #: When the gross requirement is fully covered - stock, dated supply, the
+    #: plan's own order - and never before the item's components plus its lead
+    #: time. ``None`` on rows planned before E3a.
+    expected_available_date: date | None = None
 
     source_demand_count: int
     source_demands: list[dict[str, Any]] | None = None
@@ -381,6 +423,11 @@ class MrpSuggestionRead(BaseModel):
     suggested_order_date: date
     is_late: bool
     lead_time_days: int
+    #: The low-level code the item was planned at, and the earliest date this
+    #: order can physically land (``max(as_of, suggested_order_date) +
+    #: lead_time_days``). Both ``None`` on suggestions written before E3a.
+    low_level_code: int | None = None
+    expected_available_date: date | None = None
 
     status: MrpSuggestionStatus
     converted_to_type: str | None = None

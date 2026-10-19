@@ -30,8 +30,9 @@ import pytest
 
 from src.modules.mrp import engine
 from src.modules.mrp.engine import (
+    BomComponent,
+    BomStructure,
     DemandLine,
-    ExplodedLine,
     PlanningItem,
     StockPosition,
     SupplyArrival,
@@ -98,17 +99,25 @@ def make_product(code: str, **kwargs: Any) -> PlanningItem:
 class FakeSource:
     """In-memory :class:`~src.modules.mrp.engine.MrpDataSource`.
 
-    ``structure`` maps a parent item to its consolidated components *per unit of
-    the parent*, exactly as ``bom.engine.explode`` would return them once
-    multiplied out. ``calls`` records round-trips and ``batch_sizes`` how many ids
-    each call was given, which is what turns "no per-item query" into an
-    assertion rather than an aspiration.
+    ``structure`` maps a parent item to its *single-level* component lines -
+    ``(component, quantity_per)`` per one unit of the parent - exactly as the
+    BOM module's lines store them. The engine walks the levels itself now, so a
+    fixture that wants a three-level structure says so with three entries, one
+    per edge; a consolidated multi-level line is not a shape this data source
+    can return, and a test built on one would be asserting the old engine's
+    flattening rather than the structure.
+
+    ``calls`` records round-trips and ``batch_sizes`` how many ids each call
+    was given, which is what turns "no per-item query" into an assertion rather
+    than an aspiration.
     """
 
     items: dict[uuid.UUID, PlanningItem]
     stock: dict[uuid.UUID, StockPosition] = field(default_factory=dict)
-    structure: dict[uuid.UUID, list[tuple[PlanningItem, str, int]]] = field(default_factory=dict)
+    structure: dict[uuid.UUID, list[tuple[PlanningItem, str]]] = field(default_factory=dict)
     default_bom: set[uuid.UUID] = field(default_factory=set)
+    phantom: set[uuid.UUID] = field(default_factory=set)
+    routing_leads: dict[uuid.UUID, int] = field(default_factory=dict)
     terms: dict[uuid.UUID, SupplyTerms] = field(default_factory=dict)
     incoming: dict[uuid.UUID, tuple[SupplyArrival, ...]] = field(default_factory=dict)
     in_production: dict[uuid.UUID, tuple[SupplyArrival, ...]] = field(default_factory=dict)
@@ -116,6 +125,7 @@ class FakeSource:
     production_available: bool = True
     calls: Counter[str] = field(default_factory=Counter)
     batch_sizes: dict[str, list[int]] = field(default_factory=dict)
+    lead_time_requests: list[dict[uuid.UUID, Decimal]] = field(default_factory=list)
 
     def _record(self, name: str, size: int) -> None:
         self.calls[name] += 1
@@ -131,10 +141,31 @@ class FakeSource:
         self._record("stock_positions", len(ids))
         return {i: self.stock[i] for i in ids if i in self.stock}
 
-    async def bom_availability(self, item_ids: Any, as_of: date) -> dict[uuid.UUID, bool]:
+    async def bom_structures(self, item_ids: Any, as_of: date) -> dict[uuid.UUID, BomStructure]:
         ids = list(item_ids)
-        self._record("bom_availability", len(ids))
-        return {i: (i in self.default_bom) for i in ids if i in self.structure}
+        self._record("bom_structures", len(ids))
+        return {
+            i: BomStructure(
+                output_quantity=D("1"),
+                is_default=i in self.default_bom,
+                is_phantom=i in self.phantom,
+                lines=tuple(
+                    BomComponent(
+                        item_id=component.id,
+                        quantity_per=D(per_unit),
+                        scrap_percentage=D("0"),
+                    )
+                    for component, per_unit in self.structure[i]
+                ),
+            )
+            for i in ids
+            if i in self.structure
+        }
+
+    async def manufacture_lead_times(self, quantities: Any, as_of: date) -> dict[uuid.UUID, int]:
+        self._record("manufacture_lead_times", len(quantities))
+        self.lead_time_requests.append(dict(quantities))
+        return {i: self.routing_leads[i] for i in quantities if i in self.routing_leads}
 
     async def supply_terms(self, item_ids: Any) -> dict[uuid.UUID, SupplyTerms]:
         ids = list(item_ids)
@@ -158,20 +189,6 @@ class FakeSource:
         if not self.production_available:
             return {}, False
         return {i: self.in_production[i] for i in ids if i in self.in_production}, True
-
-    async def explode(
-        self, item_id: uuid.UUID, quantity: Decimal, as_of: date
-    ) -> list[ExplodedLine]:
-        self._record("explode", 1)
-        return [
-            ExplodedLine(
-                item_id=component.id,
-                item_code=component.code,
-                quantity=D(per_unit) * quantity,
-                level=level,
-            )
-            for component, per_unit, level in self.structure.get(item_id, [])
-        ]
 
 
 def sales_line(
@@ -211,7 +228,7 @@ async def test_two_sales_orders_for_one_product_produce_one_screw_requirement() 
     screw = make_item("SCREW-M4")
     source = FakeSource(
         items={kit.id: kit, screw.id: screw},
-        structure={kit.id: [(screw, "6", 1)]},
+        structure={kit.id: [(screw, "6")]},
         default_bom={kit.id},
     )
 
@@ -231,26 +248,34 @@ async def test_two_sales_orders_for_one_product_produce_one_screw_requirement() 
 
 
 @pytest.mark.asyncio
-async def test_the_merge_is_performed_before_the_explosion() -> None:
-    """Two orders for the same product explode its structure once, not twice.
+async def test_the_merge_is_performed_before_the_structure_is_walked() -> None:
+    """Twenty orders for the same product read its structure once, not twenty.
 
-    This is the difference between a plan that costs one explosion per *product*
-    and one that costs an explosion per *order line* - the N+1 in planning form.
+    This is the difference between a plan that costs one walk per *product* and
+    one that costs a walk per *order line* - the N+1 in planning form. The merge
+    happens first, so the structure lookup at each level is one batch and the
+    requirement is one row.
     """
     kit = make_product("LOCK-KIT")
     screw = make_item("SCREW-M4")
     source = FakeSource(
         items={kit.id: kit, screw.id: screw},
-        structure={kit.id: [(screw, "6", 1)]},
+        structure={kit.id: [(screw, "6")]},
         default_bom={kit.id},
     )
 
-    await run(
+    plan = await run(
         source,
         [sales_line(kit, str(n), code=f"SO/{n:04d}") for n in range(1, 21)],
     )
 
-    assert source.calls["explode"] == 1
+    # One batch for the kit at level 0, one for the screw it discovered at
+    # level 1 - independent of the twenty order lines and their 20 x 6 screws.
+    assert source.batch_sizes["planning_items"] == [1, 1]
+    assert source.batch_sizes["bom_structures"] == [1, 1]
+    screw_requirement = plan.requirement_for(screw.id)
+    assert screw_requirement is not None
+    assert screw_requirement.gross_requirement == D("1260.0000")
 
 
 @pytest.mark.asyncio
@@ -265,7 +290,7 @@ async def test_a_screw_used_by_two_different_products_merges_into_one_row() -> N
     screw = make_item("SCREW-M4")
     source = FakeSource(
         items={kit.id: kit, handle_set.id: handle_set, screw.id: screw},
-        structure={kit.id: [(screw, "6", 1)], handle_set.id: [(screw, "3", 1)]},
+        structure={kit.id: [(screw, "6")], handle_set.id: [(screw, "3")]},
         default_bom={kit.id, handle_set.id},
     )
 
@@ -292,7 +317,7 @@ async def test_every_contributing_demand_is_retained_on_the_merged_row() -> None
     screw = make_item("SCREW-M4")
     source = FakeSource(
         items={kit.id: kit, handle_set.id: handle_set, screw.id: screw},
-        structure={kit.id: [(screw, "6", 1)], handle_set.id: [(screw, "3", 1)]},
+        structure={kit.id: [(screw, "6")], handle_set.id: [(screw, "3")]},
         default_bom={kit.id, handle_set.id},
     )
 
@@ -322,7 +347,7 @@ async def test_the_merged_requirement_takes_the_earliest_date_of_its_demands() -
     screw = make_item("SCREW-M4")
     source = FakeSource(
         items={kit.id: kit, screw.id: screw},
-        structure={kit.id: [(screw, "6", 1)]},
+        structure={kit.id: [(screw, "6")]},
         default_bom={kit.id},
     )
 
@@ -359,7 +384,7 @@ async def test_an_item_sold_and_consumed_nets_its_stock_only_once() -> None:
     source = FakeSource(
         items={kit.id: kit, handle.id: handle},
         stock={handle.id: StockPosition(on_hand=D("60"))},
-        structure={kit.id: [(handle, "2", 1)]},
+        structure={kit.id: [(handle, "2")]},
         default_bom={kit.id},
     )
 
@@ -385,14 +410,22 @@ async def test_a_directly_sold_component_is_reported_at_level_zero() -> None:
     """Direct demand wins the level, however deep the part also sits elsewhere.
 
     A planner recognises a part they sell as a product, not as somebody else's
-    level-3 component.
+    level-3 component: ``level`` is the shallowest place the item was reached,
+    while the low-level code beside it is the deepest - the level the plan
+    actually netted it at.
     """
     kit = make_product("LOCK-KIT")
+    sub = make_product("SUB-ASSY")
+    subsub = make_product("SUB-SUB-ASSY")
     handle = make_item("ROSE-HANDLE")
     source = FakeSource(
-        items={kit.id: kit, handle.id: handle},
-        structure={kit.id: [(handle, "2", 3)]},
-        default_bom={kit.id},
+        items={kit.id: kit, sub.id: sub, subsub.id: subsub, handle.id: handle},
+        structure={
+            kit.id: [(sub, "1")],
+            sub.id: [(subsub, "1")],
+            subsub.id: [(handle, "2")],
+        },
+        default_bom={kit.id, sub.id, subsub.id},
     )
 
     plan = await run(
@@ -402,7 +435,8 @@ async def test_a_directly_sold_component_is_reported_at_level_zero() -> None:
 
     requirement = plan.requirement_for(handle.id)
     assert requirement is not None
-    assert requirement.level == 0
+    assert requirement.level == 0, "the direct demand is what a planner recognises"
+    assert requirement.low_level_code == 3, "but it was netted at the deepest level"
 
 
 @pytest.mark.asyncio
@@ -418,7 +452,7 @@ async def test_finished_goods_stock_reduces_what_is_exploded() -> None:
     source = FakeSource(
         items={kit.id: kit, screw.id: screw},
         stock={kit.id: StockPosition(on_hand=D("30"))},
-        structure={kit.id: [(screw, "6", 1)]},
+        structure={kit.id: [(screw, "6")]},
         default_bom={kit.id},
     )
 
@@ -438,15 +472,14 @@ async def test_a_product_covered_by_stock_is_not_exploded_at_all() -> None:
     source = FakeSource(
         items={kit.id: kit, screw.id: screw},
         stock={kit.id: StockPosition(on_hand=D("200"))},
-        structure={kit.id: [(screw, "6", 1)]},
+        structure={kit.id: [(screw, "6")]},
         default_bom={kit.id},
     )
 
     plan = await run(source, [sales_line(kit, "80", code="SO/0001")])
 
-    assert source.calls["explode"] == 0
+    assert plan.requirement_for(screw.id) is None, "a covered parent raises no component demand"
     assert plan.suggestions == ()
-    assert plan.requirement_for(screw.id) is None
 
 
 # -----------------------------------------------------------------------------
@@ -505,7 +538,7 @@ async def test_a_make_item_with_no_structure_is_reported() -> None:
 
     plan = await run(source, [sales_line(kit, "80", code="SO/0001")])
 
-    assert source.calls["explode"] == 0
+    assert {r.item_code for r in plan.requirements} == {"LOCK-KIT"}
     assert any("no approved default bill of materials" in w for w in plan.warnings)
 
 
@@ -519,20 +552,21 @@ async def test_the_engine_never_queries_per_item() -> None:
     """Three products, sixty order lines, six shared components.
 
     The statement count must not move with the number of order lines or the
-    number of parts: two rounds of loading - item facts, stock, structures and
-    both supply feeds for the demand items, then the same for the components the
-    explosions discovered - and one explosion per short product.
+    number of parts. Discovery costs two statements per *level* - the planning
+    facts and the effective structures of whatever the previous level
+    introduced - and the supply feeds are one statement each over the whole
+    discovered set, because by then the structure is known in full. Netting a
+    whole level's routing lead times is one more call per level, not one per
+    item.
 
-    Supply is read per round rather than once at the end because a parent is
-    netted against its own inbound orders before its structure is exploded. Two
-    calls, not one per item: the number is fixed by the algorithm's shape, and
-    that is what this test defends.
+    That is the shape this test defends: growth with the depth of the structure
+    (two levels here), never with the order book.
     """
     products = [make_product(f"PROD-{n}") for n in range(3)]
     components = [make_item(f"COMP-{n}") for n in range(6)]
     source = FakeSource(
         items={i.id: i for i in [*products, *components]},
-        structure={p.id: [(c, "2", 1) for c in components] for p in products},
+        structure={p.id: [(c, "2") for c in components] for p in products},
         default_bom={p.id for p in products},
     )
     demands = [
@@ -543,18 +577,21 @@ async def test_the_engine_never_queries_per_item() -> None:
     await run(source, demands)
 
     assert source.calls["planning_items"] == 2
-    assert source.calls["stock_positions"] == 2
-    assert source.calls["bom_availability"] == 2
-    assert source.calls["incoming_supply"] == 2
-    assert source.calls["in_production_supply"] == 2
+    assert source.calls["bom_structures"] == 2
+    assert source.calls["stock_positions"] == 1
+    assert source.calls["incoming_supply"] == 1
+    assert source.calls["in_production_supply"] == 1
     assert source.calls["supply_terms"] == 1
-    assert source.calls["explode"] == len(products)
+    assert source.calls["manufacture_lead_times"] == 1
 
     # Every load was handed a batch, never a single id.
     assert source.batch_sizes["planning_items"] == [3, 6]
-    assert source.batch_sizes["stock_positions"] == [3, 6]
-    assert source.batch_sizes["incoming_supply"] == [3, 6]
-    assert source.batch_sizes["in_production_supply"] == [3, 6]
+    assert source.batch_sizes["bom_structures"] == [3, 6]
+    assert source.batch_sizes["stock_positions"] == [9]
+    assert source.batch_sizes["incoming_supply"] == [9]
+    assert source.batch_sizes["in_production_supply"] == [9]
+    assert source.batch_sizes["supply_terms"] == [9]
+    assert source.batch_sizes["manufacture_lead_times"] == [3]
 
 
 @pytest.mark.asyncio
@@ -664,7 +701,7 @@ async def test_component_dates_are_pulled_forward_by_the_parents_lead_time() -> 
     screw = make_item("SCREW-M4")
     source = FakeSource(
         items={kit.id: kit, screw.id: screw},
-        structure={kit.id: [(screw, "6", 1)]},
+        structure={kit.id: [(screw, "6")]},
         default_bom={kit.id},
     )
 

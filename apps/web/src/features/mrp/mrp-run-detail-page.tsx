@@ -554,6 +554,23 @@ export default function MrpRunDetailPage() {
         ),
       },
       {
+        id: 'low_level_code',
+        header: 'Low-level',
+        size: 90,
+        cell: ({ row }) => (
+          // The deepest level the item appears at - the level the run planned
+          // it at. Level 0 is a demanded item, level 2 a part two structures
+          // down. The run now nets each item once, at this depth, so this is
+          // also the order the rows were computed in.
+          <span
+            className="tabular text-muted-foreground"
+            title="Deepest BOM level this item appears at; the run planned it at this level"
+          >
+            {row.original.low_level_code}
+          </span>
+        ),
+      },
+      {
         id: 'required_quantity',
         header: 'Required',
         enableSorting: false,
@@ -602,6 +619,28 @@ export default function MrpRunDetailPage() {
         id: 'required_date',
         header: 'Required by',
         cell: ({ row }) => formatDate(row.original.required_date),
+      },
+      {
+        id: 'expected_available_date',
+        header: 'Expected availability',
+        cell: ({ row }) => {
+          // What the order the plan raises can actually do, as opposed to what
+          // the requirement needed (`required_date`). A date later than the
+          // required date is the slip the planner has to accept or expedite.
+          const slips = row.original.expected_available_date > row.original.required_date
+          return (
+            <span
+              className={slips ? 'font-medium text-warning' : undefined}
+              title={
+                slips
+                  ? 'This order cannot land before the required date; this is the date it can.'
+                  : 'The date this order can physically land.'
+              }
+            >
+              {formatDate(row.original.expected_available_date)}
+            </span>
+          )
+        },
       },
       {
         id: 'suggested_order_date',

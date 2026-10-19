@@ -6,14 +6,13 @@ Two kinds of thing live here, and the distinction is worth stating.
 ``mrp_suggestions``) are read the way any document is read: filtered, paginated,
 tenant-scoped through :class:`~src.common.repository.BaseRepository`.
 
-**The planning feed** is the interesting half. Demand, item facts, stock, BOM
-availability and supplier terms all belong to other modules, and every one of
-them is read here for a *set* of ids in a single grouped statement.
-:class:`DatabaseMrpSource` assembles those into the
-:class:`~src.modules.mrp.engine.MrpDataSource` the engine consumes, which is why
-the engine itself never sees a session: the batching contract is enforced by the
-shape of the protocol, and the unit suite substitutes an in-memory source that
-counts calls.
+**The planning feed** is the interesting half. Demand, item facts, stock and
+supplier terms all belong to other modules, and every one of them is read here
+for a *set* of ids in a single grouped statement. :class:`DatabaseMrpSource`
+assembles those into the :class:`~src.modules.mrp.engine.MrpDataSource` the
+engine consumes, which is why the engine itself never sees a session: the
+batching contract is enforced by the shape of the protocol, and the unit suite
+substitutes an in-memory source that counts calls.
 
 Cross-module reads are by design. The planner joins ``sales_order_lines``,
 ``items``, ``inventory_balances``, ``boms`` and ``item_vendor_links`` because a
@@ -51,12 +50,12 @@ from __future__ import annotations
 
 import importlib
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy import Select, and_, case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -67,11 +66,13 @@ from src.core.pagination import PageParams, SortParams, paginate
 from src.core.responses import OffsetPagination
 from src.core.types import to_quantity
 from src.modules.bom import engine as bom_engine
-from src.modules.bom.models import Bom, BomStatus
+from src.modules.bom.models import BomType
+from src.modules.bom.repository import BomLineRepository, BomRepository
 from src.modules.inventory.models import InventoryBalance
 from src.modules.mrp.engine import (
+    BomComponent,
+    BomStructure,
     DemandLine,
-    ExplodedLine,
     PlanningItem,
     StockPosition,
     SupplyArrival,
@@ -91,6 +92,7 @@ from src.modules.mrp.models import (
     MrpSuggestionType,
 )
 from src.modules.products.models import Item, ItemVendorLink
+from src.modules.routing import service as routing_service
 from src.modules.sales.models import (
     OPEN_DEMAND_STATUSES,
     SalesOrder,
@@ -245,36 +247,6 @@ class PlanningItemRepository(BaseRepository[Item]):
             )
             for row in rows
         }
-
-    async def bom_availability(
-        self, item_ids: Sequence[uuid.UUID], as_of: date
-    ) -> dict[uuid.UUID, bool]:
-        """Which items have an approved structure effective on ``as_of``.
-
-        The value is whether that structure is the item's default, which is what
-        decides a ``MAKE_OR_BUY`` item's suggestion type (docs/assumptions.md
-        section 6). ``bool_or`` rather than a second query: an item may have a
-        default and several effective alternates, and the question is only
-        whether a default is among them.
-
-        Only ``APPROVED`` rows are considered - planning is never driven by a
-        structure an engineer is still editing (database.md section 5).
-        """
-        if not item_ids:
-            return {}
-        stmt = (
-            select(Bom.item_id, func.bool_or(Bom.is_default).label("has_default"))
-            .where(
-                Bom.company_id == self.tenant.company_id,
-                Bom.item_id.in_(list(dict.fromkeys(item_ids))),
-                Bom.status == BomStatus.APPROVED,
-                Bom.effective_from <= as_of,
-                or_(Bom.effective_to.is_(None), Bom.effective_to >= as_of),
-            )
-            .group_by(Bom.item_id)
-        )
-        rows = (await self.session.execute(stmt)).all()
-        return {row.item_id: bool(row.has_default) for row in rows}
 
     async def supply_terms(self, item_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, SupplyTerms]:
         """Ordering policy from each item's preferred vendor.
@@ -441,6 +413,8 @@ class DatabaseMrpSource:
         self._warehouse_ids = list(warehouse_ids) if warehouse_ids else None
         self._items = PlanningItemRepository(session, tenant)
         self._stock = StockPositionRepository(session, tenant)
+        self._boms = BomRepository(session, tenant)
+        self._bom_lines = BomLineRepository(session, tenant)
 
     async def planning_items(self, item_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, PlanningItem]:
         return await self._items.planning_items(item_ids)
@@ -450,10 +424,46 @@ class DatabaseMrpSource:
     ) -> dict[uuid.UUID, StockPosition]:
         return await self._stock.positions(item_ids, self._warehouse_ids)
 
-    async def bom_availability(
+    async def bom_structures(
         self, item_ids: Sequence[uuid.UUID], as_of: date
-    ) -> dict[uuid.UUID, bool]:
-        return await self._items.bom_availability(item_ids, as_of)
+    ) -> dict[uuid.UUID, BomStructure]:
+        """Each item's effective structure, one level deep - two statements.
+
+        The effective-BOM ``DISTINCT ON`` and the line read are both set-at-a-
+        time, so a whole discovery level costs two statements however many items
+        it holds. Lines the planner may not explode are dropped here
+        (:func:`bom_engine.is_explodable`): substitutes and optional extras are
+        not demand, the same rule the BOM engine's own explosion applies, and
+        applying it at the edge means the engine's traversal and this one cannot
+        disagree about which lines exist.
+
+        Only ``APPROVED`` structures effective on ``as_of`` are considered -
+        planning is never driven by a structure an engineer is still editing
+        (database.md section 5).
+        """
+        if not item_ids:
+            return {}
+        boms = await self._boms.effective_boms_for_items(item_ids, as_of)
+        if not boms:
+            return {}
+        lines = await self._bom_lines.lines_for_boms([bom.id for bom in boms.values()])
+        return {
+            item_id: BomStructure(
+                output_quantity=Decimal(str(bom.output_quantity)),
+                is_default=bool(bom.is_default),
+                is_phantom=bom.bom_type == BomType.PHANTOM,
+                lines=tuple(
+                    BomComponent(
+                        item_id=line.component_item_id,
+                        quantity_per=Decimal(str(line.quantity_per)),
+                        scrap_percentage=Decimal(str(line.scrap_percentage)),
+                    )
+                    for line in lines.get(bom.id, [])
+                    if bom_engine.is_explodable(line)
+                ),
+            )
+            for item_id, bom in boms.items()
+        }
 
     async def supply_terms(self, item_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, SupplyTerms]:
         return await self._items.supply_terms(item_ids)
@@ -484,32 +494,21 @@ class DatabaseMrpSource:
             upto=upto,
         )
 
-    async def explode(
-        self, item_id: uuid.UUID, quantity: Decimal, as_of: date
-    ) -> Sequence[ExplodedLine]:
-        """One structure, exploded for the merged shortfall of that item.
+    async def manufacture_lead_times(
+        self, quantities: Mapping[uuid.UUID, Decimal], as_of: date
+    ) -> dict[uuid.UUID, int]:
+        """Shop days to make each quantity, from the routing module.
 
-        Called once per manufactured item that is short - never once per demand
-        line. The BOM engine consolidates common parts within the structure and
-        batches its own loading by level; this planner then merges across
-        structures on top of that.
-
-        ``scrap_adjusted_quantity`` is the figure taken, not ``total_quantity``:
-        the scrap allowance is material the process will consume, so planning
-        against the un-inflated number is how a job runs short on its last piece.
+        A straight pass-through to the routing module's own batched entry
+        point, which reads the effective routings and their costed operations
+        for the whole mapping in two statements. The planner never loads an
+        operation itself: shop-time knowledge stays in the module that owns it.
         """
-        explosion = await bom_engine.explode(
-            self._session, self._tenant, item_id, quantity, as_of=as_of
+        if not quantities:
+            return {}
+        return await routing_service.manufacture_lead_times(
+            self._session, self._tenant, quantities, as_of=as_of
         )
-        return [
-            ExplodedLine(
-                item_id=component.item_id,
-                item_code=component.item_code,
-                quantity=component.scrap_adjusted_quantity,
-                level=component.level,
-            )
-            for component in explosion.components
-        ]
 
 
 # -----------------------------------------------------------------------------
@@ -668,6 +667,82 @@ class MrpDemandRepository(BaseRepository[MrpDemand]):
         )
         return list((await self.session.execute(stmt)).scalars().all())
 
+    async def latest_completed_run_for_sales_order(self, order_id: uuid.UUID) -> MrpRun | None:
+        """The newest completed run whose snapshot contained this order.
+
+        Newest by when it finished, not when it was created: a run queued earlier
+        but completed later is the newer plan. The lookup starts from the demand
+        snapshot rather than from the run list because a run that did not see the
+        order is not evidence about it - a newer plan scoped away from this
+        order's warehouse must not blank out the last dates computed for it.
+        """
+        covered = select(MrpDemand.run_id).where(
+            MrpDemand.company_id == self.tenant.company_id,
+            MrpDemand.demand_source == MrpDemandSource.SALES_ORDER,
+            MrpDemand.source_id == order_id,
+        )
+        stmt = (
+            select(MrpRun)
+            .where(
+                MrpRun.company_id == self.tenant.company_id,
+                MrpRun.status == MrpRunStatus.COMPLETED,
+                MrpRun.id.in_(covered),
+            )
+            .order_by(MrpRun.completed_at.desc().nullslast(), MrpRun.created_at.desc())
+            .limit(1)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def sales_order_lines_for_run(
+        self, run_id: uuid.UUID, order_id: uuid.UUID
+    ) -> list[MrpDemand]:
+        """The snapshot rows for one sales order in one run.
+
+        Not paginated: an order is bounded by ``MAX_LINES_PER_ORDER`` and the
+        caller needs every line to answer for the document it is showing.
+        """
+        stmt = (
+            self._scoped()
+            .where(
+                MrpDemand.run_id == run_id,
+                MrpDemand.demand_source == MrpDemandSource.SALES_ORDER,
+                MrpDemand.source_id == order_id,
+            )
+            .order_by(MrpDemand.source_line_id.asc())
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def set_expected_availability(
+        self, run_id: uuid.UUID, dates: dict[uuid.UUID, date]
+    ) -> None:
+        """Stamp post-plan expected availability onto the run's demand snapshot.
+
+        The snapshot rows are written when the run is *created*, before the plan
+        exists; the date material for each item can physically land is only known
+        once the engine has run, so it is filled in by the same transaction that
+        writes the requirements and suggestions. One statement whatever the
+        number of lines - a loop of UPDATEs would be a per-line statement on the
+        run-completion path, exactly what the batching contract forbids - and a
+        CASE rather than a VALUES join so it works identically on every backend
+        the tests use.
+        """
+        if not dates:
+            return
+        stmt = (
+            update(MrpDemand)
+            .where(
+                MrpDemand.company_id == self.tenant.company_id,
+                MrpDemand.run_id == run_id,
+            )
+            .values(
+                expected_available_date=case(
+                    *[(MrpDemand.item_id == item_id, when) for item_id, when in dates.items()],
+                    else_=MrpDemand.expected_available_date,
+                )
+            )
+        )
+        await self.session.execute(stmt)
+
 
 class MrpRequirementRepository(BaseRepository[MrpRequirement]):
     model = MrpRequirement
@@ -676,6 +751,7 @@ class MrpRequirementRepository(BaseRepository[MrpRequirement]):
     sortable_fields: dict[str, InstrumentedAttribute[Any]] = {  # noqa: RUF012
         "item_code": MrpRequirement.item_code,
         "level": MrpRequirement.level,
+        "low_level_code": MrpRequirement.low_level_code,
         "gross_requirement": MrpRequirement.gross_requirement,
         # Both are columns on the row and both are offered as sortable by the
         # shortage table, and neither was listed here - so the two questions a
@@ -685,6 +761,7 @@ class MrpRequirementRepository(BaseRepository[MrpRequirement]):
         "incoming_quantity": MrpRequirement.incoming_quantity,
         "shortage_quantity": MrpRequirement.shortage_quantity,
         "earliest_required_date": MrpRequirement.earliest_required_date,
+        "expected_available_date": MrpRequirement.expected_available_date,
     }
 
     async def list_page_filtered(
@@ -722,6 +799,8 @@ class MrpSuggestionRepository(BaseRepository[MrpSuggestion]):
         "required_date": MrpSuggestion.required_date,
         "suggested_order_date": MrpSuggestion.suggested_order_date,
         "suggested_quantity": MrpSuggestion.suggested_quantity,
+        "low_level_code": MrpSuggestion.low_level_code,
+        "expected_available_date": MrpSuggestion.expected_available_date,
     }
 
     async def list_page_filtered(

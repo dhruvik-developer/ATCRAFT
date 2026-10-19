@@ -276,6 +276,13 @@ class MrpDemand(TenantEntity):
     required_date: Mapped[date] = mapped_column(Date, nullable=False)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=5, server_default="5")
 
+    #: When the item's merged requirement is expected to be fully covered,
+    #: copied from the requirement once the run has planned it. Written at
+    #: completion (not creation) because the date depends on the plan; NULL on
+    #: runs planned before the E3a migration, and on demand whose item the plan
+    #: could not cover at all.
+    expected_available_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+
     notes: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     __table_args__ = (
@@ -324,6 +331,11 @@ class MrpRequirement(TenantEntity):
     #: is both sold and used as a component is level 0 - the direct demand is
     #: what a planner recognises it by.
     level: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+
+    #: The deepest level the item appears at across the structures in scope -
+    #: the level the planner actually planned it at (E3a). Nullable because rows
+    #: written before that migration do not carry one.
+    low_level_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # --- demand -------------------------------------------------------------
     #: Demand raised on the item itself, after finished-goods netting.
@@ -417,6 +429,12 @@ class MrpRequirement(TenantEntity):
     #: The earliest date any contributing demand needs it. The whole requirement
     #: is planned to that date: a merged part cannot be half early and half late.
     earliest_required_date: Mapped[date] = mapped_column(Date, nullable=False)
+
+    #: When the gross requirement is fully covered - by stock, by dated supply,
+    #: by the order this plan raises, and never earlier than the item's own
+    #: components plus its lead time (E3a). Nullable for rows written before
+    #: that migration.
+    expected_available_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     source_demand_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
@@ -568,6 +586,13 @@ class MrpSuggestion(TenantEntity):
     lead_time_days: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    #: The plan's own low-level code for the item (E3a) - the level it was
+    #: netted at, so the work queue and the requirement table read side by side.
+    #: Nullable for rows written before that migration.
+    low_level_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: ``max(as_of, suggested_order_date) + lead_time_days``: the earliest date
+    #: this order can physically land. Nullable for rows written before E3a.
+    expected_available_date: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     source_demands: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
 

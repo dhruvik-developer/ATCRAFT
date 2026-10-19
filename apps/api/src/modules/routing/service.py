@@ -30,7 +30,7 @@ permission to the catalogue and change the two transitions below.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import ROUND_CEILING, Decimal
@@ -2506,6 +2506,52 @@ async def manufacture_lead_time_days(
     return result.lead_time_days if result.routing_id is not None else None
 
 
+async def manufacture_lead_times(
+    session: AsyncSession,
+    tenant: TenantContext,
+    quantities: Mapping[uuid.UUID, Decimal],
+    *,
+    as_of: date | None = None,
+) -> dict[uuid.UUID, int]:
+    """Batched ``manufacture_lead_time_days``: two statements, every item answered.
+
+    The planner needs the shop time of a whole planning level at once - every
+    short, manufactured item that level produced - and a per-item call would be
+    an N+1 in the middle of the run (master rules section 32). Items without an
+    effective approved routing are absent from the result, exactly as the
+    single-item entry point answers ``None``, so the caller falls back to
+    ``items.lead_time_days`` rather than planning on zero days.
+
+    Each item's lead time is computed for *its own* quantity: shop time is
+    dominated by run time, and answering a hundred-piece batch with a one-piece
+    figure would under-state the delay the plan exists to surface.
+    """
+    if not quantities:
+        return {}
+    on = as_of or today()
+    routings = await RoutingRepository(session, tenant).effective_routings_for_items(
+        list(quantities), on
+    )
+    if not routings:
+        return {}
+    costed = await RoutingOperationRepository(session, tenant).costed_operations_for_routings(
+        [routing.id for routing in routings.values()]
+    )
+    result: dict[uuid.UUID, int] = {}
+    for item_id, routing in routings.items():
+        plan = CostedRouting(
+            id=routing.id,
+            code=routing.code,
+            item_id=routing.item_id,
+            operations=tuple(costed.get(routing.id, ())),
+        )
+        hours_per_day = resolve_working_hours_per_day(plan)
+        result[item_id] = total_lead_time_days(
+            plan, quantities[item_id], working_hours_per_day=hours_per_day
+        )
+    return result
+
+
 async def require_shift(
     session: AsyncSession,
     tenant: TenantContext,
@@ -2594,6 +2640,7 @@ __all__ = [
     "lifecycle_state",
     "local_date",
     "manufacture_lead_time_days",
+    "manufacture_lead_times",
     "net_shift_minutes",
     "referenced_in_use",
     "require_shift",

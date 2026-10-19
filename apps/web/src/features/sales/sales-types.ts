@@ -135,6 +135,15 @@ export type SalesOrderAllocation = SchemaOf<'OrderAllocationRead'>
 /** `POST /sales/{id}/confirm` (`ConfirmResult`). */
 export type ConfirmResult = SchemaOf<'ConfirmResult'>
 
+/**
+ * `GET /mrp/sales-orders/{id}/expected-availability` (`SalesOrderAvailabilityRead`).
+ *
+ * The latest completed plan that saw this order, keyed by sales-order line. A
+ * `null` run id means no plan has seen the order yet - a normal state, not an
+ * error - and each line's date may be null on a plan predating the calculation.
+ */
+export type SalesOrderAvailability = SchemaOf<'SalesOrderAvailabilityRead'>
+
 // --------------------------------------------------------------- helpers ----
 
 /**

@@ -103,6 +103,8 @@ from src.modules.mrp.schemas import (
     MrpRunRequest,
     MrpRunSummary,
     MrpSuggestionRead,
+    SalesOrderAvailabilityRead,
+    SalesOrderLineAvailabilityRead,
     ShortageReportFilters,
     SuggestionConversionResult,
     SuggestionConvertRequest,
@@ -684,6 +686,7 @@ def _requirement_rows(
             item_id=requirement.item_id,
             item_code=requirement.item_code,
             level=requirement.level,
+            low_level_code=requirement.low_level_code,
             direct_demand_quantity=requirement.direct_demand_quantity,
             dependent_demand_quantity=requirement.dependent_demand_quantity,
             gross_requirement=requirement.gross_requirement,
@@ -709,6 +712,7 @@ def _requirement_rows(
             net_requirement=requirement.net_requirement,
             shortage_quantity=requirement.shortage_quantity,
             earliest_required_date=requirement.earliest_required_date,
+            expected_available_date=requirement.expected_available_date,
             source_demand_count=requirement.source_demand_count,
             source_demands=list(requirement.source_demands) or None,
         )
@@ -736,6 +740,8 @@ def _suggestion_rows(
             suggested_order_date=suggestion.suggested_order_date,
             is_late=suggestion.is_late,
             lead_time_days=suggestion.lead_time_days,
+            low_level_code=suggestion.low_level_code,
+            expected_available_date=suggestion.expected_available_date,
             source_demands=list(suggestion.source_demands) or None,
             status=MrpSuggestionStatus.OPEN,
         )
@@ -822,6 +828,18 @@ async def execute_run(
 
         session.add_all(_requirement_rows(run, tenant, plan))
         session.add_all(_suggestion_rows(run, tenant, plan))
+        # The demand snapshot was written when the run was *created*; the date
+        # each line is expected to be covered is only known now, so it is filled
+        # in here - one statement, in the same transaction as the requirement
+        # rows it is copied from, so the two can never disagree.
+        await MrpDemandRepository(session, tenant).set_expected_availability(
+            run.id,
+            {
+                requirement.item_id: requirement.expected_available_date
+                for requirement in plan.requirements
+                if requirement.expected_available_date is not None
+            },
+        )
 
         previous = str(run.status)
         RUN_LIFECYCLE.assert_transition(MrpRunStatus(run.status), MrpRunStatus.COMPLETED)
@@ -962,6 +980,38 @@ async def list_run_demand(
     await MrpRunRepository(session, tenant).get_or_404(run_id)
     rows, pagination = await MrpDemandRepository(session, tenant).list_for_run(run_id, params)
     return [MrpDemandRead.model_validate(row) for row in rows], pagination
+
+
+async def sales_order_availability(
+    session: AsyncSession, tenant: TenantContext, order_id: uuid.UUID
+) -> SalesOrderAvailabilityRead:
+    """When the last plan that saw this order expects each line to be covered.
+
+    Two statements: the newest completed run whose snapshot contained the order,
+    then that run's rows for the order. The question is deliberately historical.
+    "Is there stock now?" is the allocation endpoint's job; a promised date has
+    to be defensible against the plan it was taken from, so it comes from the
+    stamped demand row rather than a fresh calculation.
+    """
+    demands = MrpDemandRepository(session, tenant)
+    run = await demands.latest_completed_run_for_sales_order(order_id)
+    if run is None:
+        return SalesOrderAvailabilityRead()
+    rows = await demands.sales_order_lines_for_run(run.id, order_id)
+    return SalesOrderAvailabilityRead(
+        run_id=run.id,
+        run_code=run.code,
+        completed_at=run.completed_at,
+        lines=[
+            SalesOrderLineAvailabilityRead(
+                sales_order_line_id=row.source_line_id,
+                item_id=row.item_id,
+                expected_available_date=row.expected_available_date,
+            )
+            for row in rows
+            if row.source_line_id is not None
+        ],
+    )
 
 
 async def list_suggestions(

@@ -1391,6 +1391,53 @@ describe('what the detail screen shows', () => {
     expect(screen.queryByText('Allocation is not visible to your account')).not.toBeInTheDocument()
   })
 
+  it('reads the latest plan date for a line and offers it as the promise', async () => {
+    // The date comes from the plan, not from a fresh calculation, and the action
+    // is the ordinary PATCH: `promised_date` is a header field the API audits.
+    const { user, fetch } = renderDetail({
+      order: orderDetail({ status: 'CONFIRMED', promised_date: null }),
+      permissions: [P.SALES_ORDER_VIEW, P.SALES_ORDER_UPDATE, P.MRP_VIEW],
+      routes: {
+        [`GET /mrp/sales-orders/${ORDER_ID}/expected-availability`]: ok({
+          run_id: '01a00000-0000-7000-8000-000000000run',
+          run_code: 'MRP-0001',
+          completed_at: '2026-09-02T05:00:00Z',
+          lines: [
+            {
+              sales_order_line_id: LINE_ID,
+              item_id: ITEM_ID,
+              expected_available_date: '2026-10-12',
+            },
+          ],
+        }),
+        [`PATCH /sales/${ORDER_ID}`]: ok(
+          orderDetail({ status: 'CONFIRMED', promised_date: '2026-10-12' }),
+        ),
+      },
+    })
+
+    expect(await screen.findByText('12 Oct 2026')).toBeVisible()
+    await user.click(await screen.findByRole('button', { name: 'Use as promised date' }))
+    await waitFor(() =>
+      expect(fetch.requestFor('PATCH', `/sales/${ORDER_ID}`)).toEqual({
+        promised_date: '2026-10-12',
+      }),
+    )
+  })
+
+  it('does not show plan dates to a reader without the planning right', async () => {
+    // The dates are the planner's output and the endpoint asks for `mrp.view`,
+    // so the column is absent rather than empty - and nothing is requested.
+    const { fetch } = renderDetail({
+      order: orderDetail({ status: 'CONFIRMED' }),
+      permissions: [P.SALES_ORDER_VIEW],
+    })
+
+    expect(await screen.findByText('Order')).toBeVisible()
+    expect(screen.queryByText('Expected availability')).not.toBeInTheDocument()
+    expect(fetch.calls.filter((call) => call.path.includes('/mrp/'))).toEqual([])
+  })
+
   it('surfaces the API sentence when the order cannot be loaded', async () => {
     renderScreen(<SalesOrderDetailPage />, {
       permissions: [P.SALES_ORDER_VIEW],

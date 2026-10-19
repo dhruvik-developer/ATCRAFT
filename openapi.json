@@ -4415,6 +4415,32 @@
         "title": "ApiResponse[SalesInvoicePreview]",
         "type": "object"
       },
+      "ApiResponse_SalesOrderAvailabilityRead_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SalesOrderAvailabilityRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[SalesOrderAvailabilityRead]",
+        "type": "object"
+      },
       "ApiResponse_SalesOrderDetail_": {
         "properties": {
           "data": {
@@ -29214,10 +29240,22 @@
         "type": "object"
       },
       "MrpDemandRead": {
-        "description": "One demand line as the run captured it.",
+        "description": "One demand line as the run captured it.\n\n``expected_available_date`` is the run's answer for this line: when the\nitem's merged requirement is expected to be fully covered. It is stamped\nwhen the run completes - the date depends on the plan - so it is ``None``\nwhile a run is queued or running, and on runs planned before E3a.",
         "properties": {
           "demand_source": {
             "$ref": "#/components/schemas/MrpDemandSource"
+          },
+          "expected_available_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Available Date"
           },
           "id": {
             "format": "uuid",
@@ -29345,6 +29383,18 @@
             "title": "Earliest Required Date",
             "type": "string"
           },
+          "expected_available_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Available Date"
+          },
           "first_late_in_production_date": {
             "anyOf": [
               {
@@ -29457,6 +29507,17 @@
             "title": "Level",
             "type": "integer"
           },
+          "low_level_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low Level Code"
+          },
           "net_requirement": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Net Requirement",
@@ -29535,7 +29596,7 @@
         "type": "string"
       },
       "MrpRunRead": {
-        "description": "One run with everything it was given and everything it produced.\n\n``warnings`` is not decoration. It carries the netting stages the run could\nnot perform - a missing procurement module, a make item with no bill of\nmaterials - and a planner reading suggestions without reading these would be\ntrusting numbers the engine already knows are an upper bound.\n\nIt also carries the supply the run deliberately did *not* count: an order or\na job inside the horizon that arrives after the demand needs it. That is a\nshortage a buyer will otherwise query - \"we have a purchase order for these\"\n- so the plan names each feed's quantity with the date that feed lands,\nrather than leaving the two facts unconnected or pairing one date with a\nquantity from the other feed. ``result_summary[\"late_supply_item_count\"]``\nis the same statement as a number, and :class:`MrpRequirementRead` carries\nthe quantities and a date per feed, which is where a client should read them\nfrom: this text is prose, written in one language, for a human.\n\n``result_summary[\"demand_dates_settled\"]`` reports the property those\nfigures rest on: that every item's needed-by date was final before any\nsupply was phased against it. It is ``True`` on any plan a planner will see;\n``False`` means a structure so deep the dates were still moving, which is\nalso named in a warning, and the component demand underneath those items may\nbe understated.",
+        "description": "One run with everything it was given and everything it produced.\n\n``warnings`` is not decoration. It carries the netting stages the run could\nnot perform - a missing procurement module, a make item with no bill of\nmaterials - and a planner reading suggestions without reading these would be\ntrusting numbers the engine already knows are an upper bound.\n\nIt also carries the supply the run deliberately did *not* count: an order or\na job inside the horizon that arrives after the demand needs it. That is a\nshortage a buyer will otherwise query - \"we have a purchase order for these\"\n- so the plan names each feed's quantity with the date that feed lands,\nrather than leaving the two facts unconnected or pairing one date with a\nquantity from the other feed. ``result_summary[\"late_supply_item_count\"]``\nis the same statement as a number, and :class:`MrpRequirementRead` carries\nthe quantities and a date per feed, which is where a client should read them\nfrom: this text is prose, written in one language, for a human.\n\n``result_summary[\"low_level_code_max\"]`` reports the depth the plan reached:\nthe deepest level any item was netted at, which is also the number of passes\nthe level-by-level calculation took. It is the direct read on how deep the\nstructure in scope is; a structure that could not be levelled at all is\nrefused outright rather than planned approximately.",
         "properties": {
           "celery_task_id": {
             "anyOf": [
@@ -29882,6 +29943,18 @@
             ],
             "title": "Converted To Type"
           },
+          "expected_available_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Available Date"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -29919,6 +29992,17 @@
           "lead_time_days": {
             "title": "Lead Time Days",
             "type": "integer"
+          },
+          "low_level_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low Level Code"
           },
           "required_date": {
             "format": "date",
@@ -49111,6 +49195,55 @@
         "title": "SalesInvoiceSummary",
         "type": "object"
       },
+      "SalesOrderAvailabilityRead": {
+        "description": "The latest completed plan that covered a sales order, keyed by line.\n\n``run_id`` is ``None`` when no completed run has ever seen the order. That is\na normal state for a fresh order rather than an error, which is why the\nendpoint answers with an empty report instead of a 404: the sales screen can\nrender \"not planned yet\" without treating it as a failure.\n\nThe dates come from ``mrp_demands.expected_available_date`` - the per-line\ncopy stamped when the run completes - not from a fresh calculation. A plan is\nevidence of what was known when it ran; recomputing here would show a date\nno planner has seen and no audit row explains.",
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/SalesOrderLineAvailabilityRead"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "run_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Code"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          }
+        },
+        "title": "SalesOrderAvailabilityRead",
+        "type": "object"
+      },
       "SalesOrderCreate": {
         "additionalProperties": false,
         "description": "Create a DRAFT sales order with its lines.",
@@ -49534,6 +49667,39 @@
           "lines"
         ],
         "title": "SalesOrderDetail",
+        "type": "object"
+      },
+      "SalesOrderLineAvailabilityRead": {
+        "description": "One sales-order line's place in the latest plan that saw the order.",
+        "properties": {
+          "expected_available_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Available Date"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "sales_order_line_id": {
+            "format": "uuid",
+            "title": "Sales Order Line Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sales_order_line_id",
+          "item_id"
+        ],
+        "title": "SalesOrderLineAvailabilityRead",
         "type": "object"
       },
       "SalesOrderLineIn": {
@@ -102407,6 +102573,125 @@
           }
         ],
         "summary": "What one run proposes",
+        "tags": [
+          "MRP"
+        ]
+      }
+    },
+    "/api/v1/mrp/sales-orders/{order_id}/expected-availability": {
+      "get": {
+        "description": "The newest completed run whose demand snapshot contained this order, with the date each line is expected to be covered by stock, dated supply or the order the plan raises. `run_id` is null when no completed run has ever seen the order; that is a normal state, not a 404. Dates come from the plan's stamped demand rows, so they are evidence of what was known when it ran rather than a fresh calculation.",
+        "operationId": "sales_order_availability_api_v1_mrp_sales_orders__order_id__expected_availability_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Order Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_SalesOrderAvailabilityRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "When the latest plan expects a sales order to be covered",
         "tags": [
           "MRP"
         ]

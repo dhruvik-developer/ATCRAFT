@@ -22,7 +22,6 @@ lives here too, driven by the same in-memory source the merge tests use.
 
 from __future__ import annotations
 
-import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -208,7 +207,7 @@ async def test_a_component_is_phased_to_its_own_date_not_its_parents() -> None:
     component_date = REQUIRED - timedelta(days=10)
     source = FakeSource(
         items={kit.id: kit, screw.id: screw},
-        structure={kit.id: [(screw, "6", 1)]},
+        structure={kit.id: [(screw, "6")]},
         default_bom={kit.id},
         incoming={screw.id: (arrival(component_date + timedelta(days=5), "600"),)},
     )
@@ -241,14 +240,14 @@ async def test_a_parent_covered_by_incoming_supply_is_not_exploded() -> None:
     screw = make_item("SCREW-M4")
     source = FakeSource(
         items={kit.id: kit, screw.id: screw},
-        structure={kit.id: [(screw, "6", 1)]},
+        structure={kit.id: [(screw, "6")]},
         default_bom={kit.id},
         incoming={kit.id: (arrival(EARLY, "100"),)},
     )
 
     plan = await run(source, [sales_line(kit, "100", code="SO/0001")])
 
-    assert source.calls["explode"] == 0
+    assert plan.stats["explosion_count"] == 0, "a covered parent raises no components"
     assert plan.requirement_for(screw.id) is None
     assert plan.suggestion_for(kit.id) is None
 
@@ -260,40 +259,37 @@ async def test_a_parent_covered_in_part_explodes_only_the_uncovered_half() -> No
     screw = make_item("SCREW-M4")
     source = FakeSource(
         items={kit.id: kit, screw.id: screw},
-        structure={kit.id: [(screw, "6", 1)]},
+        structure={kit.id: [(screw, "6")]},
         default_bom={kit.id},
         incoming={kit.id: (arrival(EARLY, "60"),)},
     )
 
     plan = await run(source, [sales_line(kit, "100", code="SO/0001")])
 
-    assert source.calls["explode"] == 1
+    assert plan.stats["explosion_count"] == 1
     requirement = plan.requirement_for(screw.id)
     assert requirement is not None
     assert requirement.dependent_demand_quantity == D("240.0000"), "six screws for 40 kits"
 
 
 @pytest.mark.asyncio
-async def test_a_live_job_covers_the_parent_but_not_its_components() -> None:
-    """The asymmetry, and the reason for it.
+async def test_a_live_job_covers_the_parent_and_its_components() -> None:
+    """E3a's binding change: production output is dated supply like any other.
 
-    A purchase order for the kit arrives as a finished kit and needs no screws.
-    A live production order for the kit is *a build that still has to be given
-    its screws* - ``production.service.release_order`` reserves material only
-    when it is asked to (``ReleaseRequest.reserve_material``), and even then
-    holds only what happened to be free and reports the rest as a shortage. So a
-    released job may be holding nothing at all, and netting its output off the
-    exploded quantity deletes the component demand that job depends on.
-
-    The kit's own requirement still nets against the job - those kits are real -
-    but the screws are planned. An unnecessary screw order is cancellable; a
-    missing one stops the line.
+    The old engine deliberately exploded the *whole* order when a live job
+    covered the parent, on the argument that a released job may hold none of its
+    material. E3a binds the other way - net against stock and in-time supply,
+    production included, and explode only the net shortfall - so that a plan
+    cannot raise a second set of components for work already on the floor. The
+    job's own component demand belongs to the job, and a release that cannot
+    reserve its material reports its own shortage; planning it twice here would
+    buy the same screws twice.
     """
     kit = make_product("LOCK-KIT")
     screw = make_item("SCREW-M4")
     source = FakeSource(
         items={kit.id: kit, screw.id: screw},
-        structure={kit.id: [(screw, "6", 1)]},
+        structure={kit.id: [(screw, "6")]},
         default_bom={kit.id},
         in_production={kit.id: (arrival(EARLY, "100"),)},
     )
@@ -306,30 +302,24 @@ async def test_a_live_job_covers_the_parent_but_not_its_components() -> None:
     assert kit_requirement.shortage_quantity == D("0.0000"), "the job covers the kits"
     assert plan.suggestion_for(kit.id) is None
 
-    assert source.calls["explode"] == 1
-    screw_requirement = plan.requirement_for(screw.id)
-    assert screw_requirement is not None, (
-        "component demand for a live job was deleted - the job may hold nothing"
-    )
-    assert screw_requirement.dependent_demand_quantity == D("600.0000")
-    assert plan.suggestion_for(screw.id) is not None
+    assert plan.stats["explosion_count"] == 0
+    assert plan.requirement_for(screw.id) is None
 
 
 @pytest.mark.asyncio
-async def test_a_live_job_does_not_reduce_what_the_parent_explodes() -> None:
-    """The same rule mid-range: only stock and purchase orders shrink the explosion.
+async def test_a_live_job_reduces_the_shortfall_and_so_the_explosion() -> None:
+    """The same rule mid-range: only the kits the plan has to raise need parts.
 
-    100 kits demanded, 10 already built, a live job for 60. The kit's own
-    shortage is 30 (stock and the job both count), but 90 kits still have to be
-    assembled from parts - the 60 on the floor included - so the screws for 90
-    are what the plan raises.
+    100 kits demanded, 10 already in stock, a live job for 60. The kit's
+    shortage is 30 - stock and the job both count - so the plan buys screws for
+    the 30 kits it is raising, not for the 60 the job is already building.
     """
     kit = make_product("LOCK-KIT")
     screw = make_item("SCREW-M4")
     source = FakeSource(
         items={kit.id: kit, screw.id: screw},
         stock={kit.id: engine.StockPosition(on_hand=D("10"))},
-        structure={kit.id: [(screw, "6", 1)]},
+        structure={kit.id: [(screw, "6")]},
         default_bom={kit.id},
         in_production={kit.id: (arrival(EARLY, "60"),)},
     )
@@ -342,7 +332,9 @@ async def test_a_live_job_does_not_reduce_what_the_parent_explodes() -> None:
 
     screw_requirement = plan.requirement_for(screw.id)
     assert screw_requirement is not None
-    assert screw_requirement.dependent_demand_quantity == D("540.0000"), "six screws, 90 kits"
+    assert screw_requirement.dependent_demand_quantity == D("180.0000"), (
+        "six screws for the 30 kits the plan raises; the live job supplies its own"
+    )
 
 
 @pytest.mark.asyncio
@@ -357,14 +349,14 @@ async def test_a_parent_covered_only_by_late_supply_is_exploded_in_full() -> Non
     screw = make_item("SCREW-M4")
     source = FakeSource(
         items={kit.id: kit, screw.id: screw},
-        structure={kit.id: [(screw, "6", 1)]},
+        structure={kit.id: [(screw, "6")]},
         default_bom={kit.id},
         incoming={kit.id: (arrival(LATE, "100"),)},
     )
 
     plan = await run(source, [sales_line(kit, "100", code="SO/0001")])
 
-    assert source.calls["explode"] == 1
+    assert plan.stats["explosion_count"] == 1
     requirement = plan.requirement_for(screw.id)
     assert requirement is not None
     assert requirement.dependent_demand_quantity == D("600.0000")
@@ -372,62 +364,32 @@ async def test_a_parent_covered_only_by_late_supply_is_exploded_in_full() -> Non
 
 
 @pytest.mark.asyncio
-async def test_supply_for_a_component_is_read_in_the_second_round() -> None:
-    """Components are not known until the explosions have run - but they still net.
+async def test_supply_for_a_component_is_read_in_the_same_round_as_its_parent() -> None:
+    """By the time supply is read the structure is known in full.
 
-    Two supply reads per source, one per round, never one per item: the round
-    that discovers the components has to ask about them, and asking once for the
-    whole set is what keeps a run at a fixed number of statements.
+    Discovery walks the levels first, so the supply hook is handed the products
+    *and* the components they introduced in one call - not one round for the
+    parents and a second for whatever the explosions discovered. One call for
+    the whole set is what keeps a run at a fixed number of statements however
+    deep the structure goes.
     """
     kit = make_product("LOCK-KIT")
     screw = make_item("SCREW-M4")
     source = FakeSource(
         items={kit.id: kit, screw.id: screw},
-        structure={kit.id: [(screw, "6", 1)]},
+        structure={kit.id: [(screw, "6")]},
         default_bom={kit.id},
         incoming={screw.id: (arrival(EARLY, "200"),)},
     )
 
     plan = await run(source, [sales_line(kit, "100", code="SO/0001")])
 
-    assert source.calls["incoming_supply"] == 2
-    assert source.batch_sizes["incoming_supply"] == [1, 1]
+    assert source.calls["incoming_supply"] == 1
+    assert source.batch_sizes["incoming_supply"] == [2], "the kit and the screw together"
     requirement = plan.requirement_for(screw.id)
     assert requirement is not None
     assert requirement.incoming_quantity == D("200.0000")
     assert requirement.shortage_quantity == D("400.0000")
-
-
-@pytest.mark.asyncio
-async def test_a_stage_that_fails_in_the_second_round_is_still_reported() -> None:
-    """A caveat has to cover the whole item set, not the half that answered.
-
-    The component round is a second call to the same hook, and a plan that
-    netted its products but not its parts is still a plan that did not net.
-    """
-    kit = make_product("LOCK-KIT")
-    screw = make_item("SCREW-M4")
-    source = FakeSource(
-        items={kit.id: kit, screw.id: screw},
-        structure={kit.id: [(screw, "6", 1)]},
-        default_bom={kit.id},
-    )
-
-    calls: list[int] = []
-    original = source.incoming_supply
-
-    async def failing_second_round(item_ids: list[uuid.UUID], upto: date) -> tuple[dict, bool]:
-        calls.append(1)
-        if len(calls) > 1:
-            return {}, False
-        return await original(item_ids, upto)
-
-    source.incoming_supply = failing_second_round  # type: ignore[method-assign]
-
-    plan = await run(source, [sales_line(kit, "100", code="SO/0001")])
-
-    assert plan.stats["netted_against_incoming"] is False
-    assert any("incoming purchase orders" in w for w in plan.warnings)
 
 
 @pytest.mark.asyncio
@@ -708,7 +670,7 @@ async def test_a_component_dates_its_late_supply_against_its_own_needed_by() -> 
     screws_land = component_date + timedelta(days=5)
     source = FakeSource(
         items={kit.id: kit, screw.id: screw},
-        structure={kit.id: [(screw, "6", 1)]},
+        structure={kit.id: [(screw, "6")]},
         default_bom={kit.id},
         incoming={screw.id: (arrival(screws_land, "600"),)},
     )

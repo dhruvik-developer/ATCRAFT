@@ -1,3 +1,14 @@
+> **Post-audit update - 19 October 2026 (E3a).** P05.P2-P4 and P06.F2/F6/F7/F8
+> are closed: MRP now discovers low-level codes in batched per-level reads,
+> nets every item exactly once at its deepest level (free stock, then dated
+> in-time supply), explodes only the net shortfall through single-level BOM
+> lines, uses the quantity-dependent routing lead time with per-level date
+> offsets, and stamps expected availability on requirements, suggestions and
+> demand lines - surfaced on run detail, the shortage report, the sales-order
+> detail screen and `GET /mrp/sales-orders/{id}/expected-availability`. The
+> entries below are the pre-E3a audit text and are left as they were.
+> See `docs/implementation/specs/E3a-mrp-engine-depth.md`.
+
 ================= G1
 Scope and baseline. This is a read-only audit of the main tree C:\Project\Other\ATCRAFT at HEAD cdac4e0, which was unchanged throughout. No round-1 lane (A1, B1, C0) is merged, so every status describes main. Paths in the evidence are relative to the repository root.
 

@@ -3732,6 +3732,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mrp/sales-orders/{order_id}/expected-availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * When the latest plan expects a sales order to be covered
+         * @description The newest completed run whose demand snapshot contained this order, with the date each line is expected to be covered by stock, dated supply or the order the plan raises. `run_id` is null when no completed run has ever seen the order; that is a normal state, not a 404. Dates come from the plan's stamped demand rows, so they are evidence of what was known when it ran rather than a fresh calculation.
+         */
+        get: operations["sales_order_availability_api_v1_mrp_sales_orders__order_id__expected_availability_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mrp/shortage-report": {
         parameters: {
             query?: never;
@@ -11657,6 +11677,20 @@ export interface components {
         /** ApiResponse[SalesInvoicePreview] */
         ApiResponse_SalesInvoicePreview_: {
             data?: components["schemas"]["SalesInvoicePreview"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[SalesOrderAvailabilityRead] */
+        ApiResponse_SalesOrderAvailabilityRead_: {
+            data?: components["schemas"]["SalesOrderAvailabilityRead"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -20591,9 +20625,16 @@ export interface components {
         /**
          * MrpDemandRead
          * @description One demand line as the run captured it.
+         *
+         *     ``expected_available_date`` is the run's answer for this line: when the
+         *     item's merged requirement is expected to be fully covered. It is stamped
+         *     when the run completes - the date depends on the plan - so it is ``None``
+         *     while a run is queued or running, and on runs planned before E3a.
          */
         MrpDemandRead: {
             demand_source: components["schemas"]["MrpDemandSource"];
+            /** Expected Available Date */
+            expected_available_date?: string | null;
             /**
              * Id
              * Format: uuid
@@ -20681,6 +20722,8 @@ export interface components {
              * Format: date
              */
             earliest_required_date: string;
+            /** Expected Available Date */
+            expected_available_date?: string | null;
             /** First Late In Production Date */
             first_late_in_production_date?: string | null;
             /** First Late Incoming Date */
@@ -20726,6 +20769,8 @@ export interface components {
             readonly late_supply_quantity: string;
             /** Level */
             level: number;
+            /** Low Level Code */
+            low_level_code?: number | null;
             /** Net Requirement */
             net_requirement: string;
             /** On Hand Quantity */
@@ -20774,12 +20819,11 @@ export interface components {
          *     the quantities and a date per feed, which is where a client should read them
          *     from: this text is prose, written in one language, for a human.
          *
-         *     ``result_summary["demand_dates_settled"]`` reports the property those
-         *     figures rest on: that every item's needed-by date was final before any
-         *     supply was phased against it. It is ``True`` on any plan a planner will see;
-         *     ``False`` means a structure so deep the dates were still moving, which is
-         *     also named in a warning, and the component demand underneath those items may
-         *     be understated.
+         *     ``result_summary["low_level_code_max"]`` reports the depth the plan reached:
+         *     the deepest level any item was netted at, which is also the number of passes
+         *     the level-by-level calculation took. It is the direct read on how deep the
+         *     structure in scope is; a structure that could not be levelled at all is
+         *     refused outright rather than planned approximately.
          */
         MrpRunRead: {
             /** Celery Task Id */
@@ -20912,6 +20956,8 @@ export interface components {
             converted_to_id?: string | null;
             /** Converted To Type */
             converted_to_type?: string | null;
+            /** Expected Available Date */
+            expected_available_date?: string | null;
             /**
              * Id
              * Format: uuid
@@ -20932,6 +20978,8 @@ export interface components {
             item_id: string;
             /** Lead Time Days */
             lead_time_days: number;
+            /** Low Level Code */
+            low_level_code?: number | null;
             /**
              * Required Date
              * Format: date
@@ -28327,6 +28375,30 @@ export interface components {
             total_amount: string;
         };
         /**
+         * SalesOrderAvailabilityRead
+         * @description The latest completed plan that covered a sales order, keyed by line.
+         *
+         *     ``run_id`` is ``None`` when no completed run has ever seen the order. That is
+         *     a normal state for a fresh order rather than an error, which is why the
+         *     endpoint answers with an empty report instead of a 404: the sales screen can
+         *     render "not planned yet" without treating it as a failure.
+         *
+         *     The dates come from ``mrp_demands.expected_available_date`` - the per-line
+         *     copy stamped when the run completes - not from a fresh calculation. A plan is
+         *     evidence of what was known when it ran; recomputing here would show a date
+         *     no planner has seen and no audit row explains.
+         */
+        SalesOrderAvailabilityRead: {
+            /** Completed At */
+            completed_at?: string | null;
+            /** Lines */
+            lines?: components["schemas"]["SalesOrderLineAvailabilityRead"][];
+            /** Run Code */
+            run_code?: string | null;
+            /** Run Id */
+            run_id?: string | null;
+        };
+        /**
          * SalesOrderCreate
          * @description Create a DRAFT sales order with its lines.
          */
@@ -28463,6 +28535,24 @@ export interface components {
              * Format: uuid
              */
             warehouse_id: string;
+        };
+        /**
+         * SalesOrderLineAvailabilityRead
+         * @description One sales-order line's place in the latest plan that saw the order.
+         */
+        SalesOrderLineAvailabilityRead: {
+            /** Expected Available Date */
+            expected_available_date?: string | null;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /**
+             * Sales Order Line Id
+             * Format: uuid
+             */
+            sales_order_line_id: string;
         };
         /**
          * SalesOrderLineIn
@@ -58004,6 +58094,100 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaginatedResponse_MrpSuggestionRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    sales_order_availability_api_v1_mrp_sales_orders__order_id__expected_availability_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_SalesOrderAvailabilityRead_"];
                 };
             };
             /** @description Malformed request */

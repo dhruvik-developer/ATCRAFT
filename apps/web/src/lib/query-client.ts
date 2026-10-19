@@ -185,6 +185,8 @@ export const queryKeys = {
     suggestions: (runId: string, params: unknown) => ['mrp', 'suggestions', runId, params] as const,
     shortageReport: (runId: string, params: unknown) =>
       ['mrp', 'shortage-report', runId, params] as const,
+    salesOrderAvailability: (orderId: string) =>
+      ['mrp', 'sales-order-availability', orderId] as const,
   },
   procurement: {
     all: ['procurement'] as const,

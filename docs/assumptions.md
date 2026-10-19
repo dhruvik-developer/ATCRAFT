@@ -445,9 +445,9 @@ shortage and raised no suggestion. Under-ordering stops the shop floor; the
 opposite failure is a purchase order a buyer can see and cancel.
 
 **Where.** `src/modules/mrp/engine.py` — `supply_split()` / `SupplySplit`, which
-is the single place the split is computed. Both the explosion decision and the
-requirement stage read the same object, so they cannot phase the same item at two
-different dates.
+is the single place the split is computed. Each item is netted exactly once, at
+its low-level code, and only the net shortfall is exploded, so there is no
+second decision that could phase the same item at a different date.
 
 **Impact if wrong.** If Atcraft plans against a firmer promise date than the
 system holds, the horizon is being cut too finely and suggestions will be raised
@@ -455,30 +455,97 @@ for stock that was going to arrive in time anyway.
 
 ---
 
-## 22. Component demand is not netted against in-progress production
+## 22. Production output is netted as dated supply, components included
 
-**Assumed.** When a manufactured parent is exploded into component demand, the
-exploded quantity is netted against the parent's free stock and against confirmed
-incoming **purchase orders**, but **not** against in-progress production orders.
-The parent's own requirement still nets against in-progress production.
+**Assumed.** A live production order's unmade balance is supply like a purchase
+order: it is netted against the parent's gross requirement before the shortfall
+is computed, and only the net shortfall is exploded. Components for output that
+is already on the floor are therefore not planned a second time by MRP.
 
-**Why.** A purchase order for the parent arrives as a finished parent and consumes
-no components. A live production order *is* a build that still needs its parts —
-and releasing one does not guarantee they are held: `release_order` reserves
-components only when `ReleaseRequest.reserve_material` asks it to, and
-`_reserve_components` holds only what happened to be free, recording the rest as a
-shortage while the job is released anyway. Netting against it therefore deletes
-component demand for a job whose parts were never secured. Where a job did
-reserve, the hold is already excluded from available stock, so nothing is
-double-counted; the residual is a bounded over-order, which is the cancellable
-direction.
+**Why.** E3a's binding rule is one netting stage for both halves: free stock,
+then in-time supply (purchase orders and production), then explode the shortfall.
+The old asymmetry - the parent's requirement netting against production while the
+explosion did not - was defensible only while the two decisions were taken at
+different dates. Under level-by-level planning they are one visit, and netting
+production on one side but not the other would raise a second set of material for
+work already released. Where a job reserved its components, those holds are
+already excluded from free stock, so nothing is double-counted. A release that
+could not secure its material reports the shortage through the production
+module; the MRP plan does not over-order to compensate.
 
-**Where.** `src/modules/mrp/engine.py` — `_settle_demand`, at the explosion
-netting.
+**Where.** `src/modules/mrp/engine.py` — `plan()`, the in-time supply split
+before each explosion.
 
-**Impact if wrong.** Component suggestions are higher than strictly necessary
-where jobs really are fully kitted. Reworking this needs a reliable "this job's
-components are secured" signal, which does not exist today.
+**Impact if wrong.** If a released job can no longer get its material, the
+shortage surfaces at issue rather than in the plan. The conservative alternative
+is the old bounded over-order, which is cancellable but hides the job's own
+problem; switching back needs a reliable "this job's components are secured"
+signal, which does not exist today.
+
+---
+
+## §E3-1. Every item is planned once, at its low-level code
+
+**Assumed.** An item's low-level code is the deepest level at which it appears
+across the structures reachable from the run's direct demand, capped at
+`DEFAULT_MAX_EXPLOSION_DEPTH` (20). Items are netted level by level, shallowest
+first, and each item is netted exactly once - at its low-level code. Gross
+requirement is direct demand plus the dependent demand raised by parents already
+planned; free stock and in-time supply are netted against it; only the net
+shortfall is exploded one level down. A structure that would exceed the cap is
+refused with `BOM_DEPTH_EXCEEDED` rather than silently truncated.
+
+Lead times: a MANUFACTURE suggestion uses the routing's lead time for the
+suggested quantity (`routing.service.manufacture_lead_times`, batched per run),
+falling back to the item master. A PURCHASE suggestion keeps the preferred
+vendor-link lead time, falling back to the item master. A JOB_WORK suggestion
+uses the item master. Each child's required date is offset from its parent's
+required date by the parent's own lead time, at every level - not once from the
+root.
+
+**Why.** The previous engine decided the explosion against a parent's date while
+that date was still being moved by other demand for the same parent, which
+under-planned components for items demanded both directly and as components.
+Netted-once-at-LLC removes the second date: the requirement, the explosion and
+the suggestion are computed in one visit. It also makes stock held for a
+sub-assembly reduce what its components are planned for, which is the physically
+correct answer.
+
+**Where.** `src/modules/mrp/engine.py` - `_discover_levels`, `plan()`;
+`src/modules/routing/service.py` - `manufacture_lead_times`.
+
+**Impact if wrong.** If a routing lead time is systematically longer than the
+real shop calendar, manufacture suggestions are dated early; if the depth cap is
+ever reached by a genuine product, the run refuses instead of planning a
+truncated structure, which is visible and safe.
+
+---
+
+## §E3-2. Expected availability reports coverage, it does not promise it
+
+**Assumed.** A requirement's `expected_available_date` is the first date at
+which stock plus dated in-time supply covers the gross requirement. If they never
+cover it, it is the date the plan's own suggestion can arrive; if coverage
+completes later than that, the coverage date wins. The value is rolled up through
+the structure: `max(own date, each child's date + own lead time)`, so a late
+component slips the parent. A suggestion's date is
+`max(as_of, suggested_order_date) + lead_time_days`, so a late suggestion shows
+when the order can physically land rather than a date in the past.
+
+**Why.** "Short 40" is actionable; "short 40, and the earliest this can be fixed
+is 12 November" is what a planner promises a customer against. Showing the
+suggestion's own required date on a late order would name a date that is already
+impossible.
+
+**Where.** `src/modules/mrp/engine.py` - `coverage_date`, `expected_availability`,
+the post-netting roll-up in `plan()`; `src/modules/mrp/service.py` - the demand
+stamping after a run completes; `GET /mrp/sales-orders/{id}/expected-availability`.
+
+**Impact if wrong.** These dates are informational. They do not move
+`required_date` or `promised_date`; "Use as promised date" on a sales order is an
+explicit, audited PATCH. If the dates prove optimistic, planners will miss the
+promises they copy, so the arithmetic has to stay tied to the same supply the
+netting used.
 
 ---
 

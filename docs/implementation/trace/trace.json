@@ -802,9 +802,9 @@
     "item": "Semi-finished goods",
     "status": "PRESENT",
     "evidence": "ItemGroup.SEMI_FINISHED (products/models.py:83), WarehouseType.WIP (warehouses/models.py:58; seeded WH-WIP seed.py:140); produced by PRODUCTION_RECEIPT (inventory/models.py:114) from production orders (/production screens).",
-    "gap": "Same stock-by-type view gap as T1. MRP does not net semi-finished stock before exploding its children (see P05.P3).",
+    "gap": "Same stock-by-type view gap as P01. MRP now nets semi-finished stock before exploding its children (P05.P3).",
     "planned_wp": "none",
-    "recommendation": "Small: see T1; MRP fix under P05.P3."
+    "recommendation": "Small: see P01."
    },
    {
     "id": "P03.T4",
@@ -1115,38 +1115,38 @@
    {
     "id": "P05.P2",
     "item": "Assembly stock",
-    "status": "PARTIAL",
-    "evidence": "MRP nets each item's merged requirement against its own free stock (mrp/engine.py:1424-1428), so sub-assembly stock reduces the sub-assembly's own suggestion.",
-    "gap": "Only directly demanded items are exploded, through one consolidated multi-level explosion of the whole BOM (mrp/engine.py:1071-1086; bom/engine.py _walk L449-554), so stock of an intermediate assembly does not reduce demand for its own children: with 50 Rose Handles in stock, 100 kits still raise handle bodies, springs and screws for 100. The 'assembly stock before components/raw materials' order is therefore not honoured; nothing reserves assembly stock for the sales order (reservation is FG-only); assembly requirements convert to production orders, not assembly orders (mrp/service.py:208-221). No test covers intermediate-stock netting.",
-    "planned_wp": "none",
-    "recommendation": "Medium: explode level by level in MRP (bom_engine.explode with max_depth=1 per manufactured item, or propagate netted intermediate quantities down the consolidated tree) so each intermediate's free stock and in-time supply are netted before its children are exploded; tests for 'sub-assembly stock reduces component demand'; optional ASSEMBLY_ORDER conversion target."
+    "status": "PRESENT",
+    "evidence": "Each item is now netted once, at its low-level code, and only the net shortfall is exploded one level down (C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/engine.py - _discover_levels, plan()). Stock held for an intermediate assembly therefore reduces the demand for its children. Pinned by test_stock_in_a_sub_assembly_reduces_its_component_demand (apps/api/tests/unit/test_mrp_level_ordering.py) and by the stocked-handle PostgreSQL test in apps/api/tests/integration/test_mrp_service.py.",
+    "gap": "None for planning. Assembly requirements still convert to production orders rather than assembly orders; that conversion target remains under P06.O3.",
+    "planned_wp": "E3a",
+    "recommendation": "None beyond the separate ASSEMBLY_ORDER conversion target (P06.O3)."
    },
    {
     "id": "P05.P3",
     "item": "Semi-finished goods",
-    "status": "PARTIAL",
-    "evidence": "Semi-finished items are netted against their own free stock in the requirement stage (mrp/engine.py:1424-1428) and suggested MANUFACTURE.",
-    "gap": "Same defect as P05.P2: semi-finished stock does not reduce the demand for the components/raw materials beneath it because only directly demanded items are exploded and the explosion is consolidated across all levels (mrp/engine.py:1071-1086).",
-    "planned_wp": "none",
-    "recommendation": "Medium: same level-by-level netting fix as P05.P2."
+    "status": "PRESENT",
+    "evidence": "Level-by-level netting consumes semi-finished stock before the next level is exploded (C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/engine.py - plan()), so semi-finished stock reduces the demand for the components and raw materials beneath it. Pinned by the semi-finished stock ladder in apps/api/tests/unit/test_mrp_level_ordering.py.",
+    "gap": "None.",
+    "planned_wp": "E3a",
+    "recommendation": "None."
    },
    {
     "id": "P05.P4",
     "item": "Components",
-    "status": "PARTIAL",
-    "evidence": "Component requirements are merged across all demands (common parts) and netted against component free stock and in-time incoming supply (mrp/engine.py:1424-1428, split_supply L490+; merge tests apps/api/tests/unit/test_mrp_engine_merge.py:203-288).",
-    "gap": "For components that are themselves manufactured from raw materials, component stock does not reduce raw-material demand (same consolidated-explosion defect as P05.P2), so the components-before-raw-materials order holds only for bought components.",
-    "planned_wp": "none",
-    "recommendation": "Medium: same level-by-level netting fix as P05.P2."
+    "status": "PRESENT",
+    "evidence": "Component requirements are merged across all demands and netted against component free stock and in-time supply at the component's own low-level code, so a manufactured component's stock reduces its raw-material demand rather than only its own suggestion (C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/engine.py - plan(); apps/api/tests/unit/test_mrp_level_ordering.py; apps/api/tests/unit/test_mrp_engine_merge.py).",
+    "gap": "None.",
+    "planned_wp": "E3a",
+    "recommendation": "None."
    },
    {
     "id": "P05.P5",
     "item": "Raw materials",
     "status": "PRESENT",
     "evidence": "Raw-material (leaf, BUY) requirements are netted against RM free stock and in-time incoming purchase orders (mrp/engine.py:1424-1428, split_supply) and become PURCHASE suggestions (choose_suggestion_type L728-760).",
-    "gap": "RM demand is overstated whenever intermediate stock exists (P05.P2-P4).",
-    "planned_wp": "none",
-    "recommendation": "None beyond the P05.P2 fix."
+    "gap": "None; intermediate stock now reduces raw-material demand through P05.P2-P4.",
+    "planned_wp": "E3a",
+    "recommendation": "None."
    },
    {
     "id": "P05.P6",
@@ -1171,9 +1171,9 @@
     "item": "Manufacturing requirement",
     "status": "PRESENT",
     "evidence": "MAKE / MAKE_OR_BUY with approved BOM -> MANUFACTURE (mrp/engine.py:728-760), converted to a production order (production/service.py:1219-1264 create_order_from_mrp) via the same convert route and screen.",
-    "gap": "Inflated by the intermediate-netting defect (P05.P2); assembly items convert to production orders, not assembly orders.",
+    "gap": "Assembly items convert to production orders, not assembly orders (P06.O3).",
     "planned_wp": "none",
-    "recommendation": "None beyond P05.P2."
+    "recommendation": "None beyond P06.O3."
    },
    {
     "id": "P05.P9",
@@ -1652,11 +1652,11 @@
    {
     "id": "P06.F2",
     "item": "MRP feature: Multi-level demand calculation",
-    "status": "PARTIAL",
-    "evidence": "Multi-level gross explosion with dependent demand per item, shallowest level, direct/dependent split and CHECK gross = direct + dependent (C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/models.py:326-341,515-518; C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/engine.py:995-1019); levels shown as 'Demanded directly' / 'BOM level n' in the shortage report (C:/Project/Other/ATCRAFT/apps/web/src/features/mrp/shortage-report-tab.tsx:84-95).",
-    "gap": "No level-by-level netting: only directly demanded items are netted before exploding (_settle_demand candidates, engine.py:1081-1086), and the root's explosion carries gross quantities through every sub-assembly (C:/Project/Other/ATCRAFT/apps/api/src/modules/bom/engine.py:589-652). Free stock or in-time supply of an intermediate sub-assembly (e.g. Rose handles on the shelf) reduces only that sub-assembly's own requirement, never the demand for its children (springs, bushes), so components are over-ordered by up to the sub-assembly's free stock - contrary to the proposal's assembly / semi-finished before components priority. Every level is also dated from the root's lead time only (_dependent_required_date, engine.py:932-944). The engine docstring states the limitation (engine.py:121-149).",
-    "planned_wp": "none",
-    "recommendation": "Medium-large: low-level-code MRP - compute each item's lowest BOM level, process items level by level, net gross (direct + dependent) against free stock and in-time supply, explode only the net shortfall one level down (single-level lines from the BOM engine) and offset each child's date by its parent's own lead time; keep merge, time-phasing and provenance; add a stocked-sub-assembly case to tests/unit/test_mrp_engine_merge.py and update docs/assumptions.md."
+    "status": "PRESENT",
+    "evidence": "Low-level-code discovery in batched per-level reads, then level-by-level netting: gross = direct + dependent demand; net against free stock and in-time supply (purchase orders and production); explode only the net shortfall through single-level BOM lines (C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/engine.py - _discover_levels, plan(); apps/api/src/modules/mrp/repository.py - bom_structures). Common-part consolidation remains one requirement per item via UNIQUE (run_id, item_id). mrp_requirements carries the level and expected availability. Tests: apps/api/tests/unit/test_mrp_level_ordering.py, the merge and date-ordering suites, and the stocked sub-assembly in apps/api/tests/integration/test_mrp_service.py.",
+    "gap": "None.",
+    "planned_wp": "E3a",
+    "recommendation": "None."
    },
    {
     "id": "P06.F3",
@@ -1688,32 +1688,32 @@
    {
     "id": "P06.F6",
     "item": "MRP feature: Auto production planning",
-    "status": "PARTIAL",
-    "evidence": "MANUFACTURE suggestions for finished goods and sub-assemblies with order-by dates (C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/engine.py:1493-1537), bulk-converted into DRAFT production orders with planned start and end (C:/Project/Other/ATCRAFT/apps/api/src/modules/production/service.py:1219-1264); release builds work orders from the routing (production/service.py:605-647).",
-    "gap": "(1) Manufacture lead time ignores the routing: routing.service.manufacture_lead_time_days, documented as 'The contract MRP calls' (C:/Project/Other/ATCRAFT/apps/api/src/modules/routing/service.py:1587-1602), has no caller - MRP uses static items.lead_time_days whatever the quantity (engine.py:1505-1512). (2) Sub-assembly orders are not offset by their own lead times (all levels dated root date - root lead time, engine.py:932-944). (3) Default-warehouse refusal on unscoped runs and the default-BOM requirement at release (see P06.O1). (4) No scheduled run and no capacity check - work orders are planned back to back at infinite capacity (production/service.py:613-618 ASSUMPTION).",
-    "planned_wp": "none",
-    "recommendation": "Medium: batched routing lead-time read in DatabaseMrpSource (fallback items.lead_time_days) used for MANUFACTURE order-by dates and child offsets; per-level offsets with P06.F2; the P06.O1 / P06.F5 master-data fixes; optional scheduled run; optional work-centre load check (routing minutes vs working_hours_per_day, later B2 rostered capacity) flagging overloaded days on converted orders."
+    "status": "PRESENT",
+    "evidence": "MANUFACTURE suggestions use the quantity-dependent routing lead time, read in one batch per run through routing.service.manufacture_lead_times (C:/Project/Other/ATCRAFT/apps/api/src/modules/routing/service.py; DatabaseMrpSource.manufacture_lead_times in apps/api/src/modules/mrp/repository.py), with items.lead_time_days as the fallback, and each child is offset by its parent's own lead time at every level (engine.py - _component_required_date).",
+    "gap": "None for the MRP feature. Scheduled runs remain under P06.F5 and capacity checks under B2; default-warehouse/default-BOM conversion constraints remain under P06.O1.",
+    "planned_wp": "E3a",
+    "recommendation": "None beyond the scheduled run (P06.F5) and capacity check (B2)."
    },
    {
     "id": "P06.F7",
     "item": "MRP feature: Lead time calculation",
-    "status": "PARTIAL",
-    "evidence": "Order-by = required date - lead time with a late flag (C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/engine.py:711-725); preferred-vendor lead time for purchases, else item lead time (engine.py:1505-1512); component dates offset by the root's lead time (engine.py:932-944); the routing module computes a quantity-dependent manufacture lead time from operation minutes and work-centre hours (C:/Project/Other/ATCRAFT/apps/api/src/modules/routing/service.py:479; GET /api/v1/routing/items/{item_id}/lead-time [routing.view], C:/Project/Other/ATCRAFT/apps/api/src/modules/routing/router.py:384-405) shown in the routing detail dialog (C:/Project/Other/ATCRAFT/apps/web/src/features/routing/routing-dialogs.tsx:356-358); suggestions show lead time and Order by (C:/Project/Other/ATCRAFT/apps/web/src/features/mrp/mrp-run-detail-page.tsx:540-543,603-628).",
-    "gap": "MRP never uses the calculated routing lead time (manufacture_lead_time_days has no caller anywhere in src), offsets only once from the root, and the vendor lead time it prefers cannot be entered on screen (item-vendor links are list-only).",
-    "planned_wp": "none",
-    "recommendation": "Small-medium: add manufacture_lead_times(item_quantities, as_of) to MrpDataSource calling the routing service in one batch, and use it for MANUFACTURE suggestions and child date offsets; per-level offsets with P06.F2; vendor-link editor with P06.F5."
+    "status": "PRESENT",
+    "evidence": "MRP uses the routing-calculated manufacture lead time (batched per run, item-master fallback), the preferred vendor-link lead time for purchases, and offsets each child from its parent's required date by the parent's own lead time at every level (C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/engine.py - _component_required_date; routing/service.py - manufacture_lead_times). Suggestions carry lead_time_days and expected_available_date.",
+    "gap": "None for MRP. The vendor-link lead-time editor remains tracked under P06.F5.",
+    "planned_wp": "E3a",
+    "recommendation": "None beyond the vendor-link editor (P06.F5)."
    },
    {
     "id": "P06.F8",
     "item": "MRP feature: Expected availability date",
-    "status": "PARTIAL",
-    "evidence": "Requirement rows store when excluded late supply lands, per feed - first/last late incoming and in-production dates (C:/Project/Other/ATCRAFT/apps/api/src/modules/mrp/models.py:373-405) - rendered as 'Arrives too late' intervals in the shortage report (C:/Project/Other/ATCRAFT/apps/web/src/features/mrp/shortage-report-tab.tsx:141-168); suggestions carry required_date, suggested_order_date and is_late (mrp/models.py:558-567; C:/Project/Other/ATCRAFT/apps/web/src/features/mrp/mrp-run-detail-page.tsx:603-628).",
-    "gap": "No expected availability date is computed: not for a suggestion (when the material arrives if ordered now - for a late suggestion the required date is unattainable and no realistic date is given), not for a requirement (when the whole gross is covered), and not per sales-order line (when the order can be fulfilled). GET /api/v1/sales/{id}/allocation-status returns quantities only (C:/Project/Other/ATCRAFT/apps/api/src/modules/sales/schemas.py:305-329), allocation ATP returns a quantity, and SO promised_date is typed by hand.",
-    "planned_wp": "none",
-    "recommendation": "Medium: add expected_available_date to mrp_suggestions (= max(as_of, suggested_order_date) + lead_time_days) and to mrp_requirements (date the gross is covered by stock, in-time supply, late tranches and the new order); roll it up per mrp_demands line through its BOM provenance (max over components plus parent lead time) and expose it on GET /mrp/runs/{id}/demand; show it on the run, the shortage report and the SO detail, optionally offering it as promised_date."
+    "status": "PRESENT",
+    "evidence": "expected_available_date is computed for requirements (coverage by stock and dated in-time supply, else the achievable suggestion arrival, rolled up through child slippage), suggestions (max(as_of, suggested_order_date) + lead_time, so a late order shows a realistic date) and demand lines (stamped after the plan), with migration 20261022_0100. Exposed on GET /mrp/runs/{id}/demand and GET /mrp/sales-orders/{id}/expected-availability; shown on run detail, the shortage report and sales-order detail, where 'Use as promised date' writes promised_date through the audited PATCH. Tests: apps/api/tests/unit/test_mrp_netting.py, apps/api/tests/unit/test_mrp_level_ordering.py, apps/api/tests/integration/test_mrp_service.py.",
+    "gap": "None.",
+    "planned_wp": "E3a",
+    "recommendation": "None."
    }
   ],
-  "notes": "Scope: P04 (27 items) and P06 (14 items), audited read-only against the main tree at C:/Project/Other/ATCRAFT. Tally: P04 has 21 PRESENT and 6 PARTIAL (M7, M9, M10, B4, B6, R3). P06 has 6 PRESENT and 8 PARTIAL (O3, O4, O5, F2, F5, F6, F7, F8). Nothing is ABSENT outright. Screen routes are registered in C:/Project/Other/ATCRAFT/apps/web/src/app/router.tsx: /items 250-251, /inventory/reservations 263, /bom 271-272, /routing 273, /mrp 283-284, /masters 348-352.\n\nPlanned coverage: none of the work packages in SPEC-INDEX close any P04 or P06 gap. A1, D5, B2, B4, C0 and D1 were checked. B4 only adds an 'MRP run completed with shortages' notification, and B2 adds rostered capacity without touching MRP. planned_wp is 'none' throughout.\n\nCross-cutting findings, which suggest three work packages:\n(1) Item master form gap (small). ItemFormDialog (C:/Project/Other/ATCRAFT/apps/web/src/features/items/item-form-dialog.tsx:63-100) omits fields that the API accepts and that planning depends on: sale_price, dealer_price, default_warehouse_id, min_order_quantity, safety_stock, reorder_quantity, shelf_life_days and the batch/serial flags. Item-vendor links can be listed but not created or edited, and variants cannot be created or edited at all. Fixing these closes P04.M7, M9 and M10, most of P06.F5, and the conversion trap below.\n(2) BOM draft editor (medium). PATCH /api/v1/bom/{bom_id} has no screen. This blocks versioning with changes (B4), fixing a draft after rejection (B5), entering BOM operations so costing includes operations (B6), and setting substitute lines or line operation_sequence.\n(3) MRP depth (medium-large):\n- level-by-level netting, so stocked sub-assemblies stop over-ordering their components (F2);\n- routing-based manufacture lead time and offsets per level (F6, F7);\n- expected availability dates (F8);\n- TRANSFER, REALLOCATION and usable JOB_WORK outputs, with job-work output netted as supply (O3, O4, O5);\n- an optional scheduled run.\nAdding REALLOCATION, or new TRANSFER columns, changes the binding contract in docs/database.md section 6 and needs a CHECK-constraint migration.\n\nDefects found while auditing:\n(a) create_item does not run _require_attributes for finish_id, size_id or colour_id (C:/Project/Other/ATCRAFT/apps/api/src/modules/products/service.py:1133-1200 versus 1119-1130). The POST route therefore accepts cross-tenant, wrong-kind or retired attribute ids. This is the 'a foreign key to a UUID is not a tenant check' trap from CLAUDE.md, and the fix is small.\n(b) Unscoped MRP runs ('All warehouses', the default on /mrp) cannot convert suggestions for items without a default warehouse, and no screen can set one. The guards are at production/service.py:1236-1244 and procurement/service.py:589-597.\n(c) Production orders raised from MRP without a bom_id need a default approved BOM at release. BomFormDialog leaves 'default' unchecked by default, and its hint 'the API rejects a second' is inaccurate: approval demotes the previous default instead (bom/service.py:797-824).\n(d) The UI offers Convert for JOB_WORK suggestions (mrp-types.ts:79), but the API always refuses them (job_work/service.py:2502-2520).\n\nOperational note: async MRP runs (more than 50 demand lines; mrp_sync_threshold_demand_lines at C:/Project/Other/ATCRAFT/apps/api/src/core/config.py:261) are routed to the 'mrp' Celery queue. The base and dev compose workers consume only 'default' (C:/Project/Other/ATCRAFT/docker-compose.yml:250, C:/Project/Other/ATCRAFT/docker-compose.dev.yml:66). The prod overlay consumes it (C:/Project/Other/ATCRAFT/docker-compose.prod.yml:83). Until A2's dev fix lands, large runs on the dev stack stay QUEUED.\n\nMinor: /mrp does not offer the manual demand lines that POST /api/v1/mrp/runs accepts (mrp/schemas.py:143)."
+  "notes": "Scope: P04 (27 items) and P06 (14 items), audited read-only against the main tree at C:/Project/Other/ATCRAFT. Tally: P04 has 21 PRESENT and 6 PARTIAL (M7, M9, M10, B4, B6, R3). P06 has 10 PRESENT and 4 PARTIAL (O3, O4, O5, F5) after E3a. Nothing is ABSENT outright. Screen routes are registered in C:/Project/Other/ATCRAFT/apps/web/src/app/router.tsx: /items 250-251, /inventory/reservations 263, /bom 271-272, /routing 273, /mrp 283-284, /masters 348-352.\n\nPlanned coverage: none of the work packages in SPEC-INDEX close any P04 or P06 gap. A1, D5, B2, B4, C0 and D1 were checked. B4 only adds an 'MRP run completed with shortages' notification, and B2 adds rostered capacity without touching MRP. planned_wp is 'none' throughout.\n\nCross-cutting findings, which suggest three work packages:\n(1) Item master form gap (small). ItemFormDialog (C:/Project/Other/ATCRAFT/apps/web/src/features/items/item-form-dialog.tsx:63-100) omits fields that the API accepts and that planning depends on: sale_price, dealer_price, default_warehouse_id, min_order_quantity, safety_stock, reorder_quantity, shelf_life_days and the batch/serial flags. Item-vendor links can be listed but not created or edited, and variants cannot be created or edited at all. Fixing these closes P04.M7, M9 and M10, most of P06.F5, and the conversion trap below.\n(2) BOM draft editor (medium). PATCH /api/v1/bom/{bom_id} has no screen. This blocks versioning with changes (B4), fixing a draft after rejection (B5), entering BOM operations so costing includes operations (B6), and setting substitute lines or line operation_sequence.\n(3) MRP depth (medium-large):\n- level-by-level netting, so stocked sub-assemblies stop over-ordering their components (F2);\n- routing-based manufacture lead time and offsets per level (F6, F7);\n- expected availability dates (F8);\n- TRANSFER, REALLOCATION and usable JOB_WORK outputs, with job-work output netted as supply (O3, O4, O5);\n- an optional scheduled run.\nAdding REALLOCATION, or new TRANSFER columns, changes the binding contract in docs/database.md section 6 and needs a CHECK-constraint migration.\n\nDefects found while auditing:\n(a) create_item does not run _require_attributes for finish_id, size_id or colour_id (C:/Project/Other/ATCRAFT/apps/api/src/modules/products/service.py:1133-1200 versus 1119-1130). The POST route therefore accepts cross-tenant, wrong-kind or retired attribute ids. This is the 'a foreign key to a UUID is not a tenant check' trap from CLAUDE.md, and the fix is small.\n(b) Unscoped MRP runs ('All warehouses', the default on /mrp) cannot convert suggestions for items without a default warehouse, and no screen can set one. The guards are at production/service.py:1236-1244 and procurement/service.py:589-597.\n(c) Production orders raised from MRP without a bom_id need a default approved BOM at release. BomFormDialog leaves 'default' unchecked by default, and its hint 'the API rejects a second' is inaccurate: approval demotes the previous default instead (bom/service.py:797-824).\n(d) The UI offers Convert for JOB_WORK suggestions (mrp-types.ts:79), but the API always refuses them (job_work/service.py:2502-2520).\n\nOperational note: async MRP runs (more than 50 demand lines; mrp_sync_threshold_demand_lines at C:/Project/Other/ATCRAFT/apps/api/src/core/config.py:261) are routed to the 'mrp' Celery queue. The base and dev compose workers consume only 'default' (C:/Project/Other/ATCRAFT/docker-compose.yml:250, C:/Project/Other/ATCRAFT/docker-compose.dev.yml:66). The prod overlay consumes it (C:/Project/Other/ATCRAFT/docker-compose.prod.yml:83). Until A2's dev fix lands, large runs on the dev stack stay QUEUED.\n\nMinor: /mrp does not offer the manual demand lines that POST /api/v1/mrp/runs accepts (mrp/schemas.py:143).\n\nPost-audit update (19 October 2026): E3a delivered P05.P2-P4 and P06.F2/F6/F7/F8 - level-by-level netting at each item's low-level code, batched routing lead times with per-level offsets, and expected availability across requirements, suggestions, demand lines and the sales-order screen. See docs/implementation/specs/E3a-mrp-engine-depth.md."
  },
  {
   "group": "G5",

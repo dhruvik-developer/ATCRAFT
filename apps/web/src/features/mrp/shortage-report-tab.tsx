@@ -166,6 +166,34 @@ export function ShortageReportTab({
         cell: ({ row }) => formatDate(row.original.earliest_required_date),
       },
       {
+        id: 'expected_available_date',
+        header: 'Expected availability',
+        enableSorting: true,
+        cell: ({ row }) => {
+          // When the shortage is actually resolved - by the orders already
+          // placed or by the one the plan raises - after a late part's slip has
+          // been rolled up through the levels. It is the date a planner can
+          // promise against, as opposed to the date the requirement wanted.
+          const when = row.original.expected_available_date
+          if (!when) {
+            return <span className="text-xs text-muted-foreground">Not recorded</span>
+          }
+          const slips = when > row.original.earliest_required_date
+          return (
+            <span
+              className={slips ? 'font-medium text-warning' : undefined}
+              title={
+                slips
+                  ? 'Coverage completes after the date this requirement needed it.'
+                  : 'Coverage completes on or before the date this requirement needs it.'
+              }
+            >
+              {formatDate(when)}
+            </span>
+          )
+        },
+      },
+      {
         id: 'gross_requirement',
         header: 'Demand',
         enableSorting: true,

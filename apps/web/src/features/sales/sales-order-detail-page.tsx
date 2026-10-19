@@ -89,6 +89,7 @@ import {
   type AllocationLineStatus,
   type ConfirmResult,
   type SalesOrderAllocation,
+  type SalesOrderAvailability,
   type SalesOrderDetail,
   type SalesOrderLine,
   type SalesOrderLineIn,
@@ -435,6 +436,27 @@ export default function SalesOrderDetailPage() {
 
   const order = orderQuery.data
 
+  // The latest completed plan that saw this order, keyed by line. This is the
+  // plan's *answer*, not a live stock check: "is there stock now?" is the
+  // allocation panel below, and a promised date has to point at the plan it was
+  // taken from. Gated on MRP_VIEW because the dates are the planner's output.
+  const availability = useQuery({
+    queryKey: queryKeys.mrp.salesOrderAvailability(orderId),
+    queryFn: () =>
+      api.get<SalesOrderAvailability>(`/mrp/sales-orders/${orderId}/expected-availability`),
+    enabled: Boolean(orderId) && can(P.MRP_VIEW),
+    staleTime: staleTimes.transactional,
+  })
+  const availabilityByLine = useMemo(() => {
+    const dates = new Map<string, string>()
+    for (const line of availability.data?.lines ?? []) {
+      if (line.expected_available_date) {
+        dates.set(line.sales_order_line_id, line.expected_available_date)
+      }
+    }
+    return dates
+  }, [availability.data])
+
   // One customer, addressed by its id - not a per-row lookup. The same query key
   // the customer picker uses, so the record is fetched at most once.
   const customer = useQuery({
@@ -531,7 +553,36 @@ export default function SalesOrderDetailPage() {
     onError: (error) => reportFieldErrors(error, 'Could not save these lines'),
   })
 
+  /**
+   * Make one line's plan date the order's promise.
+   *
+   * `promised_date` is a header field, so this is the normal PATCH. The API
+   * snapshots it in `ORDER_AUDITED_FIELDS` and refuses the change once the order
+   * has left the reserving statuses, which is why the action is only offered
+   * where `canTopUp` is true. On a multi-line order the promise is still one
+   * date; the line chosen is the one the planner is willing to stand behind.
+   */
+  const promiseDate = useMutation({
+    mutationFn: (date: string) =>
+      api.patch<SalesOrderDetail>(`/sales/${orderId}`, { promised_date: date }),
+    onSuccess: (updated) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sales.all })
+      toast.success(
+        success.saved('Promised date'),
+        `${updated.code} now promises ${formatDate(updated.promised_date)}.`,
+      )
+    },
+    onError: (error) => reportFieldErrors(error, 'Could not update the promised date'),
+  })
+
   const canEditLines = Boolean(order && isDraft(order.status) && can(P.SALES_ORDER_UPDATE))
+  const orderPromisedDate = order?.promised_date ?? null
+  // The column is a plan fact: a draft has no reservations and normally no plan,
+  // and a dispatched or closed order can no longer take the action. Readers
+  // without MRP_VIEW are not shown dates from a module they cannot open.
+  const showAvailability = Boolean(order && !isDraft(order.status) && can(P.MRP_VIEW))
+  const canPromise = Boolean(order && canTopUp(order.status) && can(P.SALES_ORDER_UPDATE))
+  const { mutate: promiseDateMutate, isPending: promiseDatePending } = promiseDate
 
   const lineColumns = useMemo<ColumnDef<SalesOrderLine, unknown>[]>(() => {
     const defs: ColumnDef<SalesOrderLine, unknown>[] = [
@@ -650,6 +701,58 @@ export default function SalesOrderDetailPage() {
       },
     ]
 
+    if (showAvailability) {
+      defs.push({
+        id: 'expected_availability',
+        header: 'Expected availability',
+        enableSorting: false,
+        cell: ({ row }) => {
+          const when = availabilityByLine.get(row.original.id)
+          if (!when) {
+            return (
+              <span
+                className="text-xs text-muted-foreground"
+                title="No completed plan has covered this order yet."
+              >
+                Not planned
+              </span>
+            )
+          }
+          const promised = orderPromisedDate === when
+          // A promise earlier than what the plan can do is the gap a planner
+          // has to close; showing it as a warning is the whole point of putting
+          // the two dates side by side.
+          const atRisk = Boolean(orderPromisedDate && when > orderPromisedDate)
+          return (
+            <div className="flex flex-col items-start gap-1">
+              <Badge
+                variant={promised ? 'success' : atRisk ? 'warning' : 'muted'}
+                title={
+                  promised
+                    ? 'This line matches the order’s promised date.'
+                    : 'When the latest completed plan expects this line to be covered.'
+                }
+              >
+                {formatDate(when)}
+              </Badge>
+              {canPromise && !promised && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto px-0 text-xs"
+                  disabled={promiseDatePending}
+                  onClick={() => promiseDateMutate(when)}
+                  title="Set the order's promised date to this line's expected availability"
+                >
+                  Use as promised date
+                </Button>
+              )}
+            </div>
+          )
+        },
+      })
+    }
+
     // Gating is UX only - the API refuses a line change it does not allow.
     if (canEditLines) {
       defs.push({
@@ -682,7 +785,15 @@ export default function SalesOrderDetailPage() {
     }
 
     return defs
-  }, [canEditLines])
+  }, [
+    canEditLines,
+    showAvailability,
+    availabilityByLine,
+    orderPromisedDate,
+    canPromise,
+    promiseDateMutate,
+    promiseDatePending,
+  ])
 
   if (orderQuery.isLoading) {
     return (

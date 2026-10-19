@@ -120,9 +120,9 @@ P05.R5	PARTIAL	none	Service / spare
 P05.R6	PARTIAL	none	Soft
 P05.R7	PRESENT	none	Hard
 P05.P1	PRESENT	none	Finished goods
-P05.P2	PARTIAL	none	Assembly stock
-P05.P3	PARTIAL	none	Semi-finished goods
-P05.P4	PARTIAL	none	Components
+P05.P2	PRESENT	E3a	Assembly stock
+P05.P3	PRESENT	E3a	Semi-finished goods
+P05.P4	PRESENT	E3a	Components
 P05.P5	PRESENT	none	Raw materials
 P05.P6	PARTIAL	none	Cross-warehouse stock
 P05.P7	PRESENT	none	Purchase requirement
@@ -179,13 +179,13 @@ P06.O3	PARTIAL	none	MRP output: Job work order suggestion
 P06.O4	PARTIAL	none	MRP output: Stock transfer suggestion
 P06.O5	PARTIAL	none	MRP output: Reallocation suggestion
 P06.F1	PRESENT	none	MRP feature: BOM explosion
-P06.F2	PARTIAL	none	MRP feature: Multi-level demand calculation
+P06.F2	PRESENT	E3a	MRP feature: Multi-level demand calculation
 P06.F3	PRESENT	none	MRP feature: Common component grouping
 P06.F4	PRESENT	none	MRP feature: Shortage report
 P06.F5	PARTIAL	none	MRP feature: Auto purchase planning
-P06.F6	PARTIAL	none	MRP feature: Auto production planning
-P06.F7	PARTIAL	none	MRP feature: Lead time calculation
-P06.F8	PARTIAL	none	MRP feature: Expected availability date
+P06.F6	PRESENT	E3a	MRP feature: Auto production planning
+P06.F7	PRESENT	E3a	MRP feature: Lead time calculation
+P06.F8	PRESENT	E3a	MRP feature: Expected availability date
 P07.M1	PLANNED_PARTIAL	C0-requisition-split covers:
 - convert-to-orders (single and	Purchase requisition
 P07.M2	PARTIAL	none	RFQ

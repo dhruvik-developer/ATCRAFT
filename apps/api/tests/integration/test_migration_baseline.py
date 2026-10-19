@@ -1,11 +1,11 @@
-"""The squashed baseline builds the head schema and rolls back cleanly.
+"""A fresh database builds the current head schema and rolls back cleanly.
 
 The 58 pre-squash revisions were replaced by one baseline generated from a
-``pg_dump --schema-only`` of the verified head database. This test proves the
-fresh-install path: an empty database reaches the full schema through the
-baseline alone, the schema still matches the models and constraint vocabulary
-that the application depends on, and a disposable database can be downgraded
-and rebuilt.
+``pg_dump --schema-only`` of the verified head database, and post-squash
+revisions sit on top of it. This test proves the fresh-install path: an empty
+database reaches the full schema through the migration chain, the schema still
+matches the models and constraint vocabulary that the application depends on,
+and a disposable database can be downgraded and rebuilt.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ from src.modules.routing.models import Shift, ShiftAssignment
 
 pytestmark = pytest.mark.integration
 
-BASELINE = "20261021_0100"
+HEAD_REVISION = "20261022_0100"
 DB_NAME = f"atcraft_baseline_mig_{uuid.uuid4().hex[:8]}"
 CONNECTION_GUARDS = (
     "connect_timeout=10&keepalives=1&keepalives_idle=15&keepalives_interval=5&keepalives_count=3"
@@ -188,7 +188,7 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
 
     alembic("upgrade", "head")
 
-    assert query(dsn, "SELECT version_num FROM alembic_version")[0][0] == BASELINE
+    assert query(dsn, "SELECT version_num FROM alembic_version")[0][0] == HEAD_REVISION
     assert {
         "pgcrypto",
         "pg_trgm",
@@ -199,6 +199,11 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
     assert column_names(dsn, "purchase_return_debit_allocations") == {
         column.name for column in PurchaseReturnDebitAllocation.__table__.columns
     }
+    # The E3a revision's columns are part of the head schema: migratable in a
+    # fresh database before the application reads them.
+    assert {"low_level_code", "expected_available_date"} <= column_names(dsn, "mrp_requirements")
+    assert {"low_level_code", "expected_available_date"} <= column_names(dsn, "mrp_suggestions")
+    assert "expected_available_date" in column_names(dsn, "mrp_demands")
 
     report_check = str(
         query(
@@ -444,4 +449,4 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
         "shifts",
         "shift_assignments",
     } <= base_table_names(dsn)
-    assert query(dsn, "SELECT version_num FROM alembic_version")[0][0] == BASELINE
+    assert query(dsn, "SELECT version_num FROM alembic_version")[0][0] == HEAD_REVISION

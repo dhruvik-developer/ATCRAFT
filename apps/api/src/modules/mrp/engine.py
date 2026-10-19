@@ -1,16 +1,14 @@
 """The MRP calculation: demand in, shortages and suggestions out.
 
 This implements the flow master rules section 14 fixes, and database.md section
-6 restates:
+6 restates, with the engine-depth step (E3a) built in:
 
     sales orders (+ manual demand)
-      -> net against finished-goods available stock
-      -> explode the BOM for the shortfall
-      -> MERGE common parts across every demand line and every BOM branch
-      -> net against inventory available
-      -> net against existing reservations
-      -> net against confirmed incoming purchase orders *that arrive in time*
-      -> net against in-progress production output *that arrives in time*
+      -> one bucket per item: the common-part merge
+      -> low-level codes: the deepest level each item appears at
+      -> level by level, products first:
+           net against free stock, then against in-time supply
+           explode only the net shortfall into the item's own structure
       -> shortage per item
       -> suggestions
 
@@ -18,41 +16,43 @@ Query strategy - read this before changing anything here
 --------------------------------------------------------
 Everything the calculation needs is loaded for a *set* of items. A statement
 issued inside a per-item loop is a defect, not a slow path (master rules section
-32, performance.md). One run costs:
+32, performance.md). One run costs, after the demand lines the caller supplies:
 
-1. one statement for the demand lines (the caller supplies them; the service
-   reads them in a single join over open sales-order lines);
-2. one statement for the planning facts of every demand item;
-3. one statement for the stock positions of every demand item, grouped by item;
-4. one statement for which of those items have an approved default BOM;
-5. one *explosion per make-item with a shortfall* - never one per demand line.
-   Two orders for the same lock kit are merged before anything is exploded, and
-   each explosion is itself batched by level inside the BOM engine. An item that
-   is directly demanded *and* a component of another directly demanded item is
-   exploded again when its needed-by date is pulled earlier, because the first
-   answer was taken against a date that turned out not to be final
-   (:func:`_settle_demand`); nothing else re-explodes, and a settling pass that
-   finds nothing stale costs no round trips at all;
-6. one statement for the planning facts of the components the explosions
-   discovered, and one for their stock positions - a second round, because the
-   component set is not known until the explosions have run;
-7. one statement for confirmed incoming purchase orders and one for in-progress
-   production output, *per round* - the same two rounds as (2) and (3), because
-   a parent's shortfall is netted against its own inbound supply before it is
-   exploded and the component set does not exist until that has happened. Four
-   statements for a run with components, two for a run without: a fixed number
-   either way, never one per item. The settling in (5) re-reads nothing: the
-   schedules are dated tranches, so re-phasing an item at a new date is
-   arithmetic on data already in hand;
-8. one statement for the preferred-vendor terms of every item a suggestion will
+1. one statement for the planning facts and one for the effective structures of
+   the items each level of the structure introduces - two statements per level
+   of the deepest structure in scope, never one per part;
+2. one statement for the stock positions of every discovered item;
+3. one statement each for confirmed incoming purchase orders and in-progress
+   production output, over the whole discovered set;
+4. one statement per level for the shop lead time of the short, manufactured
+   items at that level that have an effective routing: the routing module
+   answers a whole level in one call;
+5. one statement for the preferred-vendor terms of every item a suggestion will
    be raised for.
 
-So the cost is a fixed handful of statements plus one explosion per distinct
-manufactured item that is actually short - and the explosion count is bounded by
-the number of *products*, not by the number of order lines. :class:`MrpDataSource`
-exists so this is *testable*: the unit suite drives the engine through an
-in-memory source that counts calls, which turns "no N+1" from a claim in a
-comment into a failing test if anyone reintroduces a per-item fetch.
+So the cost grows with the *depth* of the deepest structure in scope, never with
+the number of parts, demand lines or branches. :class:`MrpDataSource` exists so
+this is *testable*: the unit suite drives the engine through an in-memory source
+that counts calls, which turns "no N+1" from a claim in a comment into a failing
+test if anyone reintroduces a per-item fetch.
+
+Level-by-level netting (E3a)
+----------------------------
+Each item is planned once, at its **low-level code**: the deepest level at which
+it appears anywhere in the structures in scope. Processing strictly by that code
+means every parent has already been netted and exploded by the time the child is
+reached, so the child's gross requirement - direct demand plus dependent demand
+from every branch that needs it - is complete before any supply decision is
+taken against it. With 50 Rose Handles in stock, 100 lock kits raise parts for 50
+handles, not 100; and an item that is both sold and used as a component is netted
+against one summed requirement, however deep the structure above it.
+
+The ordering rests on one property of a bill of materials: an item's structure
+is the same wherever the item occurs, so an item reached at level N reaches its
+children at level N+1. The deepest occurrence of the parent therefore bounds
+each child strictly below it, a child's code is always greater than every
+parent's, and a structure that cannot be levelled is refused
+(:class:`MrpStructureTooDeepError`) rather than followed.
 
 Two behaviours are the reason this module exists
 ------------------------------------------------
@@ -72,7 +72,7 @@ demand separately. :func:`net_after_stock` is where that single netting lives,
 and it is unit-tested against exactly this case.
 
 Supply is time-phased - a bucket per arrival date, not one lump
---------------------------------------------------------------
+---------------------------------------------------------------
 Inbound supply is read as *dated tranches* (:class:`SupplyArrival`) and each
 requirement is netted only against the tranches landing on or before the date
 that requirement is needed. A purchase order arriving in six weeks is not supply
@@ -80,23 +80,21 @@ for a line shipping on Thursday, and netting it against one is the difference
 between a plan that orders nothing and a stockout on the shop floor.
 
 The date a requirement is "needed" is its ``earliest_required_date`` - the
-earliest of every demand merged into it, and for a component the parent's date
-less the parent's lead time. A merged row cannot be half early and half late, so
-the earliest date governs the whole quantity: supply landing between the two
+earliest of every demand merged into it, and for a component the parent's order
+start: the parent's required date less the parent's lead time, taken level by
+level, never once from the root. A merged row cannot be half early and half late,
+so the earliest date governs the whole quantity: supply landing between the two
 dates covers the later demand in reality and is not counted here, which
-over-states the shortage rather than under-stating it. That is the direction
-this module takes whenever it has to choose.
+over-states the shortage rather than under-stating it. That is the direction this
+module takes whenever it has to choose.
 
-**That date is settled before any supply decision is taken against it.** It has
-to be: exploding a parent pulls its components' dates earlier, and an item can
-be both directly demanded *and* a component of something else, so the date one
-stage reads can still be moving while another stage is deciding against it. When
-that happened, an item was netted for its explosion at one date and for its own
-shortage at another - the explosion saw an inbound order as in time, the
-requirement saw it as late, and the components for the shortage that survived
-were never raised. :func:`_settle_demand` runs the explosions to a fixed point
-first, and hands the resulting phasing (:class:`SupplySplit`) to the netting
-stage so both stages read one answer rather than computing two.
+**Nothing is read while the loop that computes it is still mutating it.** The
+date that governs an item's netting is final before the item is netted: direct
+demand is merged before the pass starts and every dependent contribution comes
+from a parent at a strictly lower level, processed in an earlier iteration. The
+fixed point the previous implementation needed is gone rather than detected - the
+ordering makes the mutation impossible, which is what CLAUDE.md's MRP trap asks
+for.
 
 The alternative - one lump per item for the whole horizon, which is what this
 engine did before - reads identically in every report while silently erasing a
@@ -118,35 +116,35 @@ replaced because it looks structured. ``first_late_supply_date`` still exists -
 it is the earliest across both feeds, derived from the two - but it answers "how
 soon could any of this be relieved", not "when does that quantity land".
 
-Two limitations, stated rather than hidden
-------------------------------------------
-**A live job's components are planned again.** A released production order for a
-parent is counted as supply for that parent's own requirement, but is *not*
-netted off the quantity the parent's structure is exploded for. Releasing a job
-does not necessarily hold its parts - ``reserve_material`` is optional and a
-release short of stock is reported rather than refused - so treating the job as
-a reason not to raise component demand deletes the demand a live job depends on.
-Where the job *did* reserve, the hold is already excluded from free stock, so
-those components are planned a second time: an over-order bounded by what live
-jobs are holding, taken deliberately because an unnecessary component order is
-cancellable and a missing one stops the line. The reasoning is at the point of
-decision in :func:`_settle_demand`.
+Lead times (E3a)
+----------------
+A manufactured item's lead time is its effective routing's shop time for the
+quantity being made (``routing.service.manufacture_lead_times``), falling back
+to ``items.lead_time_days`` where no routing exists; a purchased item's
+suggestion keeps its preferred vendor's lead time. The lead time is applied per
+level: a component is required when the parent's order starts, and the parent's
+order starts its own lead time before the parent is needed - a ladder, not one
+subtraction from the root. And because the order start is the last date an order
+can still land in time, a suggestion whose order date has passed is dated from
+``as_of`` instead (:func:`expected_availability`).
 
-**The two-stage flow over-states a component that is also sold.** The flow is
-two-stage by construction: finished-goods demand is netted, the
-shortfall is exploded, and the components are netted. An item that carries
-*direct* demand and is *also* a component therefore has its own free stock and
-its own inbound supply netted once against the combined requirement (which is
-the correct answer for that item - see :func:`net_after_stock`), but its
-dependent share was already carried through its parent's multi-level explosion
-before that netting happened. So when such an item has enough stock to cover its
-direct demand outright, the component demand raised beneath it can be overstated
-by up to that item's free stock and in-time supply.
+Expected availability (E3a)
+---------------------------
+A requirement carries the date its gross requirement is fully covered - by
+stock from ``as_of``, by dated supply in arrival order, or by the order the plan
+raises when neither is enough - and a suggestion carries ``max(as_of,
+suggested_order_date) + lead_time``, the earliest date its order can physically
+land. A parent's expected date is then pulled no earlier than its components'
+dates plus its own lead time, so one late part moves the assembly it feeds
+instead of disappearing into a lead-time roll-up.
 
-The error is bounded by the item's own free stock plus its in-time supply and is
-always in the over-ordering direction, never under. Removing it needs
-level-by-level low-level-code netting, which is a different algorithm from the
-one master rules section 14 specifies; it is not silently approximated here.
+Remaining limitation, stated rather than hidden
+-----------------------------------------------
+**Job-work output is not yet a supply feed.** Purchase orders and production
+output are netted; material sent out to a processor and due back is not, because
+the job-work contract arrives with E3b. Until then an item covered only by an
+open job-work challan is suggested again - an over-order in the cancellable
+direction, never a silent stockout.
 
 Rounding: every quantity is ``Decimal`` and is quantised with
 :func:`~src.core.types.to_quantity` as it is produced, so a plan's printed lines
@@ -156,15 +154,17 @@ add up to its printed totals.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from decimal import ROUND_CEILING, Decimal, localcontext
 from typing import Any, Protocol
 
-from src.core.errors import BusinessRuleError
+from src.core.errors import BusinessRuleError, ErrorCode
 from src.core.logging import get_logger
 from src.core.types import ZERO, to_quantity
+from src.modules.bom.engine import apply_scrap, line_requirement
+from src.modules.bom.models import DEFAULT_MAX_EXPLOSION_DEPTH
 from src.modules.mrp.models import (
     MAX_DEMAND_LINES,
     MAX_SOURCE_DEMANDS_LISTED,
@@ -319,18 +319,39 @@ class SupplyTerms:
 
 
 @dataclass(frozen=True, slots=True)
-class ExplodedLine:
-    """One consolidated component of one explosion.
+class BomComponent:
+    """One component line of one item's structure, one level deep.
 
-    A deliberately small shape rather than the BOM module's ``ExplodedComponent``:
-    the planner needs four fields, and depending on the rest would make this
-    engine's unit tests hostage to changes in the other module's result type.
+    A deliberately small shape rather than the BOM module's own exploded line:
+    the planner needs the multiplier and the scrap allowance, and depending on
+    the rest would make this engine's unit tests hostage to changes in the other
+    module's result type. ``quantity_per`` is stated per
+    :attr:`BomStructure.output_quantity` units of the parent, exactly as the
+    line stores it.
     """
 
     item_id: uuid.UUID
-    item_code: str
-    quantity: Decimal
-    level: int
+    quantity_per: Decimal
+    scrap_percentage: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class BomStructure:
+    """One item's effective structure, one level deep.
+
+    What replaced the consolidated multi-level explosion line: the planner now
+    descends level by level itself, so it needs the *edge* - this item's own
+    lines and the structure's yield - not somebody else's flattened result.
+    ``is_phantom`` is carried because a phantom is blown through rather than
+    planned as an item, and ``is_default`` because a ``MAKE_OR_BUY`` item with
+    only a non-default structure is bought rather than built
+    (:func:`choose_suggestion_type`).
+    """
+
+    output_quantity: Decimal
+    is_default: bool
+    is_phantom: bool
+    lines: tuple[BomComponent, ...]
 
 
 # -----------------------------------------------------------------------------
@@ -346,6 +367,12 @@ class Requirement:
     item_code: str
     item_name: str
     level: int
+    #: The deepest level this item appears at across the structures in scope -
+    #: the order the planner actually planned in. :attr:`level` stays the
+    #: *shallowest* (what a planner reads downward from); the two differ when a
+    #: component sits under several branches at different depths, which is
+    #: exactly the case the low-level code exists to net correctly.
+    low_level_code: int
     direct_demand_quantity: Decimal
     dependent_demand_quantity: Decimal
     gross_requirement: Decimal
@@ -359,6 +386,13 @@ class Requirement:
     net_requirement: Decimal
     shortage_quantity: Decimal
     earliest_required_date: date
+    #: The date the gross requirement is fully covered: stock from ``as_of``,
+    #: dated supply in arrival order, or the order the plan raises when neither
+    #: is enough - and then no earlier than the item's own components plus its
+    #: lead time. ``None`` only when the row is written before the plan's own
+    #: order has been dated (the engine fills it in before the plan is
+    #: returned), never on a persisted run.
+    expected_available_date: date | None
     source_demand_count: int
     source_demands: tuple[dict[str, Any], ...]
     #: Inbound supply inside the run's horizon that arrives *after* the date
@@ -429,6 +463,13 @@ class Suggestion:
     suggested_order_date: date
     is_late: bool
     lead_time_days: int
+    #: The same low-level code the requirement carries, so the work queue and
+    #: the requirement table can be read side by side.
+    low_level_code: int
+    #: ``max(as_of, suggested_order_date) + lead_time_days``: the earliest date
+    #: this order can physically land, which for a late suggestion is later than
+    #: the date the requirement needed it (see :func:`expected_availability`).
+    expected_available_date: date
     source_demands: tuple[dict[str, Any], ...]
 
 
@@ -560,21 +601,21 @@ class SupplySplit:
     """One item's whole inbound supply, divided at the date the item is needed.
 
     THE time-phasing decision for one item, taken once and carried, rather than
-    taken twice and hoped to agree. Both stages that care about supply - the
-    explosion, which decides whether a parent still has to be built, and the
-    netting, which decides what to order - read *this* object, so the date they
-    phase at is the same date by construction and not by two callers remembering
-    to pass the same argument.
+    taken twice and hoped to agree. Every stage that cares about supply for an
+    item - the netting that sizes its shortage and the explosion of that
+    shortage into its components - reads *this* object, so the date they phase
+    at is the same date by construction and not by two callers remembering to
+    pass the same argument.
 
-    That is not a tidiness point. The defect this replaces read
-    ``bucket.earliest_date`` for the explosion while the merge loop was still
-    pulling that same date earlier, and read it again, later and earlier, for the
-    requirement. One item was netted for its explosion at one date and for its
-    own shortage at another: the explosion saw an inbound order as in time, the
-    requirement saw it as late, and the components for the shortage that
-    resulted were never raised. :func:`_settle_demand` now settles every date
-    before a single split is taken, and this type is what makes the two stages
-    provably read the same answer.
+    That is not a tidiness point. An earlier shape read ``bucket.earliest_date``
+    for the explosion while the merge loop was still pulling that same date
+    earlier, and read it again, later and earlier, for the requirement. One item
+    was netted for its explosion at one date and for its own shortage at
+    another: the explosion saw an inbound order as in time, the requirement saw
+    it as late, and the components for the shortage that resulted were never
+    raised. Level-by-level planning removed the moving date - an item is netted
+    only after every parent has been - and this type keeps the stages of one
+    item reading the same answer, taken at that final date.
     """
 
     #: The date the split was taken at - the item's settled earliest required
@@ -866,10 +907,11 @@ def merge_demand(demands: Sequence[DemandLine]) -> dict[uuid.UUID, DemandBucket]
 class MrpDataSource(Protocol):
     """Everything the planner reads, always for a *set* of items.
 
-    There is deliberately no single-item accessor on this protocol apart from
-    :meth:`explode`, which is inherently per-structure. The engine physically
-    cannot ask per item for stock, planning facts or supply, which is what keeps
-    a run at a fixed number of statements rather than one per part.
+    There is deliberately no single-item accessor: every acquisition is batched
+    by construction, and the engine physically cannot ask per item for stock,
+    planning facts, structures or supply. The engine's own processing loop is
+    batched by *level* rather than by item (module docstring), which is why even
+    the structure reader takes a set: one statement answers a whole level.
     """
 
     async def planning_items(
@@ -880,14 +922,28 @@ class MrpDataSource(Protocol):
         self, item_ids: Sequence[uuid.UUID]
     ) -> dict[uuid.UUID, StockPosition]: ...
 
-    async def bom_availability(
+    async def bom_structures(
         self, item_ids: Sequence[uuid.UUID], as_of: date
-    ) -> dict[uuid.UUID, bool]:
-        """Items with an APPROVED structure effective on ``as_of``.
+    ) -> dict[uuid.UUID, BomStructure]:
+        """Each item's APPROVED structure effective on ``as_of``, one level deep.
 
-        Present in the mapping means "there is something to explode"; the value
-        says whether that structure is the item's *default*, which is the signal
-        :func:`choose_suggestion_type` reads for a ``MAKE_OR_BUY`` item.
+        Absent means "nothing to explode": no approved structure is effective
+        for that item on that date. A structure is returned even for an item the
+        engine may decide not to explode - the production facts and the phantom
+        flag are what :func:`is_explodable` decides on, and both live beside the
+        structure so the two are read from one answer.
+        """
+        ...
+
+    async def manufacture_lead_times(
+        self, quantities: Mapping[uuid.UUID, Decimal], as_of: date
+    ) -> dict[uuid.UUID, int]:
+        """Shop days to make each quantity, from the item's effective routing.
+
+        The batched form of the routing module's own
+        ``manufacture_lead_time_days``: one call answers every short,
+        manufactured item at one level. Items without an effective routing are
+        simply absent, and the engine falls back to ``items.lead_time_days``.
         """
         ...
 
@@ -919,277 +975,211 @@ class MrpDataSource(Protocol):
         """Output still expected from production orders in progress, by due date."""
         ...
 
-    async def explode(
-        self, item_id: uuid.UUID, quantity: Decimal, as_of: date
-    ) -> Sequence[ExplodedLine]: ...
-
 
 # -----------------------------------------------------------------------------
 # The calculation
 # -----------------------------------------------------------------------------
 
 
-def _dependent_required_date(root_date: date, root_lead_time_days: int) -> date:
-    """When a component must be available for its parent's build to start.
-
-    ASSUMPTION: components are time-phased by the *root's* lead time only -
-    the date the root's manufacture has to begin. Deeper levels are not offset
-    again, because a consolidated explosion reports one quantity per part across
-    every branch and no longer knows which intermediate assembly each
-    contribution passed through; inventing an offset per level would be a number
-    with no basis in the data. Offsetting by at least the root's lead time is the
-    conservative direction - it pulls the requirement earlier, so the failure
-    mode is ordering early rather than discovering the part is needed today.
-    """
-    return order_date_for(root_date, root_lead_time_days)
+#: How deep a structure the planner will follow before refusing. A low-level
+#: code is only bounded when the structure is acyclic - a cycle assigns one
+#: deeper level per pass and never stops - so the ceiling is the same one the
+#: BOM engine puts on its own traversal (:data:`DEFAULT_MAX_EXPLOSION_DEPTH`):
+#: a structure the BOM module refuses to explode is one the planner must refuse
+#: to level, rather than a second opinion about the same data.
+MAX_STRUCTURE_LEVELS = DEFAULT_MAX_EXPLOSION_DEPTH
 
 
-#: Ceiling on the date-settling passes below. The Bellman-Ford argument in
-#: :func:`_settle_demand` needs at most one pass per explodable item plus one to
-#: verify, which this only bites into for an order book where twenty-five
-#: directly-demanded products are components of one another in a single chain -
-#: not a bill of materials, a data problem. Hitting it is reported, never
-#: silently accepted.
-MAX_SETTLING_PASSES = 25
+class MrpStructureTooDeepError(BusinessRuleError):
+    """A structure deeper than any real bill of materials - almost always a cycle.
 
-
-@dataclass(frozen=True, slots=True)
-class _Explosion:
-    """One parent's settled explosion decision, and the split that took it.
-
-    ``split.needed_by`` is the date the decision was made at. Keeping it beside
-    the result is what lets :func:`plan` *check* that the requirement stage is
-    phasing the same item at the same date, instead of assuming it.
+    Level-by-level planning needs every level to be finite: a child's low-level
+    code must be strictly greater than every parent's, and only an acyclic
+    structure has that property. Following a cycle is not a slow answer, it is
+    no answer, so the run refuses and names the items at the depth that was
+    reached. The error code is the BOM module's ``BOM_DEPTH_EXCEEDED`` because
+    the fix is the same one: the structure in the data, not the planner.
     """
 
-    split: SupplySplit
-    shortfall: Decimal
-    component_date: date
-    lines: tuple[ExplodedLine, ...]
+    code = ErrorCode.BOM_DEPTH_EXCEEDED
 
-
-def _independent_only(direct: dict[uuid.UUID, DemandBucket]) -> dict[uuid.UUID, DemandBucket]:
-    """A fresh set of buckets carrying the independent demand and nothing else.
-
-    Each settling pass rebuilds the dependent side from scratch on top of one of
-    these, so re-deciding an explosion *replaces* its contribution rather than
-    adding a second one. The alternative - mutating in place and trying to
-    retract - is how a merged quantity ends up counted twice.
-
-    ``direct`` is the untouched output of :func:`merge_demand`, so every field
-    copied here is independent demand: the explosions have not run yet.
-    """
-    return {
-        item_id: DemandBucket(
-            item_id=item_id,
-            direct=bucket.direct,
-            earliest_date=bucket.earliest_date,
-            level=bucket.level,
-            sources=list(bucket.sources),
-            source_count=bucket.source_count,
+    def __init__(self, item_codes: Sequence[str], max_depth: int) -> None:
+        unique = sorted(set(item_codes))
+        listed = ", ".join(unique[:10])
+        suffix = f" (and {len(unique) - 10} more)" if len(unique) > 10 else ""
+        super().__init__(
+            f"Following the bills of materials reached {max_depth} levels, which "
+            "is deeper than any real structure and almost always means a cycle "
+            f"between: {listed}{suffix}. Fix the structure and re-run.",
+            details={"max_structure_levels": max_depth, "item_codes": unique[:10]},
         )
-        for item_id, bucket in direct.items()
-    }
 
 
-def _apply_explosion(
-    buckets: dict[uuid.UUID, DemandBucket],
+def _component_required_date(parent_needed_by: date, parent_lead_time_days: int) -> date:
+    """When a component must be available: the parent's order start.
+
+    The parent's build starts :attr:`~PlanningItem.lead_time_days` before it is
+    needed, and that is the date its components have to be there. One
+    subtraction per level, applied as the pass descends, is what makes the
+    offset a ladder rather than a single subtraction from the root (E3a).
+    """
+    return order_date_for(parent_needed_by, parent_lead_time_days)
+
+
+def component_requirement(
+    parent_quantity: Decimal, component: BomComponent, output_quantity: Decimal
+) -> Decimal:
+    """What one structure line needs when ``parent_quantity`` of the parent is made.
+
+    The same arithmetic the BOM engine applies to a line - quantity per yield,
+    then the line's scrap allowance. Both functions are imported from the BOM
+    engine rather than re-implemented, so the planner's explosion and the BOM
+    module's explosion cannot drift apart.
+    """
+    return apply_scrap(
+        line_requirement(parent_quantity, component.quantity_per, output_quantity),
+        component.scrap_percentage,
+    )
+
+
+def coverage_date(
+    gross_requirement: Decimal,
+    available: Decimal,
     *,
-    parent_id: uuid.UUID,
-    parent_code: str,
-    explosion: _Explosion,
-) -> None:
-    """Merge one settled explosion's components into the buckets."""
-    for line in explosion.lines:
-        if line.quantity <= 0:
+    supply: Sequence[SupplyArrival],
+    as_of: date,
+) -> date | None:
+    """When stock plus the dated supply on hand fully covers the requirement.
+
+    Stock counts from ``as_of``; each tranche counts from its own date, in date
+    order, so the answer is the day the running total crosses the requirement.
+    ``None`` when the known supply never covers it - the requirement is then
+    waiting on the order the plan raises, and the caller fills the date from
+    that suggestion. Supply is taken whole, late tranches included: a purchase
+    order arriving after the needed-by date does not stop being a shortage, but
+    it does fix the day the material physically arrives.
+    """
+    if gross_requirement <= 0:
+        return as_of
+    remaining = gross_requirement - available
+    if remaining <= 0:
+        return as_of
+    for arrival in sorted(supply, key=lambda tranche: tranche.due_date):
+        if arrival.quantity <= 0:
             continue
-        child = buckets.setdefault(line.item_id, DemandBucket(item_id=line.item_id))
-        child.dependent = to_quantity(child.dependent + line.quantity)
-        child.note_date(explosion.component_date)
-        child.note_level(line.level)
-        child.add_source(
-            {
-                "source": "BOM",
-                "via_item_id": str(parent_id),
-                "via_item_code": parent_code,
-                "quantity": str(to_quantity(line.quantity)),
-                "required_date": explosion.component_date.isoformat(),
-                "level": line.level,
-            }
-        )
+        remaining -= arrival.quantity
+        if remaining <= 0:
+            return arrival.due_date
+    return None
 
 
-async def _settle_demand(
+def expected_availability(suggested_order_date: date, lead_time_days: int, *, as_of: date) -> date:
+    """The earliest date a suggested order can physically land.
+
+    ``max(as_of, suggested_order_date) + lead_time_days``. A late suggestion's
+    order date is in the past, and an order that should have been placed last
+    month can no longer land then; the date shown is the one achievable if it is
+    placed today. The maximum rather than a clamp because both halves are
+    answers: an order still in time lands when the requirement needed it, an
+    order already late lands ``as_of + lead_time``.
+    """
+    return max(suggested_order_date, as_of) + timedelta(days=lead_time_days)
+
+
+@dataclass(slots=True)
+class _NettedItem:
+    """One item mid-pass: everything its level decided, carried to its explosion.
+
+    The pass computes the netting for a whole level before anything is exploded,
+    because the routing module answers a level's lead times in one call and the
+    call needs the level's quantities - which only exist once the level is
+    netted. This type is that hand-off, deliberately not a tuple of thirteen
+    fields nobody can read.
+    """
+
+    item: PlanningItem
+    bucket: DemandBucket
+    position: StockPosition
+    free: Decimal
+    needed_by: date
+    gross: Decimal
+    net: Decimal
+    split: SupplySplit
+    shortage: Decimal
+    structure: BomStructure | None
+    suggestion_type: MrpSuggestionType
+    explodable: bool
+
+
+async def _discover_levels(
     source: MrpDataSource,
     *,
-    direct: dict[uuid.UUID, DemandBucket],
-    items: dict[uuid.UUID, PlanningItem],
-    positions: dict[uuid.UUID, StockPosition],
-    structures: dict[uuid.UUID, bool],
-    incoming: SupplySchedule,
-    in_production: SupplySchedule,
+    direct: Mapping[uuid.UUID, DemandBucket],
     as_of: date,
-    respect_safety_stock: bool,
-) -> tuple[dict[uuid.UUID, DemandBucket], dict[uuid.UUID, SupplySplit], int, bool]:
-    """Explode make-item shortfalls until every needed-by date has stopped moving.
+) -> tuple[dict[uuid.UUID, int], dict[uuid.UUID, BomStructure], dict[uuid.UUID, PlanningItem]]:
+    """Low-level codes, single-level structures and the planning facts, by level.
 
-    Returns ``(buckets, splits, explosion_count, settled)``. ``splits`` is the
-    phasing every explosion was decided on, keyed by item, for the requirement
-    stage to *reuse* rather than recompute.
+    One iteration per level of the deepest structure in scope. Each iteration
+    reads the planning facts and the effective structures of whatever the
+    previous level introduced - one statement each, however many items that is -
+    then relaxes the children's levels: a child of an item at level N is at
+    least N+1, and an item is re-visited when a deeper route to it is found
+    (``SCREW-M4`` under a kit and under a sub-assembly is planned at its deeper
+    code, so the sub-assembly has already been netted when the screw is).
 
-    Why this is a loop and not a line of code
-    -----------------------------------------
-    An item's needed-by date has to be final before any supply decision is taken
-    against it, and the thing that moves that date is the very explosion the
-    decision gates. The previous shape read ``bucket.earliest_date`` for the
-    explosion while the same loop was still calling ``note_date`` on it: an item
-    that is *both* directly demanded *and* a component of something else was
-    exploded at its own order date and then netted, later, at the earlier date
-    its parent's lead time implied. The explosion counted an inbound order as in
-    time; the requirement counted it as late; the components for the shortage
-    that survived were never raised. That is a stockout the plan reports as a
-    clean run.
+    Termination: a finite acyclic structure has a finite deepest path, and each
+    iteration either levels an item deeper or empties the frontier, so
+    ``MAX_STRUCTURE_LEVELS`` catches only a cycle - a data defect, never a slow
+    structure - which is refused rather than truncated.
 
-    So the two stages are separated by a fixed point rather than by an ordering
-    rule. There is no ordering rule that works: a parent may be needed earlier
-    *or* later than a child that is also sold on its own, so neither ascending
-    nor descending date order visits parents first in every case, and the graph
-    that would give a topological order is only discovered *by* exploding.
-
-    Each pass rebuilds the dependent demand from the explosions settled so far,
-    then re-decides every explosion whose root date has moved since it was taken.
-    Two properties make that converge, and make the answer the right one:
-
-    * **Dates only ever move earlier.** A pull comes from ``parent_date -
-      parent_lead_time``, and parent dates themselves only move earlier, so the
-      iteration is monotone and cannot oscillate.
-    * **An explosion never disappears.** An earlier root date can only *reduce*
-      the supply that arrives in time (:func:`split_supply`), so the shortfall is
-      non-decreasing as the date moves earlier. An item that explodes keeps
-      exploding, and its quantity only grows.
-
-    Only directly-demanded items are ever exploded - a component is reached
-    through its parent's consolidated multi-level explosion, which already
-    carries every level - so the chain of pulls runs through explodable demand
-    items and cannot revisit one (a bill of materials is acyclic). That is the
-    Bellman-Ford bound: ``len(candidates)`` passes relax every path, and one more
-    verifies that nothing moved. A pass that finds nothing stale costs no calls
-    at all, and an item is re-exploded only when its own date genuinely changed,
-    so the common run - where no product is a part of another product - is still
-    exactly one explosion per short make item.
+    Traversal follows exactly what the pass will explode: a structure is only
+    descended into when the item is explodable or the structure is a phantom, so
+    a purchased item's unused BOM never drags its parts into the plan's demand.
+    Items the item master cannot answer for stop the branch and are reported by
+    the caller.
     """
-    buckets = _independent_only(direct)
-    candidates = [
-        item_id
-        for item_id, item in ((i, items.get(i)) for i in direct)
-        if item is not None and is_explodable(item, has_bom=item_id in structures)
-    ]
-    if not candidates:
-        return buckets, {}, 0, True
+    levels: dict[uuid.UUID, int] = dict.fromkeys(direct, 0)
+    structures: dict[uuid.UUID, BomStructure] = {}
+    #: Items whose structure has been asked for, including the ones that have
+    #: none. Without the second set an item without a BOM would be asked again
+    #: every time a deeper route re-queues it.
+    asked: set[uuid.UUID] = set()
+    items: dict[uuid.UUID, PlanningItem] = {}
+    frontier = sorted(direct, key=str)
+    level = 0
 
-    explosions: dict[uuid.UUID, _Explosion] = {}
-    explosion_count = 0
-    settled = False
+    while frontier:
+        wanted = [item_id for item_id in frontier if item_id not in items]
+        if wanted:
+            items.update(await source.planning_items(wanted))
+        missing_structures = [item_id for item_id in frontier if item_id not in asked]
+        if missing_structures:
+            structures.update(await source.bom_structures(missing_structures, as_of))
+            asked.update(missing_structures)
 
-    for _ in range(min(len(candidates) + 1, MAX_SETTLING_PASSES)):
-        buckets = _independent_only(direct)
-        # Insertion-ordered, so the provenance listing on a merged bucket reads
-        # the same way on every run of the same plan.
-        for parent_id, decided in explosions.items():
-            _apply_explosion(
-                buckets,
-                parent_id=parent_id,
-                parent_code=items[parent_id].code,
-                explosion=decided,
+        if level >= MAX_STRUCTURE_LEVELS:
+            raise MrpStructureTooDeepError(
+                [items[item_id].code for item_id in frontier if item_id in items],
+                MAX_STRUCTURE_LEVELS,
             )
 
-        stale = [
-            item_id
-            for item_id in candidates
-            if (previous := explosions.get(item_id)) is None
-            or previous.split.needed_by != (buckets[item_id].earliest_date or as_of)
-        ]
-        if not stale:
-            settled = True
-            break
+        next_frontier: list[uuid.UUID] = []
+        candidate = level + 1
+        for item_id in frontier:
+            info = items.get(item_id)
+            structure = structures.get(item_id)
+            if info is None or structure is None:
+                continue
+            if not (structure.is_phantom or is_explodable(info, has_bom=True)):
+                continue
+            for line in structure.lines:
+                if levels.get(line.item_id, -1) < candidate:
+                    levels[line.item_id] = candidate
+                    next_frontier.append(line.item_id)
+        frontier = sorted(set(next_frontier), key=str)
+        level += 1
 
-        for item_id in stale:
-            item = items[item_id]
-            bucket = buckets[item_id]
-            root_date = bucket.earliest_date or as_of
-            split = supply_split(
-                root_date,
-                incoming=incoming.get(item_id),
-                in_production=in_production.get(item_id),
-            )
-            free = planning_available(
-                positions.get(item_id, StockPosition()),
-                item.safety_stock,
-                respect=respect_safety_stock,
-            )
-            # ASSUMPTION: the exploded quantity is netted against the parent's
-            # free stock and against confirmed incoming *purchase orders*, and
-            # NOT against in-progress production. The two are not the same kind
-            # of supply and the asymmetry is deliberate.
-            #
-            # A purchase order for the parent brings the finished part in
-            # without consuming a single component, so a kit already on order
-            # genuinely does not need its handles and screws raised again -
-            # exploding the pre-supply figure ordered parts for a build the plan
-            # had already decided not to raise.
-            #
-            # A released production order is the opposite: it *is* a build, and
-            # it still has to be given its parts. ``production.service.
-            # release_order`` takes reservations only when the caller asks for
-            # them (``ReleaseRequest.reserve_material``, which a line releasing
-            # against staged material sets false), and even then
-            # ``_reserve_components`` holds only what happened to be free and
-            # reports the rest as a shortage - the job is released either way.
-            # Issuing is a separate document later still. So a live job may hold
-            # nothing at all, and netting its output off the *exploded* quantity
-            # deletes the component demand that job depends on. Where it did
-            # reserve, the hold is already excluded from
-            # :attr:`StockPosition.available`, so those components are not
-            # double-counted into stock either way; the residual error is an
-            # over-order bounded by what live jobs are holding. An unnecessary
-            # component order is visible and cancellable. A missing one stops the
-            # line, so this module takes the visible failure.
-            #
-            # The parent's own requirement still nets against in-progress
-            # production below: the parts it will make are real, and a plan that
-            # ordered them again would be ordering the same kits twice.
-            shortfall = net_after_supply(
-                net_after_stock(bucket.direct, free),
-                incoming=split.incoming,
-                in_production=ZERO,
-            )
-            lines: tuple[ExplodedLine, ...] = ()
-            if shortfall > 0:
-                lines = tuple(await source.explode(item_id, shortfall, as_of))
-                explosion_count += 1
-            explosions[item_id] = _Explosion(
-                split=split,
-                shortfall=shortfall,
-                component_date=_dependent_required_date(root_date, item.lead_time_days),
-                lines=lines,
-            )
-
-    if not settled:
-        # Believed unreachable. Rebuild anyway so the buckets carry every
-        # explosion that was decided: a plan that is missing a whole level of
-        # component demand is worse than one whose dates are a pass behind, and
-        # :func:`plan` reports the dates that did not settle.
-        buckets = _independent_only(direct)
-        for parent_id, decided in explosions.items():
-            _apply_explosion(
-                buckets,
-                parent_id=parent_id,
-                parent_code=items[parent_id].code,
-                explosion=decided,
-            )
-
-    splits = {item_id: decided.split for item_id, decided in explosions.items()}
-    return buckets, splits, explosion_count, settled
+    return levels, structures, items
 
 
 #: How many items a "supply arrives too late" warning names before it summarises.
@@ -1246,25 +1236,6 @@ def _late_supply_warning(entries: Sequence[tuple[str, SupplySplit]]) -> str:
     )
 
 
-def _unsettled_dates_warning(codes: Sequence[str]) -> str:
-    """The needed-by dates did not stop moving inside the pass budget.
-
-    Believed unreachable - :func:`_settle_demand` has a Bellman-Ford bound on the
-    number of passes it needs - so this exists to make the one failure that
-    would matter loud rather than invisible. If it ever fires, the explosion for
-    the named items was decided at a *later* date than the requirement was
-    netted at, which is the direction that under-raises component demand.
-    """
-    listed = ", ".join(sorted(codes)[:10])
-    suffix = f" (and {len(codes) - 10} more)" if len(codes) > 10 else ""
-    return (
-        f"{len(codes)} item(s) are both demanded directly and used as components in a "
-        "structure deep enough that their required dates did not settle within the "
-        "planning budget, so their component demand may be understated: "
-        f"{listed}{suffix}. Re-run with a narrower scope and raise this with support."
-    )
-
-
 def _missing_item_warning(item_ids: Iterable[uuid.UUID]) -> str:
     ids = sorted(str(i) for i in item_ids)
     listed = ", ".join(ids[:10])
@@ -1287,7 +1258,10 @@ async def plan(
 
     ``source`` is the only way this function reaches data, and every one of its
     methods takes a set of ids - see the module docstring for the statement
-    budget.
+    budget. The structure is discovered level by level before anything is
+    netted, then each item is netted and exploded once, at its own low-level
+    code - so every supply decision is taken against a needed-by date that is
+    already final, and the fixed point the previous shape needed does not exist.
 
     ``horizon_end`` bounds the inbound supply that is *read*: an order arriving
     after the horizon is not this plan's business. Inside that horizon the
@@ -1310,24 +1284,36 @@ async def plan(
                 "shortage_item_count": 0,
                 "suggestion_count": 0,
                 "explosion_count": 0,
+                "low_level_code_max": 0,
             },
             warnings=("No open demand fell inside the horizon, so nothing was planned.",),
         )
 
-    # --- round one: the demand items themselves ------------------------------
     demand_item_ids = list(buckets)
-    items = await source.planning_items(demand_item_ids)
-    positions = await source.stock_positions(demand_item_ids)
-    structures = await source.bom_availability(demand_item_ids, as_of)
-    # Supply is read in this round rather than after the explosions because a
-    # parent has to be netted against its own inbound orders *before* its
-    # structure is exploded - otherwise a kit already covered by a purchase order
-    # still raises demand for every part in it. One statement per source per
-    # round, never one per item.
-    incoming, incoming_ok = await source.incoming_supply(demand_item_ids, horizon_end)
-    in_production, production_ok = await source.in_production_supply(demand_item_ids, horizon_end)
 
-    inactive = [i for i, info in items.items() if not info.is_active]
+    # --- level the structure before planning it ------------------------------
+    # Only reachable items are levelled, so an unrelated cycle elsewhere in the
+    # data cannot stop this run. Every item's level is final before the pass
+    # below starts, which is what makes the processing order an answer rather
+    # than a fixed point to settle.
+    levels, structures, items = await _discover_levels(source, direct=buckets, as_of=as_of)
+
+    unknown = [item_id for item_id in levels if item_id not in items]
+    if unknown:
+        warnings.append(_missing_item_warning(unknown))
+        for item_id in unknown:
+            buckets.pop(item_id, None)
+            levels.pop(item_id, None)
+
+    # Supply is read for every discovered item in one statement per source: the
+    # structure is known in full before the first requirement is netted, so
+    # there is no second round and no per-level supply read.
+    known = list(levels)
+    positions = await source.stock_positions(known)
+    incoming, incoming_ok = await source.incoming_supply(known, horizon_end)
+    in_production, production_ok = await source.in_production_supply(known, horizon_end)
+
+    inactive = [i for i in demand_item_ids if i in items and not items[i].is_active]
     if inactive:
         codes = sorted(items[i].code for i in inactive)
         warnings.append(
@@ -1350,50 +1336,6 @@ async def plan(
                 "bill of materials, so no component demand was raised for it."
             )
 
-    # --- explode the shortfall, merging components as they arrive ------------
-    # Every needed-by date settles *before* any supply decision is taken against
-    # it, and the phasing each explosion used comes back in ``splits`` for the
-    # netting stage below to reuse. See :func:`_settle_demand`.
-    buckets, splits, explosion_count, settled = await _settle_demand(
-        source,
-        direct=buckets,
-        items=items,
-        positions=positions,
-        structures=structures,
-        incoming=incoming,
-        in_production=in_production,
-        as_of=as_of,
-        respect_safety_stock=respect_safety_stock,
-    )
-
-    # --- round two: whatever the explosions discovered -----------------------
-    # Two rounds rather than one because the component set does not exist until
-    # the explosions have run. Both rounds are one statement each, over a set.
-    new_item_ids = [i for i in buckets if i not in items]
-    if new_item_ids:
-        items.update(await source.planning_items(new_item_ids))
-        positions.update(await source.stock_positions(new_item_ids))
-        structures.update(await source.bom_availability(new_item_ids, as_of))
-        component_incoming, component_incoming_ok = await source.incoming_supply(
-            new_item_ids, horizon_end
-        )
-        component_production, component_production_ok = await source.in_production_supply(
-            new_item_ids, horizon_end
-        )
-        incoming.update(component_incoming)
-        in_production.update(component_production)
-        # A stage that failed in either round is a stage the plan cannot claim to
-        # have run: the caveat has to cover the whole item set, not the half that
-        # happened to answer.
-        incoming_ok = incoming_ok and component_incoming_ok
-        production_ok = production_ok and component_production_ok
-
-    unknown = [i for i in buckets if i not in items]
-    if unknown:
-        warnings.append(_missing_item_warning(unknown))
-        for item_id in unknown:
-            buckets.pop(item_id, None)
-
     if not incoming_ok:
         warnings.append(
             "Confirmed incoming purchase orders could not be read, so the plan did "
@@ -1405,90 +1347,197 @@ async def plan(
             "net against it. Treat manufactured-item suggestions as an upper bound."
         )
 
-    # --- net, in the fixed order, and record every input ---------------------
-    requirements: list[Requirement] = []
+    # --- level by level: net once, explode the shortfall one level down ------
+    requirements: dict[uuid.UUID, Requirement] = {}
     shortages: list[tuple[Requirement, PlanningItem]] = []
-    #: ``(code, split)`` per item whose inbound supply was excluded for being
-    #: late. Drives the warning below. The whole split is carried rather than a
-    #: flattened tuple so the prose is written from the same object the row is:
-    #: a quantity and a date extracted separately can be paired wrongly, which
-    #: is the defect this shape removes.
+    #: The lead time each item's requirement and suggestion were dated with,
+    #: keyed by item: the same figure that offsets its components, so a
+    #: suggestion and the demand it raised can never be dated two ways.
+    lead_times: dict[uuid.UUID, int] = {}
+    #: ``(code, split)`` per short item whose inbound supply was excluded for
+    #: being late. Drives the warning below. The whole split is carried rather
+    #: than a flattened tuple so the prose is written from the same object the
+    #: row is: a quantity and a date extracted separately can be paired
+    #: wrongly, which is the defect this shape removes.
     late_supply: list[tuple[str, SupplySplit]] = []
-    #: Items whose explosion was decided at a different date from the one their
-    #: requirement is netted at. Empty by construction - see below.
-    unsettled: list[str] = []
+    #: item -> the children its shortfall was exploded into, for the expected
+    #: availability roll-up after the suggestions are dated.
+    exploded_children: dict[uuid.UUID, tuple[uuid.UUID, ...]] = {}
+    explosion_count = 0
 
-    for item_id, bucket in buckets.items():
-        item = items[item_id]
-        position = positions.get(item_id, StockPosition())
-        free = planning_available(position, item.safety_stock, respect=respect_safety_stock)
-        needed_by = bucket.earliest_date or as_of
+    for level in range(max(levels.values(), default=0) + 1):
+        level_ids = [
+            item_id
+            for item_id, code in levels.items()
+            if code == level and item_id in buckets and item_id in items
+        ]
+        if not level_ids:
+            continue
+        level_ids.sort(key=lambda item_id: items[item_id].code)
+        netted: list[_NettedItem] = []
 
-        gross = to_quantity(bucket.direct + bucket.dependent)
-        net = net_after_stock(gross, free)
-        # THE time phasing. Only tranches promised on or before the date this
-        # requirement is needed are supply for it; the rest are reported.
-        #
-        # For an item that was exploded this is not computed a second time: it
-        # is the *same* split the explosion was decided on, handed back by
-        # :func:`_settle_demand`. Two computations of one split are two answers
-        # waiting to differ, which is exactly the defect this replaces. The date
-        # is checked rather than assumed, and a mismatch - which settling makes
-        # unreachable - is reported instead of quietly recomputed away.
-        arrivals = incoming.get(item_id, ())
-        jobs = in_production.get(item_id, ())
-        split = splits.get(item_id)
-        if split is not None and split.needed_by != needed_by:
-            unsettled.append(item.code)
-            split = None
-        if split is None:
-            split = supply_split(needed_by, incoming=arrivals, in_production=jobs)
-        on_order = split.incoming
-        late_on_order = split.late_incoming
-        being_made = split.in_production
-        late_being_made = split.late_in_production
-        shortage = net_after_supply(net, on_order, being_made)
+        for item_id in level_ids:
+            item = items[item_id]
+            bucket = buckets[item_id]
+            position = positions.get(item_id, StockPosition())
+            free = planning_available(position, item.safety_stock, respect=respect_safety_stock)
+            needed_by = bucket.earliest_date or as_of
 
-        # ASSUMPTION: the caveat is raised only where it would have made a
-        # difference. An item covered by its own stock with a late order behind
-        # it needs no warning - the plan is right, and saying so anyway is the
-        # noise that trains a planner to skip the warnings that matter. The
-        # figure is still on the requirement row for anyone who wants it.
-        if (
-            shortage > 0
-            and split.first_late_arrival is not None
-            and late_on_order + late_being_made > 0
-        ):
-            late_supply.append((item.code, split))
+            gross = to_quantity(bucket.direct + bucket.dependent)
+            net = net_after_stock(gross, free)
+            # THE time phasing. Only tranches promised on or before the date this
+            # requirement is needed are supply for it; the rest are reported.
+            # The date is final - every parent was processed at a lower level -
+            # so the split taken here is the split the explosion below and the
+            # requirement row both describe.
+            split = supply_split(
+                needed_by,
+                incoming=incoming.get(item_id),
+                in_production=in_production.get(item_id),
+            )
+            shortage = net_after_supply(net, split.incoming, split.in_production)
+            structure = structures.get(item_id)
+            suggestion_type = choose_suggestion_type(
+                item, has_default_bom=bool(structure and structure.is_default)
+            )
+            # A phantom is a grouping on a drawing, not a stocked or built part:
+            # the BOM engine blows through one, and the planner follows its
+            # shortfall through the same way.
+            explodable = structure is not None and (
+                structure.is_phantom or is_explodable(item, has_bom=True)
+            )
+            netted.append(
+                _NettedItem(
+                    item=item,
+                    bucket=bucket,
+                    position=position,
+                    free=free,
+                    needed_by=needed_by,
+                    gross=gross,
+                    net=net,
+                    split=split,
+                    shortage=shortage,
+                    structure=structure,
+                    suggestion_type=suggestion_type,
+                    explodable=explodable,
+                )
+            )
 
-        requirement = Requirement(
-            item_id=item_id,
-            item_code=item.code,
-            item_name=item.name,
-            level=bucket.level or 0,
-            direct_demand_quantity=to_quantity(bucket.direct),
-            dependent_demand_quantity=to_quantity(bucket.dependent),
-            gross_requirement=gross,
-            on_hand_quantity=to_quantity(position.on_hand),
-            reserved_quantity=to_quantity(position.reserved),
-            available_quantity=free,
-            incoming_quantity=on_order,
-            in_production_quantity=being_made,
-            net_requirement=net,
-            shortage_quantity=shortage,
-            earliest_required_date=needed_by,
-            source_demand_count=bucket.source_count,
-            source_demands=tuple(bucket.sources),
-            late_incoming_quantity=late_on_order,
-            late_in_production_quantity=late_being_made,
-            first_late_incoming_date=split.first_late_incoming,
-            last_late_incoming_date=split.last_late_incoming,
-            last_late_in_production_date=split.last_late_in_production,
-            first_late_in_production_date=split.first_late_in_production,
+        # The routing module answers the whole level in one call. Only items
+        # that will be manufactured need it: their shop time is what offsets
+        # their components and dates their own suggestion. The quantity is the
+        # one the suggestion will order - the shortage raised to the item's
+        # minimum - so the lead time belongs to the batch, not to the deficit.
+        make_quantities = {
+            entry.item.id: apply_order_policy(
+                entry.shortage,
+                min_order_quantity=entry.item.min_order_quantity,
+                order_multiple=ZERO,
+            )
+            for entry in netted
+            if entry.shortage > 0 and entry.suggestion_type is MrpSuggestionType.MANUFACTURE
+        }
+        routing_leads = (
+            await source.manufacture_lead_times(make_quantities, as_of) if make_quantities else {}
         )
-        requirements.append(requirement)
-        if shortage > 0:
-            shortages.append((requirement, item))
+
+        for entry in netted:
+            item = entry.item
+            # A manufacture suggestion is paced by its routing's shop time. A
+            # vendor's lead time only governs when the item is being bought, and
+            # is applied where the suggestion is built - a purchased item is
+            # never exploded, so nothing here is offset by it. Everything else
+            # falls back to the item master's own lead time.
+            if entry.suggestion_type is MrpSuggestionType.MANUFACTURE:
+                lead_time = routing_leads.get(item.id, item.lead_time_days)
+            else:
+                lead_time = item.lead_time_days
+            lead_times[item.id] = lead_time
+
+            requirement = Requirement(
+                item_id=item.id,
+                item_code=item.code,
+                item_name=item.name,
+                level=entry.bucket.level or 0,
+                low_level_code=level,
+                direct_demand_quantity=to_quantity(entry.bucket.direct),
+                dependent_demand_quantity=to_quantity(entry.bucket.dependent),
+                gross_requirement=entry.gross,
+                on_hand_quantity=to_quantity(entry.position.on_hand),
+                reserved_quantity=to_quantity(entry.position.reserved),
+                available_quantity=entry.free,
+                incoming_quantity=entry.split.incoming,
+                in_production_quantity=entry.split.in_production,
+                net_requirement=entry.net,
+                shortage_quantity=entry.shortage,
+                earliest_required_date=entry.needed_by,
+                expected_available_date=coverage_date(
+                    entry.gross,
+                    entry.free,
+                    supply=(*incoming.get(item.id, ()), *in_production.get(item.id, ())),
+                    as_of=as_of,
+                ),
+                source_demand_count=entry.bucket.source_count,
+                source_demands=tuple(entry.bucket.sources),
+                late_incoming_quantity=entry.split.late_incoming,
+                late_in_production_quantity=entry.split.late_in_production,
+                first_late_incoming_date=entry.split.first_late_incoming,
+                last_late_incoming_date=entry.split.last_late_incoming,
+                last_late_in_production_date=entry.split.last_late_in_production,
+                first_late_in_production_date=entry.split.first_late_in_production,
+            )
+            # A phantom raises demand for its children but has no row and no
+            # suggestion of its own: nothing is ever stocked, bought or built
+            # under its name. A phantom that is *directly* demanded keeps the
+            # row - somebody asked for it by name, and the shortage is real even
+            # though the part is a grouping.
+            if entry.structure is None or not entry.structure.is_phantom or entry.bucket.direct > 0:
+                requirements[item.id] = requirement
+                if entry.shortage > 0:
+                    shortages.append((requirement, item))
+
+            # ASSUMPTION: the caveat is raised only where it would have made a
+            # difference. An item covered by its own stock with a late order
+            # behind it needs no warning - the plan is right, and saying so
+            # anyway is noise that trains a planner to skip the warnings that
+            # matter. The figure is still on the requirement row for anyone who
+            # wants it.
+            if (
+                entry.shortage > 0
+                and entry.split.first_late_arrival is not None
+                and entry.split.late_total > 0
+            ):
+                late_supply.append((item.code, entry.split))
+
+            if entry.shortage > 0 and entry.explodable and entry.structure is not None:
+                component_date = _component_required_date(entry.needed_by, lead_time)
+                children: list[uuid.UUID] = []
+                for component in entry.structure.lines:
+                    quantity = component_requirement(
+                        entry.shortage, component, entry.structure.output_quantity
+                    )
+                    if quantity <= 0:
+                        continue
+                    child = buckets.setdefault(
+                        component.item_id, DemandBucket(item_id=component.item_id)
+                    )
+                    child.dependent = to_quantity(child.dependent + quantity)
+                    child.note_date(component_date)
+                    child.note_level(level + 1)
+                    child.add_source(
+                        {
+                            "source": "BOM",
+                            "via_item_id": str(item.id),
+                            "via_item_code": item.code,
+                            "quantity": str(quantity),
+                            "required_date": component_date.isoformat(),
+                            "level": level + 1,
+                        }
+                    )
+                    children.append(component.item_id)
+                if children:
+                    exploded_children[item.id] = tuple(children)
+                    explosion_count += 1
 
     # --- suggestions ---------------------------------------------------------
     # Terms are loaded once for the short items only: an item that is covered
@@ -1496,20 +1545,22 @@ async def plan(
     terms = await source.supply_terms([r.item_id for r, _ in shortages]) if shortages else {}
 
     suggestions: list[Suggestion] = []
+    planned_availability: dict[uuid.UUID, date] = {}
     for requirement, item in shortages:
+        structure = structures.get(requirement.item_id)
         suggestion_type = choose_suggestion_type(
-            item, has_default_bom=structures.get(requirement.item_id, False)
+            item, has_default_bom=bool(structure and structure.is_default)
         )
         policy = terms.get(requirement.item_id, SupplyTerms())
 
         # A vendor's lead time only governs when the item is being bought from
-        # them; a manufacture or job-work suggestion is paced by the item's own
-        # lead time, which is how long the plant or the processor takes.
-        lead_time = (
-            policy.lead_time_days
-            if suggestion_type is MrpSuggestionType.PURCHASE and policy.lead_time_days > 0
-            else item.lead_time_days
-        )
+        # them; a manufacture suggestion is paced by the routing's shop time
+        # (already computed, and the same figure its components were offset
+        # by); a job-work suggestion by the processor's stated turnaround.
+        if suggestion_type is MrpSuggestionType.PURCHASE and policy.lead_time_days > 0:
+            lead_time = policy.lead_time_days
+        else:
+            lead_time = lead_times.get(requirement.item_id, item.lead_time_days)
         minimum = policy.min_order_quantity or item.min_order_quantity
         quantity = apply_order_policy(
             requirement.shortage_quantity,
@@ -1517,6 +1568,8 @@ async def plan(
             order_multiple=policy.order_multiple,
         )
         order_date = order_date_for(requirement.earliest_required_date, lead_time)
+        availability = expected_availability(order_date, lead_time, as_of=as_of)
+        planned_availability[requirement.item_id] = availability
 
         suggestions.append(
             Suggestion(
@@ -1532,12 +1585,51 @@ async def plan(
                 suggested_order_date=order_date,
                 is_late=is_late_order(order_date, as_of),
                 lead_time_days=lead_time,
+                low_level_code=levels[requirement.item_id],
+                expected_available_date=availability,
                 source_demands=requirement.source_demands,
             )
         )
 
-    if unsettled:
-        warnings.append(_unsettled_dates_warning(unsettled))
+    # A requirement covered only by the order this plan raises takes that
+    # order's expected arrival; one that supply already on its way covers takes
+    # the earlier of the two.
+    for item_id in list(requirements):
+        planned = planned_availability.get(item_id)
+        if planned is None:
+            continue
+        covered = requirements[item_id].expected_available_date
+        requirements[item_id] = replace(
+            requirements[item_id],
+            expected_available_date=planned if covered is None else min(covered, planned),
+        )
+
+    # A parent cannot be available before the parts it is made from. Descending
+    # by low-level code finalises every child before its parent reads it, so
+    # the dates roll up in one pass with no fixed point - the order is the
+    # proof, since a child's code is strictly greater than every parent's.
+    #
+    # Phantoms have no requirement row but still sit between a parent and its
+    # real components, so the roll-up runs over the rolled dates of every
+    # exploded item, row or not, and only the rows are updated at the end.
+    rolled: dict[uuid.UUID, date] = {}
+    for item_id, requirement in requirements.items():
+        if requirement.expected_available_date is not None:
+            rolled[item_id] = requirement.expected_available_date
+    for item_id in sorted(exploded_children, key=lambda parent: levels[parent], reverse=True):
+        child_dates = [
+            when for child in exploded_children[item_id] if (when := rolled.get(child)) is not None
+        ]
+        if not child_dates:
+            continue
+        slipped = max(child_dates) + timedelta(days=lead_times.get(item_id, 0))
+        own = rolled.get(item_id)
+        rolled[item_id] = slipped if own is None else max(own, slipped)
+
+    for item_id, when in rolled.items():
+        existing = requirements.get(item_id)
+        if existing is not None and existing.expected_available_date != when:
+            requirements[item_id] = replace(existing, expected_available_date=when)
 
     if late_supply:
         # By code, which is unique per run - one entry per item - so two runs of
@@ -1545,9 +1637,13 @@ async def plan(
         # on the tuple: a ``SupplySplit`` is not ordered and never should be.
         warnings.append(_late_supply_warning(sorted(late_supply, key=lambda entry: entry[0])))
 
-    # Level first, then code: components read under the products that need them,
-    # and the order is stable so two runs of the same plan diff cleanly.
-    ordered_requirements = tuple(sorted(requirements, key=lambda r: (r.level, r.item_code)))
+    # Level first, then code: components read under the products that need
+    # them, and the order is stable so two runs of the same plan diff cleanly.
+    # "Level" is the shallowest, which is what a planner reads downward from;
+    # the low-level code beside it is the level the planner actually planned in.
+    ordered_requirements = tuple(
+        sorted(requirements.values(), key=lambda r: (r.level, r.item_code))
+    )
     # Suggestions are a work queue: the latest thing to act on comes first.
     ordered_suggestions = tuple(
         sorted(suggestions, key=lambda s: (s.suggested_order_date, s.item_code))
@@ -1560,16 +1656,15 @@ async def plan(
         "shortage_item_count": len(shortages),
         "suggestion_count": len(ordered_suggestions),
         "explosion_count": explosion_count,
+        # The deepest level planned: the number of passes the level-by-level
+        # netting took, and a direct read on the depth of the structure in scope.
+        "low_level_code_max": max(levels.values(), default=0),
         "late_suggestion_count": sum(1 for s in ordered_suggestions if s.is_late),
         # Short items whose inbound supply arrives after it is needed and was
         # therefore not netted. An int, like every other stat: ``result_summary``
         # is JSONB and a Decimal does not serialise into it - the quantities are
         # in the warning text and on the requirement rows.
         "late_supply_item_count": len(late_supply),
-        # True when every needed-by date stopped moving before a supply decision
-        # was taken against it, which is the property the explosion and the
-        # netting agreeing rests on.
-        "demand_dates_settled": settled and not unsettled,
         "netted_against_incoming": incoming_ok,
         "netted_against_production": production_ok,
         "respected_safety_stock": respect_safety_stock,
@@ -1599,13 +1694,15 @@ async def plan(
 __all__ = [
     "DEFAULT_DEMAND_PRIORITY",
     "MAX_LATE_SUPPLY_LISTED",
-    "MAX_SETTLING_PASSES",
+    "MAX_STRUCTURE_LEVELS",
+    "BomComponent",
+    "BomStructure",
     "DemandBucket",
     "DemandLine",
-    "ExplodedLine",
     "MrpDataSource",
     "MrpDemandTooLargeError",
     "MrpPlan",
+    "MrpStructureTooDeepError",
     "PlanningItem",
     "Requirement",
     "StockPosition",
@@ -1616,7 +1713,10 @@ __all__ = [
     "SupplyTerms",
     "apply_order_policy",
     "choose_suggestion_type",
+    "component_requirement",
+    "coverage_date",
     "earliest_late_arrival",
+    "expected_availability",
     "is_explodable",
     "is_late_order",
     "latest_late_arrival",

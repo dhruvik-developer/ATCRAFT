@@ -129,8 +129,12 @@ export interface MrpRunSummaryStats {
    * needed, so the time phasing refused to net it (docs/assumptions.md 21).
    */
   late_supply_item_count?: number | null
-  /** False means the explosion ran on needed-by dates that were still moving. */
-  demand_dates_settled?: boolean | null
+  /**
+   * The deepest BOM level the run planned at. Runs now plan level by level, so
+   * this is the depth of the structure in scope - a run reporting 2 was netted
+   * in three passes (0, 1, 2), not settled by revisiting items.
+   */
+  low_level_code_max?: number | null
   /** False means that netting stage could not run at all - the plan is an upper bound. */
   netted_against_incoming?: boolean | null
   netted_against_production?: boolean | null
@@ -251,6 +255,19 @@ export interface MrpSuggestionRow {
   /** The API's own verdict that the suggested order date has already passed. */
   is_late: boolean
   lead_time_days: number
+  /**
+   * The deepest level the item appears at across the structures in scope - the
+   * level it was netted at. The requirement row carries the same code, so the
+   * work queue and the shortage report read side by side.
+   */
+  low_level_code: number
+  /**
+   * `max(as_of, suggested_order_date) + lead_time_days`: the earliest date
+   * this order can physically land. For a late suggestion this is later than
+   * `required_date`; the difference is the slip a planner has to accept or
+   * expedite.
+   */
+  expected_available_date: string
 
   status: SuggestionStatus
   converted_to_type: string | null
