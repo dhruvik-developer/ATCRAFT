@@ -38,6 +38,19 @@ from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.customers.models import Customer
 from src.modules.dispatch import service as dispatch_service
 from src.modules.dispatch.schemas import DispatchCreate, DispatchRequest, DispatchResult
+from src.modules.finance import sales_invoice_service as invoices
+from src.modules.finance import service as finance
+from src.modules.finance.models import (
+    CreditNote,
+    CreditNoteLine,
+    CreditNoteStatus,
+    PartyType,
+    PaymentMethod,
+    PaymentType,
+    SalesInvoiceStatus,
+)
+from src.modules.finance.sales_invoice_schemas import SalesInvoiceCreate
+from src.modules.finance.schemas import AllocationRequest, PaymentAllocationIn, PaymentCreate
 from src.modules.inventory import service as inventory
 from src.modules.inventory.models import (
     InventoryBalance,
@@ -48,9 +61,18 @@ from src.modules.inventory.models import (
 )
 from src.modules.inventory.schemas import StockSerialCreate
 from src.modules.products.models import Item, ItemGroup, UnitOfMeasure
+from src.modules.quality import service as quality_service
+from src.modules.quality.schemas import DecideRequest
 from src.modules.sales import service as sales
 from src.modules.sales.models import SalesOrder, SalesOrderLine, SalesOrderStatus
 from src.modules.sales.schemas import SalesOrderCreate, SalesOrderLineIn, SalesOrderUpdate
+from src.modules.sales_returns import service as sales_returns
+from src.modules.sales_returns.models import SalesReturnStatus
+from src.modules.sales_returns.schemas import (
+    SalesReturnCreate,
+    SalesReturnLineIn,
+    SalesReturnUnits,
+)
 from src.modules.warehouses.models import Warehouse, WarehouseType
 from src.workers.tasks import maintenance
 from tests import seed_support
@@ -667,3 +689,322 @@ async def test_a_serial_tracked_order_line_consumes_its_reservation_one_unit_at_
     stock = await balance(b, lock)
     assert stock.on_hand_quantity == Decimal("1.0000")
     assert stock.reserved_quantity == Decimal("1.0000")
+
+
+async def test_serial_return_units_are_held_disposed_and_credited_once(
+    bench: Bench, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = bench
+
+    async def queued(*args: Any, **kwargs: Any) -> str:
+        return str(uuid.uuid4())
+
+    monkeypatch.setattr(invoices, "queue_sales_invoice_pdf", queued)
+    item = await seed_support.seed_item(
+        b.session,
+        company_id=b.tenant.company_id,
+        code=_code("SER"),
+        base_uom_id=b.uom.id,
+        item_group=ItemGroup.FINISHED_GOOD,
+        can_sell=True,
+        sale_price=Decimal("4500"),
+        gst_rate=Decimal("18"),
+        is_serial_tracked=True,
+    )
+    serial_ids: list[uuid.UUID] = []
+    for _ in range(3):
+        serial = await inventory.TraceabilityService(b.session, b.tenant).create_serial(
+            StockSerialCreate(
+                item_id=item.id,
+                serial_number=_code("SN"),
+                unit_cost=Decimal("3000"),
+            )
+        )
+        await inventory.post_movement(
+            b.session,
+            b.tenant,
+            item_id=item.id,
+            warehouse_id=b.warehouse.id,
+            quantity=Decimal("1"),
+            transaction_type=TransactionType.OPENING_BALANCE,
+            reference_type="opening",
+            reference_id=None,
+            reference_code="OPENING",
+            reason="Serialised opening stock",
+            serial_id=serial.id,
+            unit_cost=Decimal("3000"),
+        )
+        serial_ids.append(serial.id)
+    order, order_line = await raise_order(b, "3", item=item)
+    dispatch_result = await ship(
+        b,
+        ui_payload(
+            b,
+            order,
+            [(order_line, "3", [str(serial_id) for serial_id in serial_ids])],
+        ),
+    )
+    dispatch_id = dispatch_result.dispatch.id
+    dispatch_line_id = dispatch_result.dispatch.lines[0].id
+    invoice = await invoices.issue_sales_invoice(
+        b.session, b.tenant, SalesInvoiceCreate(dispatch_id=dispatch_id)
+    )
+    receipt = await finance.create_payment(
+        b.session,
+        b.tenant,
+        PaymentCreate(
+            payment_type=PaymentType.RECEIPT,
+            party_type=PartyType.CUSTOMER,
+            party_id=b.customer.id,
+            amount=invoice.total_amount,
+            payment_date=today(),
+            payment_method=PaymentMethod.CASH,
+        ),
+    )
+    await finance.approve_payment(
+        b.session, b.tenant, b.principal, receipt.id, reason="Customer receipt"
+    )
+    await finance.allocate_payment(
+        b.session,
+        b.tenant,
+        receipt.id,
+        AllocationRequest(
+            allocations=[
+                PaymentAllocationIn(
+                    sales_invoice_id=invoice.id,
+                    amount=invoice.total_amount,
+                )
+            ]
+        ),
+    )
+    assert (
+        await invoices.get_sales_invoice(b.session, b.tenant, invoice.id)
+    ).status is SalesInvoiceStatus.PAID
+    return_doc = await sales_returns.create_return(
+        b.session,
+        b.tenant,
+        SalesReturnCreate(
+            dispatch_id=dispatch_id,
+            lines=[
+                SalesReturnLineIn(
+                    dispatch_line_id=dispatch_line_id,
+                    quantity=Decimal("3"),
+                    serial_ids=serial_ids,
+                    reason_code="CUSTOMER_RETURN",
+                )
+            ],
+        ),
+    )
+    return_id = return_doc.id
+
+    received = await sales_returns.transition_return(
+        b.session, b.tenant, return_id, SalesReturnStatus.RECEIVED
+    )
+    assert received.lines[0].qc_inspection_id is None
+    held = await balance(b, item)
+    assert held.qc_hold_quantity == Decimal("3.0000")
+    assert held.available_quantity == Decimal("0.0000")
+    returned_costs = (
+        await b.session.scalars(
+            select(InventoryTransaction).where(
+                InventoryTransaction.reference_type == "sales_return",
+                InventoryTransaction.reference_id == return_id,
+                InventoryTransaction.transaction_type == TransactionType.CUSTOMER_RETURN,
+            )
+        )
+    ).all()
+    assert len(returned_costs) == 3
+    assert {row.unit_cost for row in returned_costs} == {Decimal("3000.000000")}
+
+    with pytest.raises(BusinessRuleError, match="QC-held serials"):
+        await sales_returns.transition_return(
+            b.session, b.tenant, return_id, SalesReturnStatus.CLOSED
+        )
+
+    accepted = await sales_returns.dispose_return_units(
+        b.session,
+        b.tenant,
+        return_id,
+        SalesReturnUnits(accepted=[serial_ids[0]]),
+    )
+    assert accepted.lines[0].accepted_serial_ids == [serial_ids[0]]
+    assert accepted.lines[0].credited_quantity == Decimal("1.0000")
+    with pytest.raises(BusinessRuleError, match="QC-held serials"):
+        await sales_returns.transition_return(
+            b.session, b.tenant, return_id, SalesReturnStatus.CLOSED
+        )
+
+    await sales_returns.dispose_return_units(
+        b.session,
+        b.tenant,
+        return_id,
+        SalesReturnUnits(damaged=[serial_ids[1]], scrapped=[serial_ids[2]]),
+    )
+    closed = await sales_returns.transition_return(
+        b.session, b.tenant, return_id, SalesReturnStatus.CLOSED
+    )
+
+    assert closed.status is SalesReturnStatus.CLOSED
+    assert closed.lines[0].damaged_serial_ids == [serial_ids[1]]
+    assert closed.lines[0].scrapped_serial_ids == [serial_ids[2]]
+    assert (await fresh(b, StockSerial, serial_ids[0])).status is SerialStatus.IN_STOCK
+    assert (await fresh(b, StockSerial, serial_ids[1])).status is SerialStatus.RETURNED
+    assert (await fresh(b, StockSerial, serial_ids[2])).status is SerialStatus.SCRAPPED
+    final_balance = await balance(b, item)
+    assert final_balance.qc_hold_quantity == Decimal("0.0000")
+    assert final_balance.available_quantity == Decimal("1.0000")
+    assert final_balance.damaged_quantity == Decimal("1.0000")
+
+    note = (
+        await b.session.execute(
+            select(CreditNote).where(
+                CreditNote.sales_return_id == return_id,
+                CreditNote.status == CreditNoteStatus.ISSUED,
+            )
+        )
+    ).scalar_one()
+    note_lines = list(
+        (
+            await b.session.scalars(
+                select(CreditNoteLine).where(CreditNoteLine.credit_note_id == note.id)
+            )
+        ).all()
+    )
+    assert sum(line.quantity or Decimal("0") for line in note_lines) == Decimal("1.0000")
+    assert note.total_amount == Decimal("5310.00")
+    assert (
+        await invoices.get_sales_invoice(b.session, b.tenant, invoice.id)
+    ).status is SalesInvoiceStatus.PAID
+    assert (await fresh(b, Customer, b.customer.id)).outstanding_amount == -note.total_amount
+
+
+async def test_mixed_qc_and_non_qc_return_credits_each_line_when_settled(
+    bench: Bench, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    b = bench
+
+    async def queued(*args: Any, **kwargs: Any) -> str:
+        return str(uuid.uuid4())
+
+    monkeypatch.setattr(invoices, "queue_sales_invoice_pdf", queued)
+    second_item = await seed_support.seed_item(
+        b.session,
+        company_id=b.tenant.company_id,
+        code=_code("FG"),
+        base_uom_id=b.uom.id,
+        item_group=ItemGroup.FINISHED_GOOD,
+        can_sell=True,
+        sale_price=Decimal("100"),
+        gst_rate=Decimal("18"),
+    )
+    await receive(b, "2")
+    await receive(b, "2", item=second_item)
+
+    order, lines = await sales.create_order(
+        b.session,
+        b.tenant,
+        b.principal,
+        SalesOrderCreate(
+            customer_id=b.customer.id,
+            warehouse_id=b.warehouse.id,
+            required_date=today() + timedelta(days=10),
+            lines=[
+                SalesOrderLineIn(
+                    line_number=1,
+                    item_id=b.item.id,
+                    quantity=Decimal("2"),
+                    uom_id=b.uom.id,
+                ),
+                SalesOrderLineIn(
+                    line_number=2,
+                    item_id=second_item.id,
+                    quantity=Decimal("2"),
+                    uom_id=b.uom.id,
+                ),
+            ],
+        ),
+    )
+    await sales.confirm_order(
+        b.session, b.tenant, b.principal, order.id, reason="Customer order accepted"
+    )
+    dispatch = await ship(
+        b,
+        ui_payload(
+            b,
+            order,
+            [(lines[0], "2", []), (lines[1], "2", [])],
+        ),
+    )
+    invoice = await invoices.issue_sales_invoice(
+        b.session, b.tenant, SalesInvoiceCreate(dispatch_id=dispatch.dispatch.id)
+    )
+    return_doc = await sales_returns.create_return(
+        b.session,
+        b.tenant,
+        SalesReturnCreate(
+            dispatch_id=dispatch.dispatch.id,
+            lines=[
+                SalesReturnLineIn(
+                    dispatch_line_id=dispatch.dispatch.lines[0].id,
+                    quantity=Decimal("1"),
+                    reason_code="CUSTOMER_RETURN",
+                    requires_qc=False,
+                ),
+                SalesReturnLineIn(
+                    dispatch_line_id=dispatch.dispatch.lines[1].id,
+                    quantity=Decimal("1"),
+                    reason_code="CUSTOMER_RETURN",
+                    requires_qc=True,
+                ),
+            ],
+        ),
+    )
+
+    received = await sales_returns.transition_return(
+        b.session, b.tenant, return_doc.id, SalesReturnStatus.RECEIVED
+    )
+    issued = list(
+        (
+            await b.session.scalars(
+                select(CreditNote).where(
+                    CreditNote.sales_return_id == return_doc.id,
+                    CreditNote.status == CreditNoteStatus.ISSUED,
+                )
+            )
+        ).all()
+    )
+    assert received.status is SalesReturnStatus.RECEIVED
+    assert len(issued) == 1
+
+    qc_line = next(line for line in received.lines if line.qc_inspection_id is not None)
+    await quality_service.decide_inspection(
+        b.session,
+        b.tenant,
+        qc_line.qc_inspection_id,
+        DecideRequest(accepted_quantity=Decimal("1"), reason="Returned item accepted"),
+    )
+
+    closed = await sales_returns.get_return(b.session, b.tenant, return_doc.id)
+    issued = list(
+        (
+            await b.session.scalars(
+                select(CreditNote).where(
+                    CreditNote.sales_return_id == return_doc.id,
+                    CreditNote.status == CreditNoteStatus.ISSUED,
+                )
+            )
+        ).all()
+    )
+    assert closed.status is SalesReturnStatus.CLOSED
+    assert len(issued) == 2
+    credited_quantities = (
+        await b.session.scalars(
+            select(CreditNoteLine.quantity).where(
+                CreditNoteLine.credit_note_id.in_([note.id for note in issued])
+            )
+        )
+    ).all()
+    assert sum(credited_quantities, Decimal("0")) == Decimal("2.0000")
+    assert (await invoices.get_sales_invoice(b.session, b.tenant, invoice.id)).balance_amount == (
+        invoice.total_amount - Decimal("236")
+    )

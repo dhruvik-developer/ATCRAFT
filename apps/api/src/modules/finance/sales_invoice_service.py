@@ -158,13 +158,11 @@ SALES_INVOICE_LIFECYCLE: StateMachine[SalesInvoiceStatus] = StateMachine(
 def sales_invoice_status_after_payment(
     *, total_amount: Decimal, paid_amount: Decimal, credited_amount: Decimal = ZERO
 ) -> SalesInvoiceStatus:
-    if credited_amount > ZERO and paid_amount + credited_amount >= total_amount:
-        return SalesInvoiceStatus.CREDITED
-    if paid_amount <= ZERO:
-        return SalesInvoiceStatus.ISSUED
-    if paid_amount >= total_amount - credited_amount:
-        return SalesInvoiceStatus.PAID
-    return SalesInvoiceStatus.PARTIALLY_PAID
+    if paid_amount + credited_amount >= total_amount:
+        return SalesInvoiceStatus.PAID if paid_amount > ZERO else SalesInvoiceStatus.CREDITED
+    if paid_amount > ZERO:
+        return SalesInvoiceStatus.PARTIALLY_PAID
+    return SalesInvoiceStatus.ISSUED
 
 
 async def issued_credit_total(

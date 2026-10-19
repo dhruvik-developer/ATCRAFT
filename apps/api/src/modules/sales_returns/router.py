@@ -5,7 +5,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
-from src.core.deps import DbSession, Tenant, forbid_vendor_users, require_permission
+from src.core.deps import (
+    DbSession,
+    Tenant,
+    forbid_dealer_users,
+    forbid_vendor_users,
+    require_permission,
+)
 from src.core.pagination import PageParams, page_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
@@ -16,13 +22,14 @@ from src.modules.sales_returns.schemas import (
     SalesReturnCreate,
     SalesReturnDetail,
     SalesReturnSummary,
+    SalesReturnUnits,
 )
 
 router = APIRouter(
     prefix="/sales-returns",
     tags=["Sales Returns"],
     responses=COMMON_ERROR_RESPONSES,
-    dependencies=[Depends(forbid_vendor_users)],
+    dependencies=[Depends(forbid_vendor_users), Depends(forbid_dealer_users)],
 )
 PageDep = Annotated[PageParams, Depends(page_params)]
 
@@ -75,6 +82,23 @@ async def receive_sales_return(
     return ApiResponse[SalesReturnDetail].ok(
         await service.transition_return(session, tenant, return_id, SalesReturnStatus.RECEIVED),
         "Sales return received",
+    )
+
+
+@router.post(
+    "/{return_id}/units",
+    response_model=ApiResponse[SalesReturnDetail],
+    dependencies=[require_permission(Permission.SALES_RETURN_CREATE)],
+)
+async def dispose_sales_return_units(
+    return_id: uuid.UUID,
+    payload: SalesReturnUnits,
+    session: DbSession,
+    tenant: Tenant,
+) -> ApiResponse[SalesReturnDetail]:
+    return ApiResponse[SalesReturnDetail].ok(
+        await service.dispose_return_units(session, tenant, return_id, payload),
+        "Returned serial units dispositioned",
     )
 
 

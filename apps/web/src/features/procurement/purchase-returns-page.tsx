@@ -458,6 +458,7 @@ export default function PurchaseReturnsPage() {
       <PurchaseReturnDetailDialog
         returnId={detailId}
         onClose={() => setDetailId(null)}
+        canAllocate={can(P.VENDOR_INVOICE_VIEW) && can(P.PAYMENT_APPROVE)}
         // Handed over only when the account may act. The dialog offers no
         // command it was not given, so a viewer reads the return and nothing
         // more.

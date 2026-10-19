@@ -442,7 +442,8 @@ class VendorInvoiceSummary(BaseModel):
     tax_amount: Decimal
     total_amount: Decimal
     paid_amount: Decimal
-    #: What is still owed: ``total_amount - recovered_amount - paid_amount``.
+    debit_allocated_amount: Decimal
+    #: What is still owed after payments, job-work recovery, and vendor debit notes.
     #: Net of the excess-loss recovery posted beside a job-work invoice, which
     #: already reduced the payable in the ledger. docs/assumptions.md §B3-2.
     outstanding_amount: Decimal
@@ -718,6 +719,50 @@ class AllocationRequest(BaseModel):
         if len(seen) != len(self.allocations):
             raise ValueError("The same invoice is allocated twice in one request.")
         return self
+
+
+class PurchaseReturnDebitAllocationIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    vendor_invoice_id: uuid.UUID
+    amount: PositiveMoney
+    notes: Notes | None = None
+
+
+class PurchaseReturnDebitAllocationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    allocations: Annotated[
+        list[PurchaseReturnDebitAllocationIn],
+        Field(min_length=0, max_length=MAX_PAYMENT_ALLOCATIONS),
+    ]
+    replace: bool = False
+
+    @model_validator(mode="after")
+    def _validate_allocations(self) -> PurchaseReturnDebitAllocationRequest:
+        if not self.allocations and not self.replace:
+            raise ValueError("An empty allocation set requires replace=true.")
+        invoice_ids = [row.vendor_invoice_id for row in self.allocations]
+        if len(invoice_ids) != len(set(invoice_ids)):
+            raise ValueError("A vendor invoice may only be allocated once per request.")
+        return self
+
+
+class PurchaseReturnDebitAllocationRead(BaseModel):
+    id: uuid.UUID
+    vendor_invoice_id: uuid.UUID
+    invoice_code: str
+    vendor_invoice_number: str
+    amount: Decimal
+    notes: str | None
+
+
+class PurchaseReturnDebitAllocationResult(BaseModel):
+    purchase_return_id: uuid.UUID
+    total_amount: Decimal
+    allocated_amount: Decimal
+    unallocated_amount: Decimal
+    allocations: list[PurchaseReturnDebitAllocationRead] = Field(default_factory=list)
 
 
 class PaymentAllocationRead(BaseModel):
@@ -1127,6 +1172,10 @@ __all__ = [
     "PaymentSummary",
     "PaymentUpdate",
     "PeriodFilters",
+    "PurchaseReturnDebitAllocationIn",
+    "PurchaseReturnDebitAllocationRead",
+    "PurchaseReturnDebitAllocationRequest",
+    "PurchaseReturnDebitAllocationResult",
     "ReasonRequest",
     "StatementFilters",
     "ValuationFilters",

@@ -22,22 +22,32 @@ import {
 import { Input, Label, Textarea } from '@/components/ui/primitives'
 import { useListQuery } from '@/hooks/use-list-query'
 import { P } from '@/lib/permissions'
-import { staleTimes } from '@/lib/query-client'
+import { queryKeys, staleTimes } from '@/lib/query-client'
 import { useAuth } from '@/features/auth/auth-context'
 import { formatDate } from '@/lib/format'
 import { api } from '@/lib/api-client'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
 import type { DispatchDetail, DispatchRow } from '@/features/dispatch/dispatch-types'
+import type { SchemaOf } from '@/types/api'
 
-export type SalesReturnRow = {
-  id: string
-  code: string
-  dispatch_id: string
-  customer_id: string
-  status: 'DRAFT' | 'RECEIVED' | 'CLOSED' | 'CANCELLED'
-  source: 'ERP' | 'DEALER_PORTAL'
-  created_at?: string
-  received_at: string | null
+export type SalesReturnRow = SchemaOf<'SalesReturnSummary'>
+type SalesReturnDetail = SchemaOf<'SalesReturnDetail'>
+
+type SerialDisposition = 'accepted' | 'damaged' | 'scrapped'
+
+function isSerialDisposition(value: string): value is SerialDisposition {
+  return value === 'accepted' || value === 'damaged' || value === 'scrapped'
+}
+
+function undisposedSerialIds(detail: SalesReturnDetail | undefined): string[] {
+  return (detail?.lines ?? []).flatMap((line) => {
+    const disposed = new Set([
+      ...line.accepted_serial_ids,
+      ...line.damaged_serial_ids,
+      ...line.scrapped_serial_ids,
+    ])
+    return line.serial_ids.filter((serialId) => !disposed.has(serialId))
+  })
 }
 
 type SalesReturnAction = 'receive' | 'close' | 'cancel'
@@ -106,11 +116,11 @@ function NewSalesReturnDialog({
               .map((serial) => serial.trim())
               .filter(Boolean),
             reason_code: reasons[line.id]?.trim() || 'CUSTOMER_RETURN',
-            requires_qc: !(serials[line.id] ?? '').trim(),
+            requires_qc: true,
           })),
       }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['sales-returns'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.salesReturns.all })
       onCreated()
       onClose()
       setDispatchId('')
@@ -252,6 +262,7 @@ function NewSalesReturnDialog({
 
 export default function SalesReturnsPage() {
   const { can } = useAuth()
+  const queryClient = useQueryClient()
   const [selected, setSelected] = useState<string | null>(null)
   const [newReturnOpen, setNewReturnOpen] = useState(false)
   const [transitionError, setTransitionError] = useState<string | null>(null)
@@ -259,12 +270,42 @@ export default function SalesReturnsPage() {
     id: string
     action: SalesReturnAction
   } | null>(null)
+  const [unitDispositionOpen, setUnitDispositionOpen] = useState(false)
+  const [unitDispositions, setUnitDispositions] = useState<Record<string, SerialDisposition>>({})
+  const [unitDispositionError, setUnitDispositionError] = useState<string | null>(null)
   const list = useListQuery<SalesReturnRow>({
     path: '/sales-returns',
-    queryKey: (params) => ['sales-returns', 'list', params],
+    queryKey: (params) => queryKeys.salesReturns.list(params),
     defaultSortBy: 'created_at',
     defaultSortDir: 'desc',
     staleTime: staleTimes.transactional,
+  })
+  const selectedDetail = useQuery({
+    queryKey: queryKeys.salesReturns.detail(selected ?? ''),
+    queryFn: () => api.get<SalesReturnDetail>(`/sales-returns/${selected}`),
+    enabled: Boolean(selected),
+    staleTime: staleTimes.transactional,
+  })
+  const pendingSerials = undisposedSerialIds(selectedDetail.data)
+  const disposeUnits = useMutation({
+    mutationFn: (payload: { accepted: string[]; damaged: string[]; scrapped: string[] }) =>
+      api.post(`/sales-returns/${selected}/units`, payload),
+    onSuccess: async () => {
+      setUnitDispositionOpen(false)
+      setUnitDispositions({})
+      setUnitDispositionError(null)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.salesReturns.all }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.salesReturns.detail(selected ?? ''),
+        }),
+      ])
+    },
+    onError: (error) => {
+      setUnitDispositionError(
+        error instanceof Error ? error.message : 'Serial dispositions could not be saved.',
+      )
+    },
   })
 
   const selectedReturn = list.data?.find((row) => row.id === selected) ?? null
@@ -391,6 +432,21 @@ export default function SalesReturnsPage() {
             )}
           </div>
           {transitionError && <FieldError message={transitionError} />}
+          {selectedReturn.status === 'RECEIVED' &&
+            can(P.SALES_RETURN_CREATE) &&
+            pendingSerials.length > 0 && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setUnitDispositions({})
+                  setUnitDispositionError(null)
+                  setUnitDispositionOpen(true)
+                }}
+              >
+                Dispose serial units
+              </Button>
+            )}
+          {selectedDetail.error && <FieldError message={selectedDetail.error.message} />}
         </div>
       )}
       <DataTable
@@ -407,6 +463,74 @@ export default function SalesReturnsPage() {
         onClose={() => setNewReturnOpen(false)}
         onCreated={() => void list.refetch()}
       />
+      <Dialog
+        open={unitDispositionOpen}
+        onOpenChange={(open) => !open && setUnitDispositionOpen(false)}
+      >
+        <DialogContent size="lg">
+          <DialogHeader>
+            <DialogTitle>Disposition returned serial units</DialogTitle>
+            <DialogDescription>
+              Accepted units return to stock. Damaged and scrapped units remain unavailable.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="space-y-3">
+            {pendingSerials.map((serialId) => (
+              <div
+                key={serialId}
+                className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_12rem]"
+              >
+                <code className="break-all text-xs">{serialId}</code>
+                <Select
+                  value={unitDispositions[serialId] ?? ''}
+                  onValueChange={(value) => {
+                    if (isSerialDisposition(value)) {
+                      setUnitDispositions((current) => ({
+                        ...current,
+                        [serialId]: value,
+                      }))
+                    }
+                  }}
+                >
+                  <SelectTrigger aria-label={`Disposition for ${serialId}`}>
+                    <SelectValue placeholder="Choose disposition" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="accepted">Accepted</SelectItem>
+                    <SelectItem value="damaged">Damaged</SelectItem>
+                    <SelectItem value="scrapped">Scrapped</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+            {unitDispositionError && <FieldError message={unitDispositionError} />}
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUnitDispositionOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={disposeUnits.isPending || !Object.keys(unitDispositions).length}
+              loading={disposeUnits.isPending}
+              onClick={() =>
+                disposeUnits.mutate({
+                  accepted: Object.entries(unitDispositions)
+                    .filter(([, disposition]) => disposition === 'accepted')
+                    .map(([serialId]) => serialId),
+                  damaged: Object.entries(unitDispositions)
+                    .filter(([, disposition]) => disposition === 'damaged')
+                    .map(([serialId]) => serialId),
+                  scrapped: Object.entries(unitDispositions)
+                    .filter(([, disposition]) => disposition === 'scrapped')
+                    .map(([serialId]) => serialId),
+                })
+              }
+            >
+              Save dispositions
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

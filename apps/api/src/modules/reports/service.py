@@ -679,6 +679,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         build=lambda repo, ctx: repo.product_profitability(ctx.require_period(), ctx.filters),
         requires_period=True,
         cacheable=True,
+        permission=Permission.ITEM_COST_VIEW,
         derive=_derive_product_profitability,
     ),
     ReportKey.FAST_MOVING: ReportDefinition(
@@ -799,6 +800,7 @@ REPORT_CATALOGUE: dict[ReportKey, ReportDefinition] = {
         build=lambda repo, ctx: repo.inventory_valuation(ctx.filters),
         requires_period=False,
         cacheable=False,
+        permission=Permission.INVENTORY_VALUATION_VIEW,
         derive=_derive_inventory_valuation,
     ),
     ReportKey.DISPATCH: ReportDefinition(
@@ -1282,6 +1284,7 @@ def job_read(snapshot: ReportSnapshot) -> ReportJobRead:
                 job_download_url(snapshot.id)
                 if _is_valuation_export(snapshot)
                 or snapshot.report_key == ReportKey.JOB_WORK_CHALLAN
+                or snapshot.report_key == ReportKey.PURCHASE_RETURN_DEBIT_NOTE
                 else document_download_url(snapshot.document_id)
             )
             if snapshot.document_id
@@ -1400,6 +1403,18 @@ def _owns_job_work_challan_export(snapshot: ReportSnapshot, principal: Principal
     )
 
 
+def _owns_purchase_return_debit_note_export(snapshot: ReportSnapshot, principal: Principal) -> bool:
+    """Allow a buyer to download only the debit note they queued for a return."""
+    return (
+        not principal.is_vendor_user
+        and not principal.is_dealer_user
+        and snapshot.company_id == principal.company_id
+        and snapshot.created_by_id == principal.user_id
+        and snapshot.report_key == ReportKey.PURCHASE_RETURN_DEBIT_NOTE
+        and principal.has(Permission.PURCHASE_RETURN_VIEW)
+    )
+
+
 async def _accessible_job(
     session: AsyncSession, tenant: TenantContext, principal: Principal, job_id: uuid.UUID
 ) -> ReportSnapshot:
@@ -1427,6 +1442,7 @@ async def _accessible_job(
             principal.has(Permission.REPORT_VIEW)
             or _owns_valuation_export(snapshot, principal)
             or _owns_job_work_challan_export(snapshot, principal)
+            or _owns_purchase_return_debit_note_export(snapshot, principal)
         )
     ):
         # A job outside this principal's scope must not reveal its parameters,
@@ -1446,14 +1462,16 @@ async def open_job_download(
 ) -> DocumentDownload:
     """Open only the file bound to a job the originating operation allows.
 
-    Finance and job-work operators can read their own originating exports
-    without gaining general report/document access. Existing report readers
-    retain their document-view requirement. No caller-provided document id is
-    accepted on this path.
+    Finance, job-work and purchase-return operators can read their own
+    originating exports without gaining general report/document access.
+    Existing report readers retain their document-view requirement. No
+    caller-provided document id is accepted on this path.
     """
     snapshot = await _accessible_job(session, tenant, principal, job_id)
-    owns_export = _owns_valuation_export(snapshot, principal) or _owns_job_work_challan_export(
-        snapshot, principal
+    owns_export = (
+        _owns_valuation_export(snapshot, principal)
+        or _owns_job_work_challan_export(snapshot, principal)
+        or _owns_purchase_return_debit_note_export(snapshot, principal)
     )
     if not owns_export and not principal.has(Permission.DOCUMENT_VIEW):
         raise PermissionDeniedError(str(Permission.DOCUMENT_VIEW))

@@ -17,6 +17,8 @@ from src.core.responses import OffsetPagination
 from src.core.state_machine import StateMachine, Transition
 from src.core.types import ZERO, to_money, to_quantity
 from src.modules.audit.service import record_status_change
+from src.modules.customers.schemas import OutstandingAdjustment
+from src.modules.customers.service import apply_outstanding_delta
 from src.modules.finance.credit_note_repository import CreditNoteRepository
 from src.modules.finance.credit_note_schemas import (
     CreditNoteCreate,
@@ -161,11 +163,11 @@ def _tax_parts(
 def sales_invoice_status_after_credit(
     paid_amount: Decimal, credited_amount: Decimal, total_amount: Decimal
 ) -> SalesInvoiceStatus:
-    if paid_amount + credited_amount >= total_amount:
-        return SalesInvoiceStatus.CREDITED
-    if paid_amount > ZERO:
-        return SalesInvoiceStatus.PARTIALLY_PAID
-    return SalesInvoiceStatus.ISSUED
+    return sales_invoice_status_after_payment(
+        total_amount=total_amount,
+        paid_amount=paid_amount,
+        credited_amount=credited_amount,
+    )
 
 
 async def issue_credit_note(
@@ -243,9 +245,12 @@ async def issue_credit_note(
 
         total = to_money(taxable_total + tax_total)
         existing_credited_total = await issued_credit_total(session, tenant, invoice.id)
+        return_credit = (
+            payload.reason_type.value == "RETURN" and payload.sales_return_id is not None
+        )
         credit_ceiling = (
             invoice.total_amount
-            if invoice.status == SalesInvoiceStatus.PAID
+            if invoice.status == SalesInvoiceStatus.PAID or return_credit
             else invoice.total_amount - invoice.paid_amount
         )
         if total <= ZERO or existing_credited_total + total > credit_ceiling:
@@ -338,14 +343,22 @@ async def issue_credit_note(
             session,
             tenant,
             invoice,
-            (
-                SalesInvoiceStatus.CREDITED
-                if invoice.paid_amount + credited_total >= invoice.total_amount
-                else sales_invoice_status_after_credit(
-                    invoice.paid_amount, credited_total, invoice.total_amount
-                )
+            sales_invoice_status_after_credit(
+                invoice.paid_amount, credited_total, invoice.total_amount
             ),
             reason=f"Credit note {row.code} issued",
+        )
+        await apply_outstanding_delta(
+            session,
+            tenant,
+            invoice.customer_id,
+            OutstandingAdjustment(
+                delta=-total,
+                reason=f"Credit note {row.code} issued",
+                reference_type="credit_note",
+                reference_id=row.id,
+                reference_code=row.code,
+            ),
         )
         await session.flush()
     return await get_credit_note(session, tenant, row.id)
@@ -411,6 +424,7 @@ async def cancel_credit_note(
         row.cancelled_at = utcnow()
         row.cancellation_reason = reason
         row.cancelled_by_id = tenant.user_id
+        await session.flush()
         credited_total = await issued_credit_total(session, tenant, invoice.id)
         await transition_sales_invoice(
             session,
@@ -422,6 +436,18 @@ async def cancel_credit_note(
                 credited_amount=credited_total,
             ),
             reason=f"Credit note {row.code} cancelled",
+        )
+        await apply_outstanding_delta(
+            session,
+            tenant,
+            invoice.customer_id,
+            OutstandingAdjustment(
+                delta=row.total_amount,
+                reason=f"Credit note {row.code} cancelled",
+                reference_type="credit_note",
+                reference_id=row.id,
+                reference_code=row.code,
+            ),
         )
         await record_status_change(
             session,

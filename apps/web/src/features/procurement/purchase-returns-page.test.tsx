@@ -258,6 +258,90 @@ describe('the two ways a return ends are not the same thing', () => {
   })
 })
 
+describe('allocating a posted vendor debit', () => {
+  it('shows the allocation workflow only to invoice readers with finance approval rights', async () => {
+    const { user, fetch } = renderScreen(<PurchaseReturnsPage />, {
+      permissions: [...READER, P.VENDOR_INVOICE_VIEW, P.PAYMENT_APPROVE],
+      routes: registerRoutes(
+        [purchaseReturn({ status: 'POSTED', posted_at: '2026-09-09T10:00:00Z' })],
+        {
+          [`GET ${RETURN_DETAIL_PATH}`]: returnDetail({
+            status: 'POSTED',
+            posted_at: '2026-09-09T10:00:00Z',
+          }),
+          [`GET /finance/purchase-returns/${RETURN_ID}/debit-allocations`]: ok({
+            purchase_return_id: RETURN_ID,
+            total_amount: '4720.00',
+            allocated_amount: '0.00',
+            unallocated_amount: '4720.00',
+            allocations: [],
+          }),
+          'GET /finance/vendor-invoices': page([]),
+        },
+      ),
+    })
+
+    await settled(fetch)
+    await user.click(await stable(() => screen.getByRole('button', { name: 'PRET-0001' })))
+    await stable(() => screen.getByRole('region', { name: 'Vendor debit note allocation' }))
+    await waitFor(() =>
+      fetch.requestFor('GET', `/finance/purchase-returns/${RETURN_ID}/debit-allocations`),
+    )
+  })
+})
+
+describe('the posted return debit-note PDF', () => {
+  it('lets a return reader queue and monitor the generated document', async () => {
+    const { user, fetch } = renderScreen(<PurchaseReturnsPage />, {
+      // Report access is scoped to the originating purchase-return right.
+      permissions: READER,
+      routes: registerRoutes(
+        [purchaseReturn({ status: 'POSTED', posted_at: '2026-09-09T10:00:00Z' })],
+        {
+          [`GET ${RETURN_DETAIL_PATH}`]: returnDetail({
+            status: 'POSTED',
+            posted_at: '2026-09-09T10:00:00Z',
+          }),
+          [`POST ${RETURN_DETAIL_PATH}/debit-note-pdf`]: ok({
+            job_id: 'debit-note-job',
+            status: 'queued',
+            status_url: '/reports/jobs/debit-note-job',
+          }),
+          'GET /reports/jobs/debit-note-job': ok({
+            id: 'debit-note-job',
+            report_key: 'PURCHASE_RETURN_DEBIT_NOTE',
+            status: 'QUEUED',
+            parameters: null,
+            row_count: 0,
+            generated_at: null,
+            expires_at: null,
+            document_id: null,
+            download_url: null,
+            error_message: null,
+            created_at: '2026-09-09T10:00:00Z',
+          }),
+        },
+      ),
+    })
+
+    await settled(fetch)
+    await user.click(await stable(() => screen.getByRole('button', { name: 'PRET-0001' })))
+    const dialog = await screen.findByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Generate debit note PDF' }))
+
+    await waitFor(() =>
+      expect(fetch.calls.map((call) => `${call.method} ${call.path}`)).toContain(
+        `POST ${RETURN_DETAIL_PATH}/debit-note-pdf`,
+      ),
+    )
+    await waitFor(() =>
+      expect(fetch.calls.map((call) => `${call.method} ${call.path}`)).toContain(
+        'GET /reports/jobs/debit-note-job',
+      ),
+    )
+  })
+})
+
 describe('posting the return', () => {
   it('posts with no body at all, because the endpoint takes none', async () => {
     const postPath = `${RETURN_DETAIL_PATH}/post`
@@ -267,6 +351,7 @@ describe('posting the return', () => {
         [`GET ${RETURN_DETAIL_PATH}`]: returnDetail(),
         [`POST ${postPath}`]: ok({
           purchase_return: purchaseReturn({ status: 'POSTED' }),
+          debit_note_journal_id: 'journal-1',
           movements: [{ id: 'm1' }],
         }),
       }),
@@ -300,6 +385,9 @@ describe('posting the return', () => {
     // summary carries no line count - and "two lines out of WH-MAIN" is the
     // sentence that lets somebody notice this is the wrong document.
     expect(within(dialog).getByText(/posting cannot be undone/i)).toBeVisible()
+    expect(
+      within(dialog).getByText(/posts the vendor debit note and input-tax reversal/i),
+    ).toBeVisible()
     await stable(() => within(dialog).getByText(/all 2 line\(s\)/i))
     expect(within(dialog).getByText(/WH-MAIN - Main store/)).toBeVisible()
   })

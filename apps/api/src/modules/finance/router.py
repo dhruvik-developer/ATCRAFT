@@ -94,6 +94,8 @@ from src.modules.finance.schemas import (
     PaymentFilters,
     PaymentSummary,
     PaymentUpdate,
+    PurchaseReturnDebitAllocationRequest,
+    PurchaseReturnDebitAllocationResult,
     ReasonRequest,
     StatementFilters,
     ValuationFilters,
@@ -761,6 +763,47 @@ async def allocate_payment(
 ) -> ApiResponse[PaymentDetail]:
     payment = await service.allocate_payment(session, tenant, payment_id, payload)
     return ApiResponse[PaymentDetail].ok(payment, "Payment allocated")
+
+
+@router.post(
+    "/purchase-returns/{purchase_return_id}/debit-allocations",
+    response_model=ApiResponse[PurchaseReturnDebitAllocationResult],
+    summary="Apply a posted purchase-return debit to vendor invoices",
+    description=(
+        "Applies the vendor credit without changing the original debit-note journal. "
+        "The return and invoices are locked, and each allocation is bounded by the "
+        "remaining return credit and the invoice's remaining payable."
+    ),
+    dependencies=[require_permission(Permission.PAYMENT_APPROVE)],
+)
+async def allocate_purchase_return_debit(
+    session: DbSession,
+    tenant: Tenant,
+    principal: CurrentUser,
+    purchase_return_id: uuid.UUID,
+    payload: PurchaseReturnDebitAllocationRequest,
+) -> ApiResponse[PurchaseReturnDebitAllocationResult]:
+    result = await service.allocate_purchase_return_debit(
+        session, tenant, principal, purchase_return_id, payload
+    )
+    return ApiResponse[PurchaseReturnDebitAllocationResult].ok(
+        result, "Vendor debit note allocated"
+    )
+
+
+@router.get(
+    "/purchase-returns/{purchase_return_id}/debit-allocations",
+    response_model=ApiResponse[PurchaseReturnDebitAllocationResult],
+    summary="Read purchase-return debit allocations",
+    dependencies=[require_permission(Permission.VENDOR_INVOICE_VIEW)],
+)
+async def get_purchase_return_debit_allocations(
+    session: DbSession, tenant: Tenant, purchase_return_id: uuid.UUID
+) -> ApiResponse[PurchaseReturnDebitAllocationResult]:
+    result = await service.get_purchase_return_debit_allocations(
+        session, tenant, purchase_return_id
+    )
+    return ApiResponse[PurchaseReturnDebitAllocationResult].ok(result)
 
 
 # -----------------------------------------------------------------------------

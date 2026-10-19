@@ -571,6 +571,16 @@ export function VendorInvoiceMatchDialog({
                           },
                         ]
                       : []),
+                    ...(!toDecimal(invoice.debit_allocated_amount).isZero()
+                      ? [
+                          {
+                            label: 'Vendor return credits',
+                            value: formatMoney(invoice.debit_allocated_amount, {
+                              currency: invoice.currency,
+                            }),
+                          },
+                        ]
+                      : []),
                   ]}
                 />
 

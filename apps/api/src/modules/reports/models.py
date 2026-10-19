@@ -105,6 +105,7 @@ class ReportKey(StrEnum):
     PACKING_LIST = "PACKING_LIST"
     SALES_INVOICE = "SALES_INVOICE"
     CREDIT_NOTE = "CREDIT_NOTE"
+    PURCHASE_RETURN_DEBIT_NOTE = "PURCHASE_RETURN_DEBIT_NOTE"
     #: Rework quantity and rate per item and vendor over a period, read from
     #: decided inspections (WP E5).
     REWORK_RATE = "REWORK_RATE"
@@ -134,6 +135,7 @@ DOCUMENT_ONLY_REPORT_KEYS: frozenset[ReportKey] = frozenset(
         ReportKey.PACKING_LIST,
         ReportKey.SALES_INVOICE,
         ReportKey.CREDIT_NOTE,
+        ReportKey.PURCHASE_RETURN_DEBIT_NOTE,
         ReportKey.PURCHASE_ORDER,
         ReportKey.JOB_WORK_CHALLAN,
     }

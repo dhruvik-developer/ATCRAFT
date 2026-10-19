@@ -35,6 +35,7 @@ from sqlalchemy.pool import NullPool
 
 import src.modules.organization.models
 import src.modules.users.models  # noqa: F401 - registers `users`
+from src.core.clock import utcnow
 from src.core.config import settings
 from src.core.deps import Principal, TenantContext
 from src.core.errors import BusinessRuleError, NotFoundError, ValidationError
@@ -63,6 +64,7 @@ from src.modules.finance.schemas import (
     LedgerAccountCreate,
     PaymentAllocationIn,
     PaymentCreate,
+    PurchaseReturnDebitAllocationRequest,
     StatementFilters,
     VendorInvoiceCreate,
     VendorInvoiceLineIn,
@@ -72,6 +74,8 @@ from src.modules.procurement.models import (
     GoodsReceiptLine,
     PurchaseOrder,
     PurchaseOrderLine,
+    PurchaseReturn,
+    PurchaseReturnStatus,
 )
 from src.modules.products.models import Item, ItemGroup, UnitOfMeasure, UomCategory
 from src.modules.vendors.models import Vendor, VendorType
@@ -357,6 +361,49 @@ async def approved_invoice(
     return await session.get(VendorInvoice, detail.id)  # type: ignore[return-value]
 
 
+async def posted_purchase_return(
+    session: AsyncSession,
+    tenant: TenantContext,
+    fixture: Fixture,
+    *,
+    total_amount: str,
+    currency: str = "INR",
+) -> PurchaseReturn:
+    total = Decimal(total_amount)
+    purchase_return = PurchaseReturn(
+        company_id=tenant.company_id,
+        code=_code("PRTN"),
+        vendor_id=fixture.vendor.id,
+        goods_receipt_id=fixture.receipt.id,
+        purchase_order_id=fixture.order.id,
+        warehouse_id=fixture.receipt.warehouse_id,
+        return_date=date(2026, 5, 6),
+        status=PurchaseReturnStatus.POSTED,
+        reason="Damaged goods returned",
+        currency=currency,
+        subtotal=total,
+        tax_amount=Decimal("0"),
+        total_amount=total,
+        posted_at=utcnow(),
+        posted_by_id=tenant.user_id,
+    )
+    session.add(purchase_return)
+    await session.flush()
+    await service.post_purchase_return_debit_note(
+        session,
+        tenant,
+        purchase_return_id=purchase_return.id,
+        code=purchase_return.code,
+        vendor_id=purchase_return.vendor_id,
+        entry_date=purchase_return.return_date,
+        currency=purchase_return.currency,
+        subtotal=total,
+        tax_amount=Decimal("0"),
+        total_amount=total,
+    )
+    return purchase_return
+
+
 # -----------------------------------------------------------------------------
 # Invoice lifecycle and the three-way match
 # -----------------------------------------------------------------------------
@@ -515,6 +562,30 @@ class TestVendorInvoice:
         assert result.matched is True
         assert result.lines[0].accepted_quantity == Decimal("90.0000")
         assert result.total_expected == Decimal("2250.00")
+
+    @pytest.mark.parametrize("link_receipt", [True, False])
+    async def test_the_match_nets_purchase_returns_from_accepted_quantity(
+        self, ctx, link_receipt: bool
+    ) -> None:
+        session, tenant, _ = ctx
+        fixture = await seed(session, tenant.company_id, accepted_quantity="100")
+        fixture.receipt_line.returned_quantity = Decimal("10")
+        fixture.order_line.returned_quantity = Decimal("10")
+        await session.flush()
+
+        detail = await service.create_invoice(
+            session,
+            tenant,
+            invoice_payload(fixture, quantity="95", link_receipt=link_receipt),
+        )
+        result = await service.match_invoice(session, tenant, detail.id)
+
+        assert result.lines[0].accepted_quantity == Decimal("90.0000")
+        assert result.lines[0].quantity_variance == Decimal("5.0000")
+        assert result.matched is False
+        assert any(
+            "95.0000 against 90.0000 accepted" in reason for reason in result.blocking_reasons
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -847,6 +918,144 @@ class TestPaymentReducesOutstanding:
         assert len(entries) == 4
         assert sum(1 for entry in entries if entry.is_reversal) == 2
         assert sum(e.debit_amount for e in entries) == sum(e.credit_amount for e in entries)
+
+
+class TestPurchaseReturnDebitAllocation:
+    async def test_return_debit_settles_invoice_and_updates_read_models(self, ctx) -> None:
+        session, tenant, principal = ctx
+        fixture = await seed(session, tenant.company_id)
+        invoice = await approved_invoice(session, tenant, principal, fixture)
+        purchase_return = await posted_purchase_return(
+            session, tenant, fixture, total_amount="2950"
+        )
+
+        result = await service.allocate_purchase_return_debit(
+            session,
+            tenant,
+            principal,
+            purchase_return.id,
+            PurchaseReturnDebitAllocationRequest(
+                allocations=[
+                    {
+                        "vendor_invoice_id": invoice.id,
+                        "amount": Decimal("2950"),
+                    }
+                ]
+            ),
+        )
+
+        await session.refresh(invoice)
+        detail = await service.get_invoice_detail(session, tenant, invoice.id)
+        allocation_result = await service.get_purchase_return_debit_allocations(
+            session, tenant, purchase_return.id
+        )
+        assert invoice.debit_allocated_amount == Decimal("2950.0000")
+        assert VendorInvoiceStatus(invoice.status) is VendorInvoiceStatus.PAID
+        assert detail.outstanding_amount == Decimal("0.0000")
+        assert result.allocated_amount == Decimal("2950.0000")
+        assert result.unallocated_amount == Decimal("0.0000")
+        assert allocation_result.allocations[0].invoice_code == invoice.code
+
+    async def test_allocation_cannot_exceed_return_or_invoice_and_is_atomic(self, ctx) -> None:
+        session, tenant, principal = ctx
+        fixture = await seed(session, tenant.company_id)
+        invoice = await approved_invoice(session, tenant, principal, fixture)
+        purchase_return = await posted_purchase_return(session, tenant, fixture, total_amount="500")
+
+        with pytest.raises(BusinessRuleError):
+            await service.allocate_purchase_return_debit(
+                session,
+                tenant,
+                principal,
+                purchase_return.id,
+                PurchaseReturnDebitAllocationRequest(
+                    allocations=[{"vendor_invoice_id": invoice.id, "amount": Decimal("501")}]
+                ),
+            )
+        await session.refresh(invoice)
+        assert invoice.debit_allocated_amount == Decimal("0.0000")
+
+        larger_return = await posted_purchase_return(session, tenant, fixture, total_amount="4000")
+        with pytest.raises(BusinessRuleError):
+            await service.allocate_purchase_return_debit(
+                session,
+                tenant,
+                principal,
+                larger_return.id,
+                PurchaseReturnDebitAllocationRequest(
+                    allocations=[{"vendor_invoice_id": invoice.id, "amount": Decimal("2951")}]
+                ),
+            )
+        await session.refresh(invoice)
+        assert invoice.debit_allocated_amount == Decimal("0.0000")
+
+    async def test_return_debit_must_match_vendor_and_currency(self, ctx) -> None:
+        session, tenant, principal = ctx
+        fixture = await seed(session, tenant.company_id)
+        other_vendor_fixture = await seed(session, tenant.company_id)
+        other_vendor_invoice = await approved_invoice(
+            session, tenant, principal, other_vendor_fixture
+        )
+        purchase_return = await posted_purchase_return(session, tenant, fixture, total_amount="500")
+
+        with pytest.raises(BusinessRuleError, match="different vendor"):
+            await service.allocate_purchase_return_debit(
+                session,
+                tenant,
+                principal,
+                purchase_return.id,
+                PurchaseReturnDebitAllocationRequest(
+                    allocations=[
+                        {
+                            "vendor_invoice_id": other_vendor_invoice.id,
+                            "amount": Decimal("100"),
+                        }
+                    ]
+                ),
+            )
+
+        usd_invoice = await approved_invoice(session, tenant, principal, fixture, currency="USD")
+        with pytest.raises(BusinessRuleError, match="billed in USD"):
+            await service.allocate_purchase_return_debit(
+                session,
+                tenant,
+                principal,
+                purchase_return.id,
+                PurchaseReturnDebitAllocationRequest(
+                    allocations=[{"vendor_invoice_id": usd_invoice.id, "amount": Decimal("100")}]
+                ),
+            )
+
+    async def test_debit_must_be_unallocated_before_cancelling_the_invoice(self, ctx) -> None:
+        session, tenant, principal = ctx
+        fixture = await seed(session, tenant.company_id)
+        invoice = await approved_invoice(session, tenant, principal, fixture)
+        purchase_return = await posted_purchase_return(
+            session, tenant, fixture, total_amount="2950"
+        )
+        await service.allocate_purchase_return_debit(
+            session,
+            tenant,
+            principal,
+            purchase_return.id,
+            PurchaseReturnDebitAllocationRequest(
+                allocations=[{"vendor_invoice_id": invoice.id, "amount": Decimal("2950")}]
+            ),
+        )
+
+        with pytest.raises(BusinessRuleError):
+            await service.cancel_invoice(session, tenant, invoice.id, reason="Raised in error")
+
+        await service.allocate_purchase_return_debit(
+            session,
+            tenant,
+            principal,
+            purchase_return.id,
+            PurchaseReturnDebitAllocationRequest(allocations=[], replace=True),
+        )
+        await session.refresh(invoice)
+        assert invoice.debit_allocated_amount == Decimal("0.0000")
+        assert VendorInvoiceStatus(invoice.status) is VendorInvoiceStatus.APPROVED
 
 
 class TestCustomerReceipt:

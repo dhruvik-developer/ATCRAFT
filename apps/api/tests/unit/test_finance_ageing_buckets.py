@@ -191,6 +191,49 @@ class TestNetPayableAfterRecovery:
         )
 
 
+class TestNetPayableAfterDebitAllocation:
+    """A posted purchase-return debit settles the invoice like a payment.
+
+    The debit already reduced the payable in the ledger, so the invoice is PAID
+    once payments plus allocated debits cover the net amount, without a second
+    cash movement.
+    """
+
+    def test_an_allocated_debit_marks_the_invoice_paid(self) -> None:
+        assert (
+            invoice_status_after_payment(
+                VendorInvoiceStatus.APPROVED,
+                total_amount=Decimal("1000"),
+                paid_amount=Decimal("0"),
+                debit_allocated_amount=Decimal("1000"),
+            )
+            is VendorInvoiceStatus.PAID
+        )
+
+    def test_a_part_allocated_debit_is_partially_paid(self) -> None:
+        assert (
+            invoice_status_after_payment(
+                VendorInvoiceStatus.APPROVED,
+                total_amount=Decimal("1000"),
+                paid_amount=Decimal("0"),
+                debit_allocated_amount=Decimal("400"),
+            )
+            is VendorInvoiceStatus.PARTIALLY_PAID
+        )
+
+    def test_payment_and_debit_together_settle_the_net_payable(self) -> None:
+        assert (
+            invoice_status_after_payment(
+                VendorInvoiceStatus.PARTIALLY_PAID,
+                total_amount=Decimal("1000"),
+                paid_amount=Decimal("600"),
+                recovered_amount=Decimal("100"),
+                debit_allocated_amount=Decimal("300"),
+            )
+            is VendorInvoiceStatus.PAID
+        )
+
+
 class TestPaymentStatusFromAllocation:
     def test_unallocated_money_stays_approved(self) -> None:
         assert (

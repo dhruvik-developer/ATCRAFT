@@ -98,6 +98,15 @@ class SalesReturnLine(TenantEntity):
     serial_ids: Mapped[list[uuid.UUID]] = mapped_column(
         ARRAY(GUID), nullable=False, server_default=text("'{}'::uuid[]"), default=list
     )
+    accepted_serial_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(GUID), nullable=False, server_default=text("'{}'::uuid[]"), default=list
+    )
+    damaged_serial_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(GUID), nullable=False, server_default=text("'{}'::uuid[]"), default=list
+    )
+    scrapped_serial_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(GUID), nullable=False, server_default=text("'{}'::uuid[]"), default=list
+    )
     quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
     credited_quantity: Mapped[Decimal] = mapped_column(
         Quantity, nullable=False, default=Decimal("0"), server_default="0"
@@ -115,6 +124,17 @@ class SalesReturnLine(TenantEntity):
         CheckConstraint(
             "cardinality(serial_ids) <= quantity",
             name="sales_return_line_serial_count_bounded",
+        ),
+        CheckConstraint(
+            "accepted_serial_ids <@ serial_ids "
+            "AND damaged_serial_ids <@ serial_ids "
+            "AND scrapped_serial_ids <@ serial_ids "
+            "AND NOT (accepted_serial_ids && damaged_serial_ids) "
+            "AND NOT (accepted_serial_ids && scrapped_serial_ids) "
+            "AND NOT (damaged_serial_ids && scrapped_serial_ids) "
+            "AND cardinality(accepted_serial_ids) + cardinality(damaged_serial_ids) "
+            "+ cardinality(scrapped_serial_ids) <= cardinality(serial_ids)",
+            name="serial_dispositions_valid",
         ),
         CheckConstraint(
             "credited_quantity >= 0 AND credited_quantity <= quantity",

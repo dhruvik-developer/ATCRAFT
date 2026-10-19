@@ -5393,6 +5393,12 @@ async def post_purchase_return(
                 [receipt_lines[line.goods_receipt_line_id].purchase_order_line_id for line in lines]
             )
         }
+        order_lines_by_receipt: dict[uuid.UUID, PurchaseOrderLine] = {}
+        for receipt_line in receipt_lines.values():
+            order_line = order_lines.get(receipt_line.purchase_order_line_id)
+            if order_line is None:
+                raise NotFoundError("Purchase order line", receipt_line.purchase_order_line_id)
+            order_lines_by_receipt[receipt_line.id] = order_line
 
         movements: list[MovementRequest] = []
         for line in lines:
@@ -5448,11 +5454,10 @@ async def post_purchase_return(
             receipt_line.returned_quantity = to_quantity(
                 Decimal(receipt_line.returned_quantity) + Decimal(line.quantity)
             )
-            order_line = order_lines.get(receipt_line.purchase_order_line_id)
-            if order_line is not None:
-                order_line.returned_quantity = to_quantity(
-                    Decimal(order_line.returned_quantity) + Decimal(line.quantity)
-                )
+            order_line = order_lines_by_receipt[receipt_line.id]
+            order_line.returned_quantity = to_quantity(
+                Decimal(order_line.returned_quantity) + Decimal(line.quantity)
+            )
 
         purchase_return.posted_at = utcnow()
         purchase_return.posted_by_id = principal.user_id
@@ -5470,6 +5475,21 @@ async def post_purchase_return(
             status_enum=PurchaseReturnStatus,
         )
 
+        from src.modules.finance.service import post_purchase_return_debit_note
+
+        debit_note_journal_id = await post_purchase_return_debit_note(
+            session,
+            tenant,
+            purchase_return_id=purchase_return.id,
+            code=purchase_return.code,
+            vendor_id=purchase_return.vendor_id,
+            entry_date=purchase_return.return_date,
+            currency=purchase_return.currency,
+            subtotal=Decimal(purchase_return.subtotal),
+            tax_amount=Decimal(purchase_return.tax_amount),
+            total_amount=Decimal(purchase_return.total_amount),
+        )
+
         await record_audit(
             session,
             company_id=tenant.company_id,
@@ -5485,11 +5505,13 @@ async def post_purchase_return(
                 "movements": len(movements),
                 "total_amount": purchase_return.total_amount,
                 "reason": purchase_return.reason,
+                "debit_note_journal_id": debit_note_journal_id,
             },
         )
 
     return PurchaseReturnPostResult(
         purchase_return=return_detail(purchase_return, lines),
+        debit_note_journal_id=debit_note_journal_id,
         movements=[
             PostedMovement(
                 transaction_id=txn.id,

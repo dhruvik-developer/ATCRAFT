@@ -71,6 +71,12 @@ def test_a_document_only_key_has_a_job_row_but_no_definition_and_no_descriptor()
         assert key not in offered, f"{key} must not appear in the report picker"
 
 
+def test_the_purchase_return_debit_note_is_a_document_not_a_report() -> None:
+    # It is a PDF of one posted return, rendered by its own task, so it must
+    # have a job row and stay out of the catalogue and the picker.
+    assert ReportKey.PURCHASE_RETURN_DEBIT_NOTE in DOCUMENT_ONLY_REPORT_KEYS
+
+
 def test_every_definition_is_filed_under_its_own_key() -> None:
     # A copy-pasted definition left under the wrong key would serve one report's
     # rows from another report's query.

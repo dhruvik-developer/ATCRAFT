@@ -48,6 +48,9 @@ from src.modules.procurement.models import (
     RfqStatus,
 )
 from src.modules.procurement.purchase_order_pdf import queue_purchase_order_pdf
+from src.modules.procurement.purchase_return_debit_note_pdf_service import (
+    queue_purchase_return_debit_note_pdf,
+)
 from src.modules.procurement.schemas import (
     AcknowledgeRequest,
     ApproveRequest,
@@ -97,6 +100,7 @@ from src.modules.procurement.schemas import (
     SendRequest,
     ShipmentUpdate,
 )
+from src.modules.reports import service as reports_service
 
 router = APIRouter(prefix="/procurement", tags=["Procurement"], responses=COMMON_ERROR_RESPONSES)
 
@@ -1659,12 +1663,34 @@ async def get_purchase_return(
 
 
 @router.post(
+    "/purchase-returns/{return_id}/debit-note-pdf",
+    response_model=AcceptedJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Queue the vendor debit-note PDF for a posted purchase return",
+    dependencies=[
+        require_permission(Permission.PURCHASE_RETURN_VIEW),
+        Depends(forbid_vendor_users),
+    ],
+)
+async def purchase_return_debit_note_pdf(
+    return_id: uuid.UUID, session: DbSession, tenant: Tenant
+) -> AcceptedJobResponse:
+    job_id = await queue_purchase_return_debit_note_pdf(session, tenant, return_id)
+    return AcceptedJobResponse.create(
+        job_id=job_id,
+        status_url=reports_service.job_status_url(job_id),
+        message="Vendor debit note PDF queued",
+    )
+
+
+@router.post(
     "/purchase-returns/{return_id}/post",
     response_model=ApiResponse[PurchaseReturnPostResult],
     summary="Post a purchase return: move the stock back out",
     description=(
         "Writes one PURCHASE_RETURN movement per line against the same batch the goods came in "
-        "on, and updates the receipt and order lines it reverses."
+        "on, updates the receipt and order lines it reverses, and posts the vendor debit and "
+        "input-tax reversal in the same transaction."
     ),
     dependencies=[require_permission(Permission.PURCHASE_RETURN_CREATE)],
 )

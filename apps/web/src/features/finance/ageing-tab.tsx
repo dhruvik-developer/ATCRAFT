@@ -447,87 +447,81 @@ export function AgeingTab() {
                 : 'Nothing is outstanding for these filters in this denomination.'}
             </p>
           ) : (
-            <>
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 16 }}>
-                  <CartesianGrid horizontal={false} stroke="hsl(var(--border))" />
-                  <XAxis
-                    type="number"
-                    tick={AXIS_TICK}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(value: number) =>
-                      formatMoney(value, { compact: true, currency: blockCurrency || undefined })
-                    }
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={chartData} layout="vertical" margin={{ left: 8, right: 16 }}>
+                <CartesianGrid horizontal={false} stroke="hsl(var(--border))" />
+                <XAxis
+                  type="number"
+                  tick={AXIS_TICK}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(value: number) =>
+                    formatMoney(value, { compact: true, currency: blockCurrency || undefined })
+                  }
+                />
+                <YAxis
+                  type="category"
+                  dataKey="party"
+                  width={120}
+                  tick={AXIS_TICK}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <Tooltip
+                  cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }}
+                  contentStyle={{
+                    background: 'hsl(var(--popover))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: 'var(--radius)',
+                    fontSize: 12,
+                    color: 'hsl(var(--popover-foreground))',
+                  }}
+                  formatter={(value) =>
+                    formatMoney(value as number, { currency: blockCurrency || undefined })
+                  }
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                {BUCKETS.map((bucket) => (
+                  <Bar
+                    key={bucket.key}
+                    dataKey={bucket.key}
+                    name={bucket.label}
+                    stackId="ageing"
+                    fill={bucket.fill}
+                    fillOpacity={bucket.fillOpacity}
                   />
-                  <YAxis
-                    type="category"
-                    dataKey="party"
-                    width={120}
-                    tick={AXIS_TICK}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <Tooltip
-                    cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }}
-                    contentStyle={{
-                      background: 'hsl(var(--popover))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: 'var(--radius)',
-                      fontSize: 12,
-                      color: 'hsl(var(--popover-foreground))',
-                    }}
-                    formatter={(value) =>
-                      formatMoney(value as number, { currency: blockCurrency || undefined })
-                    }
-                  />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  {BUCKETS.map((bucket) => (
-                    <Bar
-                      key={bucket.key}
-                      dataKey={bucket.key}
-                      name={bucket.label}
-                      stackId="ageing"
-                      fill={bucket.fill}
-                      fillOpacity={bucket.fillOpacity}
-                    />
-                  ))}
-                </BarChart>
-              </ResponsiveContainer>
-
-              {/* The plot is a picture; this is the same numbers in a form a
-                  screen reader can walk through. */}
-              {/* Tables retain their intrinsic column width even with the
-                  sr-only dimensions. Clip a wrapper so the accessible data
-                  cannot widen the document on a phone. */}
-              <div className="sr-only">
-                <table>
-                  <caption>Outstanding amount by party and age bucket, in {blockCurrency}</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Party</th>
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+          {report.data && (
+            <div className="sr-only">
+              <table>
+                <caption>Outstanding amount by party and age bucket, in {blockCurrency}</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Party</th>
+                    {BUCKETS.map((bucket) => (
+                      <th key={bucket.key} scope="col">
+                        {bucket.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.slice(0, CHART_ROWS).map((row) => (
+                    <tr key={`${row.party_id}-${row.currency}`}>
+                      <th scope="row">{row.party_name}</th>
                       {BUCKETS.map((bucket) => (
-                        <th key={bucket.key} scope="col">
-                          {bucket.label}
-                        </th>
+                        <td key={bucket.key}>
+                          {formatMoney(row[bucket.key], { currency: row.currency })}
+                        </td>
                       ))}
                     </tr>
-                  </thead>
-                  <tbody>
-                    {rows.slice(0, CHART_ROWS).map((row) => (
-                      <tr key={`${row.party_id}-${row.currency}`}>
-                        <th scope="row">{row.party_name}</th>
-                        {BUCKETS.map((bucket) => (
-                          <td key={bucket.key}>
-                            {formatMoney(row[bucket.key], { currency: row.currency })}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </CardContent>
       </Card>

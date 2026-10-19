@@ -47,6 +47,7 @@ from src.core.models import Base
 from src.core.pagination import PageParams, SortParams
 from src.core.permissions import Permission
 from src.modules.audit.models import AuditAction, AuditLog
+from src.modules.finance.models import LedgerAccount, LedgerEntry, PartyType, SystemAccount
 from src.modules.inventory.models import (
     InventoryBalance,
     InventoryTransaction,
@@ -54,8 +55,13 @@ from src.modules.inventory.models import (
     TransactionType,
 )
 from src.modules.organization.models import Company
-from src.modules.procurement import service
+from src.modules.procurement import (
+    purchase_return_debit_note_pdf_repository,
+    purchase_return_debit_note_pdf_service,
+    service,
+)
 from src.modules.procurement.models import (
+    GoodsReceiptLine,
     PurchaseOrderLine,
     PurchaseOrderLineStatus,
     PurchaseOrderStatus,
@@ -64,6 +70,9 @@ from src.modules.procurement.models import (
     QuotationStatus,
     ReceiptLineQcStatus,
     RequisitionStatus,
+)
+from src.modules.procurement.purchase_return_debit_note_pdf import (
+    render_purchase_return_debit_note_pdf,
 )
 from src.modules.procurement.schemas import (
     DuplicateCheckLine,
@@ -87,6 +96,8 @@ from src.modules.procurement.schemas import (
 from src.modules.products.models import Item, ItemGroup, ProductionType, UnitOfMeasure, UomCategory
 from src.modules.quality import service as quality_service
 from src.modules.quality.schemas import DecideRequest
+from src.modules.reports import service as reports_service
+from src.modules.reports.models import ReportKey, ReportSnapshot
 from src.modules.users.models import User
 from src.modules.vendors.models import Vendor, VendorType
 from src.modules.warehouses.models import Warehouse, WarehouseType
@@ -848,11 +859,186 @@ async def test_a_return_posts_a_negative_movement_against_the_receipt_line(
     # The type carries the sign; the ledger row is the decrease.
     assert movement.quantity == Decimal("-25.0000")
     assert result.purchase_return.status is PurchaseReturnStatus.POSTED
+    assert result.debit_note_journal_id is not None
+
+    journal_rows = list(
+        (
+            await db.execute(
+                select(LedgerEntry)
+                .where(LedgerEntry.journal_id == result.debit_note_journal_id)
+                .order_by(LedgerEntry.line_number)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    account_rows = (
+        await db.execute(
+            select(LedgerAccount).where(
+                LedgerAccount.id.in_({row.account_id for row in journal_rows})
+            )
+        )
+    ).scalars()
+    system_codes = {row.id: str(row.system_code) for row in account_rows}
+    by_account = {
+        system_code: (
+            sum(
+                (
+                    Decimal(row.debit_amount)
+                    for row in journal_rows
+                    if system_codes[row.account_id] == system_code
+                ),
+                Decimal("0"),
+            ),
+            sum(
+                (
+                    Decimal(row.credit_amount)
+                    for row in journal_rows
+                    if system_codes[row.account_id] == system_code
+                ),
+                Decimal("0"),
+            ),
+        )
+        for system_code in set(system_codes.values())
+    }
+    assert (
+        sum((Decimal(row.debit_amount) for row in journal_rows), Decimal("0"))
+        == purchase_return.total_amount
+    )
+    assert (
+        sum((Decimal(row.credit_amount) for row in journal_rows), Decimal("0"))
+        == purchase_return.total_amount
+    )
+    assert by_account[str(SystemAccount.ACCOUNTS_PAYABLE)] == (
+        purchase_return.total_amount,
+        Decimal("0"),
+    )
+    if purchase_return.subtotal > 0:
+        assert by_account[str(SystemAccount.PURCHASE_EXPENSE)] == (
+            Decimal("0"),
+            purchase_return.subtotal,
+        )
+    if purchase_return.tax_amount > 0:
+        assert by_account[str(SystemAccount.INPUT_TAX)] == (
+            Decimal("0"),
+            purchase_return.tax_amount,
+        )
+    payable_entry = next(
+        row
+        for row in journal_rows
+        if system_codes[row.account_id] == str(SystemAccount.ACCOUNTS_PAYABLE)
+    )
+    assert str(payable_entry.party_type) == str(PartyType.VENDOR)
+    assert payable_entry.party_id == purchase_return.vendor_id
 
     line = await reload_line(db, lines[0].id)
     assert line.returned_quantity == Decimal("25.0000")
     # What was accepted is a historical fact; the return is an offsetting event.
     assert line.accepted_quantity == Decimal("100.0000")
+
+
+async def test_posted_return_queues_a_downloadable_vendor_debit_note(
+    db, tenant, buyer, masters, monkeypatch
+):
+    order, order_lines, _ = await make_order(db, tenant, buyer, masters, quantity="100")
+    await send_order(db, tenant, buyer, order)
+    _, posted = await receive(db, tenant, buyer, order, order_lines[0], received="100")
+    purchase_return, _ = await service.create_purchase_return(
+        db,
+        tenant,
+        PurchaseReturnCreate(
+            goods_receipt_id=posted.receipt.id,
+            reason="Defective finish & wrong size",
+            debit_note_number="DN/2026/17",
+            lines=[
+                PurchaseReturnLineIn(
+                    line_number=1,
+                    goods_receipt_line_id=posted.receipt.lines[0].id,
+                    quantity=Decimal("25"),
+                )
+            ],
+        ),
+    )
+    await service.post_purchase_return(db, tenant, buyer, purchase_return.id)
+
+    pdf_data = await purchase_return_debit_note_pdf_repository.purchase_return_debit_note_pdf_data(
+        db, tenant, purchase_return.id
+    )
+    assert pdf_data["vendor"]["name"] == masters["vendor"].name
+    assert pdf_data["goods_receipt_code"] == posted.receipt.code
+    assert pdf_data["debit_note_number"] == "DN/2026/17"
+    assert pdf_data["lines"][0]["item_code"] == masters["item"].code
+    assert render_purchase_return_debit_note_pdf(pdf_data).startswith(b"%PDF-")
+
+    dispatched: list[dict[str, object]] = []
+
+    async def capture_dispatch(*_args, **kwargs):
+        dispatched.append(kwargs)
+        return "task-id"
+
+    monkeypatch.setattr(reports_service, "dispatch_job", capture_dispatch)
+    job_id = await purchase_return_debit_note_pdf_service.queue_purchase_return_debit_note_pdf(
+        db, tenant, purchase_return.id
+    )
+    job = await db.get(ReportSnapshot, uuid.UUID(job_id))
+    assert job is not None
+    assert job.report_key is ReportKey.PURCHASE_RETURN_DEBIT_NOTE
+    assert job.parameters == {"purchase_return_id": str(purchase_return.id)}
+    assert dispatched[0]["task_name"] == "reports.generate_purchase_return_debit_note"
+
+
+async def test_a_failed_finance_post_rolls_back_the_stock_return(
+    db, tenant, buyer, masters, monkeypatch
+):
+    order, order_lines, _ = await make_order(db, tenant, buyer, masters, quantity="100")
+    await send_order(db, tenant, buyer, order)
+    _, posted = await receive(db, tenant, buyer, order, order_lines[0], received="100")
+    receipt_line_id = posted.receipt.lines[0].id
+    order_line_id = order_lines[0].id
+    purchase_return, _ = await service.create_purchase_return(
+        db,
+        tenant,
+        PurchaseReturnCreate(
+            goods_receipt_id=posted.receipt.id,
+            reason="Return awaiting vendor credit",
+            lines=[
+                PurchaseReturnLineIn(
+                    line_number=1, goods_receipt_line_id=receipt_line_id, quantity=Decimal("25")
+                )
+            ],
+        ),
+    )
+    return_id = purchase_return.id
+
+    from src.modules.finance import service as finance_service
+
+    async def fail_finance_post(*args, **kwargs):
+        raise BusinessRuleError("Finance posting refused")
+
+    monkeypatch.setattr(finance_service, "post_purchase_return_debit_note", fail_finance_post)
+    with pytest.raises(BusinessRuleError, match="Finance posting refused"):
+        await service.post_purchase_return(db, tenant, buyer, return_id)
+
+    detail = await service.get_purchase_return_detail(db, tenant, return_id)
+    assert detail.status is PurchaseReturnStatus.DRAFT
+    receipt_returned = await db.scalar(
+        select(GoodsReceiptLine.returned_quantity).where(GoodsReceiptLine.id == receipt_line_id)
+    )
+    order_returned = await db.scalar(
+        select(PurchaseOrderLine.returned_quantity).where(PurchaseOrderLine.id == order_line_id)
+    )
+    assert receipt_returned == Decimal("0.0000")
+    assert order_returned == Decimal("0.0000")
+    balance = await balance_of(db, tenant, masters["item"].id, masters["warehouse"].id)
+    assert balance.on_hand_quantity == Decimal("100.0000")
+    assert (
+        await db.execute(
+            select(InventoryTransaction).where(
+                InventoryTransaction.reference_type == "purchase_return",
+                InventoryTransaction.reference_id == return_id,
+            )
+        )
+    ).scalars().all() == []
 
 
 async def test_a_return_cannot_exceed_what_the_receipt_accepted(db, tenant, buyer, masters):

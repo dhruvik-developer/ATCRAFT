@@ -74,7 +74,7 @@ from decimal import Decimal
 from functools import partial
 from typing import Any
 
-from sqlalchemy import Select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
@@ -126,6 +126,7 @@ from src.modules.finance.models import (
     PaymentMethod,
     PaymentStatus,
     PaymentType,
+    PurchaseReturnDebitAllocation,
     SystemAccount,
     VendorInvoice,
     VendorInvoiceLine,
@@ -193,6 +194,9 @@ from src.modules.finance.schemas import (
     PaymentFilters,
     PaymentSummary,
     PaymentUpdate,
+    PurchaseReturnDebitAllocationRead,
+    PurchaseReturnDebitAllocationRequest,
+    PurchaseReturnDebitAllocationResult,
     StatementFilters,
     ValuationFilters,
     VendorInvoiceCreate,
@@ -224,6 +228,7 @@ AUDIT_PAYMENT = "payment"
 #: holds a type and an id rather than a foreign key.
 REFERENCE_VENDOR_INVOICE = "vendor_invoice"
 REFERENCE_PAYMENT = "payment"
+REFERENCE_PURCHASE_RETURN = "purchase_return"
 #: The excess-loss recovery posted beside a job-work invoice: Dr AP against the
 #: vendor, Cr JOB_WORK_EXPENSE. Its own reference type so cancelling the invoice
 #: finds exactly the two journals it posted - the bill and its recovery - and
@@ -1117,24 +1122,25 @@ def invoice_status_after_payment(
     total_amount: Decimal,
     paid_amount: Decimal,
     recovered_amount: Decimal = ZERO,
+    debit_allocated_amount: Decimal = ZERO,
 ) -> VendorInvoiceStatus:
-    """Where an invoice sits once its paid total changes.
+    """Where an invoice sits once its payment or vendor-credit settlement changes.
 
     Derived from the money rather than set independently, so an invoice can
     never claim to be PAID while it still owes something. "What is owed" is
     net of the excess-loss recovery posted beside a job-work invoice: the
-    recovery already reduced the payable in the ledger, so paying the gross
-    total would overpay the vendor by exactly the recovery
-    (docs/assumptions.md §B3-2). A disputed invoice keeps its status:
-    settling part of a disputed bill does not end the dispute.
+    recovery already reduced the payable in the ledger, and posted purchase
+    returns can settle the remainder without another cash payment. A disputed
+    invoice keeps its status: settling part of a disputed bill does not end the
+    dispute.
     """
     if current in (VendorInvoiceStatus.DISPUTED, VendorInvoiceStatus.CANCELLED):
         return current
-    paid = to_money(paid_amount)
+    settled = to_money(paid_amount) + to_money(debit_allocated_amount)
     net = to_money(to_money(total_amount) - to_money(recovered_amount))
-    if paid >= net and net > ZERO:
+    if settled >= net and net > ZERO:
         return VendorInvoiceStatus.PAID
-    if paid > ZERO:
+    if settled > ZERO:
         return VendorInvoiceStatus.PARTIALLY_PAID
     return VendorInvoiceStatus.APPROVED
 
@@ -1789,8 +1795,12 @@ def invoice_summary(invoice: VendorInvoice) -> VendorInvoiceSummary:
         tax_amount=invoice.tax_amount,
         total_amount=invoice.total_amount,
         paid_amount=invoice.paid_amount,
+        debit_allocated_amount=invoice.debit_allocated_amount,
         outstanding_amount=to_money(
-            invoice.total_amount - invoice.recovered_amount - invoice.paid_amount
+            invoice.total_amount
+            - invoice.recovered_amount
+            - invoice.paid_amount
+            - invoice.debit_allocated_amount
         ),
         purchase_order_id=invoice.purchase_order_id,
         goods_receipt_id=invoice.goods_receipt_id,
@@ -2718,7 +2728,8 @@ async def _match(
             invoice.goods_receipt_id
         )
         accepted_by_order_line = {
-            order_line_id: facts.accepted_quantity for order_line_id, facts in receipt_lines.items()
+            order_line_id: facts.net_accepted_quantity
+            for order_line_id, facts in receipt_lines.items()
         }
     elif invoice.purchase_order_id is not None:
         # Which basis was used is worth knowing when a variance is later
@@ -2884,7 +2895,7 @@ def _accepted_quantity(
     if accepted_by_order_line:
         return accepted_by_order_line.get(line_id)
     facts = order_lines.get(line_id)
-    return facts.accepted_quantity if facts is not None else None
+    return facts.net_accepted_quantity if facts is not None else None
 
 
 async def _run_and_store_match(
@@ -3124,6 +3135,83 @@ async def _post_invoice_journal(
     return posted
 
 
+async def post_purchase_return_debit_note(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    purchase_return_id: uuid.UUID,
+    code: str,
+    vendor_id: uuid.UUID,
+    entry_date: date,
+    currency: str,
+    subtotal: Decimal,
+    tax_amount: Decimal,
+    total_amount: Decimal,
+) -> uuid.UUID | None:
+    """Post the vendor debit and input-tax reversal with the stock return.
+
+    The posted return is the source document; its code and id are the journal
+    reference. Procurement does not currently carry cost centres on its order
+    lines, so the purchase-expense credit remains unallocated.
+    """
+    subtotal = to_money(subtotal)
+    tax_amount = to_money(tax_amount)
+    total_amount = to_money(total_amount)
+    if subtotal < ZERO or tax_amount < ZERO or total_amount < ZERO:
+        raise BusinessRuleError(f"Purchase return {code} cannot post a negative debit note.")
+    if subtotal + tax_amount != total_amount:
+        raise BusinessRuleError(
+            f"Purchase return {code} totals do not reconcile to its taxable value and tax.",
+            details={
+                "subtotal": str(subtotal),
+                "tax_amount": str(tax_amount),
+                "total_amount": str(total_amount),
+            },
+        )
+    if total_amount == ZERO:
+        return None
+
+    accounts = await ensure_system_accounts(session, tenant)
+    journal_lines: list[JournalLine] = []
+    if subtotal > ZERO:
+        journal_lines.append(
+            JournalLine(
+                account_id=accounts[str(SystemAccount.PURCHASE_EXPENSE)].id,
+                credit=subtotal,
+                narration=f"Purchase return {code}",
+            )
+        )
+    if tax_amount > ZERO:
+        journal_lines.append(
+            JournalLine(
+                account_id=accounts[str(SystemAccount.INPUT_TAX)].id,
+                credit=tax_amount,
+                narration=f"Input GST reversed on purchase return {code}",
+            )
+        )
+    journal_lines.append(
+        JournalLine(
+            account_id=accounts[str(SystemAccount.ACCOUNTS_PAYABLE)].id,
+            debit=total_amount,
+            party_type=PartyType.VENDOR,
+            party_id=vendor_id,
+            narration=f"Vendor debit for purchase return {code}",
+        )
+    )
+    entries = await post_journal(
+        session,
+        tenant,
+        journal_lines,
+        entry_date=entry_date,
+        reference_type=REFERENCE_PURCHASE_RETURN,
+        reference_id=purchase_return_id,
+        reference_code=code,
+        narration=f"Vendor debit note for purchase return {code}",
+        currency=currency,
+    )
+    return entries[0].journal_id
+
+
 async def _post_job_work_billing(
     session: AsyncSession,
     tenant: TenantContext,
@@ -3312,11 +3400,14 @@ async def cancel_invoice(
         invoice = await repo.lock_for_update(invoice_id)
         if invoice is None:
             raise NotFoundError("Vendor invoice", invoice_id)
-        if to_money(invoice.paid_amount) > ZERO:
+        if to_money(invoice.paid_amount) > ZERO or to_money(invoice.debit_allocated_amount) > ZERO:
             raise BusinessRuleError(
-                f"{invoice.code} has {invoice.paid_amount} allocated against it and cannot be "
-                "cancelled. Reverse the allocation first.",
-                details={"paid_amount": str(invoice.paid_amount)},
+                f"{invoice.code} has payment or vendor debit allocations and cannot be "
+                "cancelled. Reverse or remove the allocations first.",
+                details={
+                    "paid_amount": str(invoice.paid_amount),
+                    "debit_allocated_amount": str(invoice.debit_allocated_amount),
+                },
             )
         invoice.cancellation_reason = reason
         repo.touch(invoice)
@@ -4024,7 +4115,12 @@ async def allocate_payment(
             # about to stop counting against the invoice's outstanding.
             already = existing_amounts.get(invoice_id, ZERO)
             outstanding = (
-                to_money(invoice.total_amount - invoice.recovered_amount - invoice.paid_amount)
+                to_money(
+                    invoice.total_amount
+                    - invoice.recovered_amount
+                    - invoice.paid_amount
+                    - invoice.debit_allocated_amount
+                )
                 + already
             )
             if amount > outstanding:
@@ -4193,6 +4289,7 @@ async def _apply_allocation_plan(
             total_amount=invoice.total_amount,
             paid_amount=invoice.paid_amount,
             recovered_amount=invoice.recovered_amount,
+            debit_allocated_amount=invoice.debit_allocated_amount,
         )
         await _transition_invoice(
             session,
@@ -4202,6 +4299,286 @@ async def _apply_allocation_plan(
             reason=f"Allocation from {payment.code}",
             action=AuditAction.PAYMENT,
         )
+
+
+async def allocate_purchase_return_debit(
+    session: AsyncSession,
+    tenant: TenantContext,
+    principal: Principal,
+    purchase_return_id: uuid.UUID,
+    payload: PurchaseReturnDebitAllocationRequest,
+) -> PurchaseReturnDebitAllocationResult:
+    """Apply a posted vendor debit note to approved invoices of that vendor."""
+    from src.modules.procurement.models import PurchaseReturn, PurchaseReturnStatus
+
+    async with transaction(session):
+        return_stmt = (
+            select(PurchaseReturn)
+            .where(
+                PurchaseReturn.company_id == tenant.company_id,
+                PurchaseReturn.id == purchase_return_id,
+            )
+            .with_for_update()
+        )
+        purchase_return = (await session.execute(return_stmt)).scalar_one_or_none()
+        if purchase_return is None:
+            raise NotFoundError("Purchase return", purchase_return_id)
+        if PurchaseReturnStatus(purchase_return.status) is not PurchaseReturnStatus.POSTED:
+            raise BusinessRuleError(
+                f"{purchase_return.code} is {purchase_return.status}; only a posted return "
+                "can settle vendor invoices.",
+                details={"status": str(purchase_return.status)},
+            )
+        if to_money(purchase_return.total_amount) <= ZERO:
+            raise BusinessRuleError(f"{purchase_return.code} has no debit-note value to allocate.")
+        debit_entries = await LedgerEntryRepository(session, tenant).entries_for_reference(
+            REFERENCE_PURCHASE_RETURN, purchase_return.id
+        )
+        if not any(not entry.is_reversal for entry in debit_entries):
+            raise BusinessRuleError(
+                f"{purchase_return.code} has no posted vendor debit journal to allocate."
+            )
+
+        allocation_stmt = (
+            select(PurchaseReturnDebitAllocation)
+            .where(
+                PurchaseReturnDebitAllocation.company_id == tenant.company_id,
+                PurchaseReturnDebitAllocation.purchase_return_id == purchase_return.id,
+            )
+            .order_by(
+                PurchaseReturnDebitAllocation.created_at.asc(),
+                PurchaseReturnDebitAllocation.id.asc(),
+            )
+        )
+        existing_rows = list((await session.execute(allocation_stmt)).scalars().all())
+        existing_by_invoice = {row.vendor_invoice_id: row for row in existing_rows}
+        existing_amounts = {
+            invoice_id: to_money(row.amount) for invoice_id, row in existing_by_invoice.items()
+        }
+        requested = {row.vendor_invoice_id: to_money(row.amount) for row in payload.allocations}
+        requested_notes = {row.vendor_invoice_id: row.notes for row in payload.allocations}
+        plan = plan_allocation(
+            existing=existing_amounts,
+            requested=requested,
+            replace=payload.replace,
+        )
+        if plan.total > to_money(purchase_return.total_amount):
+            raise BusinessRuleError(
+                f"{purchase_return.code} is worth {purchase_return.total_amount}; "
+                f"{plan.total} cannot be allocated from it.",
+                details={
+                    "return_total": str(purchase_return.total_amount),
+                    "requested_allocation": str(plan.total),
+                },
+            )
+
+        affected_ids = set(plan.final) | set(plan.removed)
+        invoice_stmt = (
+            select(VendorInvoice)
+            .where(
+                VendorInvoice.company_id == tenant.company_id,
+                VendorInvoice.id.in_(affected_ids),
+            )
+            .order_by(VendorInvoice.id.asc())
+            .with_for_update()
+        )
+        invoices = {
+            invoice.id: invoice for invoice in (await session.execute(invoice_stmt)).scalars().all()
+        }
+        missing = affected_ids - set(invoices)
+        if missing:
+            raise NotFoundError("Vendor invoice", ", ".join(sorted(map(str, missing))))
+
+        for invoice_id, amount in plan.added.items():
+            invoice = invoices[invoice_id]
+            if invoice.vendor_id != purchase_return.vendor_id:
+                raise BusinessRuleError(
+                    f"{invoice.code} belongs to a different vendor from {purchase_return.code}.",
+                    details={"invoice_code": invoice.code},
+                )
+            if invoice.currency != purchase_return.currency:
+                raise BusinessRuleError(
+                    f"{invoice.code} is billed in {invoice.currency}, but "
+                    f"{purchase_return.code} is in {purchase_return.currency}.",
+                    details={
+                        "invoice_currency": invoice.currency,
+                        "return_currency": purchase_return.currency,
+                    },
+                )
+            status = VendorInvoiceStatus(invoice.status)
+            if status not in PAYABLE_INVOICE_STATUSES and not (
+                invoice_id in existing_amounts and status is VendorInvoiceStatus.PAID
+            ):
+                raise BusinessRuleError(
+                    f"{invoice.code} is {status}; only an approved invoice can receive "
+                    "a vendor debit. A disputed invoice must be resolved first.",
+                    details={"invoice_code": invoice.code, "status": str(status)},
+                )
+            outstanding = to_money(
+                invoice.total_amount
+                - invoice.recovered_amount
+                - invoice.paid_amount
+                - invoice.debit_allocated_amount
+                + existing_amounts.get(invoice_id, ZERO)
+            )
+            if amount > outstanding:
+                raise BusinessRuleError(
+                    f"{invoice.code} owes {outstanding}; {amount} cannot be allocated to it.",
+                    details={
+                        "invoice_code": invoice.code,
+                        "outstanding_amount": str(outstanding),
+                        "requested_amount": str(amount),
+                    },
+                )
+
+        for invoice_id in sorted(affected_ids, key=str):
+            invoice = invoices[invoice_id]
+            previous = existing_amounts.get(invoice_id, ZERO)
+            current = plan.final.get(invoice_id, ZERO)
+            invoice.debit_allocated_amount = to_money(
+                invoice.debit_allocated_amount - previous + current
+            )
+
+        for invoice_id, row in existing_by_invoice.items():
+            if invoice_id not in plan.final:
+                await session.delete(row)
+            else:
+                row.amount = plan.final[invoice_id]
+                row.notes = requested_notes.get(invoice_id, row.notes)
+
+        for invoice_id in plan.final.keys() - existing_by_invoice.keys():
+            row = PurchaseReturnDebitAllocation(
+                company_id=tenant.company_id,
+                created_by_id=principal.user_id,
+                updated_by_id=principal.user_id,
+                purchase_return_id=purchase_return.id,
+                vendor_invoice_id=invoice_id,
+                amount=plan.final[invoice_id],
+                notes=requested_notes.get(invoice_id),
+            )
+            session.add(row)
+            existing_by_invoice[invoice_id] = row
+
+        await session.flush()
+        for invoice_id in sorted(affected_ids, key=str):
+            invoice = invoices[invoice_id]
+            target = invoice_status_after_payment(
+                VendorInvoiceStatus(invoice.status),
+                total_amount=invoice.total_amount,
+                paid_amount=invoice.paid_amount,
+                recovered_amount=invoice.recovered_amount,
+                debit_allocated_amount=invoice.debit_allocated_amount,
+            )
+            await _transition_invoice(
+                session,
+                tenant,
+                invoice,
+                target,
+                reason=f"Purchase return {purchase_return.code} debit allocation",
+                action=AuditAction.PAYMENT,
+            )
+
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.PAYMENT,
+            entity_type="purchase_return_debit_allocation",
+            entity_id=purchase_return.id,
+            entity_code=purchase_return.code,
+            summary=(
+                f"Allocated {plan.total} of {purchase_return.code} across "
+                f"{len(plan.final)} vendor invoice(s)"
+            ),
+            user_id=tenant.user_id,
+            old_values={
+                "allocations": {
+                    str(invoice_id): str(amount) for invoice_id, amount in existing_amounts.items()
+                }
+            },
+            new_values={
+                "allocations": {
+                    str(invoice_id): str(amount) for invoice_id, amount in plan.final.items()
+                }
+            },
+            context={"replace": payload.replace},
+        )
+
+        results = [
+            PurchaseReturnDebitAllocationRead(
+                id=existing_by_invoice[invoice_id].id,
+                vendor_invoice_id=invoice_id,
+                invoice_code=invoices[invoice_id].code,
+                vendor_invoice_number=invoices[invoice_id].vendor_invoice_number,
+                amount=amount,
+                notes=existing_by_invoice[invoice_id].notes,
+            )
+            for invoice_id, amount in sorted(plan.final.items(), key=lambda item: str(item[0]))
+        ]
+        return PurchaseReturnDebitAllocationResult(
+            purchase_return_id=purchase_return.id,
+            total_amount=to_money(purchase_return.total_amount),
+            allocated_amount=plan.total,
+            unallocated_amount=to_money(purchase_return.total_amount - plan.total),
+            allocations=results,
+        )
+
+
+async def get_purchase_return_debit_allocations(
+    session: AsyncSession,
+    tenant: TenantContext,
+    purchase_return_id: uuid.UUID,
+) -> PurchaseReturnDebitAllocationResult:
+    from src.modules.procurement.models import PurchaseReturn
+
+    return_stmt = select(PurchaseReturn).where(
+        PurchaseReturn.company_id == tenant.company_id,
+        PurchaseReturn.id == purchase_return_id,
+    )
+    purchase_return = (await session.execute(return_stmt)).scalar_one_or_none()
+    if purchase_return is None:
+        raise NotFoundError("Purchase return", purchase_return_id)
+
+    stmt = (
+        select(
+            PurchaseReturnDebitAllocation,
+            VendorInvoice.code,
+            VendorInvoice.vendor_invoice_number,
+        )
+        .join(
+            VendorInvoice,
+            (VendorInvoice.id == PurchaseReturnDebitAllocation.vendor_invoice_id)
+            & (VendorInvoice.company_id == PurchaseReturnDebitAllocation.company_id),
+        )
+        .where(
+            PurchaseReturnDebitAllocation.company_id == tenant.company_id,
+            PurchaseReturnDebitAllocation.purchase_return_id == purchase_return.id,
+        )
+        .order_by(
+            PurchaseReturnDebitAllocation.created_at.asc(),
+            PurchaseReturnDebitAllocation.id.asc(),
+        )
+    )
+    rows = (await session.execute(stmt)).all()
+    allocations = [
+        PurchaseReturnDebitAllocationRead(
+            id=allocation.id,
+            vendor_invoice_id=allocation.vendor_invoice_id,
+            invoice_code=invoice_code,
+            vendor_invoice_number=invoice_number,
+            amount=allocation.amount,
+            notes=allocation.notes,
+        )
+        for allocation, invoice_code, invoice_number in rows
+    ]
+    allocated = to_money(sum((row.amount for row in allocations), start=ZERO))
+    total = to_money(purchase_return.total_amount)
+    return PurchaseReturnDebitAllocationResult(
+        purchase_return_id=purchase_return.id,
+        total_amount=total,
+        allocated_amount=allocated,
+        unallocated_amount=to_money(total - allocated),
+        allocations=allocations,
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -4958,6 +5335,7 @@ __all__ = [
     "REFERENCE_CUSTOMER_ADJUSTMENT",
     "REFERENCE_JOB_WORK_RECOVERY",
     "REFERENCE_PAYMENT",
+    "REFERENCE_PURCHASE_RETURN",
     "REFERENCE_VENDOR_INVOICE",
     "VALUATION_QUEUE",
     "VALUATION_TASK_NAME",
@@ -5014,6 +5392,7 @@ __all__ = [
     "plan_allocation",
     "post_customer_adjustment",
     "post_journal",
+    "post_purchase_return_debit_note",
     "price_invoice_line",
     "primary_report_currency",
     "queue_inventory_valuation",

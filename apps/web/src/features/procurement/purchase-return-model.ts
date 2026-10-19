@@ -57,6 +57,7 @@ export const purchaseReturnKeys = {
   list: (params: unknown) =>
     [...queryKeys.procurement.all, 'purchase-returns', 'list', params] as const,
   detail: (id: string) => [...queryKeys.procurement.all, 'purchase-returns', 'detail', id] as const,
+  debitAllocations: (id: string) => ['finance', 'purchase-return-debit-allocations', id] as const,
 }
 
 /**
@@ -75,6 +76,7 @@ export const goodsReceiptDetailKey = (id: string) =>
 // ------------------------------------------------------------ vocabulary ----
 
 export type PurchaseReturnStatus = SchemaOf<'PurchaseReturnStatus'>
+export type PurchaseReturnDebitAllocationResult = SchemaOf<'PurchaseReturnDebitAllocationResult'>
 
 /**
  * The same vocabulary as a list, for the filter that offers it.

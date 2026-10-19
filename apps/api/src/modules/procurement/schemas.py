@@ -1405,6 +1405,7 @@ class PurchaseReturnFilters(BaseModel):
 
 class PurchaseReturnPostResult(BaseModel):
     purchase_return: PurchaseReturnDetail
+    debit_note_journal_id: uuid.UUID | None
     movements: list[PostedMovement]
 
 

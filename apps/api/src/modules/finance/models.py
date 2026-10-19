@@ -625,6 +625,11 @@ class VendorInvoice(TenantEntity, OptimisticLockMixin):
     recovered_amount: Mapped[Decimal] = mapped_column(
         Money, nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: Vendor credits applied from posted purchase returns; kept distinct from
+    #: cash paid so payment-ledger totals remain reconcilable.
+    debit_allocated_amount: Mapped[Decimal] = mapped_column(
+        Money, nullable=False, default=Decimal("0"), server_default="0"
+    )
 
     status: Mapped[VendorInvoiceStatus] = mapped_column(
         String(24),
@@ -706,6 +711,7 @@ class VendorInvoice(TenantEntity, OptimisticLockMixin):
         CheckConstraint("total_amount >= 0", name="total_non_negative"),
         CheckConstraint("paid_amount >= 0", name="paid_non_negative"),
         CheckConstraint("recovered_amount >= 0", name="recovered_non_negative"),
+        CheckConstraint("debit_allocated_amount >= 0", name="debit_allocated_non_negative"),
         # The header identity. A total that is not its own parts is an invoice
         # nobody can reconcile against the vendor's document.
         CheckConstraint(
@@ -1366,6 +1372,44 @@ class PaymentAllocation(TenantEntity):
     )
 
 
+class PurchaseReturnDebitAllocation(TenantEntity):
+    """Apply a posted purchase-return debit to one vendor invoice."""
+
+    __tablename__ = "purchase_return_debit_allocations"
+
+    purchase_return_id: Mapped[uuid.UUID] = mapped_column(
+        GUID,
+        ForeignKey(
+            "purchase_returns.id", name="fk_pr_debit_allocations_return_id", ondelete="RESTRICT"
+        ),
+        nullable=False,
+    )
+    vendor_invoice_id: Mapped[uuid.UUID] = mapped_column(
+        GUID,
+        ForeignKey(
+            "vendor_invoices.id", name="fk_pr_debit_allocations_invoice_id", ondelete="RESTRICT"
+        ),
+        nullable=False,
+    )
+    amount: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "company_id",
+            "purchase_return_id",
+            "vendor_invoice_id",
+            name="uq_return_debit_allocations_target",
+        ),
+        Index(
+            "ix_purchase_return_debit_allocations_invoice",
+            "company_id",
+            "vendor_invoice_id",
+        ),
+        CheckConstraint("amount > 0", name="amount_positive"),
+    )
+
+
 __all__ = [
     "AGEING_BUCKET_BOUNDARIES",
     "AGEING_BUCKET_LABELS",
@@ -1401,6 +1445,7 @@ __all__ = [
     "PaymentMethod",
     "PaymentStatus",
     "PaymentType",
+    "PurchaseReturnDebitAllocation",
     "SalesInvoice",
     "SalesInvoiceLine",
     "SalesInvoiceStatus",

@@ -84,7 +84,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, and_, case, func, literal, select
+from sqlalchemy import Select, and_, case, func, literal, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute, aliased
 
@@ -106,6 +106,9 @@ from src.modules.finance.models import (
     AGEING_BUCKET_BOUNDARIES,
     INPUT_TAX_STATUSES,
     OPEN_INVOICE_STATUSES,
+    CreditNote,
+    CreditNoteLine,
+    CreditNoteStatus,
     LedgerAccount,
     LedgerAccountType,
     LedgerEntry,
@@ -208,6 +211,11 @@ class PurchaseOrderLineFacts:
     tax_rate: Decimal
     received_quantity: Decimal
     accepted_quantity: Decimal
+    returned_quantity: Decimal
+
+    @property
+    def net_accepted_quantity(self) -> Decimal:
+        return self.accepted_quantity - self.returned_quantity
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,7 +229,7 @@ class GoodsReceiptFacts:
 
 @dataclass(frozen=True, slots=True)
 class GoodsReceiptLineFacts:
-    """The receipt half of the three-way match: what was physically taken in."""
+    """The receipt half of the three-way match, net of sent-back goods."""
 
     id: uuid.UUID
     goods_receipt_id: uuid.UUID
@@ -229,7 +237,12 @@ class GoodsReceiptLineFacts:
     item_id: uuid.UUID
     received_quantity: Decimal
     accepted_quantity: Decimal
+    returned_quantity: Decimal
     unit_cost: Decimal
+
+    @property
+    def net_accepted_quantity(self) -> Decimal:
+        return self.accepted_quantity - self.returned_quantity
 
 
 @dataclass(frozen=True, slots=True)
@@ -813,15 +826,19 @@ class LedgerEntryRepository(BaseRepository[LedgerEntry]):
 
 
 def _outstanding() -> Any:
-    """What an invoice still owes, net of any excess-loss recovery.
+    """What an invoice still owes after recoveries, payments and debit notes.
 
-    Written once so no query invents its own. The recovery posted beside a
-    job-work invoice already reduced the payable in the ledger, so the gross
-    figure would overstate the debt by exactly the recovery - on the
-    outstanding list, in the payables ageing, and in the open-invoice filter
-    (docs/assumptions.md §B3-2).
+    Written once so no query invents its own. A job-work recovery and an
+    allocated purchase-return debit already reduced the payable, so the gross
+    figure would overstate it on the outstanding list, in ageing, and in the
+    open-invoice filter.
     """
-    return VendorInvoice.total_amount - VendorInvoice.recovered_amount - VendorInvoice.paid_amount
+    return (
+        VendorInvoice.total_amount
+        - VendorInvoice.recovered_amount
+        - VendorInvoice.paid_amount
+        - VendorInvoice.debit_allocated_amount
+    )
 
 
 def _bucket_columns(due_column: Any, amount_column: Any, as_of: date) -> list[Any]:
@@ -1520,6 +1537,7 @@ class PurchaseOrderLineLookupRepository(BaseRepository[PurchaseOrderLine]):
             PurchaseOrderLine.tax_rate,
             PurchaseOrderLine.received_quantity,
             PurchaseOrderLine.accepted_quantity,
+            PurchaseOrderLine.returned_quantity,
         ).where(
             PurchaseOrderLine.company_id == self.tenant.company_id,
             PurchaseOrderLine.id.in_(set(line_ids)),
@@ -1536,6 +1554,7 @@ class PurchaseOrderLineLookupRepository(BaseRepository[PurchaseOrderLine]):
                 tax_rate=Decimal(row.tax_rate),
                 received_quantity=Decimal(row.received_quantity),
                 accepted_quantity=Decimal(row.accepted_quantity),
+                returned_quantity=Decimal(row.returned_quantity),
             )
             for row in (await self.session.execute(stmt)).all()
         }
@@ -1596,6 +1615,7 @@ class GoodsReceiptLineLookupRepository(BaseRepository[GoodsReceiptLine]):
             GoodsReceiptLine.item_id,
             GoodsReceiptLine.received_quantity,
             GoodsReceiptLine.accepted_quantity,
+            GoodsReceiptLine.returned_quantity,
             GoodsReceiptLine.unit_cost,
         ).where(GoodsReceiptLine.company_id == self.tenant.company_id, *conditions)
         return {
@@ -1606,6 +1626,7 @@ class GoodsReceiptLineLookupRepository(BaseRepository[GoodsReceiptLine]):
                 item_id=row.item_id,
                 received_quantity=Decimal(row.received_quantity),
                 accepted_quantity=Decimal(row.accepted_quantity),
+                returned_quantity=Decimal(row.returned_quantity),
                 unit_cost=Decimal(row.unit_cost),
             )
             for row in (await self.session.execute(stmt)).all()
@@ -1933,7 +1954,7 @@ class GstRepository(BaseRepository[VendorInvoiceLine]):
     model = VendorInvoiceLine
 
     def output_rows_stmt(self, *, date_from: date, date_to: date) -> Select[Any]:
-        return (
+        invoice_rows = (
             select(
                 SalesInvoiceLine.hsn_code.label("hsn_code"),
                 SalesInvoiceLine.tax_rate.label("tax_rate"),
@@ -1957,7 +1978,45 @@ class GstRepository(BaseRepository[VendorInvoiceLine]):
                 SalesInvoice.invoice_date <= date_to,
             )
             .group_by(SalesInvoiceLine.hsn_code, SalesInvoiceLine.tax_rate)
-            .order_by(SalesInvoiceLine.tax_rate, SalesInvoiceLine.hsn_code)
+        )
+        credit_rows = (
+            select(
+                CreditNoteLine.hsn_code.label("hsn_code"),
+                CreditNoteLine.tax_rate.label("tax_rate"),
+                (-func.sum(CreditNoteLine.taxable_amount)).label("taxable_amount"),
+                (-func.sum(CreditNoteLine.cgst_amount)).label("cgst_amount"),
+                (-func.sum(CreditNoteLine.sgst_amount)).label("sgst_amount"),
+                (-func.sum(CreditNoteLine.igst_amount)).label("igst_amount"),
+                func.count(func.distinct(CreditNote.id)).label("document_count"),
+            )
+            .join(
+                CreditNote,
+                and_(
+                    CreditNote.id == CreditNoteLine.credit_note_id,
+                    CreditNote.company_id == CreditNoteLine.company_id,
+                ),
+            )
+            .where(
+                CreditNoteLine.company_id == self.tenant.company_id,
+                CreditNote.status == CreditNoteStatus.ISSUED,
+                CreditNote.note_date >= date_from,
+                CreditNote.note_date <= date_to,
+            )
+            .group_by(CreditNoteLine.hsn_code, CreditNoteLine.tax_rate)
+        )
+        net_rows = union_all(invoice_rows, credit_rows).subquery("net_output_gst")
+        return (
+            select(
+                net_rows.c.hsn_code,
+                net_rows.c.tax_rate,
+                func.sum(net_rows.c.taxable_amount).label("taxable_amount"),
+                func.sum(net_rows.c.cgst_amount).label("cgst_amount"),
+                func.sum(net_rows.c.sgst_amount).label("sgst_amount"),
+                func.sum(net_rows.c.igst_amount).label("igst_amount"),
+                func.sum(net_rows.c.document_count).label("document_count"),
+            )
+            .group_by(net_rows.c.hsn_code, net_rows.c.tax_rate)
+            .order_by(net_rows.c.tax_rate, net_rows.c.hsn_code)
         )
 
     def dispatched_uninvoiced_rows_stmt(self, *, date_from: date, date_to: date) -> Select[Any]:

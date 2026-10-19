@@ -26,7 +26,16 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, ChevronsUpDown, ExternalLink, Loader2, PackageX, Search, Undo2 } from 'lucide-react'
+import {
+  Check,
+  ChevronsUpDown,
+  ExternalLink,
+  FileDown,
+  Loader2,
+  PackageX,
+  Search,
+  Undo2,
+} from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useFieldArray, useForm } from 'react-hook-form'
 import { Link } from 'react-router-dom'
@@ -84,6 +93,7 @@ import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { cn, indexById } from '@/lib/utils'
+import { useReportJob, type AcceptedJobData } from '@/features/reports/report-jobs'
 
 import type { GoodsReceiptDetail, GoodsReceiptRow } from './procurement-types'
 import {
@@ -101,6 +111,7 @@ import {
   type ReturnReasonPayload,
 } from './purchase-return-model'
 import { sentLineIndices } from './server-field-errors'
+import { PurchaseReturnDebitAllocation } from './purchase-return-debit-allocation'
 
 /** NUMERIC(18,4): fourteen integer digits and four decimals, or nothing typed. */
 const QUANTITY = /^$|^\d{1,14}(\.\d{1,4})?$/
@@ -766,14 +777,28 @@ export function PurchaseReturnDetailDialog({
   onClose,
   onPost,
   onCancel,
+  canAllocate = false,
 }: {
   returnId: string | null
   onClose: () => void
   /** Opens the posting confirmation. Only passed when the caller may post. */
   onPost?: (row: PurchaseReturnDetail) => void
   onCancel?: (row: PurchaseReturnDetail) => void
+  canAllocate?: boolean
 }) {
   const { can } = useAuth()
+  const job = useReportJob()
+  // A stable callback, so closing one return cannot leave the next one watching
+  // the previous debit-note job.
+  const resetJob = job.reset
+  const pdf = useMutation({
+    mutationFn: () =>
+      api.post<AcceptedJobData>(
+        `/procurement/purchase-returns/${returnId}/debit-note-pdf`,
+        undefined,
+      ),
+    onSuccess: (accepted) => job.start(accepted),
+  })
 
   const vendors = useVendorOptions(Boolean(returnId) && can(P.VENDOR_VIEW))
   const vendorById = useMemo(() => indexById(vendors.data), [vendors.data])
@@ -789,6 +814,10 @@ export function PurchaseReturnDetailDialog({
     staleTime: staleTimes.transactional,
   })
 
+  useEffect(() => {
+    resetJob()
+  }, [resetJob, returnId])
+
   const data = query.data
   const currency = data?.currency
   // `lines` is optional on the wire, exactly as it is on a goods receipt.
@@ -797,7 +826,15 @@ export function PurchaseReturnDetailDialog({
   const warehouse = data ? warehouseById.get(data.warehouse_id) : undefined
 
   return (
-    <Dialog open={Boolean(returnId)} onOpenChange={(open) => !open && onClose()}>
+    <Dialog
+      open={Boolean(returnId)}
+      onOpenChange={(open) => {
+        if (!open) {
+          job.reset()
+          onClose()
+        }
+      }}
+    >
       <DialogContent size="xl">
         <DialogHeader>
           <DialogTitle>{data ? `Purchase return ${data.code}` : 'Purchase return'}</DialogTitle>
@@ -885,6 +922,10 @@ export function PurchaseReturnDetailDialog({
                 <AlertTitle>Reason</AlertTitle>
                 <AlertDescription>{data.reason}</AlertDescription>
               </Alert>
+
+              {canAllocate && data.status === 'POSTED' && (
+                <PurchaseReturnDebitAllocation purchaseReturn={data} />
+              )}
 
               {data.cancellation_reason && (
                 <Alert variant="warning">
@@ -987,6 +1028,44 @@ export function PurchaseReturnDetailDialog({
                 ]}
               />
 
+              {data.status === 'POSTED' && toDecimal(data.total_amount).greaterThan(0) && (
+                <section className="flex flex-wrap items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => pdf.mutate()}
+                    loading={pdf.isPending || job.phase === 'queued' || job.phase === 'running'}
+                  >
+                    <FileDown />
+                    {job.phase === 'failed' ? 'Retry debit note PDF' : 'Generate debit note PDF'}
+                  </Button>
+                  {job.phase === 'ready' && (
+                    <Button variant="outline" onClick={job.download} loading={job.isDownloading}>
+                      Download debit note PDF
+                    </Button>
+                  )}
+                  {job.error && (
+                    <p role="alert" className="text-sm text-destructive">
+                      Could not check PDF status: {job.error.message}
+                    </p>
+                  )}
+                  {job.phase === 'failed' && job.job?.error_message && (
+                    <p role="alert" className="text-sm text-destructive">
+                      {job.job.error_message}
+                    </p>
+                  )}
+                  {job.error && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={job.retry}
+                      loading={job.isRetrying}
+                    >
+                      Retry status
+                    </Button>
+                  )}
+                </section>
+              )}
+
               {data.notes && (
                 <div>
                   <h3 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -1068,9 +1147,12 @@ export function PurchaseReturnPostDialog({
       // And stock actually moved, so balances and availability are dropped
       // rather than left to expire (master rules 34).
       void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
+      const financialMessage = result.debit_note_journal_id
+        ? 'The vendor debit note and input-tax reversal were posted to finance.'
+        : 'No finance journal was needed because the return has zero value.'
       toast.success(
         success.posted('Purchase return'),
-        `${result.purchase_return.code} wrote ${result.movements.length} stock movement(s). The receipt and the order now show the returned quantity.`,
+        `${result.purchase_return.code} wrote ${result.movements.length} stock movement(s). The receipt and the order now show the returned quantity. ${financialMessage}`,
       )
       onOpenChange(false)
     },
@@ -1091,7 +1173,8 @@ export function PurchaseReturnPostDialog({
             {purchaseReturn ? `Post ${purchaseReturn.code}?` : 'Post purchase return'}
           </DialogTitle>
           <DialogDescription>
-            This is the step that moves the goods. Everything before it is paperwork.
+            This moves the goods and posts the vendor debit note and input-tax reversal in the same
+            transaction. Everything before it is paperwork.
           </DialogDescription>
         </DialogHeader>
 

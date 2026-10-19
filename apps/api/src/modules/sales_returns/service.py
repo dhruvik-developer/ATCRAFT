@@ -19,8 +19,19 @@ from src.core.types import ZERO, to_quantity
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change
 from src.modules.dispatch.models import Dispatch, DispatchLine, DispatchStatus, DispatchType
-from src.modules.inventory.models import StockState, TransactionType
-from src.modules.inventory.service import MovementRequest, change_stock_state, post_movements
+from src.modules.inventory.models import (
+    InventoryTransaction,
+    SerialStatus,
+    StockSerial,
+    StockState,
+    TransactionType,
+)
+from src.modules.inventory.service import (
+    MovementRequest,
+    change_stock_state,
+    post_movements,
+    state_change_type,
+)
 from src.modules.products.models import Item
 from src.modules.quality.models import InspectionResult, QcInspection, QcStage
 from src.modules.quality.schemas import InspectionCreate
@@ -32,6 +43,7 @@ from src.modules.sales_returns.schemas import (
     SalesReturnDetail,
     SalesReturnLineRead,
     SalesReturnSummary,
+    SalesReturnUnits,
 )
 from src.modules.warehouses.models import Warehouse
 
@@ -168,6 +180,28 @@ async def create_return(
             )
         ).scalars()
     }
+    all_serial_ids = [serial_id for line in payload.lines for serial_id in line.serial_ids]
+    if len(all_serial_ids) != len(set(all_serial_ids)):
+        raise BusinessRuleError("A serial can appear only once on a sales return.")
+    serials = (
+        {
+            serial.id: serial
+            for serial in (
+                await session.execute(
+                    select(StockSerial)
+                    .where(
+                        StockSerial.company_id == tenant.company_id,
+                        StockSerial.id.in_(all_serial_ids),
+                    )
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        }
+        if all_serial_ids
+        else {}
+    )
     async with transaction(session):
         row = SalesReturn(
             company_id=tenant.company_id,
@@ -200,6 +234,10 @@ async def create_return(
                     f"Return line {dispatch_line.line_number} contains duplicate serials."
                 )
             if item.is_serial_tracked:
+                if not line_in.requires_qc:
+                    raise BusinessRuleError(
+                        f"Serial-tracked item {item.code} must be received into QC hold."
+                    )
                 if len(serial_ids) != line_in.quantity:
                     raise BusinessRuleError(
                         f"Serial-tracked item {item.code} needs one serial per returned unit."
@@ -209,6 +247,16 @@ async def create_return(
                     raise BusinessRuleError(
                         f"Every returned serial for line {dispatch_line.line_number} must have "
                         "been shipped on that dispatch line."
+                    )
+                if any(
+                    serial_id not in serials
+                    or serials[serial_id].item_id != dispatch_line.item_id
+                    or SerialStatus(serials[serial_id].status) is not SerialStatus.DISPATCHED
+                    for serial_id in serial_ids
+                ):
+                    raise BusinessRuleError(
+                        f"Every serial on line {dispatch_line.line_number} must belong to "
+                        "the item and currently be dispatched."
                     )
                 prior_lines = list(
                     (
@@ -299,6 +347,18 @@ async def transition_return(
             .all()
         )
         if target == SalesReturnStatus.CLOSED:
+            for line in lines:
+                if line.serial_ids:
+                    disposed = (
+                        set(line.accepted_serial_ids)
+                        | set(line.damaged_serial_ids)
+                        | set(line.scrapped_serial_ids)
+                    )
+                    if not set(line.serial_ids).issubset(disposed):
+                        raise BusinessRuleError(
+                            "A return with QC-held serials cannot be closed until every unit "
+                            "has a disposition."
+                        )
             inspection_ids = [line.qc_inspection_id for line in lines if line.qc_inspection_id]
             if inspection_ids:
                 settled_count = await session.scalar(
@@ -314,7 +374,7 @@ async def transition_return(
                     raise BusinessRuleError(
                         "A return with pending QC inspections cannot be closed."
                     )
-                await _issue_return_credit_note(session, tenant, row.id, lines)
+            await _issue_return_credit_note(session, tenant, row.id, lines)
         if target == SalesReturnStatus.RECEIVED:
             dispatch = (
                 await session.execute(
@@ -342,15 +402,40 @@ async def transition_return(
                 .all()
             )
             dispatch_by_id = {line.id: line for line in dispatch_lines}
+            return_serial_ids = [serial_id for line in lines for serial_id in line.serial_ids]
+            serial_costs: dict[uuid.UUID, Decimal] = {}
+            if return_serial_ids:
+                dispatch_serial_rows = list(
+                    (
+                        await session.execute(
+                            select(InventoryTransaction).where(
+                                InventoryTransaction.company_id == tenant.company_id,
+                                InventoryTransaction.reference_type == "dispatch",
+                                InventoryTransaction.reference_id == dispatch.id,
+                                InventoryTransaction.transaction_type == TransactionType.DISPATCH,
+                                InventoryTransaction.serial_id.in_(return_serial_ids),
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                serial_costs = {
+                    transaction.serial_id: Decimal(transaction.unit_cost)
+                    for transaction in dispatch_serial_rows
+                    if transaction.serial_id is not None
+                }
+                if set(serial_costs) != set(return_serial_ids):
+                    raise BusinessRuleError(
+                        "The original dispatch cost for every returned serial could not be "
+                        "verified."
+                    )
             movements: list[MovementRequest] = []
+            serial_hold_movements: list[MovementRequest] = []
             for line in lines:
                 source = dispatch_by_id[line.dispatch_line_id]
                 if line.serial_ids:
-                    if line.requires_qc:
-                        raise BusinessRuleError(
-                            "QC-required serial returns are not supported until inspection "
-                            "disposition can name each returned serial."
-                        )
+                    line.requires_qc = True
                     movements.extend(
                         MovementRequest(
                             item_id=line.item_id,
@@ -363,6 +448,24 @@ async def transition_return(
                             reason="Customer sales return received",
                             batch_id=source.batch_id,
                             serial_id=serial_id,
+                            unit_cost=serial_costs[serial_id],
+                        )
+                        for serial_id in line.serial_ids
+                    )
+                    serial_hold_movements.extend(
+                        MovementRequest(
+                            item_id=line.item_id,
+                            warehouse_id=warehouse_id,
+                            quantity=Decimal("1"),
+                            transaction_type=TransactionType.QC_HOLD,
+                            reference_type=SALES_RETURN_REFERENCE,
+                            reference_id=row.id,
+                            reference_code=row.code,
+                            reason="Customer-return serial awaiting QC disposition",
+                            batch_id=source.batch_id,
+                            serial_id=serial_id,
+                            stock_state=StockState.QC_HOLD,
+                            from_state=StockState.AVAILABLE,
                         )
                         for serial_id in line.serial_ids
                     )
@@ -381,6 +484,8 @@ async def transition_return(
                         )
                     )
             await post_movements(session, tenant, movements)
+            if serial_hold_movements:
+                await post_movements(session, tenant, serial_hold_movements)
             for line in lines:
                 source = dispatch_by_id[line.dispatch_line_id]
                 if source.returned_quantity + line.quantity > source.quantity:
@@ -389,7 +494,7 @@ async def transition_return(
                         f"{source.line_number}."
                     )
                 source.returned_quantity += line.quantity
-                if line.requires_qc:
+                if line.requires_qc and not line.serial_ids:
                     await change_stock_state(
                         session,
                         tenant,
@@ -444,6 +549,155 @@ async def transition_return(
         )
         await session.flush()
     return await get_return(session, tenant, row.id)
+
+
+async def dispose_return_units(
+    session: AsyncSession,
+    tenant: TenantContext,
+    return_id: uuid.UUID,
+    payload: SalesReturnUnits,
+) -> SalesReturnDetail:
+    """Settle named serials on a received return and post each stock-state move."""
+    async with transaction(session):
+        row = (
+            await session.execute(
+                select(SalesReturn)
+                .where(
+                    SalesReturn.company_id == tenant.company_id,
+                    SalesReturn.id == return_id,
+                )
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            raise NotFoundError("Sales return", return_id)
+        if SalesReturnStatus(row.status) is not SalesReturnStatus.RECEIVED:
+            raise BusinessRuleError("Serial units can be dispositioned only on a received return.")
+
+        lines = list(
+            (
+                await session.execute(
+                    select(SalesReturnLine)
+                    .where(
+                        SalesReturnLine.company_id == tenant.company_id,
+                        SalesReturnLine.sales_return_id == row.id,
+                    )
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        lines_by_serial: dict[uuid.UUID, SalesReturnLine] = {}
+        disposed_serials: set[uuid.UUID] = set()
+        for line in lines:
+            for serial_id in line.serial_ids:
+                lines_by_serial[serial_id] = line
+            disposed_serials.update(line.accepted_serial_ids)
+            disposed_serials.update(line.damaged_serial_ids)
+            disposed_serials.update(line.scrapped_serial_ids)
+
+        requested = {
+            "accepted": set(payload.accepted),
+            "damaged": set(payload.damaged),
+            "scrapped": set(payload.scrapped),
+        }
+        requested_ids = set().union(*requested.values())
+        if not requested_ids.issubset(lines_by_serial):
+            raise BusinessRuleError("Every dispositioned serial must belong to this return.")
+        if requested_ids.intersection(disposed_serials):
+            raise BusinessRuleError("A serial unit on this return has already been dispositioned.")
+
+        dispatch = (
+            await session.execute(
+                select(Dispatch)
+                .where(
+                    Dispatch.company_id == tenant.company_id,
+                    Dispatch.id == row.dispatch_id,
+                )
+                .with_for_update()
+            )
+        ).scalar_one()
+        dispatch_line_ids = {line.dispatch_line_id for line in lines}
+        dispatch_lines = list(
+            (
+                await session.execute(
+                    select(DispatchLine)
+                    .where(
+                        DispatchLine.company_id == tenant.company_id,
+                        DispatchLine.dispatch_id == dispatch.id,
+                        DispatchLine.id.in_(dispatch_line_ids),
+                    )
+                    .with_for_update()
+                )
+            )
+            .scalars()
+            .all()
+        )
+        dispatch_lines_by_id = {line.id: line for line in dispatch_lines}
+        warehouse_id = row.return_warehouse_id or dispatch.warehouse_id
+        target_by_disposition = {
+            "accepted": StockState.AVAILABLE,
+            "damaged": StockState.DAMAGED,
+            "scrapped": StockState.SCRAP,
+        }
+        movements: list[MovementRequest] = []
+        for disposition, serial_ids in requested.items():
+            target_state = target_by_disposition[disposition]
+            for serial_id in serial_ids:
+                line = lines_by_serial[serial_id]
+                source = dispatch_lines_by_id[line.dispatch_line_id]
+                movements.append(
+                    MovementRequest(
+                        item_id=line.item_id,
+                        warehouse_id=warehouse_id,
+                        quantity=Decimal("1"),
+                        transaction_type=state_change_type(StockState.QC_HOLD, target_state),
+                        reference_type=SALES_RETURN_REFERENCE,
+                        reference_id=row.id,
+                        reference_code=row.code,
+                        reason=f"Sales return serial disposition: {disposition}",
+                        batch_id=source.batch_id,
+                        serial_id=serial_id,
+                        stock_state=target_state,
+                        from_state=StockState.QC_HOLD,
+                    )
+                )
+
+        await post_movements(session, tenant, movements)
+        for line in lines:
+            line.accepted_serial_ids = [
+                *line.accepted_serial_ids,
+                *(serial_id for serial_id in payload.accepted if serial_id in line.serial_ids),
+            ]
+            line.damaged_serial_ids = [
+                *line.damaged_serial_ids,
+                *(serial_id for serial_id in payload.damaged if serial_id in line.serial_ids),
+            ]
+            line.scrapped_serial_ids = [
+                *line.scrapped_serial_ids,
+                *(serial_id for serial_id in payload.scrapped if serial_id in line.serial_ids),
+            ]
+
+        await _issue_return_credit_note(session, tenant, row.id, lines)
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.UPDATE,
+            entity_type="sales_return",
+            entity_id=row.id,
+            entity_code=row.code,
+            summary=f"Dispositioned serial units on sales return {row.code}",
+            user_id=tenant.user_id,
+            context={
+                disposition: [str(serial_id) for serial_id in serial_ids]
+                for disposition, serial_ids in requested.items()
+                if serial_ids
+            },
+        )
+        await session.flush()
+
+    return await get_return(session, tenant, return_id)
 
 
 async def lock_for_quality_verdict(
@@ -612,23 +866,35 @@ async def _issue_return_credit_note(
             credited_by_invoice_line.get(existing_line.sales_invoice_line_id, ZERO)
             + Decimal(existing_line.quantity or ZERO)
         )
+    inspection_ids = {line.qc_inspection_id for line in lines if line.qc_inspection_id is not None}
+    inspections_by_id = {}
+    if inspection_ids:
+        inspections = (
+            await session.execute(
+                select(QcInspection).where(
+                    QcInspection.company_id == tenant.company_id,
+                    QcInspection.id.in_(inspection_ids),
+                )
+            )
+        ).scalars()
+        inspections_by_id = {inspection.id: inspection for inspection in inspections}
     credit_lines = []
     eligible_by_return_line: dict[uuid.UUID, Decimal] = {}
     for return_line in lines:
         invoice_line = by_dispatch_line.get(return_line.dispatch_line_id)
         if invoice_line is None:
             continue
-        eligible_quantity = Decimal(return_line.quantity)
-        if return_line.qc_inspection_id is not None:
-            inspection = await session.scalar(
-                select(QcInspection).where(
-                    QcInspection.company_id == tenant.company_id,
-                    QcInspection.id == return_line.qc_inspection_id,
-                )
-            )
+        if return_line.serial_ids:
+            eligible_quantity = Decimal(len(return_line.accepted_serial_ids))
+        elif return_line.qc_inspection_id is not None:
+            inspection = inspections_by_id.get(return_line.qc_inspection_id)
             if inspection is None:
                 raise NotFoundError("QC inspection", return_line.qc_inspection_id)
             eligible_quantity = Decimal(inspection.accepted_quantity)
+        elif return_line.requires_qc:
+            eligible_quantity = ZERO
+        else:
+            eligible_quantity = Decimal(return_line.quantity)
         if eligible_quantity <= ZERO:
             continue
         eligible_quantity -= credited_by_invoice_line.get(invoice_line.id, ZERO)
@@ -640,7 +906,9 @@ async def _issue_return_credit_note(
                 quantity=to_quantity(eligible_quantity),
             )
         )
-        eligible_by_return_line[return_line.id] = eligible_quantity
+        eligible_by_return_line[return_line.id] = (
+            Decimal(return_line.credited_quantity) + eligible_quantity
+        )
     if not credit_lines:
         return
     invoice_ids = {line.sales_invoice_id for line in invoice_lines}

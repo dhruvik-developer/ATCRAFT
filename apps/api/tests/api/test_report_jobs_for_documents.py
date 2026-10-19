@@ -1,13 +1,13 @@
-"""Two 202 routes, followed through to the document they file.
+"""Queued report routes, followed through to the documents they file.
 
 ``POST /finance/inventory-valuation/export`` and ``GET /packing/{id}/packing-list``
-each hand the work to Celery and answer with a job id that ``GET
-/reports/jobs/{id}`` resolves. This walks the journey a client actually takes:
-queue, poll and read QUEUED, let the worker run, poll again and read COMPLETED
-with a download link, and find the document row the link points at. A route
-that returned a job id nothing could resolve, or a worker that finished without
-completing the job row, passes every service-level test and leaves the client
-polling for ever.
+and the purchase-return debit-note route hand work to Celery and answer with a
+job id that ``GET /reports/jobs/{id}`` resolves. This walks the journey a client
+actually takes: queue, poll and read QUEUED, let the worker run, poll again and
+read COMPLETED with a download link, and find the document row the link points
+at. A route that returned a job id nothing could resolve, or a worker that
+finished without completing the job row, passes every service-level test and
+leaves the client polling for ever.
 
 Committed for real, in a private schema: the worker opens its own session, so
 rows left inside the ``session`` fixture's rolled-back transaction would be
@@ -256,7 +256,7 @@ def _assert_completed(job: dict[str, Any], *, job_id: str, report_key: str) -> s
     assert document_id is not None
     assert job["download_url"] == (
         reports_service.job_download_url(job_id)
-        if report_key in {"INVENTORY_VALUATION", "JOB_WORK_CHALLAN"}
+        if report_key in {"INVENTORY_VALUATION", "JOB_WORK_CHALLAN", "PURCHASE_RETURN_DEBIT_NOTE"}
         else reports_service.document_download_url(document_id)
     )
     return str(document_id)
@@ -508,10 +508,214 @@ async def test_job_work_view_holder_can_retrieve_only_its_own_challan_export(
     app.dependency_overrides[get_current_principal] = lambda: reader
     assert (await client.get(status_url)).status_code == 200
     assert (await client.get(download_url)).status_code == 200
+
+
+async def test_purchase_return_view_holder_can_read_only_its_own_debit_note_job(
+    client: AsyncClient, engine: Any, tenant: TenantContext, principal: Principal
+) -> None:
+    from src.core.clock import utcnow
+    from src.main import app
+
+    operator = replace(principal, permissions=frozenset({str(Permission.PURCHASE_RETURN_VIEW)}))
+    async with _factory(engine)() as session, transaction(session):
+        snapshot = reports_service.new_job_snapshot(
+            ReportKey.PURCHASE_RETURN_DEBIT_NOTE,
+            {"purchase_return_id": str(uuid.uuid4())},
+            now=utcnow(),
+        )
+        ReportSnapshotRepository(session, tenant).add(snapshot)
+        await session.flush()
+        job_id = snapshot.id
+
+    app.dependency_overrides[get_current_principal] = lambda: operator
+    status_url = reports_service.job_status_url(job_id)
+    response = await client.get(status_url)
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["report_key"] == "PURCHASE_RETURN_DEBIT_NOTE"
+
+    intruder = replace(operator, user_id=uuid.uuid4())
+    app.dependency_overrides[get_current_principal] = lambda: intruder
+    assert (await client.get(status_url)).status_code == 404
+
     app.dependency_overrides[get_current_principal] = lambda: replace(
-        reader, permissions=frozenset({str(Permission.REPORT_VIEW)})
+        operator, permissions=frozenset()
     )
-    assert (await client.get(download_url)).status_code == 403
+    assert (await client.get(status_url)).status_code == 403
+
+
+async def test_purchase_return_debit_note_worker_files_audited_pdf_and_scoped_download(
+    client: AsyncClient, engine: Any, tenant: TenantContext, principal: Principal
+) -> None:
+    from src.core.clock import utcnow
+    from src.main import app
+    from src.modules.audit.models import AuditAction, AuditLog
+    from src.modules.procurement import service as procurement_service
+    from src.modules.procurement.models import PurchaseOrderStatus
+    from src.modules.procurement.schemas import (
+        GoodsReceiptCreate,
+        GoodsReceiptLineIn,
+        PurchaseOrderCreate,
+        PurchaseOrderLineIn,
+        PurchaseReturnCreate,
+        PurchaseReturnLineIn,
+    )
+
+    async with _factory(engine)() as session:
+        uom = await seed_support.seed_uom(session, company_id=tenant.company_id)
+        warehouse = await seed_support.seed_warehouse(
+            session, company_id=tenant.company_id, code=_code("WH")
+        )
+        item = await seed_support.seed_item(
+            session,
+            company_id=tenant.company_id,
+            code=_code("RM"),
+            base_uom_id=uom.id,
+            purchase_uom_id=uom.id,
+            gst_rate=Decimal("18"),
+            standard_cost=Decimal("50"),
+            can_purchase=True,
+        )
+        vendor = await seed_support.seed_vendor(
+            session,
+            company_id=tenant.company_id,
+            code=_code("VEN"),
+            is_approved=True,
+            approved_by_id=tenant.user_id,
+            approved_at=utcnow(),
+            currency="INR",
+            state_code="27",
+        )
+        order, order_lines, _ = await procurement_service.create_purchase_order(
+            session,
+            tenant,
+            principal,
+            PurchaseOrderCreate(
+                vendor_id=vendor.id,
+                warehouse_id=warehouse.id,
+                lines=[
+                    PurchaseOrderLineIn(
+                        line_number=1,
+                        item_id=item.id,
+                        uom_id=uom.id,
+                        quantity=Decimal("10"),
+                        unit_price=Decimal("100"),
+                    )
+                ],
+            ),
+        )
+        await procurement_service.transition_purchase_order(
+            session,
+            tenant,
+            principal,
+            order.id,
+            PurchaseOrderStatus.PENDING_APPROVAL,
+            reason="submit debit-note PDF fixture",
+        )
+        await procurement_service.transition_purchase_order(
+            session,
+            tenant,
+            replace(principal, is_superuser=True),
+            order.id,
+            PurchaseOrderStatus.APPROVED,
+            reason="approve debit-note PDF fixture",
+        )
+        await procurement_service.transition_purchase_order(
+            session,
+            tenant,
+            principal,
+            order.id,
+            PurchaseOrderStatus.SENT,
+            reason="send debit-note PDF fixture",
+        )
+        receipt, _ = await procurement_service.create_goods_receipt(
+            session,
+            tenant,
+            GoodsReceiptCreate(
+                purchase_order_id=order.id,
+                lines=[
+                    GoodsReceiptLineIn(
+                        line_number=1,
+                        purchase_order_line_id=order_lines[0].id,
+                        received_quantity=Decimal("10"),
+                        accepted_quantity=Decimal("10"),
+                    )
+                ],
+            ),
+        )
+        posted_receipt = await procurement_service.post_goods_receipt(
+            session, tenant, principal, receipt.id
+        )
+        purchase_return, _ = await procurement_service.create_purchase_return(
+            session,
+            tenant,
+            PurchaseReturnCreate(
+                goods_receipt_id=posted_receipt.receipt.id,
+                reason="Debit-note worker test return",
+                debit_note_number="DN/WORKER/1",
+                lines=[
+                    PurchaseReturnLineIn(
+                        line_number=1,
+                        goods_receipt_line_id=posted_receipt.receipt.lines[0].id,
+                        quantity=Decimal("2"),
+                    )
+                ],
+            ),
+        )
+        await procurement_service.post_purchase_return(
+            session, tenant, principal, purchase_return.id
+        )
+        purchase_return_id = purchase_return.id
+
+    accepted = await client.post(
+        f"{_prefix()}/procurement/purchase-returns/{purchase_return_id}/debit-note-pdf"
+    )
+    assert accepted.status_code == 202, accepted.text
+    handed_off = accepted.json()["data"]
+    job_id = handed_off["job_id"]
+    _assert_queued(
+        await _job(client, handed_off["status_url"]),
+        job_id=job_id,
+        report_key="PURCHASE_RETURN_DEBIT_NOTE",
+    )
+
+    outcome = await _run_worker(
+        report_tasks.generate_purchase_return_debit_note,
+        purchase_return_id=str(purchase_return_id),
+        snapshot_id=job_id,
+        company_id=str(tenant.company_id),
+        user_id=str(tenant.user_id),
+    )
+    assert outcome["status"] == "COMPLETED", outcome
+    status = await _job(client, handed_off["status_url"])
+    document_id = _assert_completed(status, job_id=job_id, report_key="PURCHASE_RETURN_DEBIT_NOTE")
+    document = await _filed_document(engine, document_id)
+    assert document.company_id == tenant.company_id
+    assert document.entity_type == report_tasks.PURCHASE_RETURN_ENTITY
+    assert document.entity_id == purchase_return_id
+    assert document.is_public is False
+    assert document.expires_at is None
+    assert document.size_bytes > 0
+    assert resolve_storage_path(document.storage_key).read_bytes().startswith(b"%PDF")
+
+    restricted_operator = replace(
+        principal, permissions=frozenset({str(Permission.PURCHASE_RETURN_VIEW)})
+    )
+    app.dependency_overrides[get_current_principal] = lambda: restricted_operator
+    download = await client.get(status["download_url"])
+    assert download.status_code == 200, download.text
+    assert download.content.startswith(b"%PDF")
+
+    async with _factory(engine)() as session:
+        audit = await session.scalar(
+            select(AuditLog).where(
+                AuditLog.company_id == tenant.company_id,
+                AuditLog.entity_type == report_tasks.PURCHASE_RETURN_ENTITY,
+                AuditLog.entity_id == purchase_return_id,
+                AuditLog.action == AuditAction.DATA_EXPORT,
+            )
+        )
+    assert audit is not None
+    assert audit.created_by_id == tenant.user_id
 
 
 async def test_the_inventory_valuation_export_is_a_job_that_files_a_workbook(
@@ -614,12 +818,18 @@ async def test_restricted_valuation_exporter_can_watch_and_download_only_its_own
     assert (await client.get(status_url)).status_code == 403
     assert (await client.get(download_url)).status_code == 403
 
-    # Preserve the existing internal report/document-reader access, including
-    # shared jobs generated by a different colleague.
+    # Sharing a valuation export requires its specific right as well as the
+    # general report and document rights.
     reader = replace(
         principal,
         user_id=uuid.uuid4(),
-        permissions=frozenset({str(Permission.REPORT_VIEW), str(Permission.DOCUMENT_VIEW)}),
+        permissions=frozenset(
+            {
+                str(Permission.REPORT_VIEW),
+                str(Permission.DOCUMENT_VIEW),
+                str(Permission.INVENTORY_VALUATION_VIEW),
+            }
+        ),
     )
     app.dependency_overrides[get_current_principal] = lambda: reader
     assert (await client.get(status_url)).status_code == 200
@@ -627,8 +837,8 @@ async def test_restricted_valuation_exporter_can_watch_and_download_only_its_own
     app.dependency_overrides[get_current_principal] = lambda: replace(
         reader, permissions=frozenset({str(Permission.REPORT_VIEW)})
     )
-    assert (await client.get(status_url)).status_code == 200
-    assert (await client.get(download_url)).status_code == 403
+    assert (await client.get(status_url)).status_code == 404
+    assert (await client.get(download_url)).status_code == 404
 
 
 async def test_dealer_with_broad_grants_cannot_poll_download_or_queue_finance_export(
@@ -704,11 +914,13 @@ async def test_valuation_permission_does_not_open_catalogue_jobs_or_other_docume
         assert (await client.get(reports_service.job_status_url(job_id))).status_code == 404
         assert (await client.get(reports_service.job_download_url(job_id))).status_code == 404
 
-    # Generic report access still works for the original catalogue job types.
+    # Generic access remains available for non-sensitive catalogue reports,
+    # but not for valuation jobs.
     app.dependency_overrides[get_current_principal] = lambda: replace(
         principal, permissions=frozenset({str(Permission.REPORT_VIEW)})
     )
-    for job_id in ids:
+    assert (await client.get(reports_service.job_status_url(ids[0]))).status_code == 404
+    for job_id in ids[1:]:
         assert (await client.get(reports_service.job_status_url(job_id))).status_code == 200
 
 
@@ -756,7 +968,13 @@ async def test_restricted_catalogue_report_job_and_document_keep_captured_scope(
     restricted_reader = replace(
         principal,
         allowed_warehouse_ids=(allowed,),
-        permissions=frozenset({str(Permission.REPORT_VIEW), str(Permission.DOCUMENT_VIEW)}),
+        permissions=frozenset(
+            {
+                str(Permission.REPORT_VIEW),
+                str(Permission.DOCUMENT_VIEW),
+                str(Permission.INVENTORY_VALUATION_VIEW),
+            }
+        ),
     )
     app.dependency_overrides[get_current_principal] = lambda: restricted_reader
     assert (await client.get(reports_service.job_status_url(job_id))).status_code == 200

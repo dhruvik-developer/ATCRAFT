@@ -21,10 +21,11 @@ Three shapes are deliberate:
   span of history and a date range on them would be a parameter that changes
   nothing.
 
-* **Every report is gated on ``report.view``; the escalation to a file is gated
-  on ``report.export``.** The second check is inside the service, because
-  whether a request escalates is only known after the rows have been counted -
-  a route-level dependency could only have refused everybody or nobody.
+* **Every catalogue report requires ``report.view`` and its definition's
+  domain permission; the escalation to a file is gated on ``report.export``.**
+  The second check is inside the service, because whether a request escalates
+  is only known after the rows have been counted - a route-level dependency
+  could only have refused everybody or nobody.
 
 Route ordering: the literal ``/jobs`` and ``/catalogue`` segments are declared
 before anything that could capture them.
@@ -263,6 +264,7 @@ async def dashboard(session: DbSession, tenant: Tenant) -> ApiResponse[Dashboard
             Permission.REPORT_VIEW,
             Permission.INVENTORY_VALUATION_VIEW,
             Permission.JOB_WORK_VIEW,
+            Permission.PURCHASE_RETURN_VIEW,
             mode="any",
         ),
         Depends(forbid_vendor_users),
@@ -286,6 +288,7 @@ async def get_job(
             Permission.REPORT_VIEW,
             Permission.INVENTORY_VALUATION_VIEW,
             Permission.JOB_WORK_VIEW,
+            Permission.PURCHASE_RETURN_VIEW,
             mode="any",
         ),
         Depends(forbid_vendor_users),

@@ -75,6 +75,7 @@ function summary(overrides: Partial<VendorInvoiceSummary> = {}): VendorInvoiceSu
     tax_amount: '159.01',
     total_amount: '1359.00',
     paid_amount: '0.00',
+    debit_allocated_amount: '0.00',
     outstanding_amount: '1359.00',
     purchase_order_id: null,
     goods_receipt_id: null,
@@ -897,6 +898,25 @@ describe('where a bill is charged', () => {
 
     const matchDialog = await openMatchDialog(user)
     expect(await within(matchDialog).findByText('CC-MACH - Machining')).toBeVisible()
+  })
+})
+
+describe('vendor return credits on a bill', () => {
+  it('shows applied return credits alongside the outstanding payable', async () => {
+    const { user } = renderScreen(<VendorInvoicesPage />, {
+      permissions: [P.VENDOR_INVOICE_VIEW],
+      routes: {
+        'GET /finance/vendor-invoices': page([summary({ debit_allocated_amount: '25.00' })]),
+        [`GET ${INVOICE_PATH}`]: ok(invoice({ debit_allocated_amount: '25.00' })),
+        [`GET ${INVOICE_PATH}/match`]: ok(matchResult()),
+      },
+    })
+
+    const dialog = await openMatchDialog(user)
+    expect(await within(dialog).findByText('Vendor return credits')).toBeVisible()
+    expect(within(dialog).getByText('Vendor return credits').parentElement).toHaveTextContent(
+      /25\.00/,
+    )
   })
 })
 

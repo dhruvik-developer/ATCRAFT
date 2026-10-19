@@ -17,9 +17,12 @@ from src.core.types import ZERO
 from src.modules.allocation import service as allocation
 from src.modules.dispatch import service as dispatch_service
 from src.modules.dispatch.schemas import DispatchCreate, DispatchRequest
+from src.modules.finance import credit_note_service as credit_notes
 from src.modules.finance import sales_invoice_service as invoices
 from src.modules.finance import service as finance
+from src.modules.finance.credit_note_schemas import CreditNoteCreate, CreditNoteLineIn
 from src.modules.finance.models import (
+    CreditNoteReason,
     LedgerEntry,
     PartyType,
     PaymentMethod,
@@ -322,6 +325,116 @@ async def test_receipt_allocation_and_cancel_restore_invoice(bench, principal):
     assert b.customer.outstanding_amount == invoice.total_amount
 
 
+async def test_credit_note_cancellation_restores_receivable_and_invoice_status(bench, principal):
+    b = bench
+    invoice = await issue(b, await make_dispatch(b))
+    credit_amount = Decimal("118")
+    receipt = await finance.create_payment(
+        b.session,
+        b.tenant,
+        PaymentCreate(
+            payment_type=PaymentType.RECEIPT,
+            party_type=PartyType.CUSTOMER,
+            party_id=b.customer.id,
+            amount=invoice.total_amount - credit_amount,
+            payment_date=today(),
+            payment_method=PaymentMethod.CASH,
+        ),
+    )
+    await finance.approve_payment(
+        b.session, b.tenant, principal, receipt.id, reason="Receipt approved"
+    )
+    await finance.allocate_payment(
+        b.session,
+        b.tenant,
+        receipt.id,
+        AllocationRequest(
+            allocations=[
+                PaymentAllocationIn(
+                    sales_invoice_id=invoice.id,
+                    amount=invoice.total_amount - credit_amount,
+                )
+            ]
+        ),
+    )
+    credit = await credit_notes.issue_credit_note(
+        b.session,
+        b.tenant,
+        CreditNoteCreate(
+            sales_invoice_id=invoice.id,
+            note_date=today(),
+            reason_type=CreditNoteReason.PRICE_ADJUSTMENT,
+            lines=[
+                CreditNoteLineIn(
+                    sales_invoice_line_id=invoice.lines[0].id,
+                    taxable_amount=Decimal("100"),
+                )
+            ],
+        ),
+    )
+
+    assert credit.total_amount == credit_amount
+    credited = await invoices.get_sales_invoice(b.session, b.tenant, invoice.id)
+    assert credited.status == SalesInvoiceStatus.PAID
+    assert credited.balance_amount == ZERO
+    assert b.customer.outstanding_amount == ZERO
+
+    await credit_notes.cancel_credit_note(
+        b.session, b.tenant, credit.id, reason="Correcting the issued credit"
+    )
+
+    reopened = await invoices.get_sales_invoice(b.session, b.tenant, invoice.id)
+    assert reopened.status == SalesInvoiceStatus.PARTIALLY_PAID
+    assert reopened.balance_amount == credit_amount
+    assert b.customer.outstanding_amount == credit_amount
+
+
+async def test_credit_notes_cannot_exceed_receivable_after_prior_credits(bench, principal):
+    b = bench
+    invoice = await issue(b, await make_dispatch(b))
+    remaining = Decimal("200")
+    paid_amount = invoice.total_amount - remaining
+    receipt = await finance.create_payment(
+        b.session,
+        b.tenant,
+        PaymentCreate(
+            payment_type=PaymentType.RECEIPT,
+            party_type=PartyType.CUSTOMER,
+            party_id=b.customer.id,
+            amount=paid_amount,
+            payment_date=today(),
+            payment_method=PaymentMethod.CASH,
+        ),
+    )
+    await finance.approve_payment(
+        b.session, b.tenant, principal, receipt.id, reason="Receipt approved"
+    )
+    await finance.allocate_payment(
+        b.session,
+        b.tenant,
+        receipt.id,
+        AllocationRequest(
+            allocations=[PaymentAllocationIn(sales_invoice_id=invoice.id, amount=paid_amount)]
+        ),
+    )
+
+    payload = CreditNoteCreate(
+        sales_invoice_id=invoice.id,
+        note_date=today(),
+        reason_type=CreditNoteReason.PRICE_ADJUSTMENT,
+        lines=[
+            CreditNoteLineIn(
+                sales_invoice_line_id=invoice.lines[0].id,
+                taxable_amount=Decimal("100"),
+            )
+        ],
+    )
+    await credit_notes.issue_credit_note(b.session, b.tenant, payload)
+
+    with pytest.raises(BusinessRuleError, match="invoice receivable balance"):
+        await credit_notes.issue_credit_note(b.session, b.tenant, payload)
+
+
 async def test_ageing_due_date_and_gst_use_snapshot(bench):
     b = bench
     invoice = await issue(b, await make_dispatch(b))
@@ -335,6 +448,44 @@ async def test_ageing_due_date_and_gst_use_snapshot(bench):
     assert gst.output.total_tax == invoice.tax_amount
     assert gst.output.rows[0].hsn_code == "8302"
     assert gst.dispatched_not_invoiced.total_tax == 0
+
+
+async def test_gst_output_nets_issued_credit_notes_by_note_date_and_restores_cancelled_credits(
+    bench,
+):
+    b = bench
+    invoice = await issue(b, await make_dispatch(b))
+    period = {"date_from": invoice.invoice_date, "date_to": invoice.invoice_date}
+    before = await finance.gst_summary(b.session, b.tenant, **period)
+
+    credit = await credit_notes.issue_credit_note(
+        b.session,
+        b.tenant,
+        CreditNoteCreate(
+            sales_invoice_id=invoice.id,
+            note_date=invoice.invoice_date,
+            reason_type=CreditNoteReason.PRICE_ADJUSTMENT,
+            lines=[
+                CreditNoteLineIn(
+                    sales_invoice_line_id=invoice.lines[0].id,
+                    taxable_amount=Decimal("100"),
+                )
+            ],
+        ),
+    )
+    after_issue = await finance.gst_summary(b.session, b.tenant, **period)
+    assert after_issue.output.taxable_amount == before.output.taxable_amount - credit.taxable_amount
+    assert after_issue.output.total_tax == before.output.total_tax - credit.tax_amount
+    assert len(after_issue.output.rows) == 1
+    assert after_issue.output.rows[0].document_count == 2
+
+    await credit_notes.cancel_credit_note(
+        b.session, b.tenant, credit.id, reason="Credit note entered in error"
+    )
+    after_cancel = await finance.gst_summary(b.session, b.tenant, **period)
+    assert after_cancel.output.taxable_amount == before.output.taxable_amount
+    assert after_cancel.output.total_tax == before.output.total_tax
+    assert after_cancel.output.rows[0].document_count == 1
 
 
 async def test_closed_reservation_refused_and_replaced_on_topup(bench):

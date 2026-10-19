@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.modules.sales_returns.models import SalesReturnSource, SalesReturnStatus
 
@@ -37,6 +37,23 @@ class SalesReturnCancel(BaseModel):
     reason: str = Field(min_length=3, max_length=255)
 
 
+class SalesReturnUnits(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    accepted: list[uuid.UUID] = Field(default_factory=list, max_length=10_000)
+    damaged: list[uuid.UUID] = Field(default_factory=list, max_length=10_000)
+    scrapped: list[uuid.UUID] = Field(default_factory=list, max_length=10_000)
+
+    @model_validator(mode="after")
+    def validate_dispositions(self) -> SalesReturnUnits:
+        all_ids = self.accepted + self.damaged + self.scrapped
+        if not all_ids:
+            raise ValueError("At least one serial unit disposition is required.")
+        if len(all_ids) != len(set(all_ids)):
+            raise ValueError("A serial unit can have only one disposition.")
+        return self
+
+
 class SalesReturnLineRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -44,6 +61,9 @@ class SalesReturnLineRead(BaseModel):
     dispatch_line_id: uuid.UUID
     item_id: uuid.UUID
     serial_ids: list[uuid.UUID]
+    accepted_serial_ids: list[uuid.UUID]
+    damaged_serial_ids: list[uuid.UUID]
+    scrapped_serial_ids: list[uuid.UUID]
     qc_inspection_id: uuid.UUID | None
     quantity: Decimal
     credited_quantity: Decimal

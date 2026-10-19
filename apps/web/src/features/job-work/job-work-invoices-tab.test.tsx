@@ -64,6 +64,7 @@ const INVOICE: VendorInvoiceSummary = {
   tax_amount: '193.14',
   total_amount: '1266.14',
   paid_amount: '0.00',
+  debit_allocated_amount: '0.00',
   outstanding_amount: '1266.14',
   purchase_order_id: null,
   goods_receipt_id: null,

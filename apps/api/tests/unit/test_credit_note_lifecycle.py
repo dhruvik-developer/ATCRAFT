@@ -50,8 +50,15 @@ def test_partial_credit_keeps_invoice_open_until_the_receivable_is_zero() -> Non
         sales_invoice_status_after_credit(Decimal("20"), Decimal("25"), Decimal("100"))
         is SalesInvoiceStatus.PARTIALLY_PAID
     )
+    # Credits and payments together settle the receivable; a real payment was
+    # received, so the invoice is PAID rather than wholly credited.
     assert (
         sales_invoice_status_after_credit(Decimal("20"), Decimal("80"), Decimal("100"))
+        is SalesInvoiceStatus.PAID
+    )
+    # With no payment at all, the same settlement is a CREDITED invoice.
+    assert (
+        sales_invoice_status_after_credit(Decimal("0"), Decimal("100"), Decimal("100"))
         is SalesInvoiceStatus.CREDITED
     )
 
@@ -63,7 +70,7 @@ def test_payment_status_nets_issued_credit_notes() -> None:
             paid_amount=Decimal("80"),
             credited_amount=Decimal("20"),
         )
-        is SalesInvoiceStatus.CREDITED
+        is SalesInvoiceStatus.PAID
     )
     assert (
         sales_invoice_status_after_payment(
@@ -72,6 +79,14 @@ def test_payment_status_nets_issued_credit_notes() -> None:
             credited_amount=Decimal("10"),
         )
         is SalesInvoiceStatus.PARTIALLY_PAID
+    )
+    assert (
+        sales_invoice_status_after_payment(
+            total_amount=Decimal("100"),
+            paid_amount=Decimal("0"),
+            credited_amount=Decimal("100"),
+        )
+        is SalesInvoiceStatus.CREDITED
     )
 
 

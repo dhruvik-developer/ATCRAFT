@@ -173,6 +173,11 @@ export const queryKeys = {
     list: (params: unknown) => ['sales', 'list', params] as const,
     detail: (id: string) => ['sales', 'detail', id] as const,
   },
+  salesReturns: {
+    all: ['sales-returns'] as const,
+    list: (params: unknown) => ['sales-returns', 'list', params] as const,
+    detail: (id: string) => ['sales-returns', 'detail', id] as const,
+  },
   mrp: {
     all: ['mrp'] as const,
     runs: (params: unknown) => ['mrp', 'runs', params] as const,
