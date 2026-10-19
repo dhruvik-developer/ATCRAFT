@@ -825,6 +825,21 @@ of inspection outcome, the resolution collapses to one branch; the split
 refusal stays, because the ledger still needs to know which pool each quantity
 left.
 
+**Financial posting.** Posting the stock return also raises the vendor debit in
+the same transaction: debit AP for the vendor, credit purchase expense, and
+credit input tax using the tax snapshot on the return. The purchase-return code
+is the ledger reference; the optional debit-note number remains the external
+reference entered by the buyer. Finance may manually apply the posted debit to
+approved invoices for the same vendor and currency. Allocations are limited by
+both the remaining return credit and each invoice's remaining payable; they
+reduce the invoice's outstanding amount and do not post a second journal.
+Procurement does not currently carry cost centres on its order lines, so the
+expense credit is unallocated until that carrier is implemented. A debit-note
+PDF is available only for a posted return with a non-zero debit journal; it is
+generated as a background report, audited, and retained without expiry. If no
+external debit-note number was entered, the PDF uses the purchase-return code
+as its displayed reference.
+
 ---
 
 ## 36. Receiving warehouse when an MRP run is scoped to several warehouses
@@ -2039,6 +2054,25 @@ leaves the late set while keeping its badge.
 **Where.** `preview_sales_invoice and dispatch._advance_sales_order.`
 
 **Impact if wrong.** If invoices must be post-departure only, remove READY eligibility and this staged cap.
+
+---
+
+## §A3-1. Legacy no-QC serial returns were accepted
+
+**Assumed.** Existing RECEIVED or CLOSED serial-return lines with
+`requires_qc = false` were already treated as accepted by the former workflow.
+The serial-disposition migration backfills those serials into
+`accepted_serial_ids`; draft returns are not backfilled.
+
+**Why.** The former receive path posted those serials directly into usable stock
+and could issue the corresponding credit immediately. Reclassifying that
+history as pending QC would contradict both the ledger and existing credits.
+
+**Where.** `20261018_0100_sales_return_unit_dispositions` migration.
+
+**Impact if wrong.** Review historical no-QC serial return documents before
+deploying the migration; incorrect backfill would require correcting the
+disposition sets and associated stock state.
 
 ---
 

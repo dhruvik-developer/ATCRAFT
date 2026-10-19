@@ -162,7 +162,7 @@ planning     mrp · procurement
    ↓
 execution    production · assembly · job_work
    ↓
-downstream   quality · packing · dispatch · finance · reports
+downstream   quality · packing · dispatch · sales_returns · finance · reports
    ↓
 portals      vendor_portal · dealer_portal
 ```
@@ -205,6 +205,12 @@ would cycle. A dealer account cannot reach any other module: `core.deps`
 refuses every route outside `/dealer-portal/**`, `/notifications/**` and auth
 self-service for a principal with a `customer_id` (docs/security.md, Dealer
 portal isolation).
+
+`sales_returns` owns customer-return documents and per-serial QC dispositions.
+It calls dispatch for shipped-line evidence, inventory for every receipt and
+stock-state movement, quality for non-serial return inspections, and finance for
+accepted-quantity credit notes. Staff routes explicitly reject vendor and dealer
+principals; the dealer portal does not reuse the staff return workflow.
 
 ## The two data patterns that matter
 

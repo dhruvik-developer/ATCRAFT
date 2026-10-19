@@ -2336,6 +2336,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/finance/purchase-returns/{purchase_return_id}/debit-allocations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read purchase-return debit allocations */
+        get: operations["get_purchase_return_debit_allocations_api_v1_finance_purchase_returns__purchase_return_id__debit_allocations_get"];
+        put?: never;
+        /**
+         * Apply a posted purchase-return debit to vendor invoices
+         * @description Applies the vendor credit without changing the original debit-note journal. The return and invoices are locked, and each allocation is bounded by the remaining return credit and the invoice's remaining payable.
+         */
+        post: operations["allocate_purchase_return_debit_api_v1_finance_purchase_returns__purchase_return_id__debit_allocations_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/finance/sales-invoices": {
         parameters: {
             query?: never;
@@ -5343,6 +5364,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/procurement/purchase-returns/{return_id}/debit-note-pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Queue the vendor debit-note PDF for a posted purchase return */
+        post: operations["purchase_return_debit_note_pdf_api_v1_procurement_purchase_returns__return_id__debit_note_pdf_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/procurement/purchase-returns/{return_id}/post": {
         parameters: {
             query?: never;
@@ -5354,7 +5392,7 @@ export interface paths {
         put?: never;
         /**
          * Post a purchase return: move the stock back out
-         * @description Writes one PURCHASE_RETURN movement per line against the same batch the goods came in on, and updates the receipt and order lines it reverses.
+         * @description Writes one PURCHASE_RETURN movement per line against the same batch the goods came in on, updates the receipt and order lines it reverses, and posts the vendor debit and input-tax reversal in the same transaction.
          */
         post: operations["post_purchase_return_api_v1_procurement_purchase_returns__return_id__post_post"];
         delete?: never;
@@ -8021,6 +8059,23 @@ export interface paths {
         put?: never;
         /** Receive Sales Return */
         post: operations["receive_sales_return_api_v1_sales_returns__return_id__receive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales-returns/{return_id}/units": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dispose Sales Return Units */
+        post: operations["dispose_sales_return_units_api_v1_sales_returns__return_id__units_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -11168,6 +11223,20 @@ export interface components {
         /** ApiResponse[PurchaseOrderTracking] */
         ApiResponse_PurchaseOrderTracking_: {
             data?: components["schemas"]["PurchaseOrderTracking"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[PurchaseReturnDebitAllocationResult] */
+        ApiResponse_PurchaseReturnDebitAllocationResult_: {
+            data?: components["schemas"]["PurchaseReturnDebitAllocationResult"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -24944,6 +25013,65 @@ export interface components {
             /** Return Date */
             return_date?: string | null;
         };
+        /** PurchaseReturnDebitAllocationIn */
+        PurchaseReturnDebitAllocationIn: {
+            /** Amount */
+            amount: number | string;
+            /** Notes */
+            notes?: string | null;
+            /**
+             * Vendor Invoice Id
+             * Format: uuid
+             */
+            vendor_invoice_id: string;
+        };
+        /** PurchaseReturnDebitAllocationRead */
+        PurchaseReturnDebitAllocationRead: {
+            /** Amount */
+            amount: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Invoice Code */
+            invoice_code: string;
+            /** Notes */
+            notes: string | null;
+            /**
+             * Vendor Invoice Id
+             * Format: uuid
+             */
+            vendor_invoice_id: string;
+            /** Vendor Invoice Number */
+            vendor_invoice_number: string;
+        };
+        /** PurchaseReturnDebitAllocationRequest */
+        PurchaseReturnDebitAllocationRequest: {
+            /** Allocations */
+            allocations: components["schemas"]["PurchaseReturnDebitAllocationIn"][];
+            /**
+             * Replace
+             * @default false
+             */
+            replace: boolean;
+        };
+        /** PurchaseReturnDebitAllocationResult */
+        PurchaseReturnDebitAllocationResult: {
+            /** Allocated Amount */
+            allocated_amount: string;
+            /** Allocations */
+            allocations?: components["schemas"]["PurchaseReturnDebitAllocationRead"][];
+            /**
+             * Purchase Return Id
+             * Format: uuid
+             */
+            purchase_return_id: string;
+            /** Total Amount */
+            total_amount: string;
+            /** Unallocated Amount */
+            unallocated_amount: string;
+        };
         /** PurchaseReturnDetail */
         PurchaseReturnDetail: {
             /** Cancellation Reason */
@@ -25079,6 +25207,8 @@ export interface components {
         };
         /** PurchaseReturnPostResult */
         PurchaseReturnPostResult: {
+            /** Debit Note Journal Id */
+            debit_note_journal_id: string | null;
             /** Movements */
             movements: components["schemas"]["src__modules__procurement__schemas__PostedMovement"][];
             purchase_return: components["schemas"]["PurchaseReturnDetail"];
@@ -26290,7 +26420,7 @@ export interface components {
          *     catalogue asserts at import that every member has exactly one definition.
          * @enum {string}
          */
-        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "SHIFT_PRODUCTION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "SCRAP_REGISTER" | "CONSUMPTION_BY_DEPARTMENT" | "PURCHASE_ORDER" | "PACKING_LIST" | "SALES_INVOICE" | "CREDIT_NOTE" | "REWORK_RATE" | "PRODUCTION_COST" | "JOB_WORK_COST" | "JOB_WORK_CHALLAN";
+        ReportKey: "SALES_ORDER_STATUS" | "STOCK_AVAILABILITY" | "MRP_SHORTAGE" | "PURCHASE_PENDING" | "PRODUCTION_PENDING" | "JOB_WORK_PENDING" | "QC_REJECTION" | "VENDOR_PERFORMANCE" | "PRODUCT_PROFITABILITY" | "FAST_MOVING" | "SLOW_MOVING" | "DEAD_STOCK" | "ORDER_DELAY" | "PRODUCTION_EFFICIENCY" | "MACHINE_UTILISATION" | "SHIFT_PRODUCTION" | "INVENTORY_VALUATION" | "DISPATCH" | "COURIER_TRACKING" | "VENDOR_DISPATCH_HISTORY" | "COST_CENTRE_EXPENSE" | "SCRAP_REGISTER" | "CONSUMPTION_BY_DEPARTMENT" | "PURCHASE_ORDER" | "PACKING_LIST" | "SALES_INVOICE" | "CREDIT_NOTE" | "PURCHASE_RETURN_DEBIT_NOTE" | "REWORK_RATE" | "PRODUCTION_COST" | "JOB_WORK_COST" | "JOB_WORK_CHALLAN";
         /**
          * RequisitionBatchConversionRequest
          * @description The batch form: several approved requisitions converted together.
@@ -28644,8 +28774,12 @@ export interface components {
         };
         /** SalesReturnLineRead */
         SalesReturnLineRead: {
+            /** Accepted Serial Ids */
+            accepted_serial_ids: string[];
             /** Credited Quantity */
             credited_quantity: string;
+            /** Damaged Serial Ids */
+            damaged_serial_ids: string[];
             /**
              * Dispatch Line Id
              * Format: uuid
@@ -28671,6 +28805,8 @@ export interface components {
             reason_code: string;
             /** Requires Qc */
             requires_qc: boolean;
+            /** Scrapped Serial Ids */
+            scrapped_serial_ids: string[];
             /** Serial Ids */
             serial_ids: string[];
         };
@@ -28715,6 +28851,15 @@ export interface components {
             return_warehouse_id: string | null;
             source: components["schemas"]["SalesReturnSource"];
             status: components["schemas"]["SalesReturnStatus"];
+        };
+        /** SalesReturnUnits */
+        SalesReturnUnits: {
+            /** Accepted */
+            accepted?: string[];
+            /** Damaged */
+            damaged?: string[];
+            /** Scrapped */
+            scrapped?: string[];
         };
         /**
          * SamplingPlan
@@ -31289,6 +31434,8 @@ export interface components {
             created_at: string;
             /** Currency */
             currency: string;
+            /** Debit Allocated Amount */
+            debit_allocated_amount: string;
             /** Dispute Reason */
             dispute_reason: string | null;
             /**
@@ -31474,6 +31621,8 @@ export interface components {
             created_at: string;
             /** Currency */
             currency: string;
+            /** Debit Allocated Amount */
+            debit_allocated_amount: string;
             /**
              * Due Date
              * Format: date
@@ -48748,6 +48897,198 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_PaymentDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_purchase_return_debit_allocations_api_v1_finance_purchase_returns__purchase_return_id__debit_allocations_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                purchase_return_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_PurchaseReturnDebitAllocationResult_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    allocate_purchase_return_debit_api_v1_finance_purchase_returns__purchase_return_id__debit_allocations_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                purchase_return_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PurchaseReturnDebitAllocationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_PurchaseReturnDebitAllocationResult_"];
                 };
             };
             /** @description Malformed request */
@@ -69242,6 +69583,100 @@ export interface operations {
             };
         };
     };
+    purchase_return_debit_note_pdf_api_v1_procurement_purchase_returns__return_id__debit_note_pdf_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                return_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptedJobResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_purchase_return_api_v1_procurement_purchase_returns__return_id__post_post: {
         parameters: {
             query?: never;
@@ -88710,6 +89145,104 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_SalesReturnDetail_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    dispose_sales_return_units_api_v1_sales_returns__return_id__units_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                return_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesReturnUnits"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

@@ -62,6 +62,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `bom` | `boms`, `bom_lines`, `bom_operations` |
 | `routing` | `work_centers`, `machines`, `routings`, `routing_operations`, `shifts`, `shift_assignments` |
 | `sales` | `sales_orders`, `sales_order_lines` |
+| `sales_returns` | `sales_returns`, `sales_return_lines` |
 | `mrp` | `mrp_runs`, `mrp_demands`, `mrp_requirements`, `mrp_suggestions` |
 | `procurement` | `purchase_requisitions`, `purchase_requisition_lines`, `rfqs`, `rfq_lines`, `vendor_quotations`, `vendor_quotation_lines`, `purchase_orders`, `purchase_order_lines`, `goods_receipts`, `goods_receipt_lines`, `purchase_returns`, `purchase_return_lines`, `purchase_order_shipments`, `purchase_order_documents` |
 | `production` | `production_orders`, `production_order_components`, `work_orders`, `material_issues`, `material_issue_lines`, `production_entries` |
@@ -70,7 +71,7 @@ This makes an accidental N+1 a loud error in development rather than a silent
 | `quality` | `qc_templates`, `qc_template_parameters`, `qc_inspections`, `qc_inspection_results`, `qc_inspection_decisions`, `qc_rework_records` |
 | `packing` | `packing_orders`, `packing_order_lines`, `cartons`, `carton_contents` |
 | `dispatch` | `dispatches`, `dispatch_lines`, `dispatch_tracking_events` |
-| `finance` | `ledger_accounts`, `ledger_entries`, `vendor_invoices`, `vendor_invoice_lines`, `sales_invoices`, `sales_invoice_lines`, `payments`, `payment_allocations` |
+| `finance` | `ledger_accounts`, `ledger_entries`, `vendor_invoices`, `vendor_invoice_lines`, `sales_invoices`, `sales_invoice_lines`, `credit_notes`, `credit_note_lines`, `payments`, `payment_allocations`, `purchase_return_debit_allocations` |
 | `reports` | `report_snapshots`, `inventory_summary` |
 | `documents` | `documents` |
 | `notifications` | `notifications`, `notification_preferences`, `push_subscriptions` |
@@ -633,6 +634,12 @@ Sales order       DRAFT -> CONFIRMED -> ALLOCATED -> PARTIALLY_DISPATCHED -> DIS
 Sales invoice     ISSUED <-> PARTIALLY_PAID <-> PAID; ISSUED <-> PAID
                   ISSUED -> CANCELLED (irreversible; unpaid, within 24 hours)
 
+Sales return      DRAFT -> RECEIVED -> CLOSED
+                  DRAFT -> CANCELLED (reason required)
+                  Serial units must be accepted, marked damaged, or scrapped before close
+
+Credit note       ISSUED -> CANCELLED (irreversible; within 24 hours)
+
 Purchase          DRAFT -> PENDING_APPROVAL -> APPROVED -> CONVERTED -> CLOSED
 requisition       (REJECTED from PENDING_APPROVAL; CANCELLED from DRAFT, PENDING_APPROVAL,
                   APPROVED; CLOSED from APPROVED or CONVERTED via POST .../close)
@@ -719,6 +726,8 @@ Every transition writes an audit row via `record_status_change`.
 | Invoice issued | `finance.post_journal` debits AR and credits sales revenue/output GST, posts round-off, increases customer outstanding and SO-line invoiced quantities; full dispatched orders become INVOICED; queue permanent PDF after commit |
 | Invoice cancelled | Reverse its entire journal, reduce customer outstanding and SO-line invoiced quantities, restore INVOICED to DISPATCHED; dispatch cancellation stays blocked until the live invoice is cancelled |
 | Customer receipt allocated or released | Lock payment then invoice headers in id order; update invoice paid quantities and status through SALES_INVOICE_LIFECYCLE; cancelling a receipt releases its allocations before reversing its journal |
+| Purchase return posted | Post the stock movement, receipt/PO returned quantities and vendor debit journal in one transaction: Dr AP (vendor), Cr purchase expense, and Cr input tax |
+| Purchase-return debit allocated | Lock the posted return and vendor invoices; reduce the selected invoices' open payables by the matching amounts, enforce same vendor/currency and both outstanding caps, and leave the source journal unchanged |
 | Requisition converted | One DRAFT purchase order per (vendor, procurement category, warehouse) through `procurement.service._create_purchase_order` (duplicate check included); `_link_source_documents` adds to each line's `ordered_quantity` and moves the requisition APPROVED → CONVERTED; one CREATE audit row per order and one "Split into …" row per requisition - all in one transaction, or nothing |
 | Vendor invoice approved | `finance.post_journal`: one `PURCHASE_EXPENSE` debit per effective line cost centre (line -> header -> none), input tax, payable. A `JOB_WORK` invoice debits `JOB_WORK_EXPENSE` instead (line -> job-work order -> header -> none), moves each receipt line's `invoiced_amount`, and posts the excess-loss recovery (`job_work_recovery`: Dr AP / Cr job-work expense) for the still-unposted vendor debit |
 | Vendor invoice cancelled | reverse every journal the invoice posted (the bill and, on a job-work invoice, the recovery beside it) and roll the job-work tracking back, in the same transaction |
@@ -981,6 +990,14 @@ plus that consignment's staged quantity. Departure moves the SO to INVOICED when
 all ordered goods have both shipped and been invoiced. A free-stock dispatch
 needs an agreed priced sales order before it can issue this invoice.
 
+`sales_returns` and `sales_return_lines` belong to `sales_returns`. Receiving a
+serial-tracked return always posts each serial into QC_HOLD. The return owns
+`POST /sales-returns/{id}/units`: accepted serials move to AVAILABLE, damaged
+serials to DAMAGED, and scrapped serials to SCRAP. The persisted disposition
+sets are disjoint subsets of the line's shipped serials; closing is refused
+until every returned serial is dispositioned. Credit-note quantity for a serial
+line is the count of accepted serials only.
+
 `payment_allocations` names exactly one nullable `vendor_invoice_id` or
 `sales_invoice_id`, with separate partial uniqueness per payment/invoice. A
 receipt only settles the same customer's issued invoices in the same currency.
@@ -988,8 +1005,20 @@ An empty replacement set releases allocations. Vendor-payment semantics stay
 unchanged. The income account `SALES_REVENUE` prefers code 4500, skipping any
 client-owned code to the next free number.
 
+`purchase_return_debit_allocations` links a posted purchase return to an
+approved invoice from the same vendor and currency. Finance may replace or
+amend the complete allocation set under row locks on the return and invoices.
+The source return's available credit and each invoice's payable are hard caps.
+`vendor_invoices.debit_allocated_amount` is updated in the same transaction and
+the derived outstanding is `total - recovered - paid - debit_allocated`.
+Applying the already-posted debit is an allocation only; it does not create a
+second journal. Cancelling an invoice is refused until both payment and return
+debit allocations are released.
+
 Receivable ageing retains FIFO per customer/currency, but invoice debits use the
 snapshotted due date; legacy journal debits use their entry date. GST output is
-read from issued non-cancelled invoice lines by invoice date and stored HSN;
-dispatched not yet invoiced goods form a separate operational figure. Invoice
-PDF jobs and REPORT documents never expire.
+read from issued non-cancelled invoice lines by invoice date and stored HSN,
+less issued credit-note lines by credit-note date and their snapshotted HSN;
+cancelled credits do not reduce output GST. Dispatched not yet invoiced goods
+form a separate operational figure. Invoice PDF jobs and REPORT documents never
+expire.

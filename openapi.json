@@ -3609,6 +3609,32 @@
         "title": "ApiResponse[PurchaseOrderTracking]",
         "type": "object"
       },
+      "ApiResponse_PurchaseReturnDebitAllocationResult_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PurchaseReturnDebitAllocationResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[PurchaseReturnDebitAllocationResult]",
+        "type": "object"
+      },
       "ApiResponse_PurchaseReturnDetail_": {
         "properties": {
           "data": {
@@ -39757,6 +39783,158 @@
         "title": "PurchaseReturnCreate",
         "type": "object"
       },
+      "PurchaseReturnDebitAllocationIn": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,14}|(?=[\\d.]{1,19}0*$)\\d{0,14}\\.\\d{0,4}0*$)",
+                "type": "string"
+              }
+            ],
+            "title": "Amount"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "vendor_invoice_id": {
+            "format": "uuid",
+            "title": "Vendor Invoice Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "vendor_invoice_id",
+          "amount"
+        ],
+        "title": "PurchaseReturnDebitAllocationIn",
+        "type": "object"
+      },
+      "PurchaseReturnDebitAllocationRead": {
+        "properties": {
+          "amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "invoice_code": {
+            "title": "Invoice Code",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "vendor_invoice_id": {
+            "format": "uuid",
+            "title": "Vendor Invoice Id",
+            "type": "string"
+          },
+          "vendor_invoice_number": {
+            "title": "Vendor Invoice Number",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "vendor_invoice_id",
+          "invoice_code",
+          "vendor_invoice_number",
+          "amount",
+          "notes"
+        ],
+        "title": "PurchaseReturnDebitAllocationRead",
+        "type": "object"
+      },
+      "PurchaseReturnDebitAllocationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "allocations": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseReturnDebitAllocationIn"
+            },
+            "maxItems": 100,
+            "minItems": 0,
+            "title": "Allocations",
+            "type": "array"
+          },
+          "replace": {
+            "default": false,
+            "title": "Replace",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "allocations"
+        ],
+        "title": "PurchaseReturnDebitAllocationRequest",
+        "type": "object"
+      },
+      "PurchaseReturnDebitAllocationResult": {
+        "properties": {
+          "allocated_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Allocated Amount",
+            "type": "string"
+          },
+          "allocations": {
+            "items": {
+              "$ref": "#/components/schemas/PurchaseReturnDebitAllocationRead"
+            },
+            "title": "Allocations",
+            "type": "array"
+          },
+          "purchase_return_id": {
+            "format": "uuid",
+            "title": "Purchase Return Id",
+            "type": "string"
+          },
+          "total_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Total Amount",
+            "type": "string"
+          },
+          "unallocated_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Unallocated Amount",
+            "type": "string"
+          }
+        },
+        "required": [
+          "purchase_return_id",
+          "total_amount",
+          "allocated_amount",
+          "unallocated_amount"
+        ],
+        "title": "PurchaseReturnDebitAllocationResult",
+        "type": "object"
+      },
       "PurchaseReturnDetail": {
         "properties": {
           "cancellation_reason": {
@@ -40141,6 +40319,18 @@
       },
       "PurchaseReturnPostResult": {
         "properties": {
+          "debit_note_journal_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Debit Note Journal Id"
+          },
           "movements": {
             "items": {
               "$ref": "#/components/schemas/src__modules__procurement__schemas__PostedMovement"
@@ -40154,6 +40344,7 @@
         },
         "required": [
           "purchase_return",
+          "debit_note_journal_id",
           "movements"
         ],
         "title": "PurchaseReturnPostResult",
@@ -43348,6 +43539,7 @@
           "PACKING_LIST",
           "SALES_INVOICE",
           "CREDIT_NOTE",
+          "PURCHASE_RETURN_DEBIT_NOTE",
           "REWORK_RATE",
           "PRODUCTION_COST",
           "JOB_WORK_COST",
@@ -50318,10 +50510,26 @@
       },
       "SalesReturnLineRead": {
         "properties": {
+          "accepted_serial_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Accepted Serial Ids",
+            "type": "array"
+          },
           "credited_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Credited Quantity",
             "type": "string"
+          },
+          "damaged_serial_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Damaged Serial Ids",
+            "type": "array"
           },
           "dispatch_line_id": {
             "format": "uuid",
@@ -50374,6 +50582,14 @@
             "title": "Requires Qc",
             "type": "boolean"
           },
+          "scrapped_serial_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Scrapped Serial Ids",
+            "type": "array"
+          },
           "serial_ids": {
             "items": {
               "format": "uuid",
@@ -50388,6 +50604,9 @@
           "dispatch_line_id",
           "item_id",
           "serial_ids",
+          "accepted_serial_ids",
+          "damaged_serial_ids",
+          "scrapped_serial_ids",
           "qc_inspection_id",
           "quantity",
           "credited_quantity",
@@ -50516,6 +50735,40 @@
           "cancellation_reason"
         ],
         "title": "SalesReturnSummary",
+        "type": "object"
+      },
+      "SalesReturnUnits": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "title": "Accepted",
+            "type": "array"
+          },
+          "damaged": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "title": "Damaged",
+            "type": "array"
+          },
+          "scrapped": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "title": "Scrapped",
+            "type": "array"
+          }
+        },
+        "title": "SalesReturnUnits",
         "type": "object"
       },
       "SamplingPlan": {
@@ -58332,6 +58585,11 @@
             "title": "Currency",
             "type": "string"
           },
+          "debit_allocated_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Debit Allocated Amount",
+            "type": "string"
+          },
           "dispute_reason": {
             "anyOf": [
               {
@@ -58512,6 +58770,7 @@
           "tax_amount",
           "total_amount",
           "paid_amount",
+          "debit_allocated_amount",
           "outstanding_amount",
           "purchase_order_id",
           "goods_receipt_id",
@@ -58955,6 +59214,11 @@
             "title": "Currency",
             "type": "string"
           },
+          "debit_allocated_amount": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Debit Allocated Amount",
+            "type": "string"
+          },
           "due_date": {
             "format": "date",
             "title": "Due Date",
@@ -59064,6 +59328,7 @@
           "tax_amount",
           "total_amount",
           "paid_amount",
+          "debit_allocated_amount",
           "outstanding_amount",
           "purchase_order_id",
           "goods_receipt_id",
@@ -87992,6 +88257,251 @@
           }
         ],
         "summary": "Call off a payment, reversing its posting",
+        "tags": [
+          "Finance"
+        ]
+      }
+    },
+    "/api/v1/finance/purchase-returns/{purchase_return_id}/debit-allocations": {
+      "get": {
+        "operationId": "get_purchase_return_debit_allocations_api_v1_finance_purchase_returns__purchase_return_id__debit_allocations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "purchase_return_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Purchase Return Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_PurchaseReturnDebitAllocationResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read purchase-return debit allocations",
+        "tags": [
+          "Finance"
+        ]
+      },
+      "post": {
+        "description": "Applies the vendor credit without changing the original debit-note journal. The return and invoices are locked, and each allocation is bounded by the remaining return credit and the invoice's remaining payable.",
+        "operationId": "allocate_purchase_return_debit_api_v1_finance_purchase_returns__purchase_return_id__debit_allocations_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "purchase_return_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Purchase Return Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PurchaseReturnDebitAllocationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_PurchaseReturnDebitAllocationResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Apply a posted purchase-return debit to vendor invoices",
         "tags": [
           "Finance"
         ]
@@ -118818,9 +119328,127 @@
         ]
       }
     },
+    "/api/v1/procurement/purchase-returns/{return_id}/debit-note-pdf": {
+      "post": {
+        "operationId": "purchase_return_debit_note_pdf_api_v1_procurement_purchase_returns__return_id__debit_note_pdf_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "return_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Return Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptedJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Queue the vendor debit-note PDF for a posted purchase return",
+        "tags": [
+          "Procurement"
+        ]
+      }
+    },
     "/api/v1/procurement/purchase-returns/{return_id}/post": {
       "post": {
-        "description": "Writes one PURCHASE_RETURN movement per line against the same batch the goods came in on, and updates the receipt and order lines it reverses.",
+        "description": "Writes one PURCHASE_RETURN movement per line against the same batch the goods came in on, updates the receipt and order lines it reverses, and posts the vendor debit and input-tax reversal in the same transaction.",
         "operationId": "post_purchase_return_api_v1_procurement_purchase_returns__return_id__post_post",
         "parameters": [
           {
@@ -153761,6 +154389,134 @@
           }
         ],
         "summary": "Receive Sales Return",
+        "tags": [
+          "Sales Returns"
+        ]
+      }
+    },
+    "/api/v1/sales-returns/{return_id}/units": {
+      "post": {
+        "operationId": "dispose_sales_return_units_api_v1_sales_returns__return_id__units_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "return_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Return Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SalesReturnUnits"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_SalesReturnDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Dispose Sales Return Units",
         "tags": [
           "Sales Returns"
         ]

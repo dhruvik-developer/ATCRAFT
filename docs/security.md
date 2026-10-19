@@ -490,6 +490,13 @@ attachment. Recognizable legacy valuation files without scope evidence are hidde
 from restricted readers. Empty assignments and platform superusers retain access
 within the verified company.
 
+The catalogue-backed **Inventory valuation** report additionally requires
+`report.view` and `inventory.valuation_view`; **Product profitability** requires
+`report.view` and `item.cost_view`. The same definition permission is checked
+when running a report and when reading its generic job. The finance-owned
+valuation export exception above remains limited to its verified creator and
+warehouse scope.
+
 ## Owned job-work challan files (E7b)
 
 An internal `job_work.view` holder may read and download a challan job they

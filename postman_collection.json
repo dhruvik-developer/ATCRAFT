@@ -5767,6 +5767,49 @@
           }
         },
         {
+          "name": "Apply a posted purchase-return debit to vendor invoices",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"allocations\": [\n    {\n      \"amount\": {},\n      \"vendor_invoice_id\": {},\n      \"notes\": {}\n    }\n  ],\n  \"replace\": false\n}"
+            },
+            "description": "Applies the vendor credit without changing the original debit-note journal. The return and invoices are locked, and each allocation is bounded by the remaining return credit and the invoice's remaining payable.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "purchase-returns",
+                ":purchase_return_id",
+                "debit-allocations"
+              ],
+              "raw": "{{base_url}}/api/v1/finance/purchase-returns/{purchase_return_id}/debit-allocations",
+              "variable": [
+                {
+                  "description": "purchase_return_id of the record",
+                  "key": "purchase_return_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Approve a payment - the money moves",
           "request": {
             "body": {
@@ -7105,6 +7148,35 @@
                 {
                   "description": "invoice_id of the record",
                   "key": "invoice_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Read purchase-return debit allocations",
+          "request": {
+            "description": "Read purchase-return debit allocations",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "finance",
+                "purchase-returns",
+                ":purchase_return_id",
+                "debit-allocations"
+              ],
+              "raw": "{{base_url}}/api/v1/finance/purchase-returns/{purchase_return_id}/debit-allocations",
+              "variable": [
+                {
+                  "description": "purchase_return_id of the record",
+                  "key": "purchase_return_id",
                   "value": ""
                 }
               ]
@@ -15423,7 +15495,7 @@
         {
           "name": "Post a purchase return: move the stock back out",
           "request": {
-            "description": "Writes one PURCHASE_RETURN movement per line against the same batch the goods came in on, and updates the receipt and order lines it reverses.",
+            "description": "Writes one PURCHASE_RETURN movement per line against the same batch the goods came in on, updates the receipt and order lines it reverses, and posts the vendor debit and input-tax reversal in the same transaction.",
             "header": [],
             "method": "POST",
             "url": {
@@ -15524,6 +15596,35 @@
                 "conversion-preview"
               ],
               "raw": "{{base_url}}/api/v1/procurement/purchase-requisitions/conversion-preview"
+            }
+          }
+        },
+        {
+          "name": "Queue the vendor debit-note PDF for a posted purchase return",
+          "request": {
+            "description": "Queue the vendor debit-note PDF for a posted purchase return",
+            "header": [],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "procurement",
+                "purchase-returns",
+                ":return_id",
+                "debit-note-pdf"
+              ],
+              "raw": "{{base_url}}/api/v1/procurement/purchase-returns/{return_id}/debit-note-pdf",
+              "variable": [
+                {
+                  "description": "return_id of the record",
+                  "key": "return_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },
@@ -26771,6 +26872,48 @@
                 "sales-returns"
               ],
               "raw": "{{base_url}}/api/v1/sales-returns"
+            }
+          }
+        },
+        {
+          "name": "Dispose Sales Return Units",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"accepted\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"damaged\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ],\n  \"scrapped\": [\n    \"00000000-0000-0000-0000-000000000000\"\n  ]\n}"
+            },
+            "description": "Dispose Sales Return Units",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sales-returns",
+                ":return_id",
+                "units"
+              ],
+              "raw": "{{base_url}}/api/v1/sales-returns/{return_id}/units",
+              "variable": [
+                {
+                  "description": "return_id of the record",
+                  "key": "return_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },
