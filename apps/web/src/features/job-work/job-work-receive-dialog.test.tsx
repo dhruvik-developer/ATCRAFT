@@ -24,6 +24,8 @@ const LINE: JobWorkOrderLine = {
   job_work_order_id: 'jw-1',
   line_number: 1,
   item_id: 'item-raw-1',
+  is_batch_tracked: false,
+  batch_id: null,
   uom_id: 'uom-1',
   quantity_to_issue: '100.0000',
   issued_quantity: '100.0000',
@@ -141,6 +143,7 @@ describe('the receive dialog request body', () => {
     expect(body?.lines).toEqual([
       {
         line_number: 1,
+        batch_id: null,
         output_quantity: '90',
         rejected_quantity: '2',
         rejection_action: 'RETURN_TO_STOCK',

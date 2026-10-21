@@ -3304,6 +3304,26 @@ cannot seed this draft action.
 vendor debit through B3a's recovery mechanism behind a setting that defaults
 to off, as the spec anticipates.
 
+## §E7b-5. Job-work batches retain one same-item lot per order line
+
+**Assumed.** A batch-tracked item may go for job work only when the processed
+output is the same item. The lot is selected on the draft order, so approval
+reserves that exact stock grain; every challan, receipt and movement for the
+line uses the selected batch. A second batch uses a separate order line.
+Tracked transformations remain blocked until the input-to-output lineage is
+specified. Serial-tracked job work remains blocked because receipt, scrap and
+rework do not yet account for each unit's identity.
+
+**Why.** A batch is the identity of a lot, not of a particular warehouse
+position, so the lot can return to a different warehouse without losing its
+identity. A different SKU cannot inherit that identity without traceable
+lineage. Likewise, allowing serials without specifying which units were
+returned, scrapped or retained for rework would produce an incomplete ledger.
+
+**Where:** `job_work_order_lines.is_batch_tracked` snapshots the item setting;
+`batch_id` is selected on order entry and passed to the allocation reservation,
+challan/receipt lines and inventory movements. See migration `20261025_0100`.
+
 ## §E1b-1. Shortfall planning creates drafts, never commitments
 
 **Assumed.** Automatic planning raises only DRAFT documents: a production order

@@ -46,11 +46,12 @@ export const WAREHOUSE_LOOKUP_PARAMS = {
   with_total: false,
 } as const
 
-/** The subset of `ItemSummary` the pickers render. */
+/** Item fields used by the pickers and by workflows that depend on tracking. */
 export interface ItemOption {
   id: string
   code: string
   name: string
+  is_batch_tracked: boolean
 }
 
 // ------------------------------------------------------------ balances -----

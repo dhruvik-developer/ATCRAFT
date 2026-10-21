@@ -116,12 +116,14 @@ taken, named, and is changeable in one place.
   layers the posting itself consumes. Process loss within the allowance is
   expensed as scrap (as before) rather than absorbed into the good units, and
   the later invoice price variance is expensed too. docs/assumptions.md §E7b-2.
-* **Batch-tracked and serial-tracked items are refused** on both the input and
-  the output side. The inventory engine requires a batch on every movement of a
-  batch-tracked item and a serial on every movement of a serialised one, and
-  this module has no contract for choosing a batch or minting a serial.
-  Refusing at order entry fails before anything is committed to, rather than
-  after the material has left the building.
+* **Batch identity is preserved only for same-item job work.** One batch is
+  selected for each order line on the draft, reserved at that stock grain and
+  carried through every challan, receipt and ledger movement; a second batch
+  needs a separate line.
+  A tracked input/output conversion is refused until its identity lineage is
+  defined. Serial-tracked items remain refused because processing loss, scrap
+  and vendor-held rework need explicit per-unit dispositions that this
+  document contract does not yet provide.
 * **``requires_qc`` is a per-order flag**, not an item-master property. ``items``
   carries no inspection policy and inventing one would put the rule in two
   places that could disagree; ``goods_receipt_lines.requires_qc`` and
@@ -167,6 +169,7 @@ from src.modules.allocation.models import DemandType, ReservationType
 from src.modules.audit.models import AuditAction
 from src.modules.audit.service import record_audit, record_status_change, snapshot
 from src.modules.inventory.models import StockState, TransactionType
+from src.modules.inventory.repository import StockBatchRepository
 from src.modules.inventory.service import MovementRequest, change_stock_state, post_movements
 from src.modules.job_work.models import (
     ISSUED_OR_LATER_STATUSES,
@@ -758,6 +761,7 @@ class AllocationPort(Protocol):
         *,
         item_id: uuid.UUID,
         warehouse_id: uuid.UUID,
+        batch_id: uuid.UUID | None = None,
         quantity: Decimal,
         demand_type: DemandType,
         demand_id: uuid.UUID,
@@ -788,6 +792,7 @@ class AllocationService:
         *,
         item_id: uuid.UUID,
         warehouse_id: uuid.UUID,
+        batch_id: uuid.UUID | None = None,
         quantity: Decimal,
         demand_type: DemandType,
         demand_id: uuid.UUID,
@@ -803,6 +808,7 @@ class AllocationService:
             tenant,
             item_id=item_id,
             warehouse_id=warehouse_id,
+            batch_id=batch_id,
             quantity=quantity,
             demand_type=demand_type,
             demand_id=demand_id,
@@ -982,17 +988,10 @@ def _assert_trackable(item: JobWorkItem, *, role: str) -> None:
     See the module's Assumptions. Checked at order entry so the order never
     reaches a vendor it cannot be received from.
     """
-    if item.is_batch_tracked:
-        raise BusinessRuleError(
-            f"{item.code} is batch tracked and cannot be a job work {role}: there is no "
-            "contract for choosing a batch on this path.",
-            code=ErrorCode.BATCH_REQUIRED,
-            details={"item_code": item.code, "role": role},
-        )
     if item.is_serial_tracked:
         raise BusinessRuleError(
             f"{item.code} is serial tracked and cannot be a job work {role}: there is no "
-            "contract for naming a serial number on this path.",
+            "contract for accounting for each serial through processing, loss and rework.",
             code=ErrorCode.SERIAL_REQUIRED,
             details={"item_code": item.code, "role": role},
         )
@@ -1060,6 +1059,9 @@ async def _resolve_lines(
         wanted.append(line.expected_output_item_id or line.item_id)
 
     items = await ItemLookupRepository(session, tenant).load(wanted)
+    batches = await StockBatchRepository(session, tenant).load(
+        [line.batch_id for line in payload_lines if line.batch_id is not None]
+    )
 
     resolved: list[tuple[JobWorkOrderLineCreate, JobWorkItem, JobWorkItem]] = []
     for line in payload_lines:
@@ -1079,6 +1081,30 @@ async def _resolve_lines(
                 details={"item_code": source.code, "line_number": line.line_number},
             )
         _assert_trackable(source, role="input")
+        if source.is_batch_tracked:
+            if line.batch_id is None:
+                raise BusinessRuleError(
+                    f"{source.code} is batch tracked; select the lot to reserve for job work.",
+                    code=ErrorCode.BATCH_REQUIRED,
+                    details={"item_code": source.code, "line_number": line.line_number},
+                )
+            batch = batches.get(line.batch_id)
+            if batch is None:
+                raise NotFoundError("Stock batch", line.batch_id)
+            if batch.item_id != source.id:
+                raise BusinessRuleError(
+                    f"Batch {batch.batch_number} belongs to another item.",
+                    details={
+                        "batch_id": str(batch.id),
+                        "item_id": str(source.id),
+                        "batch_item_id": str(batch.item_id),
+                    },
+                )
+        elif line.batch_id is not None:
+            raise BusinessRuleError(
+                f"{source.code} is not batch tracked; remove the batch selection.",
+                details={"item_code": source.code, "line_number": line.line_number},
+            )
 
         output_id = line.expected_output_item_id or line.item_id
         output = items.get(output_id)
@@ -1089,8 +1115,24 @@ async def _resolve_lines(
                 inactive_record("Item", output.code, "cannot receive processed stock"),
                 details={"item_code": output.code, "line_number": line.line_number},
             )
-        if output.id != source.id:
-            _assert_trackable(output, role="output")
+        # ASSUMPTION: a lot identity survives same-item processing, but cannot
+        # be transferred to a different SKU without an explicit lineage record.
+        if output.id != source.id and (
+            source.is_batch_tracked
+            or source.is_serial_tracked
+            or output.is_batch_tracked
+            or output.is_serial_tracked
+        ):
+            raise BusinessRuleError(
+                f"{source.code} cannot be converted to {output.code} in a tracked job-work "
+                "order until the input-to-output identity lineage is defined.",
+                details={
+                    "input_item_code": source.code,
+                    "output_item_code": output.code,
+                    "line_number": line.line_number,
+                },
+            )
+        _assert_trackable(output, role="output")
 
         resolved.append((line, source, output))
     return resolved
@@ -1107,6 +1149,8 @@ def _persist_lines(
                 job_work_order_id=order.id,
                 line_number=line.line_number,
                 item_id=source.id,
+                is_batch_tracked=source.is_batch_tracked,
+                batch_id=line.batch_id,
                 uom_id=source.base_uom_id,
                 quantity_to_issue=to_quantity(line.quantity_to_issue),
                 expected_output_item_id=output.id,
@@ -1845,6 +1889,7 @@ async def approve_order(
                 tenant,
                 item_id=line.item_id,
                 warehouse_id=order.warehouse_id,
+                batch_id=line.batch_id,
                 quantity=to_quantity(Decimal(line.quantity_to_issue)),
                 demand_type=DemandType.JOB_WORK_ORDER,
                 demand_id=order.id,
@@ -1983,7 +2028,7 @@ async def issue_order(
 
         lines = await line_repo.list_for_order(order.id)
         by_number = {line.line_number: line for line in lines}
-        overrides: dict[int, Decimal] = {}
+        overrides: dict[int, tuple[Decimal, uuid.UUID | None]] = {}
         for entry in payload.lines:
             line = by_number.get(entry.line_number)
             if line is None:
@@ -1999,7 +2044,30 @@ async def issue_order(
                         "requested": str(quantity),
                     },
                 )
-            overrides[entry.line_number] = quantity
+            batch_id = entry.batch_id if entry.batch_id is not None else line.batch_id
+            if line.is_batch_tracked:
+                if batch_id is None:
+                    raise BusinessRuleError(
+                        f"Line {entry.line_number} is batch tracked; name the batch being sent.",
+                        code=ErrorCode.BATCH_REQUIRED,
+                        details={"line_number": entry.line_number, "item_id": str(line.item_id)},
+                    )
+                if line.batch_id is not None and batch_id != line.batch_id:
+                    raise BusinessRuleError(
+                        f"Line {entry.line_number} has already been issued from another batch; "
+                        "use a separate job-work line for each batch.",
+                        details={
+                            "line_number": entry.line_number,
+                            "batch_id": str(batch_id),
+                            "issued_batch_id": str(line.batch_id),
+                        },
+                    )
+            elif entry.batch_id is not None:
+                raise BusinessRuleError(
+                    f"Line {entry.line_number} is not batch tracked; remove the batch selection.",
+                    details={"line_number": entry.line_number},
+                )
+            overrides[entry.line_number] = (quantity, batch_id)
 
         challan_date = payload.challan_date or today()
         expected_return = payload.expected_return_date or order.expected_return_date
@@ -2017,18 +2085,28 @@ async def issue_order(
         )
 
         movement_reason = f"Job work {order.code} issued to vendor: {payload.reason}"[:255]
-        issuing: list[tuple[JobWorkOrderLine, Decimal]] = []
+        issuing: list[tuple[JobWorkOrderLine, Decimal, uuid.UUID | None]] = []
         movements: list[MovementRequest] = []
         for line in lines:
-            quantity = overrides.get(line.line_number, to_quantity(Decimal(line.quantity_to_issue)))
+            quantity, batch_id = overrides.get(
+                line.line_number,
+                (to_quantity(Decimal(line.quantity_to_issue)), line.batch_id),
+            )
             if quantity <= ZERO:
                 continue
-            issuing.append((line, quantity))
+            if line.is_batch_tracked and batch_id is None:
+                raise BusinessRuleError(
+                    f"Line {line.line_number} is batch tracked; name the batch being sent.",
+                    code=ErrorCode.BATCH_REQUIRED,
+                    details={"line_number": line.line_number, "item_id": str(line.item_id)},
+                )
+            issuing.append((line, quantity, batch_id))
             movements.append(
                 MovementRequest(
                     item_id=line.item_id,
                     warehouse_id=order.warehouse_id,
                     quantity=quantity,
+                    batch_id=batch_id,
                     # THE line that keeps the material ours. Not DISPATCH, not
                     # PURCHASE_RETURN, not ADJUSTMENT_DECREASE - the stock moves
                     # into job_work_quantity and stays on the company's books.
@@ -2056,11 +2134,19 @@ async def issue_order(
         # is inserted because a challan for a zero quantity is not a document -
         # the CHECK constraint refuses one, and it is right to.
         declared = [
-            (line, quantity, Decimal(txn.unit_cost), to_money(quantity * Decimal(txn.unit_cost)))
-            for (line, quantity), txn in zip(issuing, posted, strict=True)
+            (
+                line,
+                quantity,
+                batch_id,
+                Decimal(txn.unit_cost),
+                to_money(quantity * Decimal(txn.unit_cost)),
+            )
+            for (line, quantity, batch_id), txn in zip(issuing, posted, strict=True)
         ]
-        total_quantity = to_quantity(sum((quantity for _, quantity, _, _ in declared), start=ZERO))
-        total_value = to_money(sum((value for _, _, _, value in declared), start=ZERO))
+        total_quantity = to_quantity(
+            sum((quantity for _, quantity, _, _, _ in declared), start=ZERO)
+        )
+        total_value = to_money(sum((value for _, _, _, _, value in declared), start=ZERO))
 
         challan_code = await next_document_number(
             session, tenant.company_id, DocTypes.JOB_WORK_CHALLAN, on=challan_date
@@ -2082,7 +2168,7 @@ async def issue_order(
         await session.flush()
 
         challan_lines: list[JobWorkChallanLine] = []
-        for line, quantity, unit_value, line_value in declared:
+        for line, quantity, batch_id, unit_value, line_value in declared:
             challan_lines.append(
                 challan_line_repo.add(
                     JobWorkChallanLine(
@@ -2090,6 +2176,7 @@ async def issue_order(
                         job_work_order_line_id=line.id,
                         line_number=line.line_number,
                         item_id=line.item_id,
+                        batch_id=batch_id,
                         uom_id=line.uom_id,
                         quantity=quantity,
                         unit_value=unit_value,
@@ -2098,6 +2185,7 @@ async def issue_order(
                 )
             )
             line.issued_quantity = to_quantity(Decimal(line.issued_quantity) + quantity)
+            line.batch_id = batch_id
             line_repo.touch(line)
 
         order.issued_at = payload.occurred_at or utcnow()
@@ -2129,7 +2217,9 @@ async def issue_order(
                 "transporter_id": payload.transporter_id,
                 "total_quantity": challan.total_quantity,
                 "total_value": challan.total_value,
-                "issued": {str(line.line_number): quantity for line, quantity in issuing},
+                "issued": {
+                    str(line.line_number): quantity for line, quantity, _batch_id in issuing
+                },
             },
             context={
                 "reason": payload.reason,
@@ -2163,6 +2253,7 @@ class PlannedLine:
     order_line: JobWorkOrderLine
     entry: ReceiptLineIn
     plan: LineReceiptPlan
+    batch_id: uuid.UUID | None
 
 
 def _build_receipt_movements(
@@ -2219,6 +2310,7 @@ def _build_receipt_movements(
             "reference_id": order.id,
             "reference_code": order.code,
             "reason": reason,
+            "batch_id": entry.batch_id,
             "occurred_at": occurred_at,
         }
 
@@ -2560,6 +2652,7 @@ async def receive(
                         job_work_order_line_id=line.id,
                         line_number=line.line_number,
                         output_item_id=line.expected_output_item_id,
+                        batch_id=row.batch_id,
                         output_quantity=plan.output_quantity,
                         rejected_quantity=plan.rejected_quantity,
                         rejection_action=row.entry.rejection_action,
@@ -2744,10 +2837,33 @@ def _plan_receipt(
         line = by_number.get(entry.line_number)
         if line is None:
             raise NotFoundError("Job work order line", entry.line_number)
+        batch_id = entry.batch_id if entry.batch_id is not None else line.batch_id
+        if line.is_batch_tracked:
+            if line.batch_id is None:
+                raise BusinessRuleError(
+                    f"Line {line.line_number} is batch tracked but has no issued batch.",
+                    code=ErrorCode.BATCH_REQUIRED,
+                    details={"line_number": line.line_number},
+                )
+            if batch_id != line.batch_id:
+                raise BusinessRuleError(
+                    f"Line {line.line_number} must be received against the batch that was issued.",
+                    details={
+                        "line_number": line.line_number,
+                        "batch_id": str(batch_id) if batch_id else None,
+                        "issued_batch_id": str(line.batch_id),
+                    },
+                )
+        elif entry.batch_id is not None:
+            raise BusinessRuleError(
+                f"Line {line.line_number} is not batch tracked; remove the batch selection.",
+                details={"line_number": line.line_number},
+            )
         planned.append(
             PlannedLine(
                 order_line=line,
                 entry=entry,
+                batch_id=batch_id,
                 plan=plan_line_receipt(
                     line_number=entry.line_number,
                     outstanding_input=Decimal(line.issued_quantity)

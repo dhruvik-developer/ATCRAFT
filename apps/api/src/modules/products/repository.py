@@ -127,6 +127,7 @@ ITEM_SUMMARY_COLUMNS: tuple[InstrumentedAttribute[Any], ...] = (
     Item.can_be_assembly_component,
     Item.can_be_spare,
     Item.can_job_work,
+    Item.is_batch_tracked,
     # Keyset pagination orders on these, so they must be loaded.
     Item.created_at,
 )

@@ -33,6 +33,11 @@ from src.modules.inventory.models import (
     StockTransfer,
     StockTransferLine,
 )
+from src.modules.job_work.models import (
+    JobWorkChallanLine,
+    JobWorkOrderLine,
+    JobWorkReceiptLine,
+)
 from src.modules.mrp.models import MrpRequirement
 from src.modules.procurement.models import PurchaseRequisitionLine
 from src.modules.production.models import ProductionOrder
@@ -41,7 +46,7 @@ from src.modules.sales.models import SalesSettings
 
 pytestmark = pytest.mark.integration
 
-HEAD_REVISION = "20261024_0100"
+HEAD_REVISION = "20261025_0100"
 DB_NAME = f"atcraft_baseline_mig_{uuid.uuid4().hex[:8]}"
 CONNECTION_GUARDS = (
     "connect_timeout=10&keepalives=1&keepalives_idle=15&keepalives_interval=5&keepalives_count=3"
@@ -245,6 +250,10 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
     assert {column.name for column in StockTransfer.__table__.columns} == transfer_columns
     assert "source_line_id" in column_names(dsn, "stock_transfer_lines")
     assert "source_line_id" in {column.name for column in StockTransferLine.__table__.columns}
+    for model in (JobWorkOrderLine, JobWorkChallanLine, JobWorkReceiptLine):
+        assert column_names(dsn, model.__tablename__) == {
+            column.name for column in model.__table__.columns
+        }
     transfer_check = table_constraints(dsn, "stock_transfers", "c")[
         "ck_stock_transfers_source_type_known"
     ]

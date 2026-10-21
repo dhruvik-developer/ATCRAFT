@@ -58,6 +58,7 @@ from src.modules.inventory.models import (
     StockState,
     TransactionType,
 )
+from src.modules.inventory.schemas import StockBatchCreate
 from src.modules.job_work import service
 from src.modules.job_work.models import (
     JobWorkChallan,
@@ -71,6 +72,7 @@ from src.modules.job_work.models import (
     RejectionAction,
 )
 from src.modules.job_work.schemas import (
+    IssueLineIn,
     IssueRequest,
     JobWorkOrderCreate,
     JobWorkOrderFilters,
@@ -280,6 +282,7 @@ async def stock_in(
     warehouse_id: uuid.UUID,
     quantity: str,
     unit_cost: str = "100",
+    batch_id: uuid.UUID | None = None,
 ) -> None:
     async with transaction(session):
         await inv.post_movement(
@@ -294,6 +297,7 @@ async def stock_in(
             reference_code="OPENING",
             reason="job work fixture opening stock",
             unit_cost=Decimal(unit_cost),
+            batch_id=batch_id,
         )
 
 
@@ -479,6 +483,99 @@ async def test_issuing_posts_a_job_work_issue_and_not_a_dispatch(ctx, job: PvdJo
     assert rows[0].stock_state == StockState.JOB_WORK
     # A dispatch or a purchase return would say the goods stopped being ours.
     assert TransactionType.DISPATCH not in {r.transaction_type for r in rows}
+
+
+async def test_batch_tracked_job_work_preserves_the_same_item_lot(ctx, job: PvdJob) -> None:
+    session, tenant = ctx
+    item_id = await seed_item(
+        session,
+        tenant.company_id,
+        job.uom_id,
+        code=_code("BATCH-JW"),
+        batch_tracked=True,
+    )
+    batch = await inv.TraceabilityService(session, tenant).create_batch(
+        StockBatchCreate(item_id=item_id, batch_number=_code("LOT"))
+    )
+    await stock_in(session, tenant, item_id, job.warehouse_id, "4", batch_id=batch.id)
+    order, _ = await service.create_order(
+        session,
+        tenant,
+        JobWorkOrderCreate(
+            vendor_id=job.vendor_id,
+            process_type=JobWorkProcess.POLISHING,
+            expected_return_date=today() + timedelta(days=2),
+            warehouse_id=job.warehouse_id,
+            rate_per_unit=Decimal("1"),
+            rate_basis=RateBasis.PER_PIECE,
+            lines=[
+                JobWorkOrderLineCreate(
+                    line_number=1,
+                    item_id=item_id,
+                    quantity_to_issue=Decimal("4"),
+                    batch_id=batch.id,
+                    expected_output_item_id=item_id,
+                )
+            ],
+        ),
+    )
+    await service.approve_order(session, tenant, order.id, reason="Batch job approved")
+    issued = await service.issue_order(
+        session,
+        tenant,
+        order.id,
+        IssueRequest(
+            reason="Send selected lot for polishing",
+            lines=[
+                IssueLineIn(
+                    line_number=1,
+                    issued_quantity=Decimal("4"),
+                    batch_id=batch.id,
+                )
+            ],
+        ),
+    )
+    received = await service.receive(
+        session,
+        tenant,
+        principal_for(tenant),
+        order.id,
+        ReceiveRequest(
+            reason="Polished lot returned",
+            lines=[
+                ReceiptLineIn(
+                    line_number=1,
+                    batch_id=batch.id,
+                    output_quantity=Decimal("4"),
+                    is_final=True,
+                )
+            ],
+        ),
+    )
+
+    assert issued.challan.lines[0].batch_id == batch.id
+    assert received.receipt.lines[0].batch_id == batch.id
+    assert received.order.lines[0].batch_id == batch.id
+    balance_row = await inv.get_balance(
+        session, tenant, item_id, job.warehouse_id, batch_id=batch.id
+    )
+    assert balance_row is not None
+    assert Decimal(balance_row.available_quantity) == Decimal("4.0000")
+    assert Decimal(balance_row.job_work_quantity) == Decimal("0.0000")
+    movements = list(
+        (
+            await session.execute(
+                select(InventoryTransaction).where(
+                    InventoryTransaction.company_id == tenant.company_id,
+                    InventoryTransaction.reference_id == order.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(movements) == 3
+    assert all(row.batch_id == batch.id for row in movements)
 
 
 async def test_company_owned_stock_is_conserved_across_a_clean_issue_and_receipt(
@@ -1272,16 +1369,20 @@ async def test_an_unapproved_vendor_cannot_be_sent_company_material(ctx, job: Pv
     assert "not approved" in str(exc.value)
 
 
-async def test_a_batch_tracked_item_is_refused_at_order_entry(ctx, job: PvdJob) -> None:
+async def test_a_tracked_item_conversion_is_refused_without_lineage(ctx, job: PvdJob) -> None:
     session, tenant = ctx
     batched = await seed_item(
         session, tenant.company_id, job.uom_id, code=_code("BATCH"), batch_tracked=True
     )
+    batch = await inv.TraceabilityService(session, tenant).create_batch(
+        StockBatchCreate(item_id=batched, batch_number=_code("LOT"))
+    )
 
     payload = job.payload()
     payload.lines[0].item_id = batched
+    payload.lines[0].batch_id = batch.id
 
-    with pytest.raises(BusinessRuleError):
+    with pytest.raises(BusinessRuleError, match="identity lineage"):
         await service.create_order(session, tenant, payload)
 
 

@@ -75,6 +75,7 @@ class JobWorkOrderLineCreate(BaseModel):
     line_number: LineNumber
     item_id: uuid.UUID
     quantity_to_issue: PositiveQuantity
+    batch_id: uuid.UUID | None = None
     #: Defaults to ``item_id``: the same item comes back, processed.
     expected_output_item_id: uuid.UUID | None = None
     #: Defaults to ``quantity_to_issue`` - one piece in, one piece out, which is
@@ -183,6 +184,8 @@ class JobWorkOrderLineRead(BaseModel):
     job_work_order_id: uuid.UUID
     line_number: int
     item_id: uuid.UUID
+    is_batch_tracked: bool
+    batch_id: uuid.UUID | None
     uom_id: uuid.UUID
     quantity_to_issue: Decimal
     issued_quantity: Decimal
@@ -294,6 +297,7 @@ class IssueLineIn(BaseModel):
 
     line_number: LineNumber
     issued_quantity: PositiveQuantity
+    batch_id: uuid.UUID | None = None
 
 
 class IssueRequest(BaseModel):
@@ -337,6 +341,7 @@ class ReceiptLineIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     line_number: LineNumber
+    batch_id: uuid.UUID | None = None
     output_quantity: NonNegativeQuantity = Decimal("0")
     rejected_quantity: NonNegativeQuantity = Decimal("0")
     #: Where the rejected output physically is. Ignored when nothing was
@@ -451,6 +456,7 @@ class ChallanLineRead(BaseModel):
     job_work_order_line_id: uuid.UUID
     line_number: int
     item_id: uuid.UUID
+    batch_id: uuid.UUID | None
     uom_id: uuid.UUID
     quantity: Decimal
     unit_value: Decimal
@@ -482,6 +488,7 @@ class ReceiptLineRead(BaseModel):
     job_work_order_line_id: uuid.UUID
     line_number: int
     output_item_id: uuid.UUID
+    batch_id: uuid.UUID | None
     output_quantity: Decimal
     rejected_quantity: Decimal
     rejection_action: RejectionAction

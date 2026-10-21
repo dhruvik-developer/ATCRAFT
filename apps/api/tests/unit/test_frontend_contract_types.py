@@ -51,6 +51,7 @@ from src.modules.products.schemas import (
     CategoryOut,
     ItemDetail,
     ItemDetailWithCost,
+    ItemSummary,
     ItemSummaryWithCost,
     UomOut,
 )
@@ -76,6 +77,7 @@ MIRRORS: tuple[tuple[str, str, type[BaseModel]], ...] = (
     ("features/items/item-model.ts", "ItemStockSummary", ItemStockSummaryWithCost),
     ("features/items/item-model.ts", "CategoryOption", CategoryOut),
     ("features/items/item-model.ts", "UomOption", UomOut),
+    ("features/inventory/types.ts", "ItemOption", ItemSummary),
     # Registered when the cost centre was added to both: a field typed by hand
     # into a shape the contract does not check is exactly how valuation_method
     # outlived its column. The detail interface extends the row; only its own

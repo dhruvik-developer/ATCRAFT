@@ -14852,6 +14852,8 @@ export interface components {
         };
         /** ChallanLineRead */
         ChallanLineRead: {
+            /** Batch Id */
+            batch_id: string | null;
             /**
              * Challan Id
              * Format: uuid
@@ -19333,6 +19335,8 @@ export interface components {
          *     take half the consignment this week.
          */
         IssueLineIn: {
+            /** Batch Id */
+            batch_id?: string | null;
             /** Issued Quantity */
             issued_quantity: number | string;
             /** Line Number */
@@ -19863,6 +19867,8 @@ export interface components {
          *     a different cost.
          */
         JobWorkOrderLineCreate: {
+            /** Batch Id */
+            batch_id?: string | null;
             /**
              * Expected Loss Percentage
              * @default 0
@@ -19886,6 +19892,8 @@ export interface components {
         };
         /** JobWorkOrderLineRead */
         JobWorkOrderLineRead: {
+            /** Batch Id */
+            batch_id: string | null;
             /** Expected Loss Percentage */
             expected_loss_percentage: string;
             /**
@@ -19900,6 +19908,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Is Batch Tracked */
+            is_batch_tracked: boolean;
             /** Issued Quantity */
             issued_quantity: string;
             /**
@@ -26561,6 +26571,8 @@ export interface components {
          *     single "received" number would make it impossible to say which.
          */
         ReceiptLineIn: {
+            /** Batch Id */
+            batch_id?: string | null;
             /**
              * Is Final
              * @default false
@@ -26600,6 +26612,8 @@ export interface components {
         ReceiptLineQcStatus: "NOT_REQUIRED" | "PENDING" | "PASSED" | "FAILED";
         /** ReceiptLineRead */
         ReceiptLineRead: {
+            /** Batch Id */
+            batch_id: string | null;
             /** Charges */
             charges: string;
             /** Debit Posted Amount */

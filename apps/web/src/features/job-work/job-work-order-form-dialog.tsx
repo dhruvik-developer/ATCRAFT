@@ -19,14 +19,14 @@
  *    left out, so an amendment always posts every line.
  *
  * Item choice is narrowed server-side rather than validated after the fact: the
- * API refuses an inactive item, one not flagged `can_job_work`, and any batch-
- * or serial-tracked item in either role, because this module has no contract
- * for naming a batch or a serial on the way out. Offering those and failing at
- * save would waste the whole entry.
+ * API refuses an inactive item, one not flagged `can_job_work`, and serial-
+ * tracked items, because this module has no contract for naming each unit's
+ * disposition. Batch-tracked items select their lot before approval so the
+ * reservation is held against the same stock grain the issue will consume.
  */
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
 import { useEffect } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
@@ -63,11 +63,14 @@ import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
 import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { api } from '@/lib/api-client'
+import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { formatMoney, humanise, toDateInput, toDecimal } from '@/lib/format'
+import { formatMoney, formatQuantity, humanise, toDateInput, toDecimal } from '@/lib/format'
 import { success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
+import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
+import type { SchemaOf } from '@/types/api'
 
 import {
   JOB_WORK_PROCESSES,
@@ -101,12 +104,11 @@ const MAX_LINES_PER_ORDER = 200
  *
  * All three narrowings are the API's own refusals, moved into the search so
  * they are never reached: an inactive item, an item not flagged for job work,
- * and - per the module's assumptions - anything batch or serial tracked, for
- * which there is no contract for naming the units on an issue or a receipt.
+ * and - per the module's assumptions - anything serial tracked, for which
+ * there is no contract for naming each unit's disposition.
  */
 const JOB_WORK_INPUT_FILTERS = {
   can_job_work: true,
-  is_batch_tracked: false,
   is_serial_tracked: false,
 }
 
@@ -132,31 +134,38 @@ const today = (): string => toDateInput(new Date())
 
 // ------------------------------------------------------------------ form ----
 
-const lineSchema = z.object({
-  item_id: z.string().min(1, 'Choose the material going out'),
-  quantity_to_issue: z
-    .string()
-    .trim()
-    .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places')
-    .refine((value) => toDecimal(value).greaterThan(0), 'A line has to send something out'),
-  /** Blank means the same item comes back, which is what the contract defaults to. */
-  expected_output_item_id: z.string(),
-  /** Blank means a 1:1 yield - one piece out, one piece back. */
-  expected_output_quantity: z
-    .string()
-    .trim()
-    .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places')
-    .refine(
-      (value) => value === '' || toDecimal(value).greaterThan(0),
-      'Expect more than nothing back, or leave it blank for a 1:1 yield',
-    ),
-  expected_loss_percentage: z
-    .string()
-    .trim()
-    .regex(PERCENT, 'Enter a percentage with up to 4 decimal places')
-    .refine((value) => toDecimal(value).lessThanOrEqualTo(100), 'At most 100%'),
-  notes: z.string().trim().max(2000, 'At most 2000 characters'),
-})
+const lineSchema = z
+  .object({
+    item_id: z.string().min(1, 'Choose the material going out'),
+    is_batch_tracked: z.boolean(),
+    batch_id: z.string(),
+    quantity_to_issue: z
+      .string()
+      .trim()
+      .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places')
+      .refine((value) => toDecimal(value).greaterThan(0), 'A line has to send something out'),
+    /** Blank means the same item comes back, which is what the contract defaults to. */
+    expected_output_item_id: z.string(),
+    /** Blank means a 1:1 yield - one piece out, one piece back. */
+    expected_output_quantity: z
+      .string()
+      .trim()
+      .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places')
+      .refine(
+        (value) => value === '' || toDecimal(value).greaterThan(0),
+        'Expect more than nothing back, or leave it blank for a 1:1 yield',
+      ),
+    expected_loss_percentage: z
+      .string()
+      .trim()
+      .regex(PERCENT, 'Enter a percentage with up to 4 decimal places')
+      .refine((value) => toDecimal(value).lessThanOrEqualTo(100), 'At most 100%'),
+    notes: z.string().trim().max(2000, 'At most 2000 characters'),
+  })
+  .refine((line) => !line.is_batch_tracked || Boolean(line.batch_id), {
+    path: ['batch_id'],
+    message: 'Choose a batch for batch-tracked material',
+  })
 
 const schema = z.object({
   vendor_id: z.string().min(1, 'Choose the vendor who will do the work'),
@@ -191,6 +200,8 @@ type JobWorkFormValues = z.infer<typeof schema>
 function emptyLine(): JobWorkFormValues['lines'][number] {
   return {
     item_id: '',
+    is_batch_tracked: false,
+    batch_id: '',
     quantity_to_issue: '',
     expected_output_item_id: '',
     expected_output_quantity: '',
@@ -251,6 +262,8 @@ function valuesFrom(detail: JobWorkOrderDetail): JobWorkFormValues {
     notes: detail.notes ?? '',
     lines: linesOf(detail).map((line) => ({
       item_id: line.item_id,
+      is_batch_tracked: line.is_batch_tracked,
+      batch_id: line.batch_id ?? '',
       quantity_to_issue: line.quantity_to_issue,
       expected_output_item_id:
         line.expected_output_item_id === line.item_id ? '' : line.expected_output_item_id,
@@ -275,6 +288,7 @@ function buildLines(values: JobWorkFormValues): JobWorkOrderLineCreate[] {
   return values.lines.map((line, index) => ({
     line_number: index + 1,
     item_id: line.item_id,
+    batch_id: line.batch_id || null,
     // Decimals stay strings all the way to the wire - never parsed into a double.
     quantity_to_issue: line.quantity_to_issue.trim(),
     expected_output_item_id: line.expected_output_item_id || null,
@@ -435,6 +449,7 @@ export function JobWorkOrderFormDialog({
     handleSubmit,
     reset,
     setError,
+    setValue,
     watch,
     formState: { errors },
   } = useForm<JobWorkFormValues>({
@@ -491,6 +506,18 @@ export function JobWorkOrderFormDialog({
   // Only the three fields the estimate reads are watched. Watching the whole
   // form would re-render every picker on every keystroke in a notes box.
   const lines = watch('lines')
+  const batchLists = useQueries({
+    queries: lines.map((line) => ({
+      queryKey: queryKeys.inventory.batches({ item_id: line.item_id }),
+      queryFn: async () =>
+        (
+          await api.getPage<SchemaOf<'StockBatchRead'>>('/inventory/batches', {
+            params: { item_id: line.item_id, limit: 100, with_total: false },
+          })
+        ).data,
+      enabled: open && line.is_batch_tracked,
+    })),
+  })
   const ratePerUnit = watch('rate_per_unit')
   const rateBasis = watch('rate_basis')
 
@@ -812,15 +839,80 @@ export function JobWorkOrderFormDialog({
                                   id={`job-work-line-item-${index}`}
                                   label={`Line ${index + 1} material`}
                                   value={itemField.value || null}
-                                  onChange={(itemId) => itemField.onChange(itemId ?? '')}
+                                  onChange={(itemId, item) => {
+                                    itemField.onChange(itemId ?? '')
+                                    setValue(`lines.${index}.batch_id`, '')
+                                    setValue(
+                                      `lines.${index}.is_batch_tracked`,
+                                      item?.is_batch_tracked ?? false,
+                                    )
+                                  }}
                                   placeholder="Search items flagged for job work"
                                   filters={JOB_WORK_INPUT_FILTERS}
-                                  emptyMessage="No item matches. Only active items flagged for job work, and neither batch nor serial tracked, can be sent out."
+                                  emptyMessage="No item matches. Only active items flagged for job work and not serial tracked can be sent out."
                                   invalid={Boolean(errors.lines?.[index]?.item_id)}
                                 />
                               )}
                             />
                             <FieldError message={errors.lines?.[index]?.item_id?.message} />
+                            {lines[index]?.is_batch_tracked && (
+                              <>
+                                <Label
+                                  htmlFor={`job-work-line-batch-${index}`}
+                                  className="mt-3 block"
+                                  required
+                                >
+                                  Batch
+                                </Label>
+                                <Controller
+                                  control={control}
+                                  name={`lines.${index}.batch_id`}
+                                  render={({ field: batchField }) => (
+                                    <Select
+                                      value={batchField.value || SELECT_NONE}
+                                      onValueChange={(value) =>
+                                        batchField.onChange(value === SELECT_NONE ? '' : value)
+                                      }
+                                    >
+                                      <SelectTrigger
+                                        id={`job-work-line-batch-${index}`}
+                                        className="mt-1.5"
+                                        aria-invalid={Boolean(errors.lines?.[index]?.batch_id)}
+                                      >
+                                        <SelectValue
+                                          placeholder={
+                                            batchLists[index]?.isLoading
+                                              ? 'Loading batches...'
+                                              : 'Choose a batch'
+                                          }
+                                        />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value={SELECT_NONE} disabled>
+                                          Choose a batch
+                                        </SelectItem>
+                                        {(batchLists[index]?.data ?? []).map((batch) => (
+                                          <SelectItem key={batch.id} value={batch.id}>
+                                            {batch.batch_number} · available{' '}
+                                            {formatQuantity(batch.available_quantity)}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  )}
+                                />
+                                {batchLists[index]?.error && (
+                                  <p className="mt-1 text-xs text-destructive">
+                                    Could not load batches: {batchLists[index].error.message}
+                                  </p>
+                                )}
+                                <FieldError message={errors.lines?.[index]?.batch_id?.message} />
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  This lot is reserved at approval and stays with the order through
+                                  receipt. The server checks stock in the selected warehouse.
+                                </p>
+                              </>
+                            )}
                           </div>
 
                           <div>

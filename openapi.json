@@ -11852,6 +11852,18 @@
       },
       "ChallanLineRead": {
         "properties": {
+          "batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
           "challan_id": {
             "format": "uuid",
             "title": "Challan Id",
@@ -11903,6 +11915,7 @@
           "job_work_order_line_id",
           "line_number",
           "item_id",
+          "batch_id",
           "uom_id",
           "quantity",
           "unit_value",
@@ -24817,6 +24830,18 @@
         "additionalProperties": false,
         "description": "Send less of one line than the order asked for.\n\nOmitting a line issues its full ``quantity_to_issue``, which is the normal\ncase. An explicit quantity exists for the reality of a vendor who can only\ntake half the consignment this week.",
         "properties": {
+          "batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
           "issued_quantity": {
             "anyOf": [
               {
@@ -26575,6 +26600,18 @@
         "additionalProperties": false,
         "description": "One material to send out and the processed item expected back.\n\n``expected_output_item_id`` may be omitted when the process does not change\nwhat the thing is - polishing a handle returns a handle - in which case the\ninput item is used. It is a separate field rather than an assumption because\nfor PVD, coating and machining the output genuinely is a different code with\na different cost.",
         "properties": {
+          "batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
           "expected_loss_percentage": {
             "anyOf": [
               {
@@ -26665,6 +26702,18 @@
       },
       "JobWorkOrderLineRead": {
         "properties": {
+          "batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
           "expected_loss_percentage": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Expected Loss Percentage",
@@ -26684,6 +26733,10 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "is_batch_tracked": {
+            "title": "Is Batch Tracked",
+            "type": "boolean"
           },
           "issued_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -26763,6 +26816,8 @@
           "job_work_order_id",
           "line_number",
           "item_id",
+          "is_batch_tracked",
+          "batch_id",
           "uom_id",
           "quantity_to_issue",
           "issued_quantity",
@@ -43539,6 +43594,18 @@
         "additionalProperties": false,
         "description": "What one order line gave back in this lot.\n\n``output_quantity`` and ``rejected_quantity`` are both *output* units;\n``returned_unprocessed_quantity`` is *input* material handed back untouched.\nThey are separate fields because they post to three different places, and a\nsingle \"received\" number would make it impossible to say which.",
         "properties": {
+          "batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
           "is_final": {
             "default": false,
             "title": "Is Final",
@@ -43628,6 +43695,18 @@
       },
       "ReceiptLineRead": {
         "properties": {
+          "batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
           "charges": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Charges",
@@ -43735,6 +43814,7 @@
           "job_work_order_line_id",
           "line_number",
           "output_item_id",
+          "batch_id",
           "output_quantity",
           "rejected_quantity",
           "rejection_action",

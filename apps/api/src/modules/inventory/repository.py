@@ -1418,6 +1418,12 @@ class StockBatchRepository(BaseRepository[StockBatch]):
     model = StockBatch
     searchable_fields = ("batch_number", "supplier_batch_number")
 
+    async def load(self, batch_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, StockBatch]:
+        if not batch_ids:
+            return {}
+        stmt = self._scoped().where(StockBatch.id.in_(list(dict.fromkeys(batch_ids))))
+        return {batch.id: batch for batch in (await self.session.execute(stmt)).scalars().all()}
+
     async def by_number(self, item_id: uuid.UUID, batch_number: str) -> StockBatch | None:
         stmt = self._scoped().where(
             StockBatch.item_id == item_id, StockBatch.batch_number == batch_number

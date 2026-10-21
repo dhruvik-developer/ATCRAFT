@@ -433,6 +433,12 @@ class JobWorkOrderLine(TenantEntity):
     item_id: Mapped[uuid.UUID] = mapped_column(
         GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=False, index=True
     )
+    is_batch_tracked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("stock_batches.id", ondelete="RESTRICT"), nullable=True
+    )
     uom_id: Mapped[uuid.UUID] = mapped_column(
         GUID, ForeignKey("units_of_measure.id", ondelete="RESTRICT"), nullable=False
     )
@@ -609,6 +615,9 @@ class JobWorkChallanLine(TenantEntity):
 
     item_id: Mapped[uuid.UUID] = mapped_column(
         GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=False
+    )
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("stock_batches.id", ondelete="RESTRICT"), nullable=True
     )
     uom_id: Mapped[uuid.UUID] = mapped_column(
         GUID, ForeignKey("units_of_measure.id", ondelete="RESTRICT"), nullable=False
@@ -824,6 +833,9 @@ class JobWorkReceiptLine(TenantEntity):
     #: to it without a join.
     output_item_id: Mapped[uuid.UUID] = mapped_column(
         GUID, ForeignKey("items.id", ondelete="RESTRICT"), nullable=False
+    )
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("stock_batches.id", ondelete="RESTRICT"), nullable=True
     )
 
     #: Good processed output, received into ``AVAILABLE`` - or into ``QC_HOLD``

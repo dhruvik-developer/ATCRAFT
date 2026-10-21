@@ -12,7 +12,7 @@
  */
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -51,6 +51,7 @@ import { formatQuantity, humanise, toDateInput, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
+import type { SchemaOf } from '@/types/api'
 
 import {
   EXCESS_RECEIPT_TOLERANCE_PERCENT,
@@ -107,6 +108,7 @@ const issueSchema = z.object({
       // The API addresses a line by its number on the order, not by its id.
       line_number: z.number(),
       label: z.string(),
+      batch_id: z.string(),
       quantity: z
         .string()
         .trim()
@@ -130,6 +132,7 @@ function issueDefaults(order: JobWorkOrderDetail | undefined): IssueFormValues {
     lines: linesOf(order).map((line) => ({
       line_number: line.line_number,
       label: `Line ${line.line_number} - ${line.item_id.slice(0, 8)}`,
+      batch_id: line.batch_id ?? '',
       quantity: stillToIssue(line),
     })),
   }
@@ -168,6 +171,18 @@ export function JobWorkIssueDialog({
   // active-only; whoever collected the goods with their own vehicle leaves it
   // blank, which the endpoint reads as no transporter.
   const transporters = useTransporterOptions({ enabled: open })
+  const batchLists = useQueries({
+    queries: linesOf(order).map((line) => ({
+      queryKey: queryKeys.inventory.batches({ item_id: line.item_id }),
+      queryFn: async () =>
+        (
+          await api.getPage<SchemaOf<'StockBatchRead'>>('/inventory/batches', {
+            params: { item_id: line.item_id, limit: 100, with_total: false },
+          })
+        ).data,
+      enabled: open && line.is_batch_tracked,
+    })),
+  })
 
   // The lines arrive with the order, so the form is seeded once it lands rather
   // than when the dialog opens.
@@ -190,6 +205,7 @@ export function JobWorkIssueDialog({
           .map((line) => ({
             line_number: line.line_number,
             issued_quantity: asDecimal(line.quantity),
+            batch_id: line.batch_id || null,
           })),
       }),
     onSuccess: () => {
@@ -350,6 +366,52 @@ export function JobWorkIssueDialog({
                               {' - already issued '}
                               {formatQuantity(line.issued_quantity)}
                             </p>
+                          )}
+                          {line?.is_batch_tracked && (
+                            <div className="mt-3">
+                              <Label htmlFor={`challan-batch-${index}`} required>
+                                Batch
+                              </Label>
+                              <Controller
+                                control={control}
+                                name={`lines.${index}.batch_id`}
+                                render={({ field }) => (
+                                  <Select
+                                    value={field.value || undefined}
+                                    onValueChange={field.onChange}
+                                    disabled={Boolean(line.batch_id)}
+                                  >
+                                    <SelectTrigger
+                                      id={`challan-batch-${index}`}
+                                      className="mt-1.5"
+                                      aria-invalid={Boolean(errors.lines?.[index]?.batch_id)}
+                                    >
+                                      <SelectValue
+                                        placeholder={
+                                          batchLists[index]?.isLoading
+                                            ? 'Loading batches...'
+                                            : 'Select batch'
+                                        }
+                                      />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {(batchLists[index]?.data ?? []).map((batch) => (
+                                        <SelectItem key={batch.id} value={batch.id}>
+                                          {batch.batch_number} · available{' '}
+                                          {formatQuantity(batch.available_quantity)}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                )}
+                              />
+                              {batchLists[index]?.error && (
+                                <p className="mt-1 text-xs text-destructive">
+                                  Could not load batches: {batchLists[index].error.message}
+                                </p>
+                              )}
+                              <FieldError message={errors.lines?.[index]?.batch_id?.message} />
+                            </div>
                           )}
                         </div>
                         <div>
@@ -580,6 +642,9 @@ export function JobWorkReceiveDialog({
             returned_unprocessed_quantity: asDecimal(line.returned_quantity),
             is_final: line.is_final,
             notes: orNull(line.rejection_reason),
+            batch_id:
+              linesOf(order).find((orderLine) => orderLine.line_number === line.line_number)
+                ?.batch_id ?? null,
           })),
       }),
     onSuccess: () => {

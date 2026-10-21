@@ -16,7 +16,13 @@ import { ok, page, renderScreen } from '@/test/harness'
 import type { JobWorkOrderDetail, JobWorkOrderRow } from './job-work-model'
 import { JobWorkOrderFormDialog } from './job-work-order-form-dialog'
 
-const ITEM = { id: 'it-handle', code: 'HDL-200', name: 'Pull handle 200mm', is_active: true }
+const ITEM = {
+  id: 'it-handle',
+  code: 'HDL-200',
+  name: 'Pull handle 200mm',
+  is_active: true,
+  is_batch_tracked: false,
+}
 const VENDOR = { id: 'vn-shine', code: 'VEN-0012', name: 'Shine Platers', is_approved: true }
 const WAREHOUSE = { id: 'wh-main', code: 'MAIN', name: 'Main store' }
 
@@ -89,6 +95,8 @@ const DETAIL: JobWorkOrderDetail = {
       job_work_order_id: ROW.id,
       line_number: 1,
       item_id: ITEM.id,
+      is_batch_tracked: false,
+      batch_id: null,
       uom_id: 'uom-pcs',
       quantity_to_issue: '100.0000',
       issued_quantity: '0.0000',
@@ -114,7 +122,36 @@ const routes = {
   'PATCH /job-work/jw-1': ok(DETAIL),
 }
 
-describe("amending a job-work order's cost centre", () => {
+describe('job-work order form', () => {
+  it('loads and offers a batch only after choosing a batch-tracked item', async () => {
+    const trackedItem = { ...ITEM, is_batch_tracked: true }
+    const { user } = renderScreen(<JobWorkOrderFormDialog open onOpenChange={() => {}} />, {
+      permissions: [P.JOB_WORK_CREATE, P.WAREHOUSE_VIEW],
+      routes: {
+        ...routes,
+        'GET /products/items': page([trackedItem]),
+        'GET /inventory/batches': page([
+          {
+            id: 'batch-001',
+            item_id: trackedItem.id,
+            batch_number: 'LOT-001',
+            available_quantity: '25.0000',
+          },
+        ]),
+      },
+    })
+
+    await user.click(screen.getByRole('combobox', { name: 'Line 1 material' }))
+    await user.type(screen.getByRole('textbox', { name: 'Search items' }), trackedItem.code)
+    await user.click(await screen.findByRole('option', { name: /HDL-200/ }))
+    await user.click(await screen.findByRole('combobox', { name: 'Batch' }))
+
+    expect(await screen.findByRole('option', { name: /LOT-001/ })).toBeVisible()
+    await user.keyboard('{Escape}')
+    await user.click(screen.getByRole('button', { name: /create draft order/i }))
+    expect(await screen.findByText('Choose a batch for batch-tracked material')).toBeVisible()
+  })
+
   it('sends the centre chosen, to an account that may read centres', async () => {
     const { user, fetch } = renderScreen(
       <JobWorkOrderFormDialog open onOpenChange={() => {}} order={ROW} />,

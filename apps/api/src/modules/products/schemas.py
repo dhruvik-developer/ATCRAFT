@@ -485,6 +485,7 @@ class ItemSummary(_Base):
     can_be_assembly_component: bool
     can_be_spare: bool
     can_job_work: bool
+    is_batch_tracked: bool
 
 
 class ItemSummaryWithCost(ItemSummary):

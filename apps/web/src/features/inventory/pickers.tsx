@@ -122,7 +122,7 @@ export function ItemPicker({
   id: string
   label: string
   value: string | null
-  onChange: (itemId: string | null) => void
+  onChange: (itemId: string | null, item?: ItemOption | null) => void
   hideLabel?: boolean
   placeholder?: string
   invalid?: boolean
@@ -252,7 +252,7 @@ export function ItemPicker({
                   aria-selected={item.id === value}
                   onClick={() => {
                     setPicked(item)
-                    onChange(item.id)
+                    onChange(item.id, item)
                     setOpen(false)
                   }}
                   className="flex w-full items-start gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
