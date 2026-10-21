@@ -178,6 +178,32 @@ PACKING_LIST_QUEUE = "reports"
 #: client mistake rather than an instruction - see :func:`update_order`.
 CLEARABLE_UPDATE_FIELDS = frozenset({"notes"})
 
+
+class DispatchPlanningPort(Protocol):
+    async def open_dispatch_quantities(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        sales_order_id: uuid.UUID,
+    ) -> dict[uuid.UUID, Decimal]: ...
+
+
+class _DispatchPlanningAdapter:
+    async def open_dispatch_quantities(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        sales_order_id: uuid.UUID,
+    ) -> dict[uuid.UUID, Decimal]:
+        from src.modules.dispatch.service import open_dispatch_quantities
+
+        return await open_dispatch_quantities(session, tenant, sales_order_id)
+
+
+def resolve_dispatch_plan_port() -> DispatchPlanningPort:
+    return _DispatchPlanningAdapter()
+
+
 #: Header fields snapshotted around an edit so the audit diff names what moved
 #: rather than reprinting the whole row.
 ORDER_AUDITED_FIELDS = [
@@ -697,13 +723,16 @@ async def _validate_lines(
     *,
     lines: Sequence[PackingOrderLineIn],
     sales_order_id: uuid.UUID | None,
+    exclude_packing_order_id: uuid.UUID | None = None,
 ) -> dict[uuid.UUID, PackingItem]:
-    """Check a whole line set in three batched statements, not three per line.
+    """Validate a line set and its remaining sales-order demand in batched reads.
 
     Items must exist and be active. A named sales order line must belong to the
     sales order on the header and be for the same item - a link to either the
     wrong order or the wrong item would corrupt the fulfilment arithmetic the
     sales module does against it, in a way nothing downstream could detect.
+    Items, sales lines and current packing/dispatch plans are loaded in fixed
+    grouped reads rather than queried once per requested line.
     """
     item_ids = [line.item_id for line in lines]
     items = await ItemLookupRepository(session, tenant).load(item_ids)
@@ -730,25 +759,64 @@ async def _validate_lines(
             "sales order."
         )
 
-    known = await SalesOrderLookupRepository(session, tenant).load_lines(sales_line_ids)
+    known = await SalesOrderLookupRepository(session, tenant).lock_lines(sales_line_ids)
     for line in lines:
         if line.sales_order_line_id is None:
             continue
         found = known.get(line.sales_order_line_id)
         if found is None:
             raise NotFoundError("Sales order line", line.sales_order_line_id)
-        owner_order_id, sales_item_id = found
-        if owner_order_id != sales_order_id:
+        if found.sales_order_id != sales_order_id:
             raise BusinessRuleError(
                 "That sales order line belongs to a different sales order.",
                 details={"sales_order_line_id": str(line.sales_order_line_id)},
             )
-        if sales_item_id != line.item_id:
+        if found.item_id != line.item_id:
             raise BusinessRuleError(
                 "That sales order line is for a different item.",
                 details={
                     "sales_order_line_id": str(line.sales_order_line_id),
                     "item_id": str(line.item_id),
+                },
+            )
+
+    requested_by_line: dict[uuid.UUID, Decimal] = {}
+    for line in lines:
+        if line.sales_order_line_id is not None:
+            requested_by_line[line.sales_order_line_id] = requested_by_line.get(
+                line.sales_order_line_id, ZERO
+            ) + Decimal(line.quantity_to_pack)
+
+    packing_plans = await PackingOrderLineRepository(
+        session, tenant
+    ).open_planned_quantities_by_sales_line(
+        sales_order_id,
+        exclude_packing_order_id=exclude_packing_order_id,
+    )
+    dispatch_plans = await resolve_dispatch_plan_port().open_dispatch_quantities(
+        session, tenant, sales_order_id
+    )
+    for line_id, requested in requested_by_line.items():
+        facts = known[line_id]
+        already_packing = packing_plans.get(line_id, ZERO)
+        already_dispatch = dispatch_plans.get(line_id, ZERO)
+        available = max(
+            facts.quantity - facts.dispatched_quantity - already_packing - already_dispatch,
+            ZERO,
+        )
+        if requested > available:
+            raise BusinessRuleError(
+                f"Packing quantity for sales order line {line_id} exceeds the "
+                f"{available} still available after existing packing and dispatch plans.",
+                code=ErrorCode.CONFLICT,
+                details={
+                    "sales_order_line_id": str(line_id),
+                    "requested_quantity": str(to_quantity(requested)),
+                    "ordered_quantity": str(to_quantity(facts.quantity)),
+                    "dispatched_quantity": str(to_quantity(facts.dispatched_quantity)),
+                    "packing_planned_quantity": str(to_quantity(already_packing)),
+                    "dispatch_planned_quantity": str(to_quantity(already_dispatch)),
+                    "available_quantity": str(to_quantity(available)),
                 },
             )
 
@@ -1424,9 +1492,24 @@ async def update_order(
             setattr(order, field, value)
 
         if new_lines is not None:
+            if order.sales_order_id is not None:
+                header = await SalesOrderLookupRepository(session, tenant).get_header(
+                    order.sales_order_id
+                )
+                if header is None:
+                    raise NotFoundError("Sales order", order.sales_order_id)
+                if header[1] != order.customer_id:
+                    raise BusinessRuleError(
+                        f"Sales order {header[0]} belongs to a different customer.",
+                        details={"sales_order_id": str(order.sales_order_id)},
+                    )
             parsed = [PackingOrderLineIn.model_validate(line) for line in new_lines]
             await _validate_lines(
-                session, tenant, lines=parsed, sales_order_id=order.sales_order_id
+                session,
+                tenant,
+                lines=parsed,
+                sales_order_id=order.sales_order_id,
+                exclude_packing_order_id=order.id,
             )
             await line_repo.delete_for_order(order.id)
             await _persist_lines(session, tenant, order, parsed)

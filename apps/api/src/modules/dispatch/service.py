@@ -1364,6 +1364,12 @@ async def create_dispatch(
             invoice_document_id=payload.invoice_document_id,
             sales_order_id=payload.sales_order_id,
         )
+        if payload.sales_order_id is not None:
+            locked_order = await SalesOrderRepository(session, tenant).lock_header(
+                payload.sales_order_id
+            )
+            if locked_order is None:
+                raise NotFoundError("Sales order", payload.sales_order_id)
         await _validate_lines(
             session,
             tenant,
@@ -1488,6 +1494,12 @@ async def update_dispatch(
             invoice_document_id=dispatch.invoice_document_id,
             sales_order_id=dispatch.sales_order_id,
         )
+        if dispatch.sales_order_id is not None:
+            locked_order = await SalesOrderRepository(session, tenant).lock_header(
+                dispatch.sales_order_id
+            )
+            if locked_order is None:
+                raise NotFoundError("Sales order", dispatch.sales_order_id)
 
         if line_payload is not None:
             await _validate_lines(

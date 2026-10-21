@@ -99,6 +99,16 @@ class CustomerFacts:
 
 
 @dataclass(frozen=True, slots=True)
+class SalesLinePackFacts:
+    """Ordered and dispatched quantity for a locked sales-order line."""
+
+    sales_order_id: uuid.UUID
+    item_id: uuid.UUID
+    quantity: Decimal
+    dispatched_quantity: Decimal
+
+
+@dataclass(frozen=True, slots=True)
 class SerialFacts:
     """Where one serialised unit is and whether it is still in stock."""
 
@@ -288,35 +298,50 @@ class SalesOrderLookupRepository(BaseRepository[SalesOrder]):
 
     async def get_header(self, sales_order_id: uuid.UUID) -> tuple[str, uuid.UUID] | None:
         """``(code, customer_id)`` - enough to prove the order is shippable to
-        the customer named on the packing order."""
-        stmt = select(SalesOrder.code, SalesOrder.customer_id).where(
-            SalesOrder.company_id == self.tenant.company_id,
-            SalesOrder.id == sales_order_id,
+        the customer named on the packing order. The row lock serializes
+        quantity planning with dispatch and other packing-order creation."""
+        stmt = (
+            select(SalesOrder.code, SalesOrder.customer_id)
+            .where(
+                SalesOrder.company_id == self.tenant.company_id,
+                SalesOrder.id == sales_order_id,
+            )
+            .with_for_update()
         )
         row = (await self.session.execute(stmt)).first()
         return (row.code, row.customer_id) if row is not None else None
 
-    async def load_lines(
+    async def lock_lines(
         self, line_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, tuple[uuid.UUID, uuid.UUID]]:
-        """Batched line id -> ``(sales_order_id, item_id)``.
+    ) -> dict[uuid.UUID, SalesLinePackFacts]:
+        """Lock the lines and read their current ordered/dispatched quantities.
 
         Both halves are checked: a packing line may not point at a sales line
         belonging to a different order, nor at one for a different item, because
         either would make the fulfilment arithmetic on the sales order wrong in a
-        way nothing downstream could detect.
+        way nothing downstream could detect. Locks are ordered by primary key
+        so concurrent writes over overlapping lines queue rather than deadlock.
         """
         if not line_ids:
             return {}
-        stmt = select(
-            SalesOrderLine.id, SalesOrderLine.sales_order_id, SalesOrderLine.item_id
-        ).where(
-            SalesOrderLine.company_id == self.tenant.company_id,
-            SalesOrderLine.id.in_(list(dict.fromkeys(line_ids))),
+        stmt = (
+            select(SalesOrderLine)
+            .where(
+                SalesOrderLine.company_id == self.tenant.company_id,
+                SalesOrderLine.id.in_(set(line_ids)),
+            )
+            .order_by(SalesOrderLine.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         return {
-            row.id: (row.sales_order_id, row.item_id)
-            for row in (await self.session.execute(stmt)).all()
+            row.id: SalesLinePackFacts(
+                sales_order_id=row.sales_order_id,
+                item_id=row.item_id,
+                quantity=Decimal(row.quantity),
+                dispatched_quantity=Decimal(row.dispatched_quantity),
+            )
+            for row in (await self.session.execute(stmt)).scalars().all()
         }
 
 
@@ -392,6 +417,38 @@ class PackingOrderLineRepository(BaseRepository[PackingOrderLine]):
             .order_by(PackingOrderLine.line_number)
         )
         return list((await self.session.execute(stmt)).scalars().all())
+
+    async def open_planned_quantities_by_sales_line(
+        self,
+        sales_order_id: uuid.UUID,
+        *,
+        exclude_packing_order_id: uuid.UUID | None = None,
+    ) -> dict[uuid.UUID, Decimal]:
+        """Planned quantities on active packing orders for one sales order."""
+        stmt = (
+            select(
+                PackingOrderLine.sales_order_line_id,
+                func.sum(PackingOrderLine.quantity_to_pack),
+            )
+            .join(
+                PackingOrder,
+                and_(
+                    PackingOrder.id == PackingOrderLine.packing_order_id,
+                    PackingOrder.company_id == PackingOrderLine.company_id,
+                ),
+            )
+            .where(
+                PackingOrderLine.company_id == self.tenant.company_id,
+                PackingOrder.sales_order_id == sales_order_id,
+                PackingOrder.status.in_([str(status) for status in OPEN_STATUSES]),
+                PackingOrderLine.sales_order_line_id.is_not(None),
+            )
+            .group_by(PackingOrderLine.sales_order_line_id)
+        )
+        if exclude_packing_order_id is not None:
+            stmt = stmt.where(PackingOrder.id != exclude_packing_order_id)
+        rows = (await self.session.execute(stmt)).all()
+        return {row.sales_order_line_id: Decimal(row[1]) for row in rows}
 
     async def lock_for_order(self, order_id: uuid.UUID) -> list[PackingOrderLine]:
         """The line set, locked, for a packed-quantity roll-up.

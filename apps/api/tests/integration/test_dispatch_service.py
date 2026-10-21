@@ -77,6 +77,7 @@ from src.modules.packing.schemas import (
     CartonCreate,
     PackingOrderCreate,
     PackingOrderLineIn,
+    PackingOrderUpdate,
     SealCartonRequest,
 )
 from src.modules.packing.schemas import (
@@ -795,6 +796,80 @@ async def packed_carton(
         ctx.session, ctx.tenant, order_id, PackingCompleteRequest(reason="Contents complete")
     )
     return order_id, carton_id
+
+
+def packing_payload(bench: Bench, quantity: str) -> PackingOrderCreate:
+    return PackingOrderCreate(
+        customer_id=bench.customer.id,
+        warehouse_id=bench.warehouse.id,
+        sales_order_id=bench.order.id,
+        planned_date=TODAY,
+        lines=[
+            PackingOrderLineIn(
+                item_id=bench.item.id,
+                quantity_to_pack=Decimal(quantity),
+                sales_order_line_id=bench.line.id,
+                uom_id=bench.uom.id,
+            )
+        ],
+    )
+
+
+async def test_open_packing_orders_cannot_overplan_a_sales_order_line(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    await packing.create_order(ctx.session, ctx.tenant, packing_payload(bench, "60"))
+
+    with pytest.raises(BusinessRuleError, match="still available") as error:
+        await packing.create_order(ctx.session, ctx.tenant, packing_payload(bench, "50"))
+
+    assert error.value.details["available_quantity"] == "40.0000"
+
+
+async def test_replacing_packing_lines_excludes_the_order_being_amended(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    order, _ = await packing.create_order(ctx.session, ctx.tenant, packing_payload(bench, "40"))
+    await packing.create_order(ctx.session, ctx.tenant, packing_payload(bench, "50"))
+
+    with pytest.raises(BusinessRuleError, match="still available") as error:
+        await packing.update_order(
+            ctx.session,
+            ctx.tenant,
+            order.id,
+            PackingOrderUpdate(
+                lines=[
+                    PackingOrderLineIn(
+                        item_id=bench.item.id,
+                        quantity_to_pack=Decimal("60"),
+                        sales_order_line_id=bench.line.id,
+                        uom_id=bench.uom.id,
+                    )
+                ]
+            ),
+        )
+
+    assert error.value.details["available_quantity"] == "50.0000"
+
+
+async def test_packing_availability_accounts_for_open_dispatch_plans(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("40"))
+
+    with pytest.raises(BusinessRuleError, match="still available") as error:
+        await packing.create_order(ctx.session, ctx.tenant, packing_payload(bench, "61"))
+
+    assert error.value.details["dispatch_planned_quantity"] == "40.0000"
+    assert error.value.details["available_quantity"] == "60.0000"
+
+
+async def test_packing_availability_accounts_for_dispatched_quantity(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    await send(ctx, bench, "40")
+
+    with pytest.raises(BusinessRuleError, match="still available") as error:
+        await packing.create_order(ctx.session, ctx.tenant, packing_payload(bench, "61"))
+
+    assert error.value.details["dispatched_quantity"] == "40.0000"
+    assert error.value.details["available_quantity"] == "60.0000"
 
 
 async def test_mixed_item_carton_can_ship_on_distinct_content_rows(ctx: Ctx) -> None:
