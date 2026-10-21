@@ -32,7 +32,12 @@ import { P } from '@/lib/permissions'
 import { ok, page, renderScreen } from '@/test/harness'
 
 import DispatchPage from './dispatch-page'
-import type { DispatchRow, DispatchStatus, DispatchTrackingRow } from './dispatch-types'
+import type {
+  DispatchDetail,
+  DispatchRow,
+  DispatchStatus,
+  DispatchTrackingRow,
+} from './dispatch-types'
 
 /** Long enough for one popper to position itself under jsdom. */
 const POPPER = 90_000
@@ -69,6 +74,45 @@ function dispatch(overrides: Partial<DispatchRow> = {}): DispatchRow {
     total_boxes: 4,
     total_weight_kg: '112.500',
     created_at: '2026-09-01T06:00:00Z',
+    ...overrides,
+  }
+}
+
+function dispatchDetail(overrides: Partial<DispatchDetail> = {}): DispatchDetail {
+  return {
+    ...dispatch(),
+    packing_order_id: null,
+    dispatched_at: null,
+    transport_name: 'Surface',
+    lr_number: 'LR-100',
+    vehicle_number: 'GJ01AB1234',
+    driver_name: 'A Driver',
+    driver_mobile: '9876543210',
+    freight_amount: '125.00',
+    freight_paid_by: 'CONSIGNOR',
+    eway_bill_number: 'EWB-100',
+    invoice_document_id: null,
+    delivery_confirmed_by: null,
+    delivery_note: null,
+    delay_reason: null,
+    delay_notified_at: null,
+    notes: 'Original plan',
+    version: 1,
+    lines: [
+      {
+        id: '01a00000-0000-7000-8000-0000000000l1',
+        line_number: 1,
+        sales_order_line_id: null,
+        item_id: '01a00000-0000-7000-8000-0000000000i1',
+        quantity: '2.0000',
+        batch_id: null,
+        serial_ids: [],
+        carton_ids: [],
+        reservation_id: null,
+        inventory_transaction_id: null,
+        notes: null,
+      },
+    ],
     ...overrides,
   }
 }
@@ -174,6 +218,71 @@ describe('sales invoice actions', () => {
     )
     expect(screen.getByRole('menuitem', { name: 'Raise invoice' })).toBeVisible()
   })
+})
+
+describe('pre-dispatch editing', () => {
+  it(
+    'withholds edits without dispatch.update',
+    async () => {
+      await openActions('NOT_DISPATCHED', [P.DISPATCH_VIEW])
+      expect(screen.queryByRole('menuitem', { name: 'Edit dispatch details' })).toBeNull()
+    },
+    POPPER,
+  )
+
+  it(
+    'withholds edits after release',
+    async () => {
+      await openActions('IN_TRANSIT', [P.DISPATCH_VIEW, P.DISPATCH_UPDATE])
+      expect(screen.queryByRole('menuitem', { name: 'Edit dispatch details' })).toBeNull()
+    },
+    POPPER,
+  )
+
+  it(
+    'offers edits while the consignment is not dispatched',
+    async () => {
+      await openActions('READY_FOR_DISPATCH', [P.DISPATCH_VIEW, P.DISPATCH_UPDATE])
+      expect(screen.getByRole('menuitem', { name: 'Edit dispatch details' })).toBeVisible()
+    },
+    POPPER,
+  )
+
+  it(
+    'loads and saves transport details without replacing the loaded lines',
+    async () => {
+      const detail = dispatchDetail()
+      const { user, fetch } = await openActions(
+        'NOT_DISPATCHED',
+        [P.DISPATCH_VIEW, P.DISPATCH_UPDATE],
+        {
+          [`GET /dispatch/${DISPATCH_ID}`]: ok(detail),
+          [`PATCH /dispatch/${DISPATCH_ID}`]: ok(detail),
+        },
+      )
+
+      await user.click(screen.getByRole('menuitem', { name: 'Edit dispatch details' }))
+      expect(await screen.findByText('Loaded lines (unchanged)')).toBeVisible()
+      expect(screen.getByLabelText('LR number')).toHaveValue('LR-100')
+
+      await user.clear(screen.getByLabelText('LR number'))
+      await user.type(screen.getByLabelText('LR number'), 'LR-UPDATED')
+      await user.clear(screen.getByLabelText('Expected delivery'))
+      await user.click(screen.getByRole('button', { name: 'Save dispatch details' }))
+
+      const body = (await waitFor(() =>
+        fetch.requestFor('PATCH', `/dispatch/${DISPATCH_ID}`),
+      )) as Record<string, unknown>
+      expect(body).toMatchObject({
+        dispatch_date: '2026-09-02',
+        expected_delivery_date: null,
+        lr_number: 'LR-UPDATED',
+        freight_amount: '125.00',
+      })
+      expect(body).not.toHaveProperty('lines')
+    },
+    POPPER,
+  )
 })
 
 describe('the two lists', () => {

@@ -285,19 +285,21 @@ function TransporterSelect({
   value,
   onChange,
   enabled,
+  id = 'dispatch-transporter',
 }: {
   value: string
   onChange: (value: string) => void
   enabled: boolean
+  id?: string
 }) {
   const transporters = useTransporterOptions({ enabled })
   const rows = transporters.data ?? []
 
   return (
     <div>
-      <Label htmlFor="dispatch-transporter">Transporter</Label>
+      <Label htmlFor={id}>Transporter</Label>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger id="dispatch-transporter" className="mt-1.5">
+        <SelectTrigger id={id} className="mt-1.5">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -1395,6 +1397,423 @@ function AddTrackingEventForm({ dispatchId }: { dispatchId: string }) {
         </Button>
       </div>
     </form>
+  )
+}
+
+const editDispatchSchema = z
+  .object({
+    dispatch_date: z.string().min(1, 'Dispatch date is required'),
+    expected_delivery_date: z.string(),
+    transporter_id: z.string(),
+    courier_name: z.string().trim().max(120, 'At most 120 characters'),
+    transport_name: z.string().trim().max(160, 'At most 160 characters'),
+    tracking_id: z.string().trim().max(120, 'At most 120 characters'),
+    lr_number: z.string().trim().max(64, 'At most 64 characters'),
+    vehicle_number: z.string().trim().max(32, 'At most 32 characters'),
+    driver_name: z.string().trim().max(120, 'At most 120 characters'),
+    driver_mobile: z.string().trim().max(20, 'At most 20 characters'),
+    eway_bill_number: z.string().trim().max(64, 'At most 64 characters'),
+    total_boxes: z.string().trim().regex(BOXES, 'Whole number of boxes'),
+    total_weight_kg: z.string().trim().regex(WEIGHT_INPUT, 'Up to 3 decimal places'),
+    freight_amount: z.string().trim().regex(MONEY_INPUT, 'Up to 2 decimal places'),
+    freight_paid_by: z.string(),
+    notes: z.string().trim().max(2000, 'At most 2000 characters'),
+  })
+  .superRefine((values, ctx) => {
+    if (
+      values.expected_delivery_date !== '' &&
+      values.expected_delivery_date < values.dispatch_date
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['expected_delivery_date'],
+        message: 'Delivery cannot be expected before the consignment leaves',
+      })
+    }
+
+    if (values.total_boxes !== '' && Number(values.total_boxes) > 100_000) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['total_boxes'],
+        message: 'At most 100,000 boxes',
+      })
+    }
+  })
+
+type EditDispatchFormValues = z.infer<typeof editDispatchSchema>
+
+function editDispatchValues(dispatch: DispatchDetail): EditDispatchFormValues {
+  return {
+    dispatch_date: dispatch.dispatch_date,
+    expected_delivery_date: dispatch.expected_delivery_date ?? '',
+    transporter_id: dispatch.transporter_id ?? SELECT_NONE,
+    courier_name: dispatch.courier_name ?? '',
+    transport_name: dispatch.transport_name ?? '',
+    tracking_id: dispatch.tracking_id ?? '',
+    lr_number: dispatch.lr_number ?? '',
+    vehicle_number: dispatch.vehicle_number ?? '',
+    driver_name: dispatch.driver_name ?? '',
+    driver_mobile: dispatch.driver_mobile ?? '',
+    eway_bill_number: dispatch.eway_bill_number ?? '',
+    total_boxes: String(dispatch.total_boxes),
+    total_weight_kg: String(dispatch.total_weight_kg),
+    freight_amount: String(dispatch.freight_amount),
+    freight_paid_by: dispatch.freight_paid_by ?? SELECT_NONE,
+    notes: dispatch.notes ?? '',
+  }
+}
+
+export function EditDispatchDialog({
+  dispatch,
+  open,
+  onOpenChange,
+}: {
+  dispatch: DispatchRow | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const { can } = useAuth()
+  const queryClient = useQueryClient()
+  const dispatchId = dispatch?.id ?? null
+  const detail = useQuery({
+    queryKey: dispatchKeys.detail(dispatchId ?? ''),
+    queryFn: () => api.get<DispatchDetail>(`/dispatch/${dispatchId}`),
+    enabled: open && dispatchId !== null,
+    staleTime: staleTimes.transactional,
+  })
+  const {
+    control,
+    register,
+    handleSubmit,
+    reset,
+    setError,
+    formState: { errors },
+  } = useForm<EditDispatchFormValues>({
+    resolver: zodResolver(editDispatchSchema),
+    defaultValues: {
+      dispatch_date: '',
+      expected_delivery_date: '',
+      transporter_id: SELECT_NONE,
+      courier_name: '',
+      transport_name: '',
+      tracking_id: '',
+      lr_number: '',
+      vehicle_number: '',
+      driver_name: '',
+      driver_mobile: '',
+      eway_bill_number: '',
+      total_boxes: '',
+      total_weight_kg: '',
+      freight_amount: '',
+      freight_paid_by: SELECT_NONE,
+      notes: '',
+    },
+  })
+
+  const update = useMutation({
+    mutationFn: (values: EditDispatchFormValues) =>
+      api.patch<DispatchDetail>(`/dispatch/${dispatchId}`, {
+        dispatch_date: values.dispatch_date,
+        expected_delivery_date: orNull(values.expected_delivery_date),
+        transporter_id: values.transporter_id === SELECT_NONE ? null : values.transporter_id,
+        courier_name: orNull(values.courier_name),
+        transport_name: orNull(values.transport_name),
+        tracking_id: orNull(values.tracking_id),
+        lr_number: orNull(values.lr_number),
+        vehicle_number: orNull(values.vehicle_number),
+        driver_name: orNull(values.driver_name),
+        driver_mobile: orNull(values.driver_mobile),
+        eway_bill_number: orNull(values.eway_bill_number),
+        total_boxes: values.total_boxes.trim() === '' ? 0 : Number(values.total_boxes.trim()),
+        total_weight_kg: values.total_weight_kg.trim() || '0',
+        freight_amount: values.freight_amount.trim() || '0',
+        freight_paid_by: values.freight_paid_by === SELECT_NONE ? null : values.freight_paid_by,
+        notes: orNull(values.notes),
+      }),
+    onSuccess: (saved) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dispatch.all })
+      toast.success(success.updated('Dispatch'), saved.code)
+      onOpenChange(false)
+    },
+    onError: (error) => applyFieldErrors(error, setError),
+  })
+
+  useEffect(() => {
+    if (open && detail.data?.id === dispatchId) reset(editDispatchValues(detail.data))
+  }, [detail.data, dispatchId, open, reset])
+
+  const onSubmit = (values: EditDispatchFormValues) => update.mutate(values)
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="lg">
+        <DialogHeader>
+          <DialogTitle>Edit dispatch details</DialogTitle>
+          <DialogDescription>
+            Update the transport plan before release. The warehouse, destination and loaded lines
+            stay unchanged.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit(onSubmit)}>
+          <DialogBody className="space-y-4">
+            {detail.isLoading && (
+              <div className="space-y-2" aria-hidden>
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            )}
+
+            {detail.error && (
+              <Alert variant="destructive">
+                <AlertTitle>Could not load the dispatch details</AlertTitle>
+                <AlertDescription>{detail.error.message}</AlertDescription>
+              </Alert>
+            )}
+
+            {detail.data && (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="edit-dispatch-date" required>
+                      Dispatch date
+                    </Label>
+                    <Input
+                      id="edit-dispatch-date"
+                      type="date"
+                      {...register('dispatch_date')}
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.dispatch_date)}
+                    />
+                    <FieldError message={errors.dispatch_date?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="edit-expected-delivery-date">Expected delivery</Label>
+                    <Input
+                      id="edit-expected-delivery-date"
+                      type="date"
+                      {...register('expected_delivery_date')}
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.expected_delivery_date)}
+                    />
+                    <FieldError message={errors.expected_delivery_date?.message} />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <Controller
+                      control={control}
+                      name="transporter_id"
+                      render={({ field }) => (
+                        <TransporterSelect
+                          id="edit-dispatch-transporter"
+                          value={field.value}
+                          onChange={field.onChange}
+                          enabled={open && can(P.TRANSPORTER_VIEW)}
+                        />
+                      )}
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="edit-dispatch-courier">Courier name</Label>
+                    <Input
+                      id="edit-dispatch-courier"
+                      {...register('courier_name')}
+                      autoComplete="off"
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.courier_name)}
+                    />
+                    <FieldError message={errors.courier_name?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="edit-dispatch-transport-name">Transport name</Label>
+                    <Input
+                      id="edit-dispatch-transport-name"
+                      {...register('transport_name')}
+                      autoComplete="off"
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.transport_name)}
+                    />
+                    <FieldError message={errors.transport_name?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="edit-dispatch-tracking">Tracking id</Label>
+                    <Input
+                      id="edit-dispatch-tracking"
+                      {...register('tracking_id')}
+                      autoComplete="off"
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.tracking_id)}
+                    />
+                    <FieldError message={errors.tracking_id?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="edit-dispatch-lr">LR number</Label>
+                    <Input
+                      id="edit-dispatch-lr"
+                      {...register('lr_number')}
+                      autoComplete="off"
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.lr_number)}
+                    />
+                    <FieldError message={errors.lr_number?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="edit-dispatch-vehicle">Vehicle number</Label>
+                    <Input
+                      id="edit-dispatch-vehicle"
+                      {...register('vehicle_number')}
+                      autoComplete="off"
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.vehicle_number)}
+                    />
+                    <FieldError message={errors.vehicle_number?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="edit-dispatch-driver">Driver name</Label>
+                    <Input
+                      id="edit-dispatch-driver"
+                      {...register('driver_name')}
+                      autoComplete="off"
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.driver_name)}
+                    />
+                    <FieldError message={errors.driver_name?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="edit-dispatch-driver-mobile">Driver mobile</Label>
+                    <Input
+                      id="edit-dispatch-driver-mobile"
+                      {...register('driver_mobile')}
+                      autoComplete="off"
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.driver_mobile)}
+                    />
+                    <FieldError message={errors.driver_mobile?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="edit-dispatch-eway">E-way bill number</Label>
+                    <Input
+                      id="edit-dispatch-eway"
+                      {...register('eway_bill_number')}
+                      autoComplete="off"
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.eway_bill_number)}
+                    />
+                    <FieldError message={errors.eway_bill_number?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="edit-dispatch-boxes">Total boxes</Label>
+                    <Input
+                      id="edit-dispatch-boxes"
+                      inputMode="numeric"
+                      {...register('total_boxes')}
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.total_boxes)}
+                    />
+                    <FieldError message={errors.total_boxes?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="edit-dispatch-weight">Total weight (kg)</Label>
+                    <Input
+                      id="edit-dispatch-weight"
+                      inputMode="decimal"
+                      {...register('total_weight_kg')}
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.total_weight_kg)}
+                    />
+                    <FieldError message={errors.total_weight_kg?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="edit-dispatch-freight">Freight amount</Label>
+                    <Input
+                      id="edit-dispatch-freight"
+                      inputMode="decimal"
+                      {...register('freight_amount')}
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.freight_amount)}
+                    />
+                    <FieldError message={errors.freight_amount?.message} />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="edit-dispatch-freight-paid">Freight paid by</Label>
+                    <Controller
+                      control={control}
+                      name="freight_paid_by"
+                      render={({ field }) => (
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <SelectTrigger id="edit-dispatch-freight-paid" className="mt-1.5">
+                            <SelectValue placeholder="Not specified" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={SELECT_NONE}>Not specified</SelectItem>
+                            {FREIGHT_PAID_BY.map((value) => (
+                              <SelectItem key={value} value={value}>
+                                {humanise(value)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <Label htmlFor="edit-dispatch-notes">Notes</Label>
+                    <Textarea
+                      id="edit-dispatch-notes"
+                      {...register('notes')}
+                      rows={3}
+                      className="mt-1.5"
+                      aria-invalid={Boolean(errors.notes)}
+                    />
+                    <FieldError message={errors.notes?.message} />
+                  </div>
+                </div>
+
+                <div className="space-y-2 rounded-md border p-3">
+                  <h3 className="text-sm font-medium">Loaded lines (unchanged)</h3>
+                  {detail.data.lines.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No lines are recorded.</p>
+                  ) : (
+                    <ul className="space-y-1 text-sm">
+                      {detail.data.lines.map((line) => (
+                        <li key={line.id} className="flex justify-between gap-3">
+                          <span className="truncate text-muted-foreground">{line.item_id}</span>
+                          <span className="shrink-0 tabular">{formatQuantity(line.quantity)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </>
+            )}
+          </DialogBody>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={update.isPending} disabled={!detail.data}>
+              Save dispatch details
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 

@@ -25,6 +25,7 @@ import {
   ChevronDown,
   MapPin,
   PackageCheck,
+  Pencil,
   Radar,
   Truck,
   X,
@@ -67,7 +68,11 @@ import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 
-import { CreateDispatchDialog, DispatchTimelineDialog } from './dispatch-dialogs'
+import {
+  CreateDispatchDialog,
+  DispatchTimelineDialog,
+  EditDispatchDialog,
+} from './dispatch-dialogs'
 import {
   DISPATCH_STATUSES,
   DISPATCH_TYPES,
@@ -451,11 +456,13 @@ function LeadingCell({ delayed, children }: { delayed: boolean; children: ReactN
 
 function DispatchesTab({
   onTrack,
+  onEdit,
   onAction,
   onRaiseInvoice,
   onViewInvoice,
 }: {
   onTrack: (dispatch: DispatchRow) => void
+  onEdit: (dispatch: DispatchRow) => void
   onAction: (action: PendingAction) => void
   onRaiseInvoice: (dispatch: DispatchRow) => void
   onViewInvoice: (id: string) => void
@@ -620,6 +627,7 @@ function DispatchesTab({
       meta: { align: 'right' },
       cell: ({ row }) => {
         const dispatch = row.original
+        const canEdit = canUpdate && isDispatchCancellable(dispatch.status)
         const canReady = canUpdate && isReadyable(dispatch.status)
         const canGo = canCreate && isDispatchable(dispatch.status)
         const canTransit = canUpdate && isMarkableInTransit(dispatch.status)
@@ -635,6 +643,13 @@ function DispatchesTab({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {canEdit && (
+                <DropdownMenuItem onSelect={() => onEdit(dispatch)}>
+                  <Pencil />
+                  Edit dispatch details
+                </DropdownMenuItem>
+              )}
+
               <DropdownMenuItem onSelect={() => onTrack(dispatch)}>
                 <MapPin />
                 Tracking timeline
@@ -813,6 +828,7 @@ function DispatchesTab({
     canCreate,
     canConfirmDelivery,
     onTrack,
+    onEdit,
     onAction,
     onRaiseInvoice,
     onViewInvoice,
@@ -1193,6 +1209,7 @@ export default function DispatchPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [createOpen, setCreateOpen] = useState(false)
+  const [editing, setEditing] = useState<DispatchRow | null>(null)
   const [tracking, setTracking] = useState<DispatchRow | null>(null)
   const [pending, setPending] = useState<PendingAction | null>(null)
   const [invoiceDispatch, setInvoiceDispatch] = useState<DispatchRow | null>(null)
@@ -1255,6 +1272,7 @@ export default function DispatchPage() {
         <TabsContent value="dispatches">
           <DispatchesTab
             onTrack={setTracking}
+            onEdit={setEditing}
             onAction={setPending}
             onRaiseInvoice={setInvoiceDispatch}
             onViewInvoice={setInvoiceId}
@@ -1266,6 +1284,14 @@ export default function DispatchPage() {
       </Tabs>
 
       {canCreate && <CreateDispatchDialog open={createOpen} onOpenChange={setCreateOpen} />}
+
+      <EditDispatchDialog
+        dispatch={editing}
+        open={Boolean(editing)}
+        onOpenChange={(open) => {
+          if (!open) setEditing(null)
+        }}
+      />
 
       <DispatchTimelineDialog
         dispatch={tracking}
