@@ -13423,6 +13423,18 @@
       "ConversionRequest": {
         "description": "A typed instruction to create one document from one suggestion.\n\nThis is the seam between planning and execution. When the owning module is\ndeployed the service hands it this payload and receives back the document it\ncreated; when it is not, the same payload is returned to the caller so the\nrequest can be replayed later or actioned by hand. Either way the *shape* of\nwhat MRP asks for is fixed here rather than being re-derived by each consumer.",
         "properties": {
+          "expected_return_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Return Date"
+          },
           "item_code": {
             "title": "Item Code",
             "type": "string"
@@ -13442,6 +13454,17 @@
               }
             ],
             "title": "Notes"
+          },
+          "process_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Process Type"
           },
           "quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -13478,6 +13501,30 @@
           },
           "target": {
             "$ref": "#/components/schemas/ConversionTarget"
+          },
+          "vendor_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Id"
+          },
+          "warehouse_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warehouse Id"
           },
           "warehouse_ids": {
             "items": {
@@ -55150,8 +55197,20 @@
         "type": "object"
       },
       "SuggestionConvertRequest": {
-        "description": "Turn one suggestion into a document.\n\n``target`` may be omitted, in which case it is derived from the suggestion\ntype. ``quantity`` may be omitted, in which case the suggested quantity is\nused; a planner raising a *smaller* order than suggested is knowingly leaving\na shortage, so the value is accepted but the suggestion still records what\nwas planned.",
+        "description": "Turn one suggestion into a document.\n\n``target`` may be omitted, in which case it is derived from the suggestion\ntype. ``quantity`` may be omitted, in which case the suggested quantity is\nused; a planner raising a *smaller* order than suggested is knowingly leaving\na shortage, so the value is accepted but the suggestion still records what\nwas planned. Job-work conversions additionally require the planner to name\nthe approved vendor, process, return date and issuing warehouse.",
         "properties": {
+          "expected_return_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Return Date"
+          },
           "notes": {
             "anyOf": [
               {
@@ -55163,6 +55222,18 @@
               }
             ],
             "title": "Notes"
+          },
+          "process_type": {
+            "anyOf": [
+              {
+                "maxLength": 24,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Process Type"
           },
           "quantity": {
             "anyOf": [
@@ -55202,6 +55273,30 @@
                 "type": "null"
               }
             ]
+          },
+          "vendor_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Id"
+          },
+          "warehouse_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warehouse Id"
           }
         },
         "title": "SuggestionConvertRequest",

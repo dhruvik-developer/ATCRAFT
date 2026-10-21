@@ -17,10 +17,9 @@
  * `result_summary.late_supply_item_count`. Both are shown at the top of this
  * page; hiding them recreates exactly the confusion the phasing removed.
  *
- * Conversion is a bulk action because that is how it is used - a planner works
- * through a shortage list, ticks the rows they accept, and converts them in one
- * go. The confirmation states exactly what documents that will create before
- * anything is written.
+ * Conversion is normally a bulk action. Job work is the exception: each draft
+ * requires an explicit approved vendor, process, return date and warehouse, so
+ * the planner converts those suggestions one at a time.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -55,6 +54,12 @@ import {
 } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   Select,
   SelectContent,
   SelectItem,
@@ -72,6 +77,8 @@ import {
   Skeleton,
 } from '@/components/ui/primitives'
 import { WAREHOUSE_LOOKUP_PARAMS } from '@/features/inventory/types'
+import { JOB_WORK_PROCESSES, jobWorkKeys } from '@/features/job-work/job-work-model'
+import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { ShortageReportTab } from '@/features/mrp/shortage-report-tab'
 
 import { useAuth } from '@/features/auth/auth-context'
@@ -281,6 +288,10 @@ export default function MrpRunDetailPage() {
   const [selected, setSelected] = useState<Record<string, MrpSuggestionRow>>({})
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [convertOpen, setConvertOpen] = useState(false)
+  const [jobWorkVendorId, setJobWorkVendorId] = useState('')
+  const [jobWorkProcess, setJobWorkProcess] = useState('')
+  const [jobWorkReturnDate, setJobWorkReturnDate] = useState('')
+  const [jobWorkWarehouseId, setJobWorkWarehouseId] = useState('')
   const [ignoreOpen, setIgnoreOpen] = useState(false)
   const [ignoreReason, setIgnoreReason] = useState('')
   const [ignoreReasonTouched, setIgnoreReasonTouched] = useState(false)
@@ -340,9 +351,10 @@ export default function MrpRunDetailPage() {
   const warehouses = useQuery({
     queryKey: queryKeys.warehouses.list(warehouseParams),
     queryFn: () => api.getPage<WarehouseOption>('/warehouses', { params: warehouseParams }),
-    enabled: scopedWarehouseIds.length > 0 && can(P.WAREHOUSE_VIEW),
+    enabled: (scopedWarehouseIds.length > 0 || convertOpen) && can(P.WAREHOUSE_VIEW),
     staleTime: staleTimes.master,
   })
+  const vendors = useVendorOptions(convertOpen && can(P.VENDOR_VIEW), true)
 
   const warehouseLabel = useMemo(() => {
     if (scopedWarehouseIds.length === 0) return 'All warehouses'
@@ -366,15 +378,30 @@ export default function MrpRunDetailPage() {
   const selectedRows = useMemo(() => Object.values(selected), [selected])
 
   const convert = useMutation({
-    mutationFn: (ids: string[]) =>
-      // The API requires a body even when nothing is being overridden: quantity,
-      // date and target all default from the suggestion itself.
-      runBulk(ids, (id) => api.post<MrpConversionResult>(`/mrp/suggestions/${id}/convert`, {})),
+    mutationFn: ({
+      ids,
+      jobWork,
+    }: {
+      ids: string[]
+      jobWork?: {
+        vendor_id: string
+        process_type: string
+        expected_return_date: string
+        warehouse_id: string
+      }
+    }) =>
+      runBulk(ids, (id) =>
+        api.post<MrpConversionResult>(
+          `/mrp/suggestions/${id}/convert`,
+          jobWork ? { target: 'JOB_WORK_ORDER', ...jobWork } : {},
+        ),
+      ),
     onSuccess: ({ total, failed, handled }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.mrp.all })
       // Conversion creates documents in the modules that own them.
       void queryClient.invalidateQueries({ queryKey: queryKeys.procurement.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.production.all })
+      void queryClient.invalidateQueries({ queryKey: jobWorkKeys.all })
       setSelected({})
       setConvertOpen(false)
 
@@ -461,6 +488,29 @@ export default function MrpRunDetailPage() {
     () => selectedRows.filter((row) => isConvertible(row.suggestion_type)),
     [selectedRows],
   )
+  const jobWorkRows = useMemo(
+    () => convertibleRows.filter((row) => row.suggestion_type === 'JOB_WORK'),
+    [convertibleRows],
+  )
+  const selectableWarehouses = useMemo(() => {
+    const rows = warehouses.data?.data ?? []
+    if (scopedWarehouseIds.length === 0) return rows
+    const scoped = new Set(scopedWarehouseIds)
+    return rows.filter((row) => scoped.has(row.id))
+  }, [scopedWarehouseIds, warehouses.data])
+  const singleRunWarehouseId = scopedWarehouseIds.length === 1 ? scopedWarehouseIds[0] : ''
+  const jobWorkSelectionValid =
+    jobWorkRows.length === 0 ||
+    (jobWorkRows.length === 1 &&
+      convertibleRows.length === 1 &&
+      can(P.VENDOR_VIEW) &&
+      (Boolean(singleRunWarehouseId) || can(P.WAREHOUSE_VIEW)))
+  const jobWorkInputsReady =
+    Boolean(jobWorkVendorId && jobWorkProcess && jobWorkReturnDate) &&
+    Boolean(singleRunWarehouseId || jobWorkWarehouseId) &&
+    (vendors.data ?? []).some((vendor) => vendor.id === jobWorkVendorId) &&
+    (Boolean(singleRunWarehouseId) ||
+      selectableWarehouses.some((warehouse) => warehouse.id === jobWorkWarehouseId))
   const transferCount = selectedRows.length - convertibleRows.length
   const allPageSelected =
     pageActionable.length > 0 && pageActionable.every((row) => Boolean(selected[row.id]))
@@ -471,6 +521,32 @@ export default function MrpRunDetailPage() {
   const ignoreBatch = useMemo(() => selectedRows.slice(0, MAX_BULK_IGNORE), [selectedRows])
   const ignoreRemainder = selectedRows.length - ignoreBatch.length
   const ignoreReasonTooShort = ignoreReason.trim().length < REASON_MIN_LENGTH
+
+  const openConvertDialog = () => {
+    const jobWorkSuggestion = convertibleRows.find((row) => row.suggestion_type === 'JOB_WORK')
+    setJobWorkVendorId('')
+    setJobWorkProcess('')
+    setJobWorkReturnDate(jobWorkSuggestion?.required_date ?? '')
+    setJobWorkWarehouseId(singleRunWarehouseId ?? '')
+    setConvertOpen(true)
+  }
+
+  const convertSelected = () => {
+    if (jobWorkRows.length > 0) {
+      if (!jobWorkInputsReady || jobWorkRows.length !== 1 || convertibleRows.length !== 1) return
+      convert.mutate({
+        ids: convertibleIds,
+        jobWork: {
+          vendor_id: jobWorkVendorId,
+          process_type: jobWorkProcess,
+          expected_return_date: jobWorkReturnDate,
+          warehouse_id: singleRunWarehouseId || jobWorkWarehouseId,
+        },
+      })
+      return
+    }
+    convert.mutate({ ids: convertibleIds })
+  }
 
   const toggleRow = (row: MrpSuggestionRow) => {
     setSelected((current) => {
@@ -992,13 +1068,20 @@ export default function MrpRunDetailPage() {
             </Button>
             <Button
               size="sm"
-              onClick={() => setConvertOpen(true)}
-              disabled={isMutating || convertibleIds.length === 0}
+              onClick={openConvertDialog}
+              disabled={isMutating || convertibleIds.length === 0 || !jobWorkSelectionValid}
             >
               <Factory />
               Convert selected
             </Button>
           </div>
+          {jobWorkRows.length > 0 && !jobWorkSelectionValid && (
+            <p className="w-full text-xs text-warning">
+              {jobWorkRows.length !== 1 || convertibleRows.length !== 1
+                ? 'Convert job-work suggestions one at a time, separately from other document types.'
+                : 'Job-work conversion requires vendor.view and warehouse.view unless this run has one warehouse.'}
+            </p>
+          )}
         </div>
       )}
 
@@ -1106,13 +1189,13 @@ export default function MrpRunDetailPage() {
       )}
 
       <ConfirmDialog
-        open={convertOpen}
+        open={convertOpen && jobWorkRows.length === 0}
         onOpenChange={setConvertOpen}
         title={`Convert ${formatNumber(convertibleRows.length)} suggestion${convertibleRows.length === 1 ? '' : 's'}?`}
         description="This creates real documents that other people will act on. Each suggestion is converted separately, so a rejected one does not undo the rest."
         confirmLabel="Convert"
         loading={convert.isPending}
-        onConfirm={() => convert.mutate(convertibleIds)}
+        onConfirm={() => convertSelected()}
       >
         <SelectionSummary rows={convertibleRows} action="convert" />
         {transferCount > 0 && (
@@ -1123,6 +1206,148 @@ export default function MrpRunDetailPage() {
           </p>
         )}
       </ConfirmDialog>
+
+      <Dialog
+        open={convertOpen && jobWorkRows.length === 1 && convertibleRows.length === 1}
+        onOpenChange={setConvertOpen}
+      >
+        <DialogContent size="md">
+          <DialogHeader>
+            <DialogTitle>Convert job-work suggestion</DialogTitle>
+            <DialogDescription>
+              {jobWorkRows[0]?.item_code} will become a draft job-work order. Choose the approved
+              processor, process, expected return date and issuing warehouse.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="mrp-job-work-vendor">Approved vendor</Label>
+              <Select
+                value={jobWorkVendorId || SELECT_ALL}
+                onValueChange={(value) => setJobWorkVendorId(value === SELECT_ALL ? '' : value)}
+                disabled={vendors.isLoading || !can(P.VENDOR_VIEW)}
+              >
+                <SelectTrigger id="mrp-job-work-vendor">
+                  <SelectValue placeholder="Choose an approved vendor" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SELECT_ALL}>Choose an approved vendor</SelectItem>
+                  {(vendors.data ?? []).map((vendor) => (
+                    <SelectItem key={vendor.id} value={vendor.id}>
+                      {vendor.code} — {vendor.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {vendors.error && (
+                <div>
+                  <FieldError message="Approved vendors could not be loaded." />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void vendors.refetch()}
+                    className="mt-1"
+                  >
+                    Retry vendor lookup
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="mrp-job-work-process">Process</Label>
+              <Select
+                value={jobWorkProcess || SELECT_ALL}
+                onValueChange={(value) => setJobWorkProcess(value === SELECT_ALL ? '' : value)}
+              >
+                <SelectTrigger id="mrp-job-work-process">
+                  <SelectValue placeholder="Choose a process" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={SELECT_ALL}>Choose a process</SelectItem>
+                  {JOB_WORK_PROCESSES.map((process) => (
+                    <SelectItem key={process} value={process}>
+                      {humanise(process)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="mrp-job-work-return-date">Expected return date</Label>
+              <Input
+                id="mrp-job-work-return-date"
+                type="date"
+                value={jobWorkReturnDate}
+                onChange={(event) => setJobWorkReturnDate(event.target.value)}
+                required
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="mrp-job-work-warehouse">Issuing warehouse</Label>
+              {singleRunWarehouseId ? (
+                <p id="mrp-job-work-warehouse" className="rounded-md border px-3 py-2 text-sm">
+                  {selectableWarehouses.find((row) => row.id === singleRunWarehouseId)?.code ??
+                    'The only warehouse selected for this MRP run'}
+                </p>
+              ) : (
+                <Select
+                  value={jobWorkWarehouseId || SELECT_ALL}
+                  onValueChange={(value) =>
+                    setJobWorkWarehouseId(value === SELECT_ALL ? '' : value)
+                  }
+                  disabled={!can(P.WAREHOUSE_VIEW) || warehouses.isLoading}
+                >
+                  <SelectTrigger id="mrp-job-work-warehouse">
+                    <SelectValue placeholder="Choose a warehouse" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={SELECT_ALL}>Choose a warehouse</SelectItem>
+                    {selectableWarehouses.map((warehouse) => (
+                      <SelectItem key={warehouse.id} value={warehouse.id}>
+                        {warehouse.code} — {warehouse.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {warehouses.error && !singleRunWarehouseId && (
+                <div>
+                  <FieldError message="Warehouses could not be loaded." />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void warehouses.refetch()}
+                    className="mt-1"
+                  >
+                    Retry warehouse lookup
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConvertOpen(false)}
+              disabled={convert.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={convertSelected}
+              loading={convert.isPending}
+              disabled={!jobWorkInputsReady}
+            >
+              Create draft order
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         open={ignoreOpen}

@@ -10577,7 +10577,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"notes\": \"\",\n  \"quantity\": 0,\n  \"required_date\": \"2026-01-01\",\n  \"target\": \"PURCHASE_REQUISITION\"\n}"
+              "raw": "{\n  \"expected_return_date\": \"2026-01-01\",\n  \"notes\": \"\",\n  \"process_type\": \"\",\n  \"quantity\": 0,\n  \"required_date\": \"2026-01-01\",\n  \"target\": \"PURCHASE_REQUISITION\",\n  \"vendor_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Raises a purchase requisition or a production order from the suggestion and closes it, in one transaction. Omit `target` to use the default for the suggestion type; naming a different one is allowed and is recorded in the audit entry. If the owning module is not deployed, no document is created: `handled` is false and the typed conversion request is returned for the caller to action.",
             "header": [

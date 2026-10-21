@@ -15301,6 +15301,8 @@ export interface components {
          *     what MRP asks for is fixed here rather than being re-derived by each consumer.
          */
         ConversionRequest: {
+            /** Expected Return Date */
+            expected_return_date?: string | null;
             /** Item Code */
             item_code: string;
             /**
@@ -15310,6 +15312,8 @@ export interface components {
             item_id: string;
             /** Notes */
             notes?: string | null;
+            /** Process Type */
+            process_type?: string | null;
             /** Quantity */
             quantity: string;
             /**
@@ -15337,6 +15341,10 @@ export interface components {
              */
             suggestion_id: string;
             target: components["schemas"]["ConversionTarget"];
+            /** Vendor Id */
+            vendor_id?: string | null;
+            /** Warehouse Id */
+            warehouse_id?: string | null;
             /** Warehouse Ids */
             warehouse_ids?: string[];
         };
@@ -30526,16 +30534,25 @@ export interface components {
          *     type. ``quantity`` may be omitted, in which case the suggested quantity is
          *     used; a planner raising a *smaller* order than suggested is knowingly leaving
          *     a shortage, so the value is accepted but the suggestion still records what
-         *     was planned.
+         *     was planned. Job-work conversions additionally require the planner to name
+         *     the approved vendor, process, return date and issuing warehouse.
          */
         SuggestionConvertRequest: {
+            /** Expected Return Date */
+            expected_return_date?: string | null;
             /** Notes */
             notes?: string | null;
+            /** Process Type */
+            process_type?: string | null;
             /** Quantity */
             quantity?: number | string | null;
             /** Required Date */
             required_date?: string | null;
             target?: components["schemas"]["ConversionTarget"] | null;
+            /** Vendor Id */
+            vendor_id?: string | null;
+            /** Warehouse Id */
+            warehouse_id?: string | null;
         };
         /**
          * TemplateCreate

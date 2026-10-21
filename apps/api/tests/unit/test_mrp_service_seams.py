@@ -14,8 +14,8 @@
   ``job_work.create_order_from_mrp`` before either existed, and a present
   module lacking the function was treated like an absent module: every purchase
   suggestion was marked CONVERTED with "module not available" and no
-  requisition. The procurement hook now exists; job work cannot fabricate a
-  vendor, so it is refused with the reason and the suggestion stays open.
+  requisition. The deployed module without a hook is refused with a clear
+  reason, leaving the suggestion open.
 """
 
 from __future__ import annotations
@@ -187,13 +187,15 @@ async def test_an_absent_module_still_returns_none_for_the_caller_to_action(
 async def test_a_present_module_without_the_hook_refuses_instead_of_closing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    target = ConversionTarget.JOB_WORK_ORDER
+    target = ConversionTarget.PRODUCTION_ORDER
     module_name, function_name = service.CONVERSION_HOOKS[target]
     bare = types.ModuleType(module_name)
     assert not hasattr(bare, function_name)
     monkeypatch.setattr(service.importlib, "import_module", _fake_import({module_name: bare}))
 
-    with pytest.raises(BusinessRuleError, match="needs a vendor and a process") as excinfo:
+    with pytest.raises(
+        BusinessRuleError, match="does not accept conversions from planning"
+    ) as excinfo:
         await service._invoke_conversion_hook(
             _Untouchable(),  # type: ignore[arg-type]
             _tenant(),

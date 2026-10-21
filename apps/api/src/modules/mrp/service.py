@@ -229,16 +229,9 @@ def _target_label(target: ConversionTarget) -> str:
 
 
 #: Why a deployed module cannot create the document from a planning request.
-#: Read when the module is present but exposes no hook, so the planner is told
-#: the real reason rather than "module not available". A job work order needs a
-#: vendor, a process and a return date, none of which planning chooses -
-#: picking a vendor here would be an invented business rule (CLAUDE.md).
-MANUAL_CONVERSION_REASONS: dict[ConversionTarget, str] = {
-    ConversionTarget.JOB_WORK_ORDER: (
-        "A job work order needs a vendor and a process, which planning does not choose; "
-        "raise it by hand from this suggestion and then ignore the suggestion."
-    ),
-}
+#: Read when a module is present but exposes no hook, so the planner is told
+#: the real reason rather than "module not available".
+MANUAL_CONVERSION_REASONS: dict[ConversionTarget, str] = {}
 
 
 # -----------------------------------------------------------------------------
@@ -1100,6 +1093,10 @@ def _conversion_request(
         suggested_order_date=suggestion.suggested_order_date,
         warehouse_ids=list(run.warehouse_ids) if run.warehouse_ids else [],
         source_demands=list(suggestion.source_demands or []),
+        vendor_id=payload.vendor_id,
+        process_type=payload.process_type,
+        expected_return_date=payload.expected_return_date,
+        warehouse_id=payload.warehouse_id,
         notes=payload.notes,
     )
 

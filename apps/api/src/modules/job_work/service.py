@@ -178,8 +178,10 @@ from src.modules.job_work.models import (
     JobWorkOrder,
     JobWorkOrderLine,
     JobWorkOrderStatus,
+    JobWorkProcess,
     JobWorkReceipt,
     JobWorkReceiptLine,
+    JobWorkSourceType,
     RateBasis,
     RejectionAction,
 )
@@ -3285,34 +3287,75 @@ async def close_order(
 # -----------------------------------------------------------------------------
 
 
-#: Why planning cannot raise a job work order on its own. Must read the same as
-#: ``mrp.service.MANUAL_CONVERSION_REASONS[JOB_WORK_ORDER]`` - the planner is
-#: told one sentence whether the hook is present or absent.
-MRP_CONVERSION_REFUSED = (
-    "A job work order needs a vendor and a process, which planning does not choose; "
-    "raise it by hand from this suggestion and then ignore the suggestion."
+#: Inputs the planner must supply; none may be inferred from a shortage.
+MRP_CONVERSION_INPUTS_REQUIRED = (
+    "Converting a job-work suggestion requires a vendor, process, expected return date, "
+    "and issuing warehouse."
 )
 
 
 async def create_order_from_mrp(
     session: AsyncSession, tenant: TenantContext, request: Any
 ) -> tuple[uuid.UUID, str]:
-    """Planning's conversion hook (``mrp.service.CONVERSION_HOOKS``) - refused.
+    """Create a draft job-work order from an explicitly completed MRP request.
 
     Resolved by name at call time by the MRP module, which is why the request is
-    typed loosely here. A job work order needs a vendor, a process and a return
-    date, none of which a planning run chooses; picking a vendor here would be
-    an invented business rule (CLAUDE.md). The hook exists so the refusal is
-    this module's own statement rather than planning's guess about it, and so
-    the suggestion stays OPEN for the planner to action by hand.
+    typed loosely here. The regular order service owns all validation, numbering,
+    transaction and audit behavior; the hook only maps the suggestion and the
+    planner's explicit choices into its established create schema.
     """
-    raise BusinessRuleError(
-        MRP_CONVERSION_REFUSED,
-        details={
-            "suggestion_id": str(request.suggestion_id),
-            "item_code": str(request.item_code),
-        },
+    values = {
+        "vendor_id": request.vendor_id,
+        "process_type": request.process_type,
+        "expected_return_date": request.expected_return_date,
+        "warehouse_id": request.warehouse_id,
+    }
+    missing = [key for key, value in values.items() if value is None]
+    if missing:
+        raise BusinessRuleError(
+            MRP_CONVERSION_INPUTS_REQUIRED,
+            details={
+                "suggestion_id": str(request.suggestion_id),
+                "item_code": str(request.item_code),
+                "missing_fields": missing,
+            },
+        )
+
+    if request.warehouse_ids and request.warehouse_id not in request.warehouse_ids:
+        raise ValidationError(
+            "The issuing warehouse must be included in the MRP run's warehouse scope.",
+            details={
+                "warehouse_id": str(request.warehouse_id),
+                "run_warehouse_ids": [str(value) for value in request.warehouse_ids],
+            },
+        )
+
+    try:
+        process_type = JobWorkProcess(request.process_type)
+    except ValueError as exc:
+        raise ValidationError(
+            "The selected job-work process is not supported.",
+            details={"process_type": request.process_type},
+        ) from exc
+
+    payload = JobWorkOrderCreate(
+        vendor_id=request.vendor_id,
+        process_type=process_type,
+        expected_return_date=request.expected_return_date,
+        warehouse_id=request.warehouse_id,
+        source_type=JobWorkSourceType.MRP_SUGGESTION,
+        source_id=request.suggestion_id,
+        notes=request.notes,
+        lines=[
+            JobWorkOrderLineCreate(
+                line_number=1,
+                item_id=request.item_id,
+                quantity_to_issue=request.quantity,
+            )
+        ],
     )
+    order, _ = await create_order(session, tenant, payload)
+    return order.id, order.code
 
 
 # -----------------------------------------------------------------------------
@@ -3546,7 +3589,7 @@ __all__ = [
     "JOB_WORK_CHALLAN_TASK_NAME",
     "JOB_WORK_ORDER_LIFECYCLE",
     "MOVEMENT_REFERENCE_JOB_WORK",
-    "MRP_CONVERSION_REFUSED",
+    "MRP_CONVERSION_INPUTS_REQUIRED",
     "PENDING_AT_VENDOR_LIMIT",
     "QC_REFERENCE_KEYS",
     "QC_REFERENCE_RECEIPT",

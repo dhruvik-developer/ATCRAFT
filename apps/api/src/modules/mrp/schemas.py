@@ -473,12 +473,17 @@ class SuggestionConvertRequest(BaseModel):
     type. ``quantity`` may be omitted, in which case the suggested quantity is
     used; a planner raising a *smaller* order than suggested is knowingly leaving
     a shortage, so the value is accepted but the suggestion still records what
-    was planned.
+    was planned. Job-work conversions additionally require the planner to name
+    the approved vendor, process, return date and issuing warehouse.
     """
 
     target: ConversionTarget | None = None
     quantity: PositiveQuantity | None = None
     required_date: date | None = None
+    vendor_id: uuid.UUID | None = None
+    process_type: str | None = Field(default=None, max_length=24)
+    expected_return_date: date | None = None
+    warehouse_id: uuid.UUID | None = None
     notes: str | None = Field(default=None, max_length=500)
 
     @field_validator("notes")
@@ -507,6 +512,10 @@ class ConversionRequest(BaseModel):
     suggested_order_date: date
     warehouse_ids: list[uuid.UUID] = Field(default_factory=list)
     source_demands: list[dict[str, Any]] = Field(default_factory=list)
+    vendor_id: uuid.UUID | None = None
+    process_type: str | None = None
+    expected_return_date: date | None = None
+    warehouse_id: uuid.UUID | None = None
     notes: str | None = None
 
 

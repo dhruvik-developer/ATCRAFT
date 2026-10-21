@@ -61,9 +61,12 @@ from src.modules.inventory.models import (
 from src.modules.job_work import service
 from src.modules.job_work.models import (
     JobWorkChallan,
+    JobWorkOrder,
+    JobWorkOrderLine,
     JobWorkOrderStatus,
     JobWorkProcess,
     JobWorkReceipt,
+    JobWorkSourceType,
     RateBasis,
     RejectionAction,
 )
@@ -77,6 +80,7 @@ from src.modules.job_work.schemas import (
     ReceiptLineIn,
     ReceiveRequest,
 )
+from src.modules.mrp.schemas import ConversionRequest, ConversionTarget
 from src.modules.products.models import Item, ItemGroup, UnitOfMeasure, UomCategory
 from src.modules.vendors.models import Vendor, VendorType
 from src.modules.warehouses.models import Warehouse, WarehouseType
@@ -385,6 +389,45 @@ async def job(ctx) -> PvdJob:
         warehouse_id=await seed_warehouse(session, tenant.company_id),
         vendor_id=await seed_vendor(session, tenant.company_id),
     )
+
+
+async def test_mrp_conversion_creates_a_draft_order_with_the_suggestion_source(ctx, job: PvdJob):
+    session, tenant = ctx
+    suggestion_id = uuid.uuid4()
+    request = ConversionRequest(
+        suggestion_id=suggestion_id,
+        run_id=uuid.uuid4(),
+        target=ConversionTarget.JOB_WORK_ORDER,
+        item_id=job.raw_item_id,
+        item_code="MRP-RAW",
+        quantity=Decimal("40"),
+        required_date=today() + timedelta(days=10),
+        suggested_order_date=today(),
+        vendor_id=job.vendor_id,
+        process_type=JobWorkProcess.PVD.value,
+        expected_return_date=today() + timedelta(days=14),
+        warehouse_id=job.warehouse_id,
+    )
+
+    order_id, code = await service.create_order_from_mrp(session, tenant, request)
+
+    order = (
+        await session.execute(select(JobWorkOrder).where(JobWorkOrder.id == order_id))
+    ).scalar_one()
+    line = (
+        await session.execute(
+            select(JobWorkOrderLine).where(JobWorkOrderLine.job_work_order_id == order_id)
+        )
+    ).scalar_one()
+    assert order.code == code
+    assert order.status == JobWorkOrderStatus.DRAFT
+    assert order.source_type == JobWorkSourceType.MRP_SUGGESTION
+    assert order.source_id == suggestion_id
+    assert order.vendor_id == job.vendor_id
+    assert order.warehouse_id == job.warehouse_id
+    assert order.expected_return_date == request.expected_return_date
+    assert line.item_id == job.raw_item_id
+    assert line.quantity_to_issue == Decimal("40")
 
 
 async def issued_order(ctx, job: PvdJob, *, stock: str = "100", **payload_kwargs):
