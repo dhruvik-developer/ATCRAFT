@@ -156,7 +156,7 @@ describe('the packing list', () => {
     renderScreen(<PackingPage />, {
       permissions: [P.PACKING_VIEW],
       route:
-        '/packing?status=PACKED&open_only=true&awaiting_dispatch=true&planned_from=2026-09-01&planned_to=2026-09-30',
+        '/packing?status=PACKED&sales_order_id=01a00000-0000-7000-8000-00000000so01&open_only=true&awaiting_dispatch=true&planned_from=2026-09-01&planned_to=2026-09-30',
       routes: {
         'GET /packing': ({ url }) => {
           recorder.urls.push(url)
@@ -169,6 +169,7 @@ describe('the packing list', () => {
     expect(await screen.findByText('PK-0001')).toBeVisible()
     const params = recorder.paramsAt(0)
     expect(params.status).toBe('PACKED')
+    expect(params.sales_order_id).toBe('01a00000-0000-7000-8000-00000000so01')
     // The two flags are separate questions - "still on the bench" and "packed
     // but not collected" - and a URL that carries both must send both.
     expect(params.open_only).toBe('true')

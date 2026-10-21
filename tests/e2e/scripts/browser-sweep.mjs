@@ -37,7 +37,7 @@ const STATIC_ROUTES = [
   '/finance', '/finance/sales-invoices', '/finance/vendor-invoices', '/finance/payments', '/finance/accounts',
   '/finance/credit-notes', '/sales-returns',
   '/documents', '/reports', '/audit',
-  '/admin/users', '/admin/organisation',
+  '/admin/users', '/admin/organisation', '/admin/settings',
   '/notifications', '/profile',
 ]
 

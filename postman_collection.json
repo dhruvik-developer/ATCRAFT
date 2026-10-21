@@ -9144,7 +9144,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"from_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"from_location_id\": {},\n      \"notes\": {},\n      \"to_location_id\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"to_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"expected_date\": \"2026-01-01\",\n  \"notes\": \"\",\n  \"transfer_date\": \"2026-01-01\"\n}"
+              "raw": "{\n  \"from_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"from_location_id\": {},\n      \"notes\": {},\n      \"source_line_id\": {},\n      \"to_location_id\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"to_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"expected_date\": \"2026-01-01\",\n  \"notes\": \"\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\",\n  \"transfer_date\": \"2026-01-01\"\n}"
             },
             "description": "Raise a stock transfer",
             "header": [
@@ -15701,7 +15701,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"line_number\": {},\n      \"quantity\": {},\n      \"description\": {},\n      \"estimated_unit_price\": {},\n      \"notes\": {},\n      \"required_date\": {},\n      \"suggested_vendor_id\": {},\n      \"uom_id\": {}\n    }\n  ],\n  \"required_date\": \"2026-01-01\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"branch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"department_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"priority\": 5,\n  \"purpose\": \"\",\n  \"requested_by_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"requisition_date\": \"2026-01-01\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\"\n}"
+              "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"line_number\": {},\n      \"quantity\": {},\n      \"description\": {},\n      \"estimated_unit_price\": {},\n      \"notes\": {},\n      \"required_date\": {},\n      \"source_demand_refs\": {},\n      \"suggested_vendor_id\": {},\n      \"uom_id\": {}\n    }\n  ],\n  \"required_date\": \"2026-01-01\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"branch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"department_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"priority\": 5,\n  \"purpose\": \"\",\n  \"requested_by_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"requisition_date\": \"2026-01-01\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\"\n}"
             },
             "description": "Raise a draft purchase requisition",
             "header": [
@@ -17941,7 +17941,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_end_date\": \"2026-01-01\",\n  \"planned_quantity\": 0,\n  \"planned_start_date\": \"2026-01-01\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"bom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"plant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"priority\": 100,\n  \"requires_qc\": false,\n  \"routing_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\"\n}"
+              "raw": "{\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"planned_end_date\": \"2026-01-01\",\n  \"planned_quantity\": 0,\n  \"planned_start_date\": \"2026-01-01\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"bom_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"plant_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"priority\": 100,\n  \"requires_qc\": false,\n  \"routing_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_line_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\"\n}"
             },
             "description": "Creates a DRAFT job. Nothing is planned against stock or capacity until the order is approved and released. Leave `bom_id` and `routing_id` unset to take the item's default approved structure and process at release.",
             "header": [
@@ -26374,6 +26374,40 @@
           }
         },
         {
+          "name": "Change the company's sales settings",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"auto_plan_on_confirm\": false\n}"
+            },
+            "description": "Partial by design: omit a field to leave the stored decision alone, send an explicit null to restore the code default. Every change is audited.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "PUT",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sales",
+                "settings"
+              ],
+              "raw": "{{base_url}}/api/v1/sales/settings"
+            }
+          }
+        },
+        {
           "name": "Close an invoiced sales order",
           "request": {
             "body": {
@@ -26745,6 +26779,96 @@
                 "allocation-status"
               ],
               "raw": "{{base_url}}/api/v1/sales/{order_id}/allocation-status",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Plan the order's shortfall into draft supply",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"Order confirmed by sales\"\n}"
+            },
+            "description": "The on-demand form of the automatic plan: raises or resizes DRAFT production orders and the order's draft purchase requisition so they cover what is still unreserved. Never releases, approves or converts anything. Works whether or not the company has automatic planning switched on.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sales",
+                ":order_id",
+                "plan-shortfall"
+              ],
+              "raw": "{{base_url}}/api/v1/sales/{order_id}/plan-shortfall",
+              "variable": [
+                {
+                  "description": "order_id of the record",
+                  "key": "order_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Read the company's sales settings",
+          "request": {
+            "description": "The effective settings, with code defaults applied. A company that has never saved a setting reads the default and is told so - the row is sparse, not a hard-coded copy of today's defaults.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sales",
+                "settings"
+              ],
+              "raw": "{{base_url}}/api/v1/sales/settings"
+            }
+          }
+        },
+        {
+          "name": "The order's fulfilment trail",
+          "request": {
+            "description": "Everything raised or recorded against the order, one batched read per document family: reservations, MRP suggestions, production and job-work orders, requisitions and purchase orders, inspections, packing, dispatches, transfers, invoices, credit notes and returns.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "sales",
+                ":order_id",
+                "fulfilment"
+              ],
+              "raw": "{{base_url}}/api/v1/sales/{order_id}/fulfilment",
               "variable": [
                 {
                   "description": "order_id of the record",

@@ -289,6 +289,14 @@ class ProductionOrder(TenantEntity, OptimisticLockMixin):
         server_default=ProductionSourceType.MANUAL,
     )
     source_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+    #: The sales order *line* the demand came from (WP E1b). Bare UUID, no
+    #: foreign key: the plan outlives the order's line as written - a line can
+    #: be rewritten on a draft or the order cancelled - and a hard reference
+    #: would either block that rewrite or be wiped by it. The pair
+    #: ``(source_type, source_id)`` still names the order; this names the row
+    #: inside it, which is what lets a replan net open supply against exactly
+    #: the promise it was raised for.
+    source_line_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
 
     approved_by_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True

@@ -135,6 +135,18 @@ export type SalesOrderAllocation = SchemaOf<'OrderAllocationRead'>
 /** `POST /sales/{id}/confirm` (`ConfirmResult`). */
 export type ConfirmResult = SchemaOf<'ConfirmResult'>
 
+/** `POST /sales/{id}/plan-shortfall` (`ShortfallPlanRead`). */
+export type ShortfallPlan = SchemaOf<'ShortfallPlanRead'>
+
+/** `GET /sales/{id}/fulfilment` (`FulfilmentRead`). */
+export type SalesOrderFulfilment = SchemaOf<'FulfilmentRead'>
+
+/** One document row in the fulfilment trail (`FulfilmentDocumentRead`). */
+export type FulfilmentDocument = SchemaOf<'FulfilmentDocumentRead'>
+
+/** `GET`/`PUT /sales/settings` (`SalesSettingsRead`). */
+export type SalesSettings = SchemaOf<'SalesSettingsRead'>
+
 /**
  * `GET /mrp/sales-orders/{id}/expected-availability` (`SalesOrderAvailabilityRead`).
  *

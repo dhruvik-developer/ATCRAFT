@@ -313,6 +313,15 @@ class AllocateOrderRequest(BaseModel):
 # -----------------------------------------------------------------------------
 
 
+class OtherWarehouseStock(BaseModel):
+    """Free stock for one item in a warehouse other than the order's own."""
+
+    warehouse_id: uuid.UUID
+    warehouse_code: str
+    warehouse_name: str
+    quantity: Decimal
+
+
 class LineAllocationRead(BaseModel):
     """What one line got, and what it is still short of.
 
@@ -346,6 +355,11 @@ class LineAllocationRead(BaseModel):
     #: has just been consumed and would be misleading).
     available_quantity: Decimal | None = None
     required_date: date | None = None
+    #: Free stock for this item in *other* warehouses (WP E1b section 4), one
+    #: grouped read for the whole order, largest first. Empty when nothing is
+    #: available elsewhere; always empty on the confirm response for the same
+    #: reason as ``available_quantity``.
+    available_elsewhere: list[OtherWarehouseStock] = Field(default_factory=list)
 
 
 class OrderAllocationRead(BaseModel):
@@ -360,6 +374,51 @@ class OrderAllocationRead(BaseModel):
     lines: list[LineAllocationRead]
 
 
+# -----------------------------------------------------------------------------
+# Shortfall planning (WP E1b section 1)
+# -----------------------------------------------------------------------------
+
+
+class PlannedDocumentRead(BaseModel):
+    """One draft document the shortfall plan raised or adjusted."""
+
+    kind: str
+    id: uuid.UUID
+    code: str
+    line_id: uuid.UUID
+    line_number: int
+    item_id: uuid.UUID
+    quantity: Decimal
+    status: str
+
+
+class NeedsJobWorkRead(BaseModel):
+    """A short line the plan deliberately left alone, because it needs job work."""
+
+    line_id: uuid.UUID
+    line_number: int
+    item_id: uuid.UUID
+    item_code: str | None = None
+    quantity: Decimal
+
+
+class ShortfallPlanRead(BaseModel):
+    """The outcome of planning one order's shortfall.
+
+    ``documents`` are the drafts that now cover the shortfall. ``needs_job_work``
+    is not a failure: a JOB_WORK item is obtained through the job-work flow, and
+    raising a production order for it would contradict the item master.
+    ``warnings`` names the lines the plan could not touch, with the reason -
+    typically a requisition already submitted, which is a human decision to
+    change rather than something an automation should rewrite.
+    """
+
+    order_id: uuid.UUID
+    documents: list[PlannedDocumentRead] = Field(default_factory=list)
+    needs_job_work: list[NeedsJobWorkRead] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ConfirmResult(BaseModel):
     """The confirm response: the order, plus what could actually be reserved."""
 
@@ -369,6 +428,105 @@ class ConfirmResult(BaseModel):
     #: agreed limit. Returned so the desk sees the consequence of the order it
     #: just placed.
     credit_headroom: Decimal | None = None
+    #: What the auto-plan raised for the shortfall, when it ran. None when the
+    #: order was fully covered or the setting is off; the "Plan shortfall"
+    #: action returns the same shape.
+    planned: ShortfallPlanRead | None = None
+
+
+# -----------------------------------------------------------------------------
+# Sales settings (WP E1b section 1)
+# -----------------------------------------------------------------------------
+
+
+class SalesSettingsRead(BaseModel):
+    """Effective per-company sales settings.
+
+    ``auto_plan_on_confirm`` is the value the planner acts on, default applied.
+    ``is_default`` says whether it came from the code default or a stored row,
+    so the screen can show "using the default" without guessing.
+    """
+
+    auto_plan_on_confirm: bool
+    is_default: bool
+
+
+class SalesSettingsUpdate(BaseModel):
+    """The settings a company may change. Every field optional."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    auto_plan_on_confirm: bool | None = None
+
+
+# -----------------------------------------------------------------------------
+# Fulfilment trail (WP E1b section 3)
+# -----------------------------------------------------------------------------
+
+
+class FulfilmentLineRead(BaseModel):
+    """One sales order line's reservation and progress summary."""
+
+    line_id: uuid.UUID
+    line_number: int
+    item_id: uuid.UUID
+    item_code: str | None = None
+    ordered_quantity: Decimal
+    allocated_quantity: Decimal
+    reserved_quantity: Decimal
+    dispatched_quantity: Decimal
+    shortfall_quantity: Decimal
+    status: SalesOrderLineStatus
+    reservation_id: uuid.UUID | None = None
+
+
+class FulfilmentDocumentRead(BaseModel):
+    """One document in the order's fulfilment trail.
+
+    Deliberately one flexible shape rather than a schema per family: the trail
+    is a timeline, every family shows the same six facts (what, which document,
+    what state, how much, when, and a link), and a per-family schema would
+    multiply the response contract without adding a field the screen renders
+    differently. ``line_id`` attributes a document to a sales order line when
+    the owning module records one; order-level documents leave it None.
+    """
+
+    kind: str
+    id: uuid.UUID
+    code: str
+    status: str
+    item_id: uuid.UUID | None = None
+    item_code: str | None = None
+    quantity: Decimal | None = None
+    secondary_quantity: Decimal | None = None
+    document_date: date | None = None
+    expected_date: date | None = None
+    line_id: uuid.UUID | None = None
+    detail: str | None = None
+    url: str
+
+
+class FulfilmentRead(BaseModel):
+    """Everything that has happened, or is planned, for one sales order."""
+
+    order_id: uuid.UUID
+    code: str
+    status: SalesOrderStatus
+    lines: list[FulfilmentLineRead] = Field(default_factory=list)
+    mrp_suggestions: list[FulfilmentDocumentRead] = Field(default_factory=list)
+    production_orders: list[FulfilmentDocumentRead] = Field(default_factory=list)
+    assembly_orders: list[FulfilmentDocumentRead] = Field(default_factory=list)
+    job_work_orders: list[FulfilmentDocumentRead] = Field(default_factory=list)
+    requisitions: list[FulfilmentDocumentRead] = Field(default_factory=list)
+    purchase_orders: list[FulfilmentDocumentRead] = Field(default_factory=list)
+    goods_receipts: list[FulfilmentDocumentRead] = Field(default_factory=list)
+    inspections: list[FulfilmentDocumentRead] = Field(default_factory=list)
+    packing_orders: list[FulfilmentDocumentRead] = Field(default_factory=list)
+    dispatches: list[FulfilmentDocumentRead] = Field(default_factory=list)
+    transfers: list[FulfilmentDocumentRead] = Field(default_factory=list)
+    invoices: list[FulfilmentDocumentRead] = Field(default_factory=list)
+    credit_notes: list[FulfilmentDocumentRead] = Field(default_factory=list)
+    returns: list[FulfilmentDocumentRead] = Field(default_factory=list)
 
 
 # -----------------------------------------------------------------------------
@@ -410,8 +568,14 @@ __all__ = [
     "ConfirmResult",
     "DemandSummaryFilters",
     "DemandSummaryRow",
+    "FulfilmentDocumentRead",
+    "FulfilmentLineRead",
+    "FulfilmentRead",
     "LineAllocationRead",
+    "NeedsJobWorkRead",
     "OrderAllocationRead",
+    "OtherWarehouseStock",
+    "PlannedDocumentRead",
     "SalesOrderCreate",
     "SalesOrderDetail",
     "SalesOrderFilters",
@@ -419,4 +583,7 @@ __all__ = [
     "SalesOrderLineRead",
     "SalesOrderSummary",
     "SalesOrderUpdate",
+    "SalesSettingsRead",
+    "SalesSettingsUpdate",
+    "ShortfallPlanRead",
 ]

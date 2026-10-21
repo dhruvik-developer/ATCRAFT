@@ -53,6 +53,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -67,7 +68,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
@@ -106,6 +107,12 @@ DUPLICATE_REQUIRED_DATE_WINDOW_DAYS = 7
 MIN_PRIORITY = 1
 MAX_PRIORITY = 9
 DEFAULT_PRIORITY = 5
+
+#: How many demand references one requisition line may carry (WP D1 section 1).
+#: A cap rather than unbounded because the list is a provenance reminder on the
+#: duplicate check, not a ledger: a line covering hundreds of demand rows is a
+#: planning aggregate, and the operator needs the count more than every uuid.
+MAX_SOURCE_DEMAND_REFS = 50
 
 #: ISO-4217 alphabetic currency codes.
 
@@ -479,6 +486,16 @@ class PurchaseRequisitionLine(TenantEntity):
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    #: The demand this line was raised for (WP D1 merged into E1b): a JSONB
+    #: array of ``{"demand_type", "demand_id", "demand_line_id"}``, capped at
+    #: :data:`MAX_SOURCE_DEMAND_REFS`. Null for typed lines. Kept when the
+    #: requisition is converted, so the duplicate matcher can see that two open
+    #: orders are covering the same sales order line - the strongest duplicate
+    #: signal there is. JSONB rather than a child table because nothing joins
+    #: on it; the queries are containment tests and the payload is a reminder
+    #: of provenance, not a foreign key.
+    source_demand_refs: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+
     __table_args__ = (
         UniqueConstraint(
             "requisition_id", "line_number", name="uq_purchase_requisition_lines_line_number"
@@ -490,6 +507,12 @@ class PurchaseRequisitionLine(TenantEntity):
             "line_number",
         ),
         Index("ix_purchase_requisition_lines_item", "company_id", "item_id", "status"),
+        # Containment lookups: "every line pegged to this sales order line".
+        Index(
+            "ix_purchase_requisition_lines_demand_refs",
+            "source_demand_refs",
+            postgresql_using="gin",
+        ),
         CheckConstraint(f"status IN ({sql_in_list(RequisitionLineStatus)})", name="status_known"),
         CheckConstraint("line_number > 0", name="line_number_positive"),
         CheckConstraint("quantity > 0", name="quantity_positive"),

@@ -79,3 +79,39 @@ The beat task `mrp.scheduled_run` is in E3b; leave it there. Do not duplicate it
 - `database.md` §8 (the confirm event now plans)
 - assumptions
 - handbook: the Sales order chapter, the scenarios K02/K08/K10 explained
+
+## Implementation record (delivered 20 October 2026)
+
+- **Setting.** `sales_settings.auto_plan_on_confirm` is nullable per company;
+  NULL reads as `DEFAULT_AUTO_PLAN_ON_CONFIRM = True`. `GET/PUT /sales/settings`
+  need `settings.view` / `settings.manage`; `/admin/settings` exposes the switch
+  and the difference between "off" and "no override".
+- **Planner.** `mrp/shortfall.py` raises one DRAFT production order per made line
+  (pegged by `source_type=SALES_ORDER`, `source_id`, `source_line_id`) and one
+  DRAFT requisition per order for bought lines (`source_demand_refs`). Committed
+  production output and non-DRAFT requisition quantities are netted first;
+  drafts never net against themselves, so a re-run resizes rather than
+  duplicates. A capability flag that contradicts the production type is a
+  warning and the planner's stale draft is withdrawn; confirmation is never
+  refused for master data. JOB_WORK lines are returned as `needs_job_work`.
+- **Reconciliation.** Confirm, line/date edits, cancellation and a top-up that
+  newly reserves stock all run the planner in the caller's transaction. It
+  resizes or cancels only its own DRAFT documents; a submitted requisition is
+  warned about, not rewritten.
+- **Trail.** `GET /sales/{id}/fulfilment` returns one family per owning module
+  (MRP, production, assembly, job work, requisitions/POs, GRNs, QC, transfers,
+  packing, dispatch, invoices, credit notes, returns) and the order detail
+  renders it as the Fulfilment trail. Production, assembly and job-work detail
+  link back to the order; `/dispatch` and `/packing` read the
+  `sales_order_id` URL filter and show a clearable badge.
+- **Other warehouses.** `allocation-status` adds `available_elsewhere` from one
+  grouped read. The panel names the best donor and offers Raise transfer, which
+  pre-fills the shared transfer dialog with the source warehouse, item,
+  `min(shortfall, free)` and the order-line peg. The transfer follows normal
+  approval/dispatch/receipt; receipt does not reserve - the next E1a top-up does.
+- **Tests.** `tests/integration/test_sales_shortfall.py` (K02/K08/K10, settings,
+  trail), `tests/api/test_sales_shortfall_http.py` (route order, rights,
+  response shapes), the migration round-trip and the sales/fulfilment suites;
+  web: `sales-orders-page.test.tsx`, `settings-page.test.tsx` and
+  `packing-page.test.tsx`. Deliberate scope boundary: MRP TRANSFER suggestions
+  remain E3b.

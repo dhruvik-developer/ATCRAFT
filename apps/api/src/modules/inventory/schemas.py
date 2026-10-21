@@ -48,6 +48,7 @@ from src.modules.inventory.models import (
     SerialStatus,
     StockState,
     TransactionType,
+    TransferSourceType,
     TransferStatus,
 )
 
@@ -364,6 +365,10 @@ class StockTransferLineCreate(BaseModel):
     batch_id: uuid.UUID | None = None
     from_location_id: uuid.UUID | None = None
     to_location_id: uuid.UUID | None = None
+    #: The sales order line this line answers (WP E1b section 4). Only set when
+    #: the transfer was raised from a short order; the header's source pair
+    #: names the order itself.
+    source_line_id: uuid.UUID | None = None
     notes: str | None = None
 
 
@@ -373,6 +378,10 @@ class StockTransferCreate(BaseModel):
     reason: Reason
     transfer_date: date | None = None
     expected_date: date | None = None
+    #: Provenance (WP E1b section 4). A typed transfer is MANUAL with no id;
+    #: the order screen's "Raise transfer" sends SALES_ORDER and the order id.
+    source_type: TransferSourceType = TransferSourceType.MANUAL
+    source_id: uuid.UUID | None = None
     notes: str | None = None
     lines: Annotated[list[StockTransferLineCreate], Field(min_length=1)]
 
@@ -380,6 +389,10 @@ class StockTransferCreate(BaseModel):
     def _validate(self) -> StockTransferCreate:
         if self.from_warehouse_id == self.to_warehouse_id:
             raise ValueError("Source and destination warehouses must differ.")
+        if self.source_type is not TransferSourceType.MANUAL and self.source_id is None:
+            raise ValueError("A transfer with a source type must name its source document.")
+        if self.source_type is TransferSourceType.MANUAL and self.source_id is not None:
+            raise ValueError("A manual transfer cannot name a source document.")
         if len(self.lines) > MAX_DOCUMENT_LINES:
             raise ValueError(f"A transfer may not exceed {MAX_DOCUMENT_LINES} lines.")
         # Two lines for the same position would take the same row lock twice and
@@ -415,6 +428,7 @@ class StockTransferLineRead(BaseModel):
     dispatched_quantity: Decimal
     received_quantity: Decimal
     unit_cost: Decimal
+    source_line_id: uuid.UUID | None = None
     notes: str | None
 
 
@@ -435,6 +449,8 @@ class StockTransferRead(BaseModel):
     approved_by_id: uuid.UUID | None
     approved_at: datetime | None
     reason: str
+    source_type: TransferSourceType
+    source_id: uuid.UUID | None
     notes: str | None
     line_count: int
     total_quantity: Decimal

@@ -22,6 +22,7 @@ from src.core.deps import CurrentUser, DbSession, Tenant, require_permission
 from src.core.pagination import PageParams, SortParams, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
+from src.modules.sales import fulfilment as fulfilment_service
 from src.modules.sales import service
 from src.modules.sales.models import SalesOrderStatus
 from src.modules.sales.schemas import (
@@ -32,12 +33,16 @@ from src.modules.sales.schemas import (
     ConfirmResult,
     DemandSummaryFilters,
     DemandSummaryRow,
+    FulfilmentRead,
     OrderAllocationRead,
     SalesOrderCreate,
     SalesOrderDetail,
     SalesOrderFilters,
     SalesOrderSummary,
     SalesOrderUpdate,
+    SalesSettingsRead,
+    SalesSettingsUpdate,
+    ShortfallPlanRead,
 )
 
 router = APIRouter(prefix="/sales", tags=["Sales Orders"], responses=COMMON_ERROR_RESPONSES)
@@ -122,6 +127,43 @@ async def demand_summary(
 ) -> PaginatedResponse[DemandSummaryRow]:
     rows, pagination = await service.demand_summary(session, tenant, filters, params)
     return PaginatedResponse[DemandSummaryRow](data=rows, pagination=pagination)
+
+
+# -----------------------------------------------------------------------------
+# Settings (declared before /{order_id} - the path would otherwise shadow it)
+# -----------------------------------------------------------------------------
+
+
+@router.get(
+    "/settings",
+    response_model=ApiResponse[SalesSettingsRead],
+    summary="Read the company's sales settings",
+    description=(
+        "The effective settings, with code defaults applied. A company that has never "
+        "saved a setting reads the default and is told so - the row is sparse, not a "
+        "hard-coded copy of today's defaults."
+    ),
+    dependencies=[require_permission(Permission.SETTINGS_VIEW)],
+)
+async def get_sales_settings(session: DbSession, tenant: Tenant) -> ApiResponse[SalesSettingsRead]:
+    return ApiResponse[SalesSettingsRead].ok(await service.get_sales_settings(session, tenant))
+
+
+@router.put(
+    "/settings",
+    response_model=ApiResponse[SalesSettingsRead],
+    summary="Change the company's sales settings",
+    description=(
+        "Partial by design: omit a field to leave the stored decision alone, send an "
+        "explicit null to restore the code default. Every change is audited."
+    ),
+    dependencies=[require_permission(Permission.SETTINGS_MANAGE)],
+)
+async def update_sales_settings(
+    payload: SalesSettingsUpdate, session: DbSession, tenant: Tenant
+) -> ApiResponse[SalesSettingsRead]:
+    settings = await service.update_sales_settings(session, tenant, payload)
+    return ApiResponse[SalesSettingsRead].ok(settings, "Sales settings updated")
 
 
 # -----------------------------------------------------------------------------
@@ -334,6 +376,55 @@ async def allocation_status(
 ) -> ApiResponse[OrderAllocationRead]:
     return ApiResponse[OrderAllocationRead].ok(
         await service.allocation_status(session, tenant, order_id)
+    )
+
+
+@router.post(
+    "/{order_id}/plan-shortfall",
+    response_model=ApiResponse[ShortfallPlanRead],
+    summary="Plan the order's shortfall into draft supply",
+    description=(
+        "The on-demand form of the automatic plan: raises or resizes DRAFT production "
+        "orders and the order's draft purchase requisition so they cover what is still "
+        "unreserved. Never releases, approves or converts anything. Works whether or not "
+        "the company has automatic planning switched on."
+    ),
+    dependencies=[require_permission(Permission.SALES_ORDER_UPDATE)],
+)
+async def plan_shortfall(
+    order_id: uuid.UUID,
+    payload: ConfirmRequest,
+    session: DbSession,
+    tenant: Tenant,
+) -> ApiResponse[ShortfallPlanRead]:
+    plan = await service.plan_shortfall(session, tenant, order_id, reason=payload.reason)
+    documents = len({(document.kind, document.id) for document in plan.documents})
+    if documents:
+        message = f"{documents} draft document(s) now cover the shortfall"
+    elif plan.needs_job_work:
+        message = "The shortfall needs job work; no draft was raised"
+    else:
+        message = "Nothing is short at the order's warehouse"
+    return ApiResponse[ShortfallPlanRead].ok(plan, message)
+
+
+@router.get(
+    "/{order_id}/fulfilment",
+    response_model=ApiResponse[FulfilmentRead],
+    summary="The order's fulfilment trail",
+    description=(
+        "Everything raised or recorded against the order, one batched read per document "
+        "family: reservations, MRP suggestions, production and job-work orders, "
+        "requisitions and purchase orders, inspections, packing, dispatches, transfers, "
+        "invoices, credit notes and returns."
+    ),
+    dependencies=[require_permission(Permission.SALES_ORDER_VIEW)],
+)
+async def fulfilment(
+    order_id: uuid.UUID, session: DbSession, tenant: Tenant
+) -> ApiResponse[FulfilmentRead]:
+    return ApiResponse[FulfilmentRead].ok(
+        await fulfilment_service.order_fulfilment(session, tenant, order_id)
     )
 
 

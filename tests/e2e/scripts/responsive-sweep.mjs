@@ -95,6 +95,7 @@ const STATIC_ROUTES = [
   '/admin/users',
   '/admin/organisation',
   '/admin/organisation?tab=cost-centres',
+  '/admin/settings',
   '/notifications',
   '/profile',
 ]

@@ -292,6 +292,26 @@ class TransferStatus(StrEnum):
     CANCELLED = "CANCELLED"
 
 
+class TransferSourceType(StrEnum):
+    """Why a transfer was raised (WP E1b section 4, E2 section 8).
+
+    ``MANUAL`` is a typed document. ``SALES_ORDER`` is a transfer raised from a
+    short sales-order line to pull stock to the warehouse that must ship it.
+    ``REALLOCATION`` is the cross-warehouse execution of an approved
+    reallocation request, reserved for E2's execution leg so both lands use one
+    vocabulary.
+
+    The pair is the same bare ``(source_type, source_id)`` shape every other
+    document in the system uses; the transfer does not hold a foreign key to
+    the order because the order may be cancelled while the goods are still on
+    the road, and the physical movement must survive that.
+    """
+
+    MANUAL = "MANUAL"
+    SALES_ORDER = "SALES_ORDER"
+    REALLOCATION = "REALLOCATION"
+
+
 class AdjustmentStatus(StrEnum):
     DRAFT = "DRAFT"
     PENDING_APPROVAL = "PENDING_APPROVAL"
@@ -1174,6 +1194,17 @@ class StockTransfer(TenantEntity):
         Quantity, nullable=False, default=Decimal("0"), server_default="0"
     )
 
+    #: Provenance (WP E1b section 4). The bare pair names the document this
+    #: transfer answers - a sales order, or (later) an approved reallocation
+    #: request - and lets the fulfilment trail show what was moved and why.
+    source_type: Mapped[TransferSourceType] = mapped_column(
+        String(32),
+        nullable=False,
+        default=TransferSourceType.MANUAL,
+        server_default=TransferSourceType.MANUAL.value,
+    )
+    source_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+
     # lazy="raise": a transfer list must never load lines per row. The detail
     # and posting paths load them with an explicit selectinload.
     lines: Mapped[list[StockTransferLine]] = relationship(
@@ -1188,10 +1219,15 @@ class StockTransfer(TenantEntity):
         Index("ix_stock_transfers_status", "company_id", "status", "transfer_date"),
         Index("ix_stock_transfers_from", "company_id", "from_warehouse_id", "status"),
         Index("ix_stock_transfers_to", "company_id", "to_warehouse_id", "status"),
+        # "What was raised for this sales order?" - the fulfilment trail's read.
+        Index("ix_stock_transfers_source", "company_id", "source_type", "source_id"),
         CheckConstraint(
             "from_warehouse_id <> to_warehouse_id", name="source_differs_from_destination"
         ),
         CheckConstraint("total_quantity >= 0", name="total_quantity_non_negative"),
+        CheckConstraint(
+            f"source_type IN ({sql_in_list(TransferSourceType)})", name="source_type_known"
+        ),
     )
 
 
@@ -1253,6 +1289,11 @@ class StockTransferLine(TenantEntity):
         nullable=True,
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    #: The sales order line this movement answers, when the transfer was
+    #: raised from a short line (WP E1b section 4). Header ``source_id`` names
+    #: the order; this names the promise inside it.
+    source_line_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
 
     transfer: Mapped[StockTransfer] = relationship(back_populates="lines", lazy="raise")
     # Insert-order dependency, same reason as the cost layers above: a line is

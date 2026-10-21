@@ -46,6 +46,7 @@ from src.modules.sales.models import (
     SalesOrder,
     SalesOrderLine,
     SalesOrderLineStatus,
+    SalesSettings,
 )
 from src.modules.sales.schemas import DemandSummaryFilters, DemandSummaryRow, SalesOrderFilters
 
@@ -259,6 +260,59 @@ class AvailabilityRepository(BaseRepository[InventoryBalance]):
 
         rows = (await self.session.execute(stmt)).all()
         return {row.item_id: Decimal(str(row.available)) for row in rows}
+
+    async def available_elsewhere(
+        self, item_ids: Sequence[uuid.UUID], *, exclude_warehouse_id: uuid.UUID
+    ) -> dict[uuid.UUID, list[tuple[uuid.UUID, str, str, Decimal]]]:
+        """Free stock by *other* warehouse, one grouped read for the whole order.
+
+        The same aggregate as :meth:`available_by_item`, cut by warehouse and
+        excluding the order's own - what the allocation panel's "available in
+        other warehouses" and its "Raise transfer" action are built on. One
+        statement for every line, because asking per line is the N+1 section 32
+        forbids, and ``available_quantity`` is the generated column that already
+        nets reservations and holds out of the figure.
+        """
+        ids = [i for i in dict.fromkeys(item_ids) if i is not None]
+        if not ids:
+            return {}
+        # Function-level: ``warehouses`` is a master module the sales module
+        # does not otherwise need, and this is a read of its code and name only.
+        from src.modules.warehouses.models import Warehouse
+
+        available = func.coalesce(func.sum(InventoryBalance.available_quantity), 0).label(
+            "available"
+        )
+        stmt = (
+            select(
+                InventoryBalance.item_id,
+                InventoryBalance.warehouse_id,
+                Warehouse.code,
+                Warehouse.name,
+                available,
+            )
+            .join(Warehouse, Warehouse.id == InventoryBalance.warehouse_id)
+            .where(
+                InventoryBalance.company_id == self.tenant.company_id,
+                InventoryBalance.item_id.in_(ids),
+                InventoryBalance.warehouse_id != exclude_warehouse_id,
+            )
+            .group_by(
+                InventoryBalance.item_id,
+                InventoryBalance.warehouse_id,
+                Warehouse.code,
+                Warehouse.name,
+            )
+            .having(available > 0)
+            .order_by(InventoryBalance.item_id, available.desc())
+        )
+        rows = (await self.session.execute(stmt)).all()
+        result: dict[uuid.UUID, list[tuple[uuid.UUID, str, str, Decimal]]] = {}
+        for row in rows:
+            result.setdefault(row.item_id, []).append(
+                (row.warehouse_id, str(row.code), str(row.name), Decimal(str(row.available)))
+            )
+        return result
 
 
 class OrderPartyRepository(BaseRepository[CustomerAddress]):
@@ -661,6 +715,19 @@ class SalesOrderRepository(BaseRepository[SalesOrder]):
         return (await self.session.execute(stmt)).first() is not None
 
 
+class SalesSettingsRepository(BaseRepository[SalesSettings]):
+    """The company's one settings row, when it has ever saved one."""
+
+    model = SalesSettings
+
+    async def for_company(self, *, lock: bool = False) -> SalesSettings | None:
+        """Read the sparse row. A missing row is the code defaults, not an error."""
+        stmt = self._scoped().where(SalesSettings.company_id == self.tenant.company_id)
+        if lock:
+            stmt = stmt.with_for_update()
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
+
 __all__ = [
     "AvailabilityRepository",
     "ItemLookupRepository",
@@ -668,6 +735,7 @@ __all__ = [
     "PriceListRepository",
     "SalesOrderLineRepository",
     "SalesOrderRepository",
+    "SalesSettingsRepository",
     "SellableItem",
     "VariantInfo",
 ]

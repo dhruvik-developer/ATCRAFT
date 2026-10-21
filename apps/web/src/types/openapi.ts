@@ -8122,6 +8122,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the company's sales settings
+         * @description The effective settings, with code defaults applied. A company that has never saved a setting reads the default and is told so - the row is sparse, not a hard-coded copy of today's defaults.
+         */
+        get: operations["get_sales_settings_api_v1_sales_settings_get"];
+        /**
+         * Change the company's sales settings
+         * @description Partial by design: omit a field to leave the stored decision alone, send an explicit null to restore the code default. Every change is audited.
+         */
+        put: operations["update_sales_settings_api_v1_sales_settings_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/{order_id}": {
         parameters: {
             query?: never;
@@ -8255,6 +8279,46 @@ export interface paths {
          * @description Runs the credit check, then reserves what is actually available for each line. Reserving less than was ordered is the expected outcome when stock is short: the response reports the per-line shortfall so it is visible immediately, and MRP plans for it.
          */
         post: operations["confirm_order_api_v1_sales__order_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/{order_id}/fulfilment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The order's fulfilment trail
+         * @description Everything raised or recorded against the order, one batched read per document family: reservations, MRP suggestions, production and job-work orders, requisitions and purchase orders, inspections, packing, dispatches, transfers, invoices, credit notes and returns.
+         */
+        get: operations["fulfilment_api_v1_sales__order_id__fulfilment_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/{order_id}/plan-shortfall": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan the order's shortfall into draft supply
+         * @description The on-demand form of the automatic plan: raises or resizes DRAFT production orders and the order's draft purchase requisition so they cover what is still unreserved. Never releases, approves or converts anything. Works whether or not the company has automatic planning switched on.
+         */
+        post: operations["plan_shortfall_api_v1_sales__order_id__plan_shortfall_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10553,6 +10617,20 @@ export interface components {
              */
             success: boolean;
         };
+        /** ApiResponse[FulfilmentRead] */
+        ApiResponse_FulfilmentRead_: {
+            data?: components["schemas"]["FulfilmentRead"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
         /** ApiResponse[GoodsReceiptDetail] */
         ApiResponse_GoodsReceiptDetail_: {
             data?: components["schemas"]["GoodsReceiptDetail"] | null;
@@ -11744,6 +11822,20 @@ export interface components {
              */
             success: boolean;
         };
+        /** ApiResponse[SalesSettingsRead] */
+        ApiResponse_SalesSettingsRead_: {
+            data?: components["schemas"]["SalesSettingsRead"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
         /** ApiResponse[SealResult] */
         ApiResponse_SealResult_: {
             data?: components["schemas"]["SealResult"] | null;
@@ -11775,6 +11867,20 @@ export interface components {
         /** ApiResponse[ShiftRead] */
         ApiResponse_ShiftRead_: {
             data?: components["schemas"]["ShiftRead"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
+        /** ApiResponse[ShortfallPlanRead] */
+        ApiResponse_ShortfallPlanRead_: {
+            data?: components["schemas"]["ShortfallPlanRead"] | null;
             /**
              * Message
              * @default Operation completed successfully
@@ -15107,6 +15213,7 @@ export interface components {
             /** Credit Headroom */
             credit_headroom?: string | null;
             order: components["schemas"]["SalesOrderDetail"];
+            planned?: components["schemas"]["ShortfallPlanRead"] | null;
         };
         /** ContactCreate */
         ContactCreate: {
@@ -17706,6 +17813,125 @@ export interface components {
          * @enum {string}
          */
         FreightPaidBy: "CONSIGNOR" | "CONSIGNEE";
+        /**
+         * FulfilmentDocumentRead
+         * @description One document in the order's fulfilment trail.
+         *
+         *     Deliberately one flexible shape rather than a schema per family: the trail
+         *     is a timeline, every family shows the same six facts (what, which document,
+         *     what state, how much, when, and a link), and a per-family schema would
+         *     multiply the response contract without adding a field the screen renders
+         *     differently. ``line_id`` attributes a document to a sales order line when
+         *     the owning module records one; order-level documents leave it None.
+         */
+        FulfilmentDocumentRead: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail?: string | null;
+            /** Document Date */
+            document_date?: string | null;
+            /** Expected Date */
+            expected_date?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Item Code */
+            item_code?: string | null;
+            /** Item Id */
+            item_id?: string | null;
+            /** Kind */
+            kind: string;
+            /** Line Id */
+            line_id?: string | null;
+            /** Quantity */
+            quantity?: string | null;
+            /** Secondary Quantity */
+            secondary_quantity?: string | null;
+            /** Status */
+            status: string;
+            /** Url */
+            url: string;
+        };
+        /**
+         * FulfilmentLineRead
+         * @description One sales order line's reservation and progress summary.
+         */
+        FulfilmentLineRead: {
+            /** Allocated Quantity */
+            allocated_quantity: string;
+            /** Dispatched Quantity */
+            dispatched_quantity: string;
+            /** Item Code */
+            item_code?: string | null;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /**
+             * Line Id
+             * Format: uuid
+             */
+            line_id: string;
+            /** Line Number */
+            line_number: number;
+            /** Ordered Quantity */
+            ordered_quantity: string;
+            /** Reservation Id */
+            reservation_id?: string | null;
+            /** Reserved Quantity */
+            reserved_quantity: string;
+            /** Shortfall Quantity */
+            shortfall_quantity: string;
+            status: components["schemas"]["SalesOrderLineStatus"];
+        };
+        /**
+         * FulfilmentRead
+         * @description Everything that has happened, or is planned, for one sales order.
+         */
+        FulfilmentRead: {
+            /** Assembly Orders */
+            assembly_orders?: components["schemas"]["FulfilmentDocumentRead"][];
+            /** Code */
+            code: string;
+            /** Credit Notes */
+            credit_notes?: components["schemas"]["FulfilmentDocumentRead"][];
+            /** Dispatches */
+            dispatches?: components["schemas"]["FulfilmentDocumentRead"][];
+            /** Goods Receipts */
+            goods_receipts?: components["schemas"]["FulfilmentDocumentRead"][];
+            /** Inspections */
+            inspections?: components["schemas"]["FulfilmentDocumentRead"][];
+            /** Invoices */
+            invoices?: components["schemas"]["FulfilmentDocumentRead"][];
+            /** Job Work Orders */
+            job_work_orders?: components["schemas"]["FulfilmentDocumentRead"][];
+            /** Lines */
+            lines?: components["schemas"]["FulfilmentLineRead"][];
+            /** Mrp Suggestions */
+            mrp_suggestions?: components["schemas"]["FulfilmentDocumentRead"][];
+            /**
+             * Order Id
+             * Format: uuid
+             */
+            order_id: string;
+            /** Packing Orders */
+            packing_orders?: components["schemas"]["FulfilmentDocumentRead"][];
+            /** Production Orders */
+            production_orders?: components["schemas"]["FulfilmentDocumentRead"][];
+            /** Purchase Orders */
+            purchase_orders?: components["schemas"]["FulfilmentDocumentRead"][];
+            /** Requisitions */
+            requisitions?: components["schemas"]["FulfilmentDocumentRead"][];
+            /** Returns */
+            returns?: components["schemas"]["FulfilmentDocumentRead"][];
+            status: components["schemas"]["SalesOrderStatus"];
+            /** Transfers */
+            transfers?: components["schemas"]["FulfilmentDocumentRead"][];
+        };
         /** GoodsReceiptCreate */
         GoodsReceiptCreate: {
             /** Gate Entry Number */
@@ -19894,6 +20120,8 @@ export interface components {
         LineAllocationRead: {
             /** Allocated Quantity */
             allocated_quantity: string;
+            /** Available Elsewhere */
+            available_elsewhere?: components["schemas"]["OtherWarehouseStock"][];
             /** Available Quantity */
             available_quantity?: string | null;
             /** Dispatchable Quantity */
@@ -21030,6 +21258,28 @@ export interface components {
          */
         MrpSuggestionType: "MANUFACTURE" | "PURCHASE" | "JOB_WORK" | "TRANSFER";
         /**
+         * NeedsJobWorkRead
+         * @description A short line the plan deliberately left alone, because it needs job work.
+         */
+        NeedsJobWorkRead: {
+            /** Item Code */
+            item_code?: string | null;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /**
+             * Line Id
+             * Format: uuid
+             */
+            line_id: string;
+            /** Line Number */
+            line_number: number;
+            /** Quantity */
+            quantity: string;
+        };
+        /**
          * NotificationPreferenceRead
          * @description Effective preference for one type.
          *
@@ -21230,6 +21480,23 @@ export interface components {
              * Format: uuid
              */
             warehouse_id: string;
+        };
+        /**
+         * OtherWarehouseStock
+         * @description Free stock for one item in a warehouse other than the order's own.
+         */
+        OtherWarehouseStock: {
+            /** Quantity */
+            quantity: string;
+            /** Warehouse Code */
+            warehouse_code: string;
+            /**
+             * Warehouse Id
+             * Format: uuid
+             */
+            warehouse_id: string;
+            /** Warehouse Name */
+            warehouse_name: string;
         };
         /**
          * OutstandingRow
@@ -23765,6 +24032,37 @@ export interface components {
          * @enum {string}
          */
         PhysicalCountStatus: "DRAFT" | "IN_PROGRESS" | "COUNTED" | "CONFIRMED" | "CANCELLED";
+        /**
+         * PlannedDocumentRead
+         * @description One draft document the shortfall plan raised or adjusted.
+         */
+        PlannedDocumentRead: {
+            /** Code */
+            code: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Kind */
+            kind: string;
+            /**
+             * Line Id
+             * Format: uuid
+             */
+            line_id: string;
+            /** Line Number */
+            line_number: number;
+            /** Quantity */
+            quantity: string;
+            /** Status */
+            status: string;
+        };
         /** PlantCreate */
         PlantCreate: {
             /** Address Line1 */
@@ -24212,6 +24510,8 @@ export interface components {
             routing_id?: string | null;
             /** Source Id */
             source_id?: string | null;
+            /** Source Line Id */
+            source_line_id?: string | null;
             /** @default MANUAL */
             source_type: components["schemas"]["ProductionSourceType"];
             /**
@@ -24305,6 +24605,8 @@ export interface components {
             scrap_quantity: string;
             /** Source Id */
             source_id: string | null;
+            /** Source Line Id */
+            source_line_id: string | null;
             source_type: components["schemas"]["ProductionSourceType"];
             /** Standard Material Unit Cost */
             standard_material_unit_cost: string | null;
@@ -24411,6 +24713,8 @@ export interface components {
             scrap_quantity: string;
             /** Source Id */
             source_id: string | null;
+            /** Source Line Id */
+            source_line_id: string | null;
             source_type: components["schemas"]["ProductionSourceType"];
             /** Standard Material Unit Cost */
             standard_material_unit_cost: string | null;
@@ -24508,6 +24812,8 @@ export interface components {
             scrap_quantity: string;
             /** Source Id */
             source_id: string | null;
+            /** Source Line Id */
+            source_line_id: string | null;
             source_type: components["schemas"]["ProductionSourceType"];
             status: components["schemas"]["ProductionOrderStatus"];
             /**
@@ -26812,6 +27118,8 @@ export interface components {
             quantity: number | string;
             /** Required Date */
             required_date?: string | null;
+            /** Source Demand Refs */
+            source_demand_refs?: components["schemas"]["SourceDemandRef"][];
             /** Suggested Vendor Id */
             suggested_vendor_id?: string | null;
             /** Uom Id */
@@ -26848,6 +27156,8 @@ export interface components {
              * Format: uuid
              */
             requisition_id: string;
+            /** Source Demand Refs */
+            source_demand_refs?: components["schemas"]["SourceDemandRef"][] | null;
             status: components["schemas"]["RequisitionLineStatus"];
             /** Suggested Vendor Id */
             suggested_vendor_id: string | null;
@@ -28952,6 +29262,28 @@ export interface components {
             scrapped?: string[];
         };
         /**
+         * SalesSettingsRead
+         * @description Effective per-company sales settings.
+         *
+         *     ``auto_plan_on_confirm`` is the value the planner acts on, default applied.
+         *     ``is_default`` says whether it came from the code default or a stored row,
+         *     so the screen can show "using the default" without guessing.
+         */
+        SalesSettingsRead: {
+            /** Auto Plan On Confirm */
+            auto_plan_on_confirm: boolean;
+            /** Is Default */
+            is_default: boolean;
+        };
+        /**
+         * SalesSettingsUpdate
+         * @description The settings a company may change. Every field optional.
+         */
+        SalesSettingsUpdate: {
+            /** Auto Plan On Confirm */
+            auto_plan_on_confirm?: boolean | null;
+        };
+        /**
          * SamplingPlan
          * @description How much of a delivered lot is actually measured.
          *
@@ -29552,6 +29884,51 @@ export interface components {
             /** Tracking Reference */
             tracking_reference?: string | null;
         };
+        /**
+         * ShortfallPlanRead
+         * @description The outcome of planning one order's shortfall.
+         *
+         *     ``documents`` are the drafts that now cover the shortfall. ``needs_job_work``
+         *     is not a failure: a JOB_WORK item is obtained through the job-work flow, and
+         *     raising a production order for it would contradict the item master.
+         *     ``warnings`` names the lines the plan could not touch, with the reason -
+         *     typically a requisition already submitted, which is a human decision to
+         *     change rather than something an automation should rewrite.
+         */
+        ShortfallPlanRead: {
+            /** Documents */
+            documents?: components["schemas"]["PlannedDocumentRead"][];
+            /** Needs Job Work */
+            needs_job_work?: components["schemas"]["NeedsJobWorkRead"][];
+            /**
+             * Order Id
+             * Format: uuid
+             */
+            order_id: string;
+            /** Warnings */
+            warnings?: string[];
+        };
+        /**
+         * SourceDemandRef
+         * @description One demand a requisition line was raised for (WP D1 section 1).
+         *
+         *     Stored on the line as a JSONB array and carried onto purchase orders at
+         *     conversion. ``demand_type`` is an open vocabulary because the sources are
+         *     deliberately not foreign keys - a sales order line today, a BOM demand or a
+         *     packing order tomorrow - and the duplicate matcher only compares triples
+         *     for equality, never resolves them.
+         */
+        SourceDemandRef: {
+            /**
+             * Demand Id
+             * Format: uuid
+             */
+            demand_id: string;
+            /** Demand Line Id */
+            demand_line_id?: string | null;
+            /** Demand Type */
+            demand_type: string;
+        };
         /** StartRequest */
         StartRequest: {
             /** Actual Start Date */
@@ -29866,6 +30243,10 @@ export interface components {
             notes?: string | null;
             /** Reason */
             reason: string;
+            /** Source Id */
+            source_id?: string | null;
+            /** @default MANUAL */
+            source_type: components["schemas"]["TransferSourceType"];
             /**
              * To Warehouse Id
              * Format: uuid
@@ -29889,6 +30270,8 @@ export interface components {
             notes?: string | null;
             /** Quantity */
             quantity: number | string;
+            /** Source Line Id */
+            source_line_id?: string | null;
             /** To Location Id */
             to_location_id?: string | null;
         };
@@ -29922,6 +30305,8 @@ export interface components {
             quantity: string;
             /** Received Quantity */
             received_quantity: string;
+            /** Source Line Id */
+            source_line_id?: string | null;
             /** To Location Id */
             to_location_id: string | null;
             /** Unit Cost */
@@ -29966,6 +30351,9 @@ export interface components {
             reason: string;
             /** Received At */
             received_at: string | null;
+            /** Source Id */
+            source_id: string | null;
+            source_type: components["schemas"]["TransferSourceType"];
             status: components["schemas"]["TransferStatus"];
             /** To Warehouse Code */
             to_warehouse_code?: string | null;
@@ -30544,6 +30932,23 @@ export interface components {
          * @enum {string}
          */
         TransactionType: "PURCHASE_RECEIPT" | "PRODUCTION_RECEIPT" | "JOB_WORK_RECEIPT" | "MATERIAL_RETURN" | "ASSEMBLY_RECEIPT" | "CUSTOMER_RETURN" | "TRANSFER_IN" | "ADJUSTMENT_INCREASE" | "OPENING_BALANCE" | "QC_RELEASE" | "MATERIAL_ISSUE" | "JOB_WORK_ISSUE" | "DISPATCH" | "PURCHASE_RETURN" | "ASSEMBLY_CONSUME" | "TRANSFER_OUT" | "ADJUSTMENT_DECREASE" | "SCRAP" | "QC_HOLD" | "SCRAP_DISPOSAL";
+        /**
+         * TransferSourceType
+         * @description Why a transfer was raised (WP E1b section 4, E2 section 8).
+         *
+         *     ``MANUAL`` is a typed document. ``SALES_ORDER`` is a transfer raised from a
+         *     short sales-order line to pull stock to the warehouse that must ship it.
+         *     ``REALLOCATION`` is the cross-warehouse execution of an approved
+         *     reallocation request, reserved for E2's execution leg so both lands use one
+         *     vocabulary.
+         *
+         *     The pair is the same bare ``(source_type, source_id)`` shape every other
+         *     document in the system uses; the transfer does not hold a foreign key to
+         *     the order because the order may be cancelled while the goods are still on
+         *     the road, and the physical movement must survive that.
+         * @enum {string}
+         */
+        TransferSourceType: "MANUAL" | "SALES_ORDER" | "REALLOCATION";
         /**
          * TransferStatus
          * @description Stock transfer document lifecycle.
@@ -89616,6 +90021,194 @@ export interface operations {
             };
         };
     };
+    get_sales_settings_api_v1_sales_settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_SalesSettingsRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    update_sales_settings_api_v1_sales_settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesSettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_SalesSettingsRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_order_api_v1_sales__order_id__get: {
         parameters: {
             query?: never;
@@ -90413,6 +91006,198 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_ConfirmResult_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    fulfilment_api_v1_sales__order_id__fulfilment_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_FulfilmentRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    plan_shortfall_api_v1_sales__order_id__plan_shortfall_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                order_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_ShortfallPlanRead_"];
                 };
             };
             /** @description Malformed request */

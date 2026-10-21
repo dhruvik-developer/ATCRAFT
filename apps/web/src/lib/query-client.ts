@@ -170,6 +170,7 @@ export const queryKeys = {
   },
   sales: {
     all: ['sales'] as const,
+    settings: ['sales', 'settings'] as const,
     list: (params: unknown) => ['sales', 'list', params] as const,
     detail: (id: string) => ['sales', 'detail', id] as const,
   },

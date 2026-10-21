@@ -953,6 +953,11 @@ def _apply_requisition_line(
     line.required_date = payload.required_date
     line.estimated_unit_price = payload.estimated_unit_price
     line.suggested_vendor_id = payload.suggested_vendor_id
+    line.source_demand_refs = (
+        [ref.model_dump(mode="json") for ref in payload.source_demand_refs]
+        if payload.source_demand_refs
+        else None
+    )
     line.notes = payload.notes
     line.status = requisition_line_status_for(
         quantity=line.quantity, ordered_quantity=line.ordered_quantity or ZERO
@@ -974,6 +979,25 @@ async def create_requisition(
         department_id=principal.department_id,
         branch_id=principal.branch_id,
     )
+
+
+async def create_requisition_for_planning(
+    session: AsyncSession,
+    tenant: TenantContext,
+    payload: RequisitionCreate,
+) -> tuple[PurchaseRequisition, list[PurchaseRequisitionLine]]:
+    """Raise a DRAFT requisition on the planner's behalf (WP E1b).
+
+    The sales-order planner has a tenant but no requester: it is automation
+    running inside the confirmation transaction, not a person. So the document
+    carries no department or branch fallback - the caller names what it knows -
+    and a buyer still reviews and submits it, exactly like a hand-raised one.
+
+    Deliberately separate from :func:`create_requisition`, which derives the
+    fallbacks from a verified principal: passing a synthetic principal here
+    would put a person's name on a document they never saw.
+    """
+    return await _create_requisition(session, tenant, payload, department_id=None, branch_id=None)
 
 
 async def create_requisition_from_mrp(
@@ -5673,6 +5697,7 @@ __all__ = [
     "create_purchase_return",
     "create_quotation",
     "create_requisition",
+    "create_requisition_for_planning",
     "create_requisition_from_mrp",
     "create_rfq",
     "decide_quotation",

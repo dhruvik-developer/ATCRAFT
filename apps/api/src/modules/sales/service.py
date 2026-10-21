@@ -69,11 +69,14 @@ from src.modules.customers.service import assert_customer_can_order, get_custome
 from src.modules.products.models import ItemPrice, PriceType
 from src.modules.products.service import ITEM_MASTER_FALLBACK_FIELD, select_price_row
 from src.modules.sales.models import (
+    DEFAULT_AUTO_PLAN_ON_CONFIRM,
+    OPEN_DEMAND_STATUSES,
     RESERVING_STATUSES,
     SalesOrder,
     SalesOrderLine,
     SalesOrderLineStatus,
     SalesOrderStatus,
+    SalesSettings,
 )
 from src.modules.sales.repository import (
     SALES_ORDER_ENTITY,
@@ -83,6 +86,7 @@ from src.modules.sales.repository import (
     PriceListRepository,
     SalesOrderLineRepository,
     SalesOrderRepository,
+    SalesSettingsRepository,
     SellableItem,
     VariantInfo,
 )
@@ -91,7 +95,10 @@ from src.modules.sales.schemas import (
     DemandSummaryFilters,
     DemandSummaryRow,
     LineAllocationRead,
+    NeedsJobWorkRead,
     OrderAllocationRead,
+    OtherWarehouseStock,
+    PlannedDocumentRead,
     SalesOrderCreate,
     SalesOrderDetail,
     SalesOrderFilters,
@@ -99,6 +106,9 @@ from src.modules.sales.schemas import (
     SalesOrderLineRead,
     SalesOrderSummary,
     SalesOrderUpdate,
+    SalesSettingsRead,
+    SalesSettingsUpdate,
+    ShortfallPlanRead,
 )
 
 log = get_logger(__name__)
@@ -837,6 +847,276 @@ def _allocation(port: AllocationPort | None) -> AllocationPort:
     return port if port is not None else AllocationService()
 
 
+# -----------------------------------------------------------------------------
+# Sales settings (WP E1b section 1)
+# -----------------------------------------------------------------------------
+
+AUDIT_SALES_SETTINGS = "sales_settings"
+
+
+async def get_sales_settings(session: AsyncSession, tenant: TenantContext) -> SalesSettingsRead:
+    """The company's effective sales settings, code defaults applied.
+
+    A sparse table: no row, or a NULL column, means "never decided" and reads as
+    the code default. ``is_default`` says which of the two happened so the
+    screen can show "using the default" rather than pretending the value was
+    chosen here.
+    """
+    row = await SalesSettingsRepository(session, tenant).for_company()
+    if row is None or row.auto_plan_on_confirm is None:
+        return SalesSettingsRead(auto_plan_on_confirm=DEFAULT_AUTO_PLAN_ON_CONFIRM, is_default=True)
+    return SalesSettingsRead(auto_plan_on_confirm=bool(row.auto_plan_on_confirm), is_default=False)
+
+
+async def update_sales_settings(
+    session: AsyncSession, tenant: TenantContext, payload: SalesSettingsUpdate
+) -> SalesSettingsRead:
+    """Save the settings the caller sent. An explicit null restores the default.
+
+    ``exclude_unset`` is what makes those two different: omitting a field leaves
+    the stored decision alone, while sending JSON null wipes it back to the code
+    default - the only way to undo a decision without inventing a third state.
+    """
+    repo = SalesSettingsRepository(session, tenant)
+    sent = payload.model_dump(exclude_unset=True)
+    async with transaction(session):
+        row = await repo.for_company(lock=True)
+        before = {
+            "auto_plan_on_confirm": None if row is None else row.auto_plan_on_confirm,
+        }
+        if row is None:
+            row = repo.add(SalesSettings())
+        for field, value in sent.items():
+            setattr(row, field, value)
+        await session.flush()
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.UPDATE,
+            entity_type=AUDIT_SALES_SETTINGS,
+            entity_id=row.id,
+            entity_code="sales settings",
+            summary="Updated sales settings",
+            user_id=tenant.user_id,
+            old_values=before,
+            new_values={"auto_plan_on_confirm": row.auto_plan_on_confirm},
+        )
+    return await get_sales_settings(session, tenant)
+
+
+async def auto_plan_on_confirm(session: AsyncSession, tenant: TenantContext) -> bool:
+    """Whether confirmation should plan the shortfall without being asked."""
+    return (await get_sales_settings(session, tenant)).auto_plan_on_confirm
+
+
+# -----------------------------------------------------------------------------
+# Shortfall planning seam (WP E1b section 1)
+# -----------------------------------------------------------------------------
+
+
+class ShortfallPlanningPort(Protocol):
+    """The planning module's answer to "cover this order's shortfall".
+
+    Sales owns the reservation and therefore the shortfall figure; MRP owns item
+    classification and the draft documents. The port passes the order and the
+    per-line shortfall across, and returns the documents that now cover it.
+    """
+
+    async def plan(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        *,
+        order: SalesOrder,
+        lines: Sequence[SalesOrderLine],
+        shortfall: Mapping[uuid.UUID, Decimal],
+        reason: str,
+    ) -> ShortfallPlanRead: ...
+
+
+class ShortfallPlanningService:
+    """The default port: ``mrp.shortfall``, imported when it is called.
+
+    MRP imports sales models for its demand feed, so importing it at module
+    scope here would close a cycle. It is also genuinely optional - a deployment
+    without MRP can still confirm orders and see their shortfall - which is why
+    only the module's absence is tolerated, and why it is reported as an outage
+    rather than as "nothing is short".
+    """
+
+    async def plan(
+        self,
+        session: AsyncSession,
+        tenant: TenantContext,
+        *,
+        order: SalesOrder,
+        lines: Sequence[SalesOrderLine],
+        shortfall: Mapping[uuid.UUID, Decimal],
+        reason: str,
+    ) -> ShortfallPlanRead:
+        try:
+            import src.modules.mrp.shortfall as shortfall_module
+        except ModuleNotFoundError as exc:  # pragma: no cover - deployment shape
+            raise AppError(
+                "Shortfall planning is unavailable because the planning module is not deployed.",
+                code=ErrorCode.SERVICE_UNAVAILABLE,
+                status_code=503,
+            ) from exc
+
+        plan = await shortfall_module.plan_sales_order_shortfall(
+            session,
+            tenant,
+            order=order,
+            lines=lines,
+            shortfall=shortfall,
+            reason=reason,
+        )
+        return ShortfallPlanRead(
+            order_id=order.id,
+            documents=[
+                PlannedDocumentRead(
+                    kind=document.kind,
+                    id=document.id,
+                    code=document.code,
+                    line_id=document.line_id,
+                    line_number=document.line_number,
+                    item_id=document.item_id,
+                    quantity=document.quantity,
+                    status=document.status,
+                )
+                for document in plan.documents
+            ],
+            needs_job_work=[
+                NeedsJobWorkRead(
+                    line_id=need.line_id,
+                    line_number=need.line_number,
+                    item_id=need.item_id,
+                    item_code=need.item_code,
+                    quantity=need.quantity,
+                )
+                for need in plan.needs_job_work
+            ],
+            warnings=list(plan.warnings),
+        )
+
+
+def _planner(port: ShortfallPlanningPort | None) -> ShortfallPlanningPort:
+    return port if port is not None else ShortfallPlanningService()
+
+
+async def plan_shortfall(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order_id: uuid.UUID,
+    *,
+    reason: str,
+    planner: ShortfallPlanningPort | None = None,
+) -> ShortfallPlanRead:
+    """Plan (or replan) one order's shortfall into DRAFT supply.
+
+    Works on demand for a confirmed order and is the same function the
+    confirmation uses; the button is not a second implementation. A cancelled
+    order is accepted so cancellation can withdraw the drafts it owns - every
+    line is cancelled by then, so the plan comes back empty. A partly dispatched
+    order is still open demand: the top-up and the planner both call this for it.
+    """
+    repo = SalesOrderRepository(session, tenant)
+    line_repo = SalesOrderLineRepository(session, tenant)
+
+    async with transaction(session):
+        order = await repo.lock_for_update(order_id)
+        if order is None:
+            raise NotFoundError(SALES_ORDER_ENTITY, order_id)
+        status = SalesOrderStatus(order.status)
+        if status not in OPEN_DEMAND_STATUSES and status is not SalesOrderStatus.CANCELLED:
+            raise BusinessRuleError(
+                f"{order.code} is {order.status}; shortfall planning starts once the "
+                "order is confirmed and its stock is reserved.",
+                details={"order_id": str(order.id), "status": str(order.status)},
+            )
+
+        lines = await line_repo.list_for_order(order.id)
+        live = await live_reservations(session, tenant, lines)
+        shortfall = {line.id: line_shortfall(line, live_reserved(line, live)) for line in lines}
+
+        plan = await _planner(planner).plan(
+            session,
+            tenant,
+            order=order,
+            lines=lines,
+            shortfall=shortfall,
+            reason=reason,
+        )
+        if plan.documents:
+            await _notify_shortfall_plan(session, tenant, order, plan)
+    return plan
+
+
+async def _reconcile_shortfall_plan(
+    session: AsyncSession,
+    tenant: TenantContext,
+    *,
+    order_id: uuid.UUID,
+    reason: str,
+    planner: ShortfallPlanningPort | None = None,
+) -> ShortfallPlanRead | None:
+    """Keep the order's drafts true after an edit or cancellation.
+
+    Runs regardless of the setting: turning automatic planning off must not
+    strand drafts raised while it was on. With nothing raised and nothing short
+    it is a handful of reads and no writes.
+    """
+    return await plan_shortfall(session, tenant, order_id, reason=reason, planner=planner)
+
+
+async def _notify_shortfall_plan(
+    session: AsyncSession,
+    tenant: TenantContext,
+    order: SalesOrder,
+    plan: ShortfallPlanRead,
+) -> None:
+    """Tell the planner roles the drafts are ready for their decision.
+
+    Inside the caller's transaction, like every other notification: a plan that
+    rolls back must not leave a bell saying documents exist. ``group_key``
+    collapses a replan onto the unread alert for the same order instead of
+    ringing once per edit.
+    """
+    from src.modules.notifications.models import NotificationSeverity, NotificationType
+    from src.modules.notifications.service import notify_role
+
+    kinds = {document.kind for document in plan.documents}
+    documents = len({(document.kind, document.id) for document in plan.documents})
+    lines = sorted({document.line_number for document in plan.documents})
+    title = f"Stock shortage on {order.code}: {documents} draft document(s) raised"
+    raised = (
+        "Production orders and purchase requisitions"
+        if {"PRODUCTION_ORDER", "PURCHASE_REQUISITION"} <= kinds
+        else "Production orders"
+        if "PRODUCTION_ORDER" in kinds
+        else "Purchase requisitions"
+    )
+    body = (
+        f"Lines {', '.join(str(number) for number in lines)} are short. "
+        f"{raised} are waiting in DRAFT for a planner to review and release."
+    )
+    if plan.needs_job_work:
+        body += " Lines needing job work were left to the job-work flow."
+    await notify_role(
+        session,
+        company_id=tenant.company_id,
+        role_codes=("PLANNER",),
+        notification_type=NotificationType.STOCK_SHORTAGE,
+        title=title,
+        body=body,
+        severity=NotificationSeverity.WARNING,
+        entity_type=AUDIT_SALES_ORDER,
+        entity_id=order.id,
+        action_url=f"/sales-orders/{order.id}",
+        group_key=f"sales-shortfall:{order.id}",
+    )
+
+
 async def live_reservations(
     session: AsyncSession, tenant: TenantContext, lines: Sequence[SalesOrderLine]
 ) -> dict[uuid.UUID, Decimal]:
@@ -1341,6 +1621,7 @@ def allocation_view(
     available: dict[uuid.UUID, Decimal] | None = None,
     live: Mapping[uuid.UUID, Decimal] | None = None,
     planned: Mapping[uuid.UUID, Decimal] | None = None,
+    available_elsewhere: Mapping[uuid.UUID, Sequence[OtherWarehouseStock]] | None = None,
 ) -> OrderAllocationRead:
     """Per-line reserved versus shortfall.
 
@@ -1392,6 +1673,7 @@ def allocation_view(
                 reservation_id=line.reservation_id,
                 available_quantity=None if available is None else available.get(line.item_id),
                 required_date=line.required_date or order.required_date,
+                available_elsewhere=list((available_elsewhere or {}).get(line.item_id, ())),
             )
         )
 
@@ -1457,8 +1739,10 @@ async def _allocation_read(
     """The full allocation read of an order whose lines are already loaded."""
     item_ids = [line.item_id for line in lines]
     items = await ItemLookupRepository(session, tenant).load(item_ids)
-    available = await AvailabilityRepository(session, tenant).available_by_item(
-        item_ids, order.warehouse_id
+    availability = AvailabilityRepository(session, tenant)
+    available = await availability.available_by_item(item_ids, order.warehouse_id)
+    elsewhere = await availability.available_elsewhere(
+        item_ids, exclude_warehouse_id=order.warehouse_id
     )
     return allocation_view(
         order,
@@ -1467,6 +1751,18 @@ async def _allocation_read(
         available=available,
         live=await live_reservations(session, tenant, lines),
         planned=await planned_dispatch_quantities(session, tenant, order.id),
+        available_elsewhere={
+            item_id: [
+                OtherWarehouseStock(
+                    warehouse_id=warehouse_id,
+                    warehouse_code=code,
+                    warehouse_name=name,
+                    quantity=quantity,
+                )
+                for warehouse_id, code, name, quantity in donors
+            ]
+            for item_id, donors in elsewhere.items()
+        },
     )
 
 
@@ -1730,6 +2026,13 @@ async def update_order(
             )
             if payload.lines is not None:
                 await _sync_allocation_status(session, tenant, order, lines, repo=repo)
+            if {"lines", "required_date"} & payload.model_fields_set:
+                await _reconcile_shortfall_plan(
+                    session,
+                    tenant,
+                    order_id=order.id,
+                    reason=f"Replanned after {order.code} was updated",
+                )
         else:
             raise BusinessRuleError(
                 f"{order.code} is {order.status} and can no longer be edited.",
@@ -2417,6 +2720,16 @@ async def allocate_order(
                 },
                 context={"warehouse_id": order.warehouse_id, "reason": reason},
             )
+            # Stock arriving (a goods receipt, a transfer, a return) can close the
+            # gap the planner raised drafts for. Replanning now withdraws them
+            # rather than leaving the planner a production order for stock the
+            # order no longer needs.
+            await _reconcile_shortfall_plan(
+                session,
+                tenant,
+                order_id=order.id,
+                reason=f"Replanned after stock was allocated to {order.code}",
+            )
         view = await _allocation_read(session, tenant, order, lines)
 
     return view
@@ -2531,10 +2844,24 @@ async def confirm_order(
                 warehouse_id=str(order.warehouse_id),
             )
 
+        planned = None
+        if shortfalls and await auto_plan_on_confirm(session, tenant):
+            planned = await plan_shortfall(
+                session,
+                tenant,
+                order.id,
+                reason=f"Shortfall on confirmation of {order.code}",
+            )
+
         detail = order_detail(order, lines)
         view = allocation_view(order, lines)
 
-    return ConfirmResult(order=detail, allocation=view, credit_headroom=assessment.headroom)
+    return ConfirmResult(
+        order=detail,
+        allocation=view,
+        credit_headroom=assessment.headroom,
+        planned=planned,
+    )
 
 
 async def cancel_order(
@@ -2608,6 +2935,17 @@ async def cancel_order(
                 context={"reason": reason},
             )
 
+        # The cancellation has already marked every line CANCELLED, so the plan
+        # comes back empty and withdraws the drafts it raised. Drafts only: a
+        # released production order or a submitted requisition is a commitment
+        # somebody else has to unwind.
+        await _reconcile_shortfall_plan(
+            session,
+            tenant,
+            order_id=order.id,
+            reason=f"{order.code} cancelled: {reason}",
+        )
+
     return order
 
 
@@ -2650,6 +2988,7 @@ async def _transition(
 
 __all__ = [
     "AUDIT_SALES_ORDER",
+    "AUDIT_SALES_SETTINGS",
     "SALES_ORDER_LIFECYCLE",
     "TOP_UP_STATUSES",
     "AllocationPort",
@@ -2662,11 +3001,14 @@ __all__ = [
     "ReallocationTarget",
     "ReservationPass",
     "ReservationRef",
+    "ShortfallPlanningPort",
+    "ShortfallPlanningService",
     "allocate_order",
     "allocation_status",
     "allocation_view",
     "apply_reallocation_to_line",
     "approve_order",
+    "auto_plan_on_confirm",
     "can_approve",
     "cancel_order",
     "compute_line_amounts",
@@ -2677,6 +3019,7 @@ __all__ = [
     "discount_approval_percent",
     "dispatchable_quantity",
     "get_order_detail",
+    "get_sales_settings",
     "is_below_cost",
     "line_shortfall",
     "line_status_for",
@@ -2685,6 +3028,7 @@ __all__ = [
     "live_reserved",
     "lock_reallocation_targets",
     "order_detail",
+    "plan_shortfall",
     "planned_dispatch_quantities",
     "price_line",
     "prospective_totals",
@@ -2695,6 +3039,7 @@ __all__ = [
     "resolve_unit_price",
     "sum_order_totals",
     "update_order",
+    "update_sales_settings",
 ]
 
 

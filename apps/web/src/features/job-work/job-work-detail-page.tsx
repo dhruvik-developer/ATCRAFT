@@ -625,9 +625,14 @@ export default function JobWorkDetailPage() {
       <div className="mb-4 flex items-center gap-2">
         <StatusBadge status={order.status} />
         {order.requires_qc && <Badge variant="muted">QC</Badge>}
-        {order.source_type !== 'MANUAL' && (
-          <Badge variant="secondary">From {humanise(order.source_type)}</Badge>
-        )}
+        {order.source_type !== 'MANUAL' &&
+          (order.source_type === 'SALES_ORDER' && order.source_id ? (
+            <Link to={`/sales-orders/${order.source_id}`} aria-label="Open the sales order">
+              <Badge variant="secondary">From sales order</Badge>
+            </Link>
+          ) : (
+            <Badge variant="secondary">From {humanise(order.source_type)}</Badge>
+          ))}
       </div>
 
       <div className="space-y-4">

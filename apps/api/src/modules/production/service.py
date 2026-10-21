@@ -47,6 +47,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.common.codes import DocTypes, next_document_number
 from src.common.warehouse_scope import assert_warehouse_scope
+from src.core.actors import actor_id
 from src.core.clock import today, utcnow
 from src.core.database import transaction
 from src.core.deps import Principal, TenantContext
@@ -1033,7 +1034,9 @@ async def _transition(
     machine.assert_transition(current, target)
     entity.status = target
     if hasattr(entity, "updated_by_id"):
-        entity.updated_by_id = tenant.user_id
+        # A sweep carries the nil actor, which is not a user row; storing it
+        # would violate the actor foreign key and roll the sweep back.
+        entity.updated_by_id = actor_id(tenant.user_id)
     await session.flush()
 
     await record_status_change(
@@ -1446,6 +1449,7 @@ async def create_order(
             status=ProductionOrderStatus.DRAFT,
             source_type=payload.source_type,
             source_id=payload.source_id,
+            source_line_id=payload.source_line_id,
             requires_qc=requires_qc,
             notes=payload.notes,
         )
@@ -1474,6 +1478,7 @@ async def create_order(
                 "requires_qc": order.requires_qc,
                 "source_type": str(order.source_type),
                 "source_id": order.source_id,
+                "source_line_id": order.source_line_id,
             },
         )
     return order

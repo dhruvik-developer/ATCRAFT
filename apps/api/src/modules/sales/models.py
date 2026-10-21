@@ -446,8 +446,39 @@ class SalesOrderLine(TenantEntity):
     )
 
 
+#: Scalar defaults for :class:`SalesSettings`, resolved when the row is absent
+#: or its column is NULL. A stored decision wins; an unset column means "not
+#: decided", so changing a default here moves every company that never made
+#: the decision and restates nobody's.
+DEFAULT_AUTO_PLAN_ON_CONFIRM = True
+
+
+class SalesSettings(TenantEntity):
+    """Sparse per-company sales settings (E1b section 1).
+
+    One row per company, created on the first change. Every column is
+    nullable, and NULL reads as the code default above: a company that has
+    never opened the settings screen behaves exactly as the defaults document,
+    and a change to a default is not silently undone by rows written before it.
+    """
+
+    __tablename__ = "sales_settings"
+
+    #: Plan the confirmed order's shortfall automatically: draft production
+    #: orders and purchase requisitions, raised in the confirming transaction
+    #: (WP E1b). False means the desk plans on demand with "Plan shortfall".
+    auto_plan_on_confirm: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+    __table_args__ = (
+        # One row per company is the whole shape of the table, and the
+        # uniqueness is what makes "sparse row or default" unambiguous.
+        UniqueConstraint("company_id", name="uq_sales_settings_company"),
+    )
+
+
 __all__ = [
     "CURRENCY_CODE_LENGTH",
+    "DEFAULT_AUTO_PLAN_ON_CONFIRM",
     "DEFAULT_PRIORITY",
     "MAX_PRIORITY",
     "MIN_PRIORITY",
@@ -457,4 +488,5 @@ __all__ = [
     "SalesOrderLine",
     "SalesOrderLineStatus",
     "SalesOrderStatus",
+    "SalesSettings",
 ]

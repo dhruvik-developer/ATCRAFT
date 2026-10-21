@@ -1302,7 +1302,16 @@ export default function ProductionDetailPage() {
                   },
                   {
                     label: 'Raised from',
-                    value: `${humanise(order.source_type)}${order.source_id ? '' : ' (no source document)'}`,
+                    value:
+                      order.source_type === 'SALES_ORDER' && order.source_id ? (
+                        <Link to={`/sales-orders/${order.source_id}`} className="hover:underline">
+                          Sales order
+                        </Link>
+                      ) : (
+                        `${humanise(order.source_type)}${
+                          order.source_id ? '' : ' (no source document)'
+                        }`
+                      ),
                   },
                   // Named only to an account that may read the cost-centre
                   // list - the label is looked up there, and a row that could

@@ -1320,7 +1320,7 @@
     },
     {
       "groupTitle": "Demand: customers, orders and planning",
-      "groupIntro": "This part of the system answers two questions that run the whole factory: who has committed to buy from us, and what does that oblige us to make or buy. It begins with the accounts themselves \u2014 direct customers, OEM buyers, dealers and distributors, each with the credit terms that decide whether an order can be accepted at all \u2014 and moves to the sales order, which is where a customer's intention becomes a firm commitment. Confirming an order is the moment that matters: it checks the account's credit standing, then reserves whatever stock is on hand against each line, and reports honestly on whatever it could not cover. What it could not cover is the input to planning. The last two screens are the planning run itself, which takes the confirmed order book, nets it against stock, against orders already placed with suppliers and against work already on the floor, explodes the bills of materials for whatever has to be manufactured, and proposes what to buy, make and send out for job work \u2014 proposals a person accepts, never orders it places on its own.",
+      "groupIntro": "This part of the system answers two questions that run the whole factory: who has committed to buy from us, and what does that oblige us to make or buy. It begins with the accounts themselves \u2014 direct customers, OEM buyers, dealers and distributors, each with the credit terms that decide whether an order can be accepted at all \u2014 and moves to the sales order, which is where a customer's intention becomes a firm commitment. Confirming an order is the moment that matters: it checks the account's credit standing, then reserves whatever stock is on hand against each line, and reports honestly on whatever it could not cover. What it could not cover is planned in the same step: the system raises draft production orders and purchase requisitions for the balance, for a planner to review and submit, and reports job-work needs for a person to act on. The last two screens are the planning run itself, which takes the confirmed order book, nets it against stock, against orders already placed with suppliers and against work already on the floor, explodes the bills of materials for whatever has to be manufactured, and proposes what to buy, make and send out for job work \u2014 proposals a person accepts, never orders it places on its own.",
       "screens": [
         {
           "route": "/sales-orders",
@@ -1441,8 +1441,14 @@
               "note": "Appears once the order has left draft and a completed planning run has covered it. It writes that date onto the order's promised date through the normal edit, and the change is audited. The column reads the latest completed plan; it is not a live stock count."
             },
             {
-              "action": "Take a shortfall to planning",
-              "how": "Run MRP to plan the balance, in the amber box at the top of the Allocation panel."
+              "action": "Plan the shortfall",
+              "how": "The Allocation panel plans it as part of confirmation: if lines are still short, it raises draft supply in the same step - a draft production order for each line you make, one draft purchase requisition for the lines you buy. Press Plan shortfall to recalculate after stock arrives or the order changes.",
+              "note": "Everything raised here is a draft. Nothing is released to the floor and nothing is sent to a supplier; a planner reviews and submits each document. Job-work lines are reported as needing job work and raise nothing."
+            },
+            {
+              "action": "Move stock from another warehouse",
+              "how": "When another warehouse holds the item, the Allocation panel names it under Elsewhere and offers Raise transfer. The transfer is pre-filled with that warehouse, the item, the shortage and the order line; review it and create it.",
+              "note": "The suggestion reserves nothing at the other warehouse. The transfer follows the usual approval, dispatch and receipt, and the next stock top-up reserves the goods for this order."
             },
             {
               "action": "Dispatch reserved goods",
@@ -1453,8 +1459,8 @@
               "how": "For a confirmed or partially dispatched order with a shortage, choose Allocate available stock on Allocation. The scheduled sweep also checks waiting orders every fifteen minutes."
             },
             {
-              "action": "Read fulfilment and close",
-              "how": "Order detail lists its dispatches and invoices. Once the order is INVOICED, Close order completes it."
+              "action": "Follow the fulfilment trail and close",
+              "how": "The Fulfilment trail below the lines lists everything raised or moved for this order - planning suggestions, production, assembly, job work, requisitions and purchase orders, receipts, inspections, transfers, packing, dispatch, invoices, credit notes and returns. Once the order is INVOICED, Close order completes it."
             }
           ],
           "flow": [
@@ -1462,13 +1468,16 @@
             "If an amber banner says the order is waiting for a pricing approval, get it signed \u2014 the Confirm button stays greyed until then.",
             "Press Confirm and read what comes back: either the order is fully allocated, or it says how many lines are short.",
             "Read the Allocation panel line by line. A line marked Covered is fully reserved; a line with a shortfall is demand nothing can meet from stock today.",
-            "For any shortfall, follow the link to planning and let a run propose how to cover it."
+            "Read the draft supply that confirmation raised for a shortfall. Press Plan shortfall to recalculate after stock arrives or the order changes; review and submit the drafts on their own screens."
           ],
           "rules": [
             "A draft reserves nothing. It is a quotation the customer has not committed to, and holding stock against it would starve an order that is real.",
             "Confirming runs the credit check first, against the customer's account as it stands at that instant. If the account is blocked, inactive, or the order would take the account past its credit limit, the confirmation is refused and the message states the numbers \u2014 what is outstanding, what this order adds, and what the limit is. To proceed: settle or write off part of the balance, raise the limit on the customer record, or release the credit hold.",
             "Confirming reserves stock; it does not move it. The goods stay physically where they are and stay in the stock total. What changes is that they stop being available to any other order. Nothing leaves the warehouse until a despatch is made.",
             "Reserving less than was ordered is the normal outcome, not a failure. Refusing the whole order because one line is short would hide the shortage until somebody tried to pick it. The shortfall reported here is exactly the number planning exists to cover.",
+            "Confirming a short order plans the balance automatically. With Sales automation on (the default), the same step that reserves stock raises draft supply: a draft production order per made line, and one draft purchase requisition for the bought lines. Nothing is released or sent to a supplier, and no draft is a commitment.",
+            "A change to a confirmed order's lines, or cancelling it, resizes or cancels only the drafts the planner already raised. A submitted requisition is never rewritten; the panel warns instead. A stock top-up that newly covers the order replans at once.",
+            "When another warehouse holds the item, the Allocation panel names it under Elsewhere and offers Raise transfer. The transfer is created against the order line and goes through normal approval and receipt. Receipt does not reserve by itself; the next top-up does.",
             "The Expected availability column is the latest completed plan's answer, not live stock: it says when that line is expected to be covered by stock, arriving supply and the order planning proposes. A line no plan has seen reads Not planned, and a date later than the current promise is marked as a warning.",
             "Using a line's date as the promised date is the only way planning writes a promise. A run never moves promised_date on its own, and the action is refused once the order can no longer be edited.",
             "A line priced below the item's cost, or discounted above the company approval threshold, holds the order at draft until a second person approves it. A discount above the threshold without the discount-override right is refused when the order is saved, not queued. The approver may not be the person who raised the order \u2014 an approval signed by the salesperson who granted the discount is not evidence of anything. Discounts that come from a dealer scheme skip the threshold but still face the below-cost check.",
@@ -1479,8 +1488,8 @@
             "Once an order is confirmed this screen offers no edits at all except cancellation. The warehouse, the branch and the two addresses are frozen because the order already holds reservations against that warehouse and the tax was settled from those addresses. If something material has to change, cancel and raise a replacement.",
             "Cancelling releases every reservation the order held back to free stock, in the same step. A cancelled order cannot be reopened, and it cannot be cancelled once anything has shipped \u2014 a document that moved stock cannot claim never to have existed."
           ],
-          "permission": "Opening the order needs the right to see sales orders. Edit, Add line, and Confirm all need the right to change sales orders \u2014 the same right, so anyone who can edit an order can confirm one. Approve pricing needs the separate right to approve sales orders. Cancel order needs the right to cancel them. The standard Sales Executive role can view, create and update but cannot approve or cancel \u2014 those sit with a manager. The Expected availability column is gated on the right to view planning, because the dates are the planner's output.",
-          "notes": "Two honest gaps worth knowing before the deck is written. First, there is no Delete button for a draft, even though a draft can technically be removed; in practice anything past draft must be cancelled anyway, so cancellation is the only path this screen offers. Second, the system will accept a quantity or delivery-date change on a confirmed order and will move the reservation to match, but this screen does not offer it \u2014 a confirmed order is read-only here. Also: a line shows the description that was keyed against it plus the item's reference, not an item code, because the line record does not carry one. For the screenshot, use a confirmed order with at least one short line so the Allocation panel and its amber banner are both visible; on a draft the panel is replaced by a one-line notice. Reserved / Dispatchable now / Short are live figures. Closed reservations do not permit shipment; short confirmed orders may dispatch their reserved part."
+          "permission": "Opening the order needs the right to see sales orders. Edit, Add line, and Confirm all need the right to change sales orders \u2014 the same right, so anyone who can edit an order can confirm one. Approve pricing needs the separate right to approve sales orders. Cancel order needs the right to cancel them. The standard Sales Executive role can view, create and update but cannot approve or cancel \u2014 those sit with a manager. Plan shortfall needs the right to change sales orders, the same right as confirming. The Expected availability column is gated on the right to view planning, because the dates are the planner's output. Raise transfer needs the stock-transfer right.",
+          "notes": "Two honest gaps worth knowing before the deck is written. First, there is no Delete button for a draft, even though a draft can technically be removed; in practice anything past draft must be cancelled anyway, so cancellation is the only path this screen offers. Second, the system will accept a quantity or delivery-date change on a confirmed order and will move the reservation to match, but this screen does not offer it \u2014 a confirmed order is read-only here. Also: a line shows the description that was keyed against it plus the item's reference, not an item code, because the line record does not carry one. For the screenshot, use a confirmed order with at least one short line and another warehouse holding stock, so the Allocation panel, its amber banner, the Elsewhere column and the Raise transfer action are all visible; the Fulfilment trail below it should show at least one draft and one dispatch. On a draft the panel is replaced by a one-line notice. Reserved / Dispatchable now / Short are live figures. Closed reservations do not permit shipment; short confirmed orders may dispatch their reserved part."
         },
         {
           "route": "/customers",
@@ -4619,6 +4628,38 @@
             "Hiding a button never grants or withholds authority. The system re-checks the signed-in person's permissions on every single request, so what a screen shows is a convenience and what the system allows is the rule.",
             "A supplier portal account can be limited only to item categories its supplier is qualified for, and a category covers the categories beneath it. Qualify the supplier for a category on the Vendors screen first."
           ]
+        },
+        {
+          "route": "/admin/settings",
+          "title": "Settings",
+          "purpose": "Company-wide defaults that change what another screen does. The first is sales automation: whether confirming a sales order with a shortfall should raise draft production orders and purchase requisitions for the balance. A setting is a policy, not a permission - the API re-reads it on the request that uses it.",
+          "whoUses": "The owner or whoever administers the system. Readers may open it; only an administrator can change it.",
+          "keyActions": [
+            {
+              "action": "Turn automatic shortfall planning on or off",
+              "how": "Sales automation > Plan the shortfall automatically when an order is confirmed > tick or untick > Save.",
+              "note": "On is the built-in default. When on, confirming a short order raises draft supply in the same transaction; it never releases a production order or sends a requisition. Turning it off affects the next confirmation and does not withdraw supply that already exists."
+            },
+            {
+              "action": "Restore the built-in default",
+              "how": "Restore default, shown only when the company stores its own value.",
+              "note": "This withdraws the override; the code default (on) comes back into force. It is not the same as choosing Off, which stores an explicit decision."
+            }
+          ],
+          "flow": [
+            "Open Settings from the left menu under Administration.",
+            "Read the status line under the switch: it says whether this company stores its own value or is following the built-in default.",
+            "Tick or untick the switch and press Save. The change applies to the next order confirmed by this company.",
+            "To withdraw a company choice entirely, press Restore default."
+          ],
+          "rules": [
+            "A company with no stored value follows the built-in default, which is on. The screen says so explicitly, because 'off' and 'never decided' are different answers to an audit question.",
+            "Automatic planning creates drafts only. A planner still reviews and submits every production order and requisition; the setting removes clerical work, not human approval.",
+            "Turning the switch off does not cancel drafts already raised. Existing supply is the planner's to reconcile.",
+            "Reading the page needs the right to view settings; changing the value needs the right to manage settings. A reader sees the switch disabled."
+          ],
+          "notes": "Only the sales automation switch is on this page today. It is deliberately described as a default rather than a permission: a user who cannot confirm orders is unaffected by it. The setting is stored sparsely, one row per company, so a new company needs no setup before using the default.",
+          "permission": "Opening Settings needs settings.view. Save and Restore default need settings.manage; the page disables them for a reader."
         }
       ]
     }

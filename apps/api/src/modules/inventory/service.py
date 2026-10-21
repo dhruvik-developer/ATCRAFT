@@ -4272,6 +4272,8 @@ class StockTransferService:
                 transfer_date=payload.transfer_date or today(),
                 expected_date=payload.expected_date,
                 reason=payload.reason,
+                source_type=payload.source_type,
+                source_id=payload.source_id,
                 notes=payload.notes,
                 line_count=len(payload.lines),
                 total_quantity=to_quantity(sum(line.quantity for line in payload.lines)),
@@ -4289,6 +4291,7 @@ class StockTransferService:
                         from_location_id=line.from_location_id,
                         to_location_id=line.to_location_id,
                         quantity=to_quantity(line.quantity),
+                        source_line_id=line.source_line_id,
                         notes=line.notes,
                     )
                 )
@@ -4311,6 +4314,8 @@ class StockTransferService:
                         "to_warehouse_id",
                         "transfer_date",
                         "reason",
+                        "source_type",
+                        "source_id",
                         "line_count",
                         "total_quantity",
                     ],

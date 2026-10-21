@@ -26,6 +26,7 @@ import {
   Pencil,
   RefreshCw,
   ShieldCheck,
+  Sparkles,
   Trash2,
   Truck,
 } from 'lucide-react'
@@ -94,6 +95,7 @@ import {
   type SalesOrderLine,
   type SalesOrderLineIn,
   type SalesOrderRow,
+  type ShortfallPlan,
 } from './sales-types'
 
 /**
@@ -106,13 +108,25 @@ const CreateDispatchDialog = lazy(() =>
   })),
 )
 
+/**
+ * The transfer dialog is the inventory feature's, and carries the whole line
+ * editor; loaded on the first press of Raise transfer.
+ */
+const CreateTransferDialog = lazy(() =>
+  import('@/features/inventory/movement-dialogs').then((m) => ({
+    default: m.CreateTransferDialog,
+  })),
+)
+
 // ---------------------------------------------------------- allocation ------
 
 function AllocationPanel({ order }: { order: SalesOrderDetail }) {
   const { can } = useAuth()
   const queryClient = useQueryClient()
   const [reallocationTarget, setReallocationTarget] = useState<AllocationLineStatus | null>(null)
+  const [transferTarget, setTransferTarget] = useState<AllocationLineStatus | null>(null)
   const canReallocate = can(P.ALLOCATION_REALLOCATE)
+  const canTransfer = can(P.INVENTORY_TRANSFER)
   const allocation = useQuery({
     queryKey: [...queryKeys.sales.detail(order.id), 'allocation-status'],
     queryFn: () => api.get<SalesOrderAllocation>(`/sales/${order.id}/allocation-status`),
@@ -139,6 +153,42 @@ function AllocationPanel({ order }: { order: SalesOrderDetail }) {
       )
     },
     onError: (error) => reportFieldErrors(error, 'Could not allocate stock'),
+  })
+
+  // The same service the confirmation calls, exposed as the button the planner
+  // presses when automatic planning is off or when stock moved since it ran.
+  const planShortfall = useMutation({
+    mutationFn: () =>
+      api.post<ShortfallPlan>(`/sales/${order.id}/plan-shortfall`, {
+        reason: 'Shortfall planned from the order page',
+      }),
+    onSuccess: (plan) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.sales.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.allocation.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.mrp.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.procurement.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.production.all })
+      const documents = new Set((plan.documents ?? []).map((row) => `${row.kind}:${row.id}`)).size
+      const jobWork = plan.needs_job_work ?? []
+      const warnings = plan.warnings ?? []
+      if (documents > 0) {
+        toast.success(
+          `${documents} draft document${documents === 1 ? '' : 's'} now ${
+            documents === 1 ? 'covers' : 'cover'
+          } the shortfall`,
+          'Nothing has been released or ordered: a planner still reviews and submits each draft.',
+        )
+      } else if (jobWork.length > 0) {
+        toast.warning(
+          'The balance needs job work',
+          'No production order or requisition was raised for a job-work item.',
+        )
+      } else {
+        toast.show('Nothing is short at this order’s warehouse', warnings.join(' ') || undefined)
+      }
+    },
+    onError: (error) => reportFieldErrors(error, 'Could not plan the shortfall'),
   })
 
   const lines = useMemo(() => allocation.data?.lines ?? [], [allocation.data])
@@ -236,6 +286,34 @@ function AllocationPanel({ order }: { order: SalesOrderDetail }) {
           ),
       },
       {
+        // Stock the order cannot see from its own warehouse. The server grouped
+        // it by warehouse, largest first; the panel names the best donor rather
+        // than making the planner open the balances screen to find one.
+        id: 'elsewhere',
+        header: 'Elsewhere',
+        enableSorting: false,
+        meta: { align: 'right' },
+        cell: ({ row }) => {
+          const elsewhere = row.original.available_elsewhere ?? []
+          const [first] = elsewhere
+          if (!first) {
+            return <span className="text-muted-foreground">—</span>
+          }
+          const rest = elsewhere.length - 1
+          return (
+            <span
+              className="whitespace-nowrap text-xs"
+              title={elsewhere
+                .map((stock) => `${stock.warehouse_code}: ${formatQuantity(stock.quantity)}`)
+                .join('\n')}
+            >
+              {first.warehouse_code}: {formatQuantity(first.quantity)}
+              {rest > 0 && <span className="text-muted-foreground"> +{rest}</span>}
+            </span>
+          )
+        },
+      },
+      {
         id: 'required_date',
         header: 'Required',
         enableSorting: false,
@@ -249,26 +327,53 @@ function AllocationPanel({ order }: { order: SalesOrderDetail }) {
       },
       {
         // A short line can be covered by taking stock from a lower-priority
-        // demand before a purchase or production order is raised. The action is
-        // absent on a covered line: there is nothing to reallocate towards.
+        // demand before a purchase or production order is raised, or by moving
+        // free stock from another warehouse. Both actions are absent on a
+        // covered line: there is nothing to reallocate or transfer towards.
         id: 'actions',
         header: '',
         enableSorting: false,
-        cell: ({ row }) =>
-          canReallocate && toDecimal(row.original.shortfall_quantity).greaterThan(0) ? (
-            <Button variant="outline" size="sm" onClick={() => setReallocationTarget(row.original)}>
-              <ArrowLeftRight />
-              Request reallocation
-            </Button>
-          ) : null,
+        cell: ({ row }) => {
+          const short = toDecimal(row.original.shortfall_quantity).greaterThan(0)
+          if (!short) return null
+          const donor = row.original.available_elsewhere?.[0]
+          return (
+            <div className="flex flex-wrap justify-end gap-2">
+              {canReallocate && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setReallocationTarget(row.original)}
+                >
+                  <ArrowLeftRight />
+                  Request reallocation
+                </Button>
+              )}
+              {canTransfer && donor && (
+                <Button variant="outline" size="sm" onClick={() => setTransferTarget(row.original)}>
+                  <Truck />
+                  Raise transfer
+                </Button>
+              )}
+            </div>
+          )
+        },
       },
     ],
-    [canReallocate],
+    [canReallocate, canTransfer],
   )
 
   // Offered only where the top-up can act (its own status rule) and only while a
   // line is actually short - on a covered order it would have nothing to do.
   const offerTopUp = canTopUp(order.status) && shortLines.length > 0 && can(P.SALES_ORDER_UPDATE)
+  const offerPlan = offerTopUp
+  const transferDonor = transferTarget?.available_elsewhere?.[0]
+  const transferQuantity =
+    transferTarget && transferDonor
+      ? toDecimal(transferTarget.shortfall_quantity).lessThan(transferDonor.quantity)
+        ? toDecimal(transferTarget.shortfall_quantity).toFixed(4)
+        : toDecimal(transferDonor.quantity).toFixed(4)
+      : ''
 
   return (
     <Card>
@@ -304,6 +409,17 @@ function AllocationPanel({ order }: { order: SalesOrderDetail }) {
                   <Button size="sm" onClick={() => allocate.mutate()} loading={allocate.isPending}>
                     <PackageCheck />
                     {fulfilment.allocateAction}
+                  </Button>
+                )}
+                {offerPlan && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => planShortfall.mutate()}
+                    loading={planShortfall.isPending}
+                  >
+                    <Sparkles />
+                    Plan shortfall
                   </Button>
                 )}
                 <Button variant="outline" size="sm" asChild>
@@ -342,6 +458,30 @@ function AllocationPanel({ order }: { order: SalesOrderDetail }) {
             }}
             onClose={() => setReallocationTarget(null)}
           />
+        )}
+
+        {/* The best donor is pre-filled, not chosen silently: the dialog keeps
+            the source warehouse editable when more than one has stock, and the
+            transfer itself still goes through the inventory approval. */}
+        {transferTarget && transferDonor && (
+          <Suspense fallback={null}>
+            <CreateTransferDialog
+              open
+              onOpenChange={(open) => {
+                if (!open) setTransferTarget(null)
+              }}
+              initial={{
+                fromWarehouseId: transferDonor.warehouse_id,
+                toWarehouseId: order.warehouse_id,
+                itemId: transferTarget.item_id,
+                quantity: transferQuantity,
+                reason: `Stock for ${order.code} line ${transferTarget.line_number}`,
+                sourceType: 'SALES_ORDER',
+                sourceId: order.id,
+                sourceLineId: transferTarget.line_id,
+              }}
+            />
+          </Suspense>
         )}
       </CardContent>
     </Card>
@@ -494,13 +634,25 @@ export default function SalesOrderDetailPage() {
       }),
     onSuccess: (result) => {
       invalidateOrderAndStock()
+      const planned = new Set(
+        (result.planned?.documents ?? []).map((document) => `${document.kind}:${document.id}`),
+      ).size
+      if (planned > 0) {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.mrp.all })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.procurement.all })
+        void queryClient.invalidateQueries({ queryKey: queryKeys.production.all })
+      }
       toast.success(
         result.allocation.fully_allocated
           ? 'Order confirmed and fully allocated'
           : success.confirmed('Sales order'),
         result.allocation.fully_allocated
           ? `${result.order.code} has stock reserved against every line.`
-          : `${result.order.code} is confirmed. ${result.allocation.total_shortfall_lines} line(s) are short and need planning.`,
+          : planned > 0
+            ? `${result.order.code} is confirmed. ${planned} draft document${
+                planned === 1 ? '' : 's'
+              } now cover the ${result.allocation.total_shortfall_lines} short line(s); a planner still reviews and submits each draft.`
+            : `${result.order.code} is confirmed. ${result.allocation.total_shortfall_lines} line(s) are short and need planning.`,
       )
       setConfirmOpen(false)
     },

@@ -30,13 +30,18 @@ from src.modules.inventory.models import (
     InternalIssueLine,
     ScrapDisposal,
     ScrapDisposalLine,
+    StockTransfer,
+    StockTransferLine,
 )
 from src.modules.mrp.models import MrpRequirement
+from src.modules.procurement.models import PurchaseRequisitionLine
+from src.modules.production.models import ProductionOrder
 from src.modules.routing.models import Shift, ShiftAssignment
+from src.modules.sales.models import SalesSettings
 
 pytestmark = pytest.mark.integration
 
-HEAD_REVISION = "20261022_0100"
+HEAD_REVISION = "20261023_0100"
 DB_NAME = f"atcraft_baseline_mig_{uuid.uuid4().hex[:8]}"
 CONNECTION_GUARDS = (
     "connect_timeout=10&keepalives=1&keepalives_idle=15&keepalives_interval=5&keepalives_count=3"
@@ -204,6 +209,57 @@ def test_baseline_matches_models_and_round_trips(migration_database: str) -> Non
     assert {"low_level_code", "expected_available_date"} <= column_names(dsn, "mrp_requirements")
     assert {"low_level_code", "expected_available_date"} <= column_names(dsn, "mrp_suggestions")
     assert "expected_available_date" in column_names(dsn, "mrp_demands")
+
+    # WP E1b: the settings row and the links that make a plan pegged and
+    # idempotent. The nullable switch is the point - NULL reads as the code
+    # default, so an explicit "off" must be storable and distinguishable.
+    assert column_names(dsn, "sales_settings") == {
+        column.name for column in SalesSettings.__table__.columns
+    }
+    settings_nullable = {
+        str(name): str(nullable)
+        for name, nullable in query(
+            dsn,
+            "SELECT column_name, is_nullable FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'sales_settings'",
+        )
+    }
+    assert settings_nullable["auto_plan_on_confirm"] == "YES"
+    assert "source_line_id" in column_names(dsn, "production_orders")
+    assert "source_line_id" in {column.name for column in ProductionOrder.__table__.columns}
+    requisition_columns = column_names(dsn, "purchase_requisition_lines")
+    assert "source_demand_refs" in requisition_columns
+    assert "source_demand_refs" in {
+        column.name for column in PurchaseRequisitionLine.__table__.columns
+    }
+    demand_refs_index = query(
+        dsn,
+        "SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' "
+        "AND tablename = 'purchase_requisition_lines' "
+        "AND indexname = 'ix_purchase_requisition_lines_demand_refs'",
+    )
+    assert len(demand_refs_index) == 1
+    assert "USING gin" in str(demand_refs_index[0][0])
+    transfer_columns = column_names(dsn, "stock_transfers")
+    assert {"source_type", "source_id"} <= transfer_columns
+    assert {column.name for column in StockTransfer.__table__.columns} == transfer_columns
+    assert "source_line_id" in column_names(dsn, "stock_transfer_lines")
+    assert "source_line_id" in {column.name for column in StockTransferLine.__table__.columns}
+    transfer_check = table_constraints(dsn, "stock_transfers", "c")[
+        "ck_stock_transfers_source_type_known"
+    ]
+    assert all(value in transfer_check[0] for value in ("MANUAL", "SALES_ORDER", "REALLOCATION"))
+    assert transfer_check[1]
+    assert (
+        len(
+            query(
+                dsn,
+                "SELECT 1 FROM pg_indexes WHERE schemaname = 'public' "
+                "AND tablename = 'stock_transfers' AND indexname = 'ix_stock_transfers_source'",
+            )
+        )
+        == 1
+    )
 
     report_check = str(
         query(

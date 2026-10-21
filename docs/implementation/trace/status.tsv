@@ -1,4 +1,4 @@
-S01.1	PARTIAL	None covers the automation or the order-level trace. A2 only	One integrated system in which a sales order can automatically: check available stock, res
+S01.1	PRESENT	E1b: auto-plan on confirm (draft supply), plan-shortfall and fulfilment trail	One integrated system in which a sales order can automatically: check available stock, res
 S01.2	PARTIAL	None. B4 only fixes the reallocation notification link.	Covers raw material planning, parts management, BOM, production, assembly, job work, inven
 S02.1	PRESENT	n/a	Admin login & user management
 S02.2	PRESENT	Dealer login binding: C3a (users.customer_id, dealer roles) 	Dealer / customer management
@@ -30,7 +30,7 @@ S03.9	PRESENT		No automatic MRP planning
 S03.10	PARTIAL		No production QC workflow
 S03.11	PARTIAL		No packing material planning
 S03.12	PRESENT		No production costing
-S03.13	PLANNED_PARTIAL	A2-sales-invoice (Invoices panel + Close on SO detail); C4a-	No sales-order-to-dispatch traceability
+S03.13	PRESENT	E1b: GET /sales/{id}/fulfilment timeline; sales_order_id filters and back-links	No sales-order-to-dispatch traceability
 S03.14	PLANNED_FULL	C1a-vendor-portal-backend (P0: route allow-list for vendor p	Security and technical improvements required before production-ready
 P01.1	PARTIAL		Review existing API & frontend code
 P01.2	PARTIAL		Remove unused / dead code
@@ -470,12 +470,12 @@ A10.F4	PLANNED_PARTIAL	C1a (GET /vendor-portal/rating) + C2a (dashboard rating c
 A10.F5	PLANNED_FULL	C1a (GET /vendor-portal/payments/summary: outstanding, overd	Future (now wanted): Vendor payment dashboard
 A10.F6	PLANNED_PARTIAL	D4 (requires C1a PO PDF and D1 amendment seam)	Future (now wanted): Digital signature on PO
 K01	PARTIAL	none (A2 builds invoice lines from dispatch lines carrying s	Direct finished-goods sale. Dealer orders 100 handles; FG stock is checked, reserved and d
-K02	PARTIAL	none (B4 only adds a 'Production shortage' notification afte	Finished goods not available. Dealer orders 500 handles with only 120 available; the syste
+K02	PRESENT	E1b: draft production order for the 380, pegged to the sales order line	Finished goods not available. Dealer orders 500 handles with only 120 available; the syste
 K03	PRESENT	n/a	Same part sold and used in a BOM. One stock, multiple usage roles.
 K04	PRESENT	n/a	Common parts in a multi-level BOM. Spring and screw are merged before purchase or producti
 K05	PARTIAL	none (B4 only adds a 'Stock reallocation request' notificati	Urgent order reallocation. Parts reserved for future production are needed by an urgent de
 K06	PARTIAL	none	Packing material shortage. The finished product is ready but the box is unavailable; the s
 K07	PARTIAL	none (B3a covers the job-work invoice, not this view)	Job work vendor process. Material goes to a vendor for coating; sent, received, rejected a
-K08	PARTIAL	none	Partial dispatch. A customer orders 500 with 200 available; the system dispatches 200 and
+K08	PRESENT	E1b: automatic plan of the balance 300; E1a top-up and partial dispatch	Partial dispatch. A customer orders 500 with 200 available; the system dispatches 200 and
 K09	PARTIAL	none for the return itself (C1a/C2a add only vendor-portal v	Quality rejection. Received material fails QC; the system moves it to rejected stock and s
-K10	PARTIAL	none	Multi-warehouse allocation. If one warehouse is short, the system checks another and sugge
+K10	PRESENT	E1b: available_elsewhere and Raise transfer, pegged to the sales order line	Multi-warehouse allocation. If one warehouse is short, the system checks another and sugge

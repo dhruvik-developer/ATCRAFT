@@ -3304,6 +3304,90 @@ cannot seed this draft action.
 vendor debit through B3a's recovery mechanism behind a setting that defaults
 to off, as the spec anticipates.
 
+## §E1b-1. Shortfall planning creates drafts, never commitments
+
+**Assumed.** Automatic planning raises only DRAFT documents: a production order
+for a made line and one purchase requisition per order for bought lines. It
+never releases a production order, approves or converts a requisition, or sends
+anything to a supplier. A planner reviews every draft and takes the commitment
+decision. Job-work items are reported as "needs job work" and raise nothing,
+because obtaining them is a human make/buy choice.
+
+**Why.** Stock reservation is reversible and customer-facing; releasing work or
+committing money to a supplier is not. The setting removes the clerical steps
+between confirmation and a reviewable plan without pretending the plan is a
+commitment.
+
+**Where:** `mrp.shortfall`; `sales.service.confirm_order` through the deferred
+`ShortfallPlanningPort`; `/admin/settings` and `GET/PUT /sales/settings`.
+
+## §E1b-2. The automation switch is nullable, and NULL means on
+
+**Assumed.** `sales_settings.auto_plan_on_confirm` is nullable. A company with
+no row, or a row whose value is NULL, uses
+`DEFAULT_AUTO_PLAN_ON_CONFIRM = True`. An explicit `false` is stored and reads
+as "off". `PUT /sales/settings` with an omitted field leaves the stored value
+alone; explicit JSON `null` restores the code default. The settings screen
+distinguishes the two states so an auditor can tell "off" from "never decided".
+
+**Why.** A non-nullable boolean default would make the code default
+indistinguishable from a stored choice, and a migration that backfilled `true`
+would silently override a later change to the default.
+
+**Where:** `sales.models.SalesSettings`; `sales.service.get_sales_settings` /
+`update_sales_settings`; `apps/web/src/features/admin/settings-page.tsx`.
+
+## §E1b-3. Drafts never net against themselves
+
+**Assumed.** Replanning nets committed supply - production orders past DRAFT and
+requisition lines past DRAFT - against the line's shortfall, then resizes or
+cancels the drafts the planner already owns. Its own DRAFT documents are not
+counted as supply for the purpose of deciding the target quantity, so a re-run
+does not progressively shrink the plan to zero. A top-up that newly reserves
+stock triggers the same reconciliation immediately.
+
+**Why.** Counting a draft as supply makes idempotency impossible: the second run
+sees the first draft as cover and raises nothing, while the first run's target
+was calculated before that draft existed. Excluding drafts gives the same target
+on every run and lets the document be resized in place.
+
+**Where:** `mrp.shortfall.plan_sales_order_shortfall`; the planning hooks in
+`sales.service` after confirm, line/date edits, cancel and top-up.
+
+## §E1b-4. A capability mismatch warns and withdraws the stale draft
+
+**Assumed.** If the planner chooses MANUFACTURE but the item is not flagged
+manufacturable, chooses PURCHASE but it is not purchasable, or chooses JOB_WORK
+but it is not job-workable, it raises nothing, appends an actionable warning
+naming the line and item, and cancels any DRAFT production order it previously
+raised for that line. Confirmation still succeeds.
+
+**Why.** Confirmation is the customer-facing transaction; a gap in item master
+data is the planner's problem to fix, not a reason to refuse an order the
+business has already accepted. The warning makes the gap visible, and
+withdrawing the planner's own stale draft keeps the plan honest.
+
+**Where:** `mrp.shortfall` capability branches and `_withdraw_production_drafts`.
+
+## §E1b-5. A transfer suggestion is advisory
+
+**Assumed.** `GET /sales/{id}/allocation-status` reports free stock in other
+warehouses, largest first, but does not reserve it. "Raise transfer" pre-fills a
+normal stock transfer with the source warehouse, the order line and
+`min(shortfall, free)`; the transfer then needs approval, dispatch and receipt
+like any other. Receipt does not itself reserve the goods - E1a's top-up does,
+either immediately when the receipt covers a waiting order or on the scheduled
+sweep.
+
+**Why.** A soft reservation at the source warehouse would freeze stock for a
+transfer that may never be approved, and the allocation engine already owns the
+priority order for scarce stock. Keeping the suggestion advisory preserves one
+reservation authority.
+
+**Where:** `sales.repository.available_elsewhere`;
+`sales.service.OrderAllocationService`; `inventory.StockTransferService`;
+`apps/web/src/features/inventory/movement-dialogs.tsx` (`TransferSeed`).
+
 ## Open questions for Atcraft
 
 These could not be assumed responsibly and need a decision before the relevant

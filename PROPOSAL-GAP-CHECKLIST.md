@@ -1,6 +1,6 @@
 # Atcraft ERP — Proposal vs Implementation Gap Checklist
 Local-only audit. Source: `Atcraft Manufacturing ERP Development_compressed.pdf` (24 pages, Aug 2026 v1.0) vs `main` on this machine.
-Trace baseline: `docs/implementation/trace/status.tsv` (177 PRESENT / 159 PLANNED_FULL / 93 PARTIAL / 43 PLANNED_PARTIAL / 2 ABSENT), `docs/implementation/trace/gaps.md`, backend `apps/api/src/modules/*`, frontend `apps/web/src/features/*`.
+Trace baseline: `docs/implementation/trace/status.tsv` (the per-requirement status sheet), `docs/implementation/trace/gaps.md`, backend `apps/api/src/modules/*`, frontend `apps/web/src/features/*`.
 
 Status key: DONE = present on main | PARTIAL = backend and/or UI incomplete | PLANNED = not on main, owned by a work package (C0/C1a/C1b/C2a/C2b/A2/A3/A4/B1-B5/D1-D4) | MISSING = no owner.
 Work-package shorthand used below is the same as in `docs/implementation/specs/SPEC-INDEX.md`.

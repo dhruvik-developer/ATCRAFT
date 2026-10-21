@@ -96,6 +96,7 @@ const ROUTES = [
   ['/audit', 'audit_log.view'],
   ['/admin/users', 'user.view'],
   ['/admin/organisation', 'company.view'],
+  ['/admin/settings', 'settings.view'],
   ['/notifications', 'notification.view'],
 ]
 

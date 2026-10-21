@@ -60,6 +60,7 @@ const ReportsPage = lazy(routeLoaders['/reports'])
 const AuditPage = lazy(routeLoaders['/audit'])
 const UsersPage = lazy(routeLoaders['/admin/users'])
 const OrganisationPage = lazy(routeLoaders['/admin/organisation'])
+const SettingsPage = lazy(routeLoaders['/admin/settings'])
 const NotificationsPage = lazy(routeLoaders['/notifications'])
 const PaymentsPage = lazy(routeLoaders['/finance/payments'])
 const AccountsPage = lazy(routeLoaders['/finance/accounts'])
@@ -407,6 +408,15 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
     path: '/admin/organisation',
     element: <OrganisationPage />,
     permissions: [P.COMPANY_VIEW, P.COST_CENTRE_VIEW],
+  },
+  // The sales automation switch is a company setting: reading it needs
+  // `settings.view`, writing it needs `settings.manage`, and the page disables
+  // the control without the latter. The route is gated on the read right so a
+  // reader without it never reaches a page that could only 403.
+  {
+    path: '/admin/settings',
+    element: <SettingsPage />,
+    permissions: [P.SETTINGS_VIEW],
   },
 
   // Every notifications endpoint - list, unread count, mark-read, preferences -

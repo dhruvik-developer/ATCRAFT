@@ -2315,6 +2315,32 @@
         "title": "ApiResponse[FinancialYearRead]",
         "type": "object"
       },
+      "ApiResponse_FulfilmentRead_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FulfilmentRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[FulfilmentRead]",
+        "type": "object"
+      },
       "ApiResponse_GoodsReceiptDetail_": {
         "properties": {
           "data": {
@@ -4519,6 +4545,32 @@
         "title": "ApiResponse[SalesReturnDetail]",
         "type": "object"
       },
+      "ApiResponse_SalesSettingsRead_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SalesSettingsRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[SalesSettingsRead]",
+        "type": "object"
+      },
       "ApiResponse_SealResult_": {
         "properties": {
           "data": {
@@ -4595,6 +4647,32 @@
           }
         },
         "title": "ApiResponse[ShiftRead]",
+        "type": "object"
+      },
+      "ApiResponse_ShortfallPlanRead_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShortfallPlanRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[ShortfallPlanRead]",
         "type": "object"
       },
       "ApiResponse_StockAdjustmentRead_": {
@@ -13078,6 +13156,16 @@
           },
           "order": {
             "$ref": "#/components/schemas/SalesOrderDetail"
+          },
+          "planned": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShortfallPlanRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -20578,6 +20666,347 @@
         "title": "FreightPaidBy",
         "type": "string"
       },
+      "FulfilmentDocumentRead": {
+        "description": "One document in the order's fulfilment trail.\n\nDeliberately one flexible shape rather than a schema per family: the trail\nis a timeline, every family shows the same six facts (what, which document,\nwhat state, how much, when, and a link), and a per-family schema would\nmultiply the response contract without adding a field the screen renders\ndifferently. ``line_id`` attributes a document to a sales order line when\nthe owning module records one; order-level documents leave it None.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "document_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Date"
+          },
+          "expected_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Date"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
+          "item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Id"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Id"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "secondary_quantity": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Secondary Quantity"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "code",
+          "status",
+          "url"
+        ],
+        "title": "FulfilmentDocumentRead",
+        "type": "object"
+      },
+      "FulfilmentLineRead": {
+        "description": "One sales order line's reservation and progress summary.",
+        "properties": {
+          "allocated_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Allocated Quantity",
+            "type": "string"
+          },
+          "dispatched_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Dispatched Quantity",
+            "type": "string"
+          },
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "line_id": {
+            "format": "uuid",
+            "title": "Line Id",
+            "type": "string"
+          },
+          "line_number": {
+            "title": "Line Number",
+            "type": "integer"
+          },
+          "ordered_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Ordered Quantity",
+            "type": "string"
+          },
+          "reservation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reservation Id"
+          },
+          "reserved_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Reserved Quantity",
+            "type": "string"
+          },
+          "shortfall_quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Shortfall Quantity",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SalesOrderLineStatus"
+          }
+        },
+        "required": [
+          "line_id",
+          "line_number",
+          "item_id",
+          "ordered_quantity",
+          "allocated_quantity",
+          "reserved_quantity",
+          "dispatched_quantity",
+          "shortfall_quantity",
+          "status"
+        ],
+        "title": "FulfilmentLineRead",
+        "type": "object"
+      },
+      "FulfilmentRead": {
+        "description": "Everything that has happened, or is planned, for one sales order.",
+        "properties": {
+          "assembly_orders": {
+            "items": {
+              "$ref": "#/components/schemas/FulfilmentDocumentRead"
+            },
+            "title": "Assembly Orders",
+            "type": "array"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "credit_notes": {
+            "items": {
+              "$ref": "#/components/schemas/FulfilmentDocumentRead"
+            },
+            "title": "Credit Notes",
+            "type": "array"
+          },
+          "dispatches": {
+            "items": {
+              "$ref": "#/components/schemas/FulfilmentDocumentRead"
+            },
+            "title": "Dispatches",
+            "type": "array"
+          },
+          "goods_receipts": {
+            "items": {
+              "$ref": "#/components/schemas/FulfilmentDocumentRead"
+            },
+            "title": "Goods Receipts",
+            "type": "array"
+          },
+          "inspections": {
+            "items": {
+              "$ref": "#/components/schemas/FulfilmentDocumentRead"
+            },
+            "title": "Inspections",
+            "type": "array"
+          },
+          "invoices": {
+            "items": {
+              "$ref": "#/components/schemas/FulfilmentDocumentRead"
+            },
+            "title": "Invoices",
+            "type": "array"
+          },
+          "job_work_orders": {
+            "items": {
+              "$ref": "#/components/schemas/FulfilmentDocumentRead"
+            },
+            "title": "Job Work Orders",
+            "type": "array"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/FulfilmentLineRead"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "mrp_suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/FulfilmentDocumentRead"
+            },
+            "title": "Mrp Suggestions",
+            "type": "array"
+          },
+          "order_id": {
+            "format": "uuid",
+            "title": "Order Id",
+            "type": "string"
+          },
+          "packing_orders": {
+            "items": {
+              "$ref": "#/components/schemas/FulfilmentDocumentRead"
+            },
+            "title": "Packing Orders",
+            "type": "array"
+          },
+          "production_orders": {
+            "items": {
+              "$ref": "#/components/schemas/FulfilmentDocumentRead"
+            },
+            "title": "Production Orders",
+            "type": "array"
+          },
+          "purchase_orders": {
+            "items": {
+              "$ref": "#/components/schemas/FulfilmentDocumentRead"
+            },
+            "title": "Purchase Orders",
+            "type": "array"
+          },
+          "requisitions": {
+            "items": {
+              "$ref": "#/components/schemas/FulfilmentDocumentRead"
+            },
+            "title": "Requisitions",
+            "type": "array"
+          },
+          "returns": {
+            "items": {
+              "$ref": "#/components/schemas/FulfilmentDocumentRead"
+            },
+            "title": "Returns",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SalesOrderStatus"
+          },
+          "transfers": {
+            "items": {
+              "$ref": "#/components/schemas/FulfilmentDocumentRead"
+            },
+            "title": "Transfers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "order_id",
+          "code",
+          "status"
+        ],
+        "title": "FulfilmentRead",
+        "type": "object"
+      },
       "GoodsReceiptCreate": {
         "additionalProperties": false,
         "properties": {
@@ -27129,6 +27558,13 @@
             "title": "Allocated Quantity",
             "type": "string"
           },
+          "available_elsewhere": {
+            "items": {
+              "$ref": "#/components/schemas/OtherWarehouseStock"
+            },
+            "title": "Available Elsewhere",
+            "type": "array"
+          },
           "available_quantity": {
             "anyOf": [
               {
@@ -30097,6 +30533,49 @@
         "title": "MrpSuggestionType",
         "type": "string"
       },
+      "NeedsJobWorkRead": {
+        "description": "A short line the plan deliberately left alone, because it needs job work.",
+        "properties": {
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "line_id": {
+            "format": "uuid",
+            "title": "Line Id",
+            "type": "string"
+          },
+          "line_number": {
+            "title": "Line Number",
+            "type": "integer"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "line_id",
+          "line_number",
+          "item_id",
+          "quantity"
+        ],
+        "title": "NeedsJobWorkRead",
+        "type": "object"
+      },
       "NotificationPreferenceRead": {
         "description": "Effective preference for one type.\n\nReturned for *every* :class:`NotificationType`, including the ones with no\nstored row - a preferences screen has to render the whole matrix, and asking\nthe client to know the defaults would let the two drift apart.",
         "properties": {
@@ -30536,6 +31015,37 @@
           "lines"
         ],
         "title": "OrderAllocationRead",
+        "type": "object"
+      },
+      "OtherWarehouseStock": {
+        "description": "Free stock for one item in a warehouse other than the order's own.",
+        "properties": {
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "warehouse_code": {
+            "title": "Warehouse Code",
+            "type": "string"
+          },
+          "warehouse_id": {
+            "format": "uuid",
+            "title": "Warehouse Id",
+            "type": "string"
+          },
+          "warehouse_name": {
+            "title": "Warehouse Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "warehouse_id",
+          "warehouse_code",
+          "warehouse_name",
+          "quantity"
+        ],
+        "title": "OtherWarehouseStock",
         "type": "object"
       },
       "OutstandingRow": {
@@ -35562,6 +36072,59 @@
         "title": "PhysicalCountStatus",
         "type": "string"
       },
+      "PlannedDocumentRead": {
+        "description": "One draft document the shortfall plan raised or adjusted.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "line_id": {
+            "format": "uuid",
+            "title": "Line Id",
+            "type": "string"
+          },
+          "line_number": {
+            "title": "Line Number",
+            "type": "integer"
+          },
+          "quantity": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Quantity",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "code",
+          "line_id",
+          "line_number",
+          "item_id",
+          "quantity",
+          "status"
+        ],
+        "title": "PlannedDocumentRead",
+        "type": "object"
+      },
       "PlantCreate": {
         "properties": {
           "address_line1": {
@@ -36938,6 +37501,18 @@
             ],
             "title": "Source Id"
           },
+          "source_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Line Id"
+          },
           "source_type": {
             "$ref": "#/components/schemas/ProductionSourceType",
             "default": "MANUAL"
@@ -37201,6 +37776,18 @@
             ],
             "title": "Source Id"
           },
+          "source_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Line Id"
+          },
           "source_type": {
             "$ref": "#/components/schemas/ProductionSourceType"
           },
@@ -37335,6 +37922,7 @@
           "priority",
           "source_type",
           "source_id",
+          "source_line_id",
           "requires_qc",
           "created_at",
           "bom_id",
@@ -37599,6 +38187,18 @@
             ],
             "title": "Source Id"
           },
+          "source_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Line Id"
+          },
           "source_type": {
             "$ref": "#/components/schemas/ProductionSourceType"
           },
@@ -37726,6 +38326,7 @@
           "priority",
           "source_type",
           "source_id",
+          "source_line_id",
           "requires_qc",
           "created_at",
           "bom_id",
@@ -37888,6 +38489,18 @@
             ],
             "title": "Source Id"
           },
+          "source_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Line Id"
+          },
           "source_type": {
             "$ref": "#/components/schemas/ProductionSourceType"
           },
@@ -37919,6 +38532,7 @@
           "priority",
           "source_type",
           "source_id",
+          "source_line_id",
           "requires_qc",
           "created_at"
         ],
@@ -44724,6 +45338,14 @@
             ],
             "title": "Required Date"
           },
+          "source_demand_refs": {
+            "items": {
+              "$ref": "#/components/schemas/SourceDemandRef"
+            },
+            "maxItems": 50,
+            "title": "Source Demand Refs",
+            "type": "array"
+          },
           "suggested_vendor_id": {
             "anyOf": [
               {
@@ -44833,6 +45455,20 @@
             "format": "uuid",
             "title": "Requisition Id",
             "type": "string"
+          },
+          "source_demand_refs": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SourceDemandRef"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Demand Refs"
           },
           "status": {
             "$ref": "#/components/schemas/RequisitionLineStatus"
@@ -50937,6 +51573,44 @@
         "title": "SalesReturnUnits",
         "type": "object"
       },
+      "SalesSettingsRead": {
+        "description": "Effective per-company sales settings.\n\n``auto_plan_on_confirm`` is the value the planner acts on, default applied.\n``is_default`` says whether it came from the code default or a stored row,\nso the screen can show \"using the default\" without guessing.",
+        "properties": {
+          "auto_plan_on_confirm": {
+            "title": "Auto Plan On Confirm",
+            "type": "boolean"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "auto_plan_on_confirm",
+          "is_default"
+        ],
+        "title": "SalesSettingsRead",
+        "type": "object"
+      },
+      "SalesSettingsUpdate": {
+        "additionalProperties": false,
+        "description": "The settings a company may change. Every field optional.",
+        "properties": {
+          "auto_plan_on_confirm": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Plan On Confirm"
+          }
+        },
+        "title": "SalesSettingsUpdate",
+        "type": "object"
+      },
       "SamplingPlan": {
         "description": "How much of a delivered lot is actually measured.\n\n``ALL``            every piece. The default when nothing else is configured.\n``PERCENTAGE``     a proportion of the lot, rounded up, never below one.\n``FIXED_SAMPLE``   a constant number of pieces whatever the lot size.\n``AQL``            ISO 2859-1 general inspection level II: the sample grows\n                   with the lot but far more slowly than a percentage, which\n                   is the entire point of a statistical plan.",
         "enum": [
@@ -52385,6 +53059,77 @@
         "title": "ShipmentUpdate",
         "type": "object"
       },
+      "ShortfallPlanRead": {
+        "description": "The outcome of planning one order's shortfall.\n\n``documents`` are the drafts that now cover the shortfall. ``needs_job_work``\nis not a failure: a JOB_WORK item is obtained through the job-work flow, and\nraising a production order for it would contradict the item master.\n``warnings`` names the lines the plan could not touch, with the reason -\ntypically a requisition already submitted, which is a human decision to\nchange rather than something an automation should rewrite.",
+        "properties": {
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/PlannedDocumentRead"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "needs_job_work": {
+            "items": {
+              "$ref": "#/components/schemas/NeedsJobWorkRead"
+            },
+            "title": "Needs Job Work",
+            "type": "array"
+          },
+          "order_id": {
+            "format": "uuid",
+            "title": "Order Id",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "order_id"
+        ],
+        "title": "ShortfallPlanRead",
+        "type": "object"
+      },
+      "SourceDemandRef": {
+        "additionalProperties": false,
+        "description": "One demand a requisition line was raised for (WP D1 section 1).\n\nStored on the line as a JSONB array and carried onto purchase orders at\nconversion. ``demand_type`` is an open vocabulary because the sources are\ndeliberately not foreign keys - a sales order line today, a BOM demand or a\npacking order tomorrow - and the duplicate matcher only compares triples\nfor equality, never resolves them.",
+        "properties": {
+          "demand_id": {
+            "format": "uuid",
+            "title": "Demand Id",
+            "type": "string"
+          },
+          "demand_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Demand Line Id"
+          },
+          "demand_type": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Demand Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "demand_type",
+          "demand_id"
+        ],
+        "title": "SourceDemandRef",
+        "type": "object"
+      },
       "StartRequest": {
         "additionalProperties": false,
         "properties": {
@@ -53426,6 +54171,22 @@
             "title": "Reason",
             "type": "string"
           },
+          "source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "source_type": {
+            "$ref": "#/components/schemas/TransferSourceType",
+            "default": "MANUAL"
+          },
           "to_warehouse_id": {
             "format": "uuid",
             "title": "To Warehouse Id",
@@ -53508,6 +54269,18 @@
               }
             ],
             "title": "Quantity"
+          },
+          "source_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Line Id"
           },
           "to_location_id": {
             "anyOf": [
@@ -53616,6 +54389,18 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Received Quantity",
             "type": "string"
+          },
+          "source_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Line Id"
           },
           "to_location_id": {
             "anyOf": [
@@ -53769,6 +54554,21 @@
             ],
             "title": "Received At"
           },
+          "source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "source_type": {
+            "$ref": "#/components/schemas/TransferSourceType"
+          },
           "status": {
             "$ref": "#/components/schemas/TransferStatus"
           },
@@ -53817,6 +54617,8 @@
           "approved_by_id",
           "approved_at",
           "reason",
+          "source_type",
+          "source_id",
           "notes",
           "line_count",
           "total_quantity",
@@ -55611,6 +56413,16 @@
           "SCRAP_DISPOSAL"
         ],
         "title": "TransactionType",
+        "type": "string"
+      },
+      "TransferSourceType": {
+        "description": "Why a transfer was raised (WP E1b section 4, E2 section 8).\n\n``MANUAL`` is a typed document. ``SALES_ORDER`` is a transfer raised from a\nshort sales-order line to pull stock to the warehouse that must ship it.\n``REALLOCATION`` is the cross-warehouse execution of an approved\nreallocation request, reserved for E2's execution leg so both lands use one\nvocabulary.\n\nThe pair is the same bare ``(source_type, source_id)`` shape every other\ndocument in the system uses; the transfer does not hold a foreign key to\nthe order because the order may be cancelled while the goods are still on\nthe road, and the physical movement must survive that.",
+        "enum": [
+          "MANUAL",
+          "SALES_ORDER",
+          "REALLOCATION"
+        ],
+        "title": "TransferSourceType",
         "type": "string"
       },
       "TransferStatus": {
@@ -155021,6 +155833,228 @@
         ]
       }
     },
+    "/api/v1/sales/settings": {
+      "get": {
+        "description": "The effective settings, with code defaults applied. A company that has never saved a setting reads the default and is told so - the row is sparse, not a hard-coded copy of today's defaults.",
+        "operationId": "get_sales_settings_api_v1_sales_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_SalesSettingsRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read the company's sales settings",
+        "tags": [
+          "Sales Orders"
+        ]
+      },
+      "put": {
+        "description": "Partial by design: omit a field to leave the stored decision alone, send an explicit null to restore the code default. Every change is audited.",
+        "operationId": "update_sales_settings_api_v1_sales_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SalesSettingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_SalesSettingsRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Change the company's sales settings",
+        "tags": [
+          "Sales Orders"
+        ]
+      }
+    },
     "/api/v1/sales/{order_id}": {
       "delete": {
         "description": "Only a DRAFT may be deleted. Anything further along is cancelled instead.",
@@ -156153,6 +157187,254 @@
           }
         ],
         "summary": "Confirm an order and reserve stock",
+        "tags": [
+          "Sales Orders"
+        ]
+      }
+    },
+    "/api/v1/sales/{order_id}/fulfilment": {
+      "get": {
+        "description": "Everything raised or recorded against the order, one batched read per document family: reservations, MRP suggestions, production and job-work orders, requisitions and purchase orders, inspections, packing, dispatches, transfers, invoices, credit notes and returns.",
+        "operationId": "fulfilment_api_v1_sales__order_id__fulfilment_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Order Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_FulfilmentRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "The order's fulfilment trail",
+        "tags": [
+          "Sales Orders"
+        ]
+      }
+    },
+    "/api/v1/sales/{order_id}/plan-shortfall": {
+      "post": {
+        "description": "The on-demand form of the automatic plan: raises or resizes DRAFT production orders and the order's draft purchase requisition so they cover what is still unreserved. Never releases, approves or converts anything. Works whether or not the company has automatic planning switched on.",
+        "operationId": "plan_shortfall_api_v1_sales__order_id__plan_shortfall_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "order_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Order Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_ShortfallPlanRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Plan the order's shortfall into draft supply",
         "tags": [
           "Sales Orders"
         ]

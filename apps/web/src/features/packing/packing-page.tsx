@@ -42,6 +42,7 @@ import { ReadyFromAssemblyPanel } from './ready-from-assembly'
 const FILTER_KEYS = [
   'status',
   'customer_id',
+  'sales_order_id',
   'open_only',
   'awaiting_dispatch',
   'planned_from',
@@ -55,6 +56,7 @@ export default function PackingPage() {
 
   const status = searchParams.get('status') ?? ''
   const customerId = searchParams.get('customer_id') ?? ''
+  const salesOrderId = searchParams.get('sales_order_id') ?? ''
   const openOnly = searchParams.get('open_only') === 'true'
   const awaitingDispatch = searchParams.get('awaiting_dispatch') === 'true'
   const plannedFrom = searchParams.get('planned_from') ?? ''
@@ -71,6 +73,7 @@ export default function PackingPage() {
     filters: {
       ...(status ? { status } : {}),
       ...(customerId ? { customer_id: customerId } : {}),
+      ...(salesOrderId ? { sales_order_id: salesOrderId } : {}),
       ...(openOnly ? { open_only: true } : {}),
       ...(awaitingDispatch ? { awaiting_dispatch: true } : {}),
       ...(plannedFrom ? { planned_from: plannedFrom } : {}),
@@ -105,6 +108,7 @@ export default function PackingPage() {
   const filterCount =
     (status ? 1 : 0) +
     (customerId ? 1 : 0) +
+    (salesOrderId ? 1 : 0) +
     (openOnly ? 1 : 0) +
     (awaitingDispatch ? 1 : 0) +
     (plannedFrom ? 1 : 0) +
@@ -304,6 +308,20 @@ export default function PackingPage() {
                 Awaiting dispatch
               </Label>
             </div>
+
+            {salesOrderId && (
+              <Badge variant="muted" className="gap-1">
+                One sales order's packing
+                <button
+                  type="button"
+                  className="rounded-sm hover:text-foreground"
+                  aria-label="Show every sales order"
+                  onClick={() => setParam('sales_order_id', undefined)}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            )}
 
             {filterCount > 0 && (
               <Button variant="ghost" size="sm" onClick={clearFilters}>

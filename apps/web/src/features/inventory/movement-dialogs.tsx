@@ -342,24 +342,52 @@ const transferSchema = z
 
 type TransferForm = z.infer<typeof transferSchema>
 
+/**
+ * Pre-fill for a transfer raised from another document (WP E1b section 4).
+ *
+ * The sales order panel knows the item, the quantity it is short of, the
+ * warehouse that can give it up and the order line the stock is for. Asking the
+ * user to retype any of that would be an invitation to move the wrong units or
+ * lose the peg back to the order.
+ */
+export interface TransferSeed {
+  fromWarehouseId?: string
+  toWarehouseId?: string
+  itemId?: string
+  quantity?: string
+  reason?: string
+  /** MANUAL for a typed transfer; SALES_ORDER/REALLOCATION names the source. */
+  sourceType?: 'MANUAL' | 'SALES_ORDER' | 'REALLOCATION'
+  sourceId?: string | null
+  /** The source document's line this transfer answers, when it has one. */
+  sourceLineId?: string | null
+}
+
 export function CreateTransferDialog({
   open,
   onOpenChange,
+  initial,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  initial?: TransferSeed
 }) {
   const queryClient = useQueryClient()
+  const defaults = useMemo<TransferForm>(
+    () => ({
+      from_warehouse_id: initial?.fromWarehouseId ?? '',
+      to_warehouse_id: initial?.toWarehouseId ?? '',
+      transfer_date: today(),
+      reason: initial?.reason ?? '',
+      lines: [{ item_id: initial?.itemId ?? '', quantity: initial?.quantity ?? '' }],
+    }),
+    [initial],
+  )
   const form = useForm<TransferForm>({
     resolver: zodResolver(transferSchema),
-    defaultValues: {
-      from_warehouse_id: '',
-      to_warehouse_id: '',
-      transfer_date: today(),
-      reason: '',
-      lines: [{ item_id: '', quantity: '' }],
-    },
+    defaultValues: defaults,
   })
+  const sourceType = initial?.sourceType ?? 'MANUAL'
 
   const create = useMutation({
     mutationFn: (values: TransferForm) =>
@@ -368,12 +396,19 @@ export function CreateTransferDialog({
         to_warehouse_id: values.to_warehouse_id,
         transfer_date: values.transfer_date,
         reason: values.reason.trim(),
+        source_type: sourceType,
+        // The contract refuses a manual transfer that names a source and a
+        // typed one that omits it, so the pair is sent together or not at all.
+        ...(sourceType !== 'MANUAL' ? { source_id: initial?.sourceId ?? null } : {}),
         lines: values.lines.map((line) => ({
           item_id: line.item_id,
           quantity: line.quantity.trim(),
           ...(line.batch_id ? { batch_id: line.batch_id } : {}),
           ...(line.from_location_id ? { from_location_id: line.from_location_id } : {}),
           ...(line.to_location_id ? { to_location_id: line.to_location_id } : {}),
+          ...(initial?.sourceLineId && line.item_id === initial.itemId
+            ? { source_line_id: initial.sourceLineId }
+            : {}),
         })),
       }),
     onSuccess: (result) => {

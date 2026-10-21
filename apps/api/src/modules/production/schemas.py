@@ -76,6 +76,10 @@ class ProductionOrderCreate(BaseModel):
     priority: Priority = DEFAULT_PRODUCTION_PRIORITY
     source_type: ProductionSourceType = ProductionSourceType.MANUAL
     source_id: uuid.UUID | None = None
+    #: The sales order line this job was raised for (WP E1b). Only meaningful
+    #: with ``source_type=SALES_ORDER``; the planner sets it so a replan can net
+    #: open supply against the line it covers.
+    source_line_id: uuid.UUID | None = None
     #: Hold good output for QC. Unset takes the default: true when the item
     #: requires production QC or any routing operation gates on QC (§E5-1).
     #: Explicit false is refused while a routing operation gates on QC - the
@@ -123,6 +127,7 @@ class ProductionOrderFilters(BaseModel):
     plant_id: uuid.UUID | None = None
     source_type: ProductionSourceType | None = None
     source_id: uuid.UUID | None = None
+    source_line_id: uuid.UUID | None = None
     planned_from: date | None = None
     planned_to: date | None = None
     #: Only orders at least this urgent (priority is ascending urgency).
@@ -153,6 +158,7 @@ class ProductionOrderSummary(BaseModel):
     priority: int
     source_type: ProductionSourceType
     source_id: uuid.UUID | None
+    source_line_id: uuid.UUID | None
     requires_qc: bool
     created_at: datetime
 

@@ -56,6 +56,7 @@ import type { ItemVariant } from '@/features/items/item-model'
 const ORDER_ID = '01a00000-0000-7000-8000-00000000so01'
 const CUSTOMER_ID = '01a00000-0000-7000-8000-0000000cust1'
 const WAREHOUSE_ID = '01a00000-0000-7000-8000-00000000wh01'
+const OTHER_WAREHOUSE_ID = '01a00000-0000-7000-8000-00000000wh02'
 const ITEM_ID = '01a00000-0000-7000-8000-0000000item1'
 const UOM_ID = '01a00000-0000-7000-8000-00000000uom1'
 const LINE_ID = '01a00000-0000-7000-8000-000000000ln1'
@@ -1636,37 +1637,117 @@ describe('fulfilment on the detail screen', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('plans the shortfall from the detail screen and reports the drafts raised', async () => {
+    const { user, fetch } = renderDetail({
+      order: CONFIRMED,
+      permissions: [P.SALES_ORDER_VIEW, P.SALES_ORDER_UPDATE],
+      withToaster: true,
+      routes: {
+        [`GET /sales/${ORDER_ID}/allocation-status`]: ok(allocationView()),
+        [`POST /sales/${ORDER_ID}/plan-shortfall`]: ok({
+          documents: [
+            {
+              kind: 'PURCHASE_REQUISITION',
+              id: 'req-1',
+              code: 'PR/2026-27/00001',
+              line_id: LINE_ID,
+              quantity: '300.0000',
+            },
+          ],
+          needs_job_work: [],
+          warnings: [],
+        }),
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Plan shortfall' }))
+
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', `/sales/${ORDER_ID}/plan-shortfall`)).toEqual({
+        reason: 'Shortfall planned from the order page',
+      }),
+    )
+    expect(await screen.findByText('1 draft document now covers the shortfall')).toBeVisible()
+  })
+
+  it('raises a transfer from the best other warehouse, pegged to the order line', async () => {
+    const { user, fetch } = renderDetail({
+      order: CONFIRMED,
+      permissions: [P.SALES_ORDER_VIEW, P.SALES_ORDER_UPDATE, P.INVENTORY_TRANSFER],
+      withToaster: true,
+      routes: {
+        [`GET /sales/${ORDER_ID}/allocation-status`]: ok(
+          allocationView({
+            available_elsewhere: [
+              {
+                warehouse_id: OTHER_WAREHOUSE_ID,
+                warehouse_code: 'WH-B',
+                warehouse_name: 'Ancillary store',
+                quantity: '400.0000',
+              },
+            ],
+          }),
+        ),
+        [`GET /products/items/${ITEM_ID}`]: ok({
+          id: ITEM_ID,
+          code: 'FG-HINGE-4',
+          name: 'Brass hinge 4in',
+        }),
+        'POST /inventory/transfers': ok({ code: 'TRF/2026-27/00001' }),
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Raise transfer' }))
+    expect(await screen.findByText('New stock transfer')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Create transfer' }))
+
+    await waitFor(() =>
+      expect(fetch.requestFor('POST', '/inventory/transfers')).toMatchObject({
+        from_warehouse_id: OTHER_WAREHOUSE_ID,
+        to_warehouse_id: WAREHOUSE_ID,
+        source_type: 'SALES_ORDER',
+        source_id: ORDER_ID,
+        lines: [{ item_id: ITEM_ID, quantity: '300.0000', source_line_id: LINE_ID }],
+      }),
+    )
+  })
+
   it("lists the order's consignments for a reader of dispatches", async () => {
     renderDetail({
       order: CONFIRMED,
       permissions: [P.SALES_ORDER_VIEW, P.DISPATCH_VIEW],
       routes: {
         [`GET /sales/${ORDER_ID}/allocation-status`]: ok(allocationView()),
-        'GET /dispatch': ({ url }) => {
-          // Narrowed by the server, never by filtering a page in the browser.
-          expect(url.searchParams.get('sales_order_id')).toBe(ORDER_ID)
-          return page([
+        [`GET /sales/${ORDER_ID}/fulfilment`]: ok({
+          order_id: ORDER_ID,
+          code: 'SO-0001',
+          status: 'CONFIRMED',
+          lines: [],
+          mrp_suggestions: [],
+          production_orders: [],
+          assembly_orders: [],
+          job_work_orders: [],
+          requisitions: [],
+          purchase_orders: [],
+          goods_receipts: [],
+          inspections: [],
+          packing_orders: [],
+          dispatches: [
             {
+              kind: 'DISPATCH',
               id: 'dsp-1',
               code: 'DSP/2026-27/00007',
-              dispatch_type: 'SALES',
               status: 'DISPATCHED',
-              customer_id: CUSTOMER_ID,
-              vendor_id: null,
-              warehouse_id: WAREHOUSE_ID,
-              sales_order_id: ORDER_ID,
-              dispatch_date: '2026-09-10',
-              expected_delivery_date: null,
-              actual_delivery_date: null,
-              transporter_id: null,
-              courier_name: null,
-              tracking_id: 'TRK-1',
-              total_boxes: 1,
-              total_weight_kg: '0.000',
-              created_at: '2026-09-10T05:00:00Z',
+              document_date: '2026-09-10',
+              detail: 'tracking TRK-1',
+              url: '/dispatch?q=DSP%2F2026-27%2F00007',
             },
-          ])
-        },
+          ],
+          transfers: [],
+          invoices: [],
+          credit_notes: [],
+          returns: [],
+        }),
       },
     })
 

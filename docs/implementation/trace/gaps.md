@@ -9,6 +9,21 @@
 > entries below are the pre-E3a audit text and are left as they were.
 > See `docs/implementation/specs/E3a-mrp-engine-depth.md`.
 
+> **Post-audit update - 21 October 2026 (E1b).** S01.1, S03.13, K02, K08 and
+> K10 are closed. Confirming a short order now raises pegged DRAFT supply in the
+> same transaction (one production order per made line; one requisition per
+> order for bought lines), and the planner is idempotent, reconciles drafts
+> after order changes, reports job-work needs, and treats capability mismatches
+> as warnings. The order detail carries a full fulfilment trail across MRP,
+> production, assembly, job work, procurement, receipts, QC, transfers, packing,
+> dispatch, invoices, credit notes and returns; production/assembly/job-work
+> detail link back, and packing/dispatch accept the `sales_order_id` filter.
+> `available_elsewhere` plus **Raise transfer** covers the multi-warehouse
+> suggestion, with no soft reservation at the donor. The entries below are the
+> pre-E1b audit text and are left as they were. See
+> `docs/implementation/specs/E1b-sales-automation-trace.md` and
+> `docs/assumptions.md` §E1b-1 to §E1b-5.
+
 ### S01.1 [PARTIAL] (G1) One integrated system in which a sales order can automatically: check available stock, reserve inventory, calculate shortages, generate production plans, raise
 - gap: Production plans and purchase requirements are not raised automatically from the sales order. Nothing in sales/service.py references MRP, and celery_app.py beat_schedule has no MRP entry, so a planner must start a run and then convert its suggestions. JOB_WORK suggestions cannot be converted at all. There is no lifecycle view centred on the sales order: production orders created by MRP store source_type=MRP_SUGGESTION and source_id=<suggestion id> (production/models.py:124-134), not the sales order, and the order detail page lists no linked production, job-work, packing or dispatch documents. In the base and dev compose files the worker has no -Q (docker-compose.yml:250, docker-compose.dev.yml:66), so asynchronous MRP runs (over 50 lines) never execute outside the prod overlay.
 - planned: None covers the automation or the order-level trace. A2 only fixes the dev worker queue; B4 only adds a 'Production shortage' notification after a run.

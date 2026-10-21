@@ -746,8 +746,10 @@ Every transition writes an audit row via `record_status_change`.
 | QC verdict decided | `quality.owners.notify_owner` in the same transaction, after the stock moves: the owning document completes itself from the verdict and moves nothing again |
 | Packing started | A FINAL inspection per line whose item requires final QC (stock reserved, not held); completion and hand-over refused until each is ACCEPTED; a REJECTED line is repacked and re-inspected |
 | Dispatch | `allocation.consume`, then `post_movements` (`DISPATCH`) |
-| Sales order confirmed | `allocation.reserve` per line against available stock |
-| Stock arrives for a short sales order | `maintenance.allocate_short_orders` finds live shortfalls, then calls `sales.allocate_order` per order in its own transaction; default cadence 900 seconds, at most 200 orders per company |
+| Sales order confirmed | `allocation.reserve` per line against available stock; when the order is short and `sales_settings.auto_plan_on_confirm` is on (NULL reads as the code default, on), `mrp.plan_sales_order_shortfall` runs in the same transaction and raises DRAFT pegged supply - one production order per made line, one requisition per order for bought lines - and reports job-work needs. Nothing is released or converted, and a capability mismatch is a warning, not a refused confirmation |
+| Sales order line, quantity or date changed; order cancelled; top-up newly reserves stock | Re-run the same planner in the caller's transaction: resize or cancel only its own DRAFT production orders or requisition, withdraw a draft the item master no longer justifies, and warn about a submitted document instead of rewriting it |
+| Stock arrives for a short sales order | `maintenance.allocate_short_orders` finds live shortfalls, then calls `sales.allocate_order` per order in its own transaction; default cadence 900 seconds, at most 200 orders per company. A top-up that covers the order immediately replans and withdraws its still-DRAFT supply |
+| Sales order fulfilment read | `GET /sales/{id}/fulfilment` runs one batched read per owning module (MRP, production, assembly, job work, procurement, goods receipts, QC, transfers, packing, dispatch, invoices, credit notes, returns), never a query per line |
 | Invoice issued | `finance.post_journal` debits AR and credits sales revenue/output GST, posts round-off, increases customer outstanding and SO-line invoiced quantities; full dispatched orders become INVOICED; queue permanent PDF after commit |
 | Invoice cancelled | Reverse its entire journal, reduce customer outstanding and SO-line invoiced quantities, restore INVOICED to DISPATCHED; dispatch cancellation stays blocked until the live invoice is cancelled |
 | Customer receipt allocated or released | Lock payment then invoice headers in id order; update invoice paid quantities and status through SALES_INVOICE_LIFECYCLE; cancelling a receipt releases its allocations before reversing its journal |
@@ -949,6 +951,24 @@ CHECK, server default ERP, set by the server only) and
 depend on the portal schema, §C3-3). A line with no explicit discount takes
 the best scheme as its default discount in `price_line`, on ERP orders as well
 as portal ones.
+
+**Sales planning links and setting (E1b).** `sales_settings` is one sparse
+`TenantEntity` row per company and is unique on `company_id`;
+`auto_plan_on_confirm` is nullable on purpose - NULL means "no override" and
+reads as the code default (on), while `false` is a stored decision. A planned
+production order is pegged by `production_orders.source_type = SALES_ORDER`,
+`source_id` (the order) and the new `source_line_id` (the line; NULL for every
+other source). A planned requisition line carries
+`purchase_requisition_lines.source_demand_refs` - JSONB
+`[{demand_type, demand_id, demand_line_id}]` with a GIN index - and a purchase
+order raised from it carries `requisition_line_id` back to that line, so the
+trail reaches the PO without duplicating the demand refs. A transfer raised
+from the allocation panel stores `stock_transfers.source_type` (`MANUAL | SALES_ORDER |
+REALLOCATION`, literal CHECK, default MANUAL), `source_id` and
+`stock_transfer_lines.source_line_id`; the source pair and line are bare
+references, not foreign keys, because the demand may be cancelled while the
+goods are still moving. `sales.service` owns the setting and the pegging rules;
+`mrp.shortfall` writes only DRAFT documents.
 
 ### Notification devices and recovery (C1b)
 PUSH is a channel, after IN_APP and EMAIL. Preferences have constant true
