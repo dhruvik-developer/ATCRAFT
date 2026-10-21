@@ -35,6 +35,7 @@ export const packingKeys = {
   cartons: (id: string) => ['packing', 'cartons', id] as const,
   cartonLabel: (orderId: string, cartonId: string) =>
     ['packing', 'cartons', orderId, cartonId, 'label'] as const,
+  cartonScan: (barcode: string) => ['packing', 'carton-scan', barcode] as const,
   materials: (warehouseId: string, search = '') =>
     ['packing', 'materials', warehouseId, search] as const,
   packingListJob: (jobId: string) => ['packing', 'packing-list-job', jobId] as const,
@@ -190,6 +191,9 @@ export interface PackingCompletionResult {
 
 /** `GET /packing/{id}/cartons/{carton_id}/label` (`CartonLabel`). */
 export type CartonLabel = SchemaOf<'CartonLabel'>
+
+/** `GET /packing/scan?barcode=...` (`CartonScanResult`). */
+export type CartonScanResult = SchemaOf<'CartonScanResult'>
 
 // ------------------------------------------------------------------ job -----
 

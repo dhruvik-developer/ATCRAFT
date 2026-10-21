@@ -342,6 +342,11 @@ class CartonDetail(CartonRead):
     contents: list[CartonContentRead] = Field(default_factory=list)
 
 
+class CartonScanResult(BaseModel):
+    packing_order: PackingOrderSummary
+    carton: CartonDetail
+
+
 class CartonFilters(BaseModel):
     packing_order_id: uuid.UUID | None = None
     barcode: str | None = None

@@ -36,6 +36,7 @@ from src.modules.packing.schemas import (
     CartonCreate,
     CartonDetail,
     CartonLabel,
+    CartonScanResult,
     CompleteRequest,
     DispatchHandoverRequest,
     PackingCompletionResult,
@@ -169,6 +170,25 @@ async def trace_serial(
 ) -> ApiResponse[list[CartonDetail]]:
     cartons = await service.find_cartons_holding_serial(session, tenant, serial_id)
     return ApiResponse[list[CartonDetail]].ok(cartons)
+
+
+@router.get(
+    "/scan",
+    response_model=ApiResponse[CartonScanResult],
+    summary="Find a carton by scanning its barcode",
+    description=(
+        "Resolves a carton label within the authenticated company and returns the recorded "
+        "order, seal state, weights and contents."
+    ),
+    dependencies=[require_permission(Permission.PACKING_VIEW)],
+)
+async def scan_carton(
+    session: DbSession,
+    tenant: Tenant,
+    barcode: Annotated[str, Query(min_length=8, max_length=64, pattern=r"^[0-9A-Za-z-]+$")],
+) -> ApiResponse[CartonScanResult]:
+    result = await service.find_carton_by_barcode(session, tenant, barcode)
+    return ApiResponse[CartonScanResult].ok(result)
 
 
 # -----------------------------------------------------------------------------

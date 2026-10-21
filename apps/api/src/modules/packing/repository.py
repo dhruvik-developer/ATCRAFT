@@ -538,6 +538,10 @@ class CartonRepository(BaseRepository[Carton]):
         "created_at": Carton.created_at,
     }
 
+    async def get_by_barcode(self, barcode: str) -> Carton | None:
+        stmt = self._scoped().where(Carton.barcode == barcode.strip().upper())
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     async def get_in_order(self, order_id: uuid.UUID, carton_id: uuid.UUID) -> Carton | None:
         """A carton, proved to belong to the order in the URL.
 

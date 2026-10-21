@@ -1509,6 +1509,32 @@
         "title": "ApiResponse[CartonLabel]",
         "type": "object"
       },
+      "ApiResponse_CartonScanResult_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CartonScanResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[CartonScanResult]",
+        "type": "object"
+      },
       "ApiResponse_CategoryOut_": {
         "properties": {
           "data": {
@@ -11452,6 +11478,22 @@
           "quantity"
         ],
         "title": "CartonLabelLine",
+        "type": "object"
+      },
+      "CartonScanResult": {
+        "properties": {
+          "carton": {
+            "$ref": "#/components/schemas/CartonDetail"
+          },
+          "packing_order": {
+            "$ref": "#/components/schemas/PackingOrderSummary"
+          }
+        },
+        "required": [
+          "packing_order",
+          "carton"
+        ],
+        "title": "CartonScanResult",
         "type": "object"
       },
       "CartonType": {
@@ -111059,6 +111101,127 @@
           }
         ],
         "summary": "Packed orders waiting for a truck",
+        "tags": [
+          "Packing"
+        ]
+      }
+    },
+    "/api/v1/packing/scan": {
+      "get": {
+        "description": "Resolves a carton label within the authenticated company and returns the recorded order, seal state, weights and contents.",
+        "operationId": "scan_carton_api_v1_packing_scan_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "barcode",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 8,
+              "pattern": "^[0-9A-Za-z-]+$",
+              "title": "Barcode",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_CartonScanResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Find a carton by scanning its barcode",
         "tags": [
           "Packing"
         ]

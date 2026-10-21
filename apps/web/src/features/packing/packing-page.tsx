@@ -11,12 +11,13 @@
  */
 
 import { type ColumnDef } from '@tanstack/react-table'
-import { Boxes, PackageOpen, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMutation } from '@tanstack/react-query'
+import { Boxes, PackageOpen, ScanBarcode, X } from 'lucide-react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
 import { DataTable } from '@/components/data-table'
-import { DateRangeFilter, PageHeader, StatusBadge } from '@/components/shared'
+import { DateRangeFilter, FieldError, PageHeader, StatusBadge } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -25,17 +26,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/overlays'
-import { Badge, Checkbox, Label } from '@/components/ui/primitives'
+import { Badge, Checkbox, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { CustomerPicker } from '@/features/customers/customer-picker'
 import { useListQuery } from '@/hooks/use-list-query'
+import { api } from '@/lib/api-client'
 import { SELECT_ALL } from '@/lib/constants'
 import { formatDate, formatDateTime, formatNumber, formatQuantity, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
 import { PackingOrderDialog } from './packing-order-dialog'
-import { PACKING_STATUSES, packingKeys, type PackingOrderRow } from './packing-types'
+import {
+  PACKING_STATUSES,
+  packingKeys,
+  type CartonScanResult,
+  type PackingOrderRow,
+} from './packing-types'
 import { ReadyFromAssemblyPanel } from './ready-from-assembly'
 
 /** The URL keys this screen filters on, in the order the toolbar shows them. */
@@ -48,6 +55,87 @@ const FILTER_KEYS = [
   'planned_from',
   'planned_to',
 ] as const
+
+function CartonScanPanel({ onOpenOrder }: { onOpenOrder: (order: PackingOrderRow) => void }) {
+  const [barcode, setBarcode] = useState('')
+  const scan = useMutation({
+    mutationFn: (value: string) =>
+      api.get<CartonScanResult>(`/packing/scan?barcode=${encodeURIComponent(value)}`),
+  })
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const normalized = barcode.trim().toUpperCase()
+    if (normalized.length < 8) return
+    setBarcode(normalized)
+    scan.mutate(normalized)
+  }
+
+  return (
+    <section className="mb-5 rounded-lg border bg-card p-4" aria-labelledby="carton-scan-heading">
+      <div className="mb-3">
+        <h2 id="carton-scan-heading" className="font-semibold">
+          Find a carton
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          Scan or enter a carton label to view its packing record.
+        </p>
+      </div>
+      <form className="flex flex-col gap-2 sm:flex-row" onSubmit={submit}>
+        <Label htmlFor="packing-carton-barcode" className="sr-only">
+          Scan a carton barcode
+        </Label>
+        <Input
+          id="packing-carton-barcode"
+          value={barcode}
+          onChange={(event) => {
+            setBarcode(event.target.value)
+            if (scan.data || scan.error) scan.reset()
+          }}
+          placeholder="Scan carton barcode..."
+          autoComplete="off"
+          maxLength={64}
+        />
+        <Button type="submit" disabled={scan.isPending || barcode.trim().length < 8}>
+          <ScanBarcode />
+          {scan.isPending ? 'Searching...' : 'Find carton'}
+        </Button>
+      </form>
+      {scan.error && (
+        <div className="mt-2">
+          <FieldError message={scan.error.message} />
+        </div>
+      )}
+      {scan.data && (
+        <div className="mt-3 rounded-md border p-3" role="status" aria-live="polite">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+            <div>
+              <p className="font-medium">
+                {scan.data.carton.barcode} · Carton {scan.data.carton.carton_number}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {scan.data.packing_order.code} ·{' '}
+                {scan.data.carton.is_sealed
+                  ? `Sealed ${formatDateTime(scan.data.carton.sealed_at)}`
+                  : 'Not sealed'}
+                {' · '}
+                {formatQuantity(scan.data.carton.gross_weight_kg)} kg gross
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenOrder(scan.data.packing_order)}
+            >
+              <PackageOpen />
+              Open packing record
+            </Button>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
 
 export default function PackingPage() {
   const { can } = useAuth()
@@ -223,6 +311,8 @@ export default function PackingPage() {
         title="Packing"
         description="Orders being made ready for despatch. Open one to build its cartons and generate the packing list that travels with the consignment."
       />
+
+      <CartonScanPanel onOpenOrder={setOpenOrder} />
 
       <ReadyFromAssemblyPanel />
 

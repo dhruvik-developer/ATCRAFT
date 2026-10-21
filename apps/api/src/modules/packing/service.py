@@ -134,6 +134,7 @@ from src.modules.packing.schemas import (
     CartonFilters,
     CartonLabel,
     CartonLabelLine,
+    CartonScanResult,
     CompleteRequest,
     PackingCompletionResult,
     PackingFromAssemblyCreate,
@@ -965,6 +966,23 @@ async def get_carton_detail(
         raise NotFoundError("Carton", carton_id)
     contents = await CartonContentRepository(session, tenant).list_for_carton(carton.id)
     return carton_detail(carton, contents)
+
+
+async def find_carton_by_barcode(
+    session: AsyncSession, tenant: TenantContext, barcode: str
+) -> CartonScanResult:
+    """Resolve a scanned label to its tenant-scoped order and carton record."""
+    normalized = barcode.strip().upper()
+    carton = await CartonRepository(session, tenant).get_by_barcode(normalized)
+    if carton is None:
+        raise NotFoundError("Carton", normalized)
+
+    order = await PackingOrderRepository(session, tenant).get_or_404(carton.packing_order_id)
+    contents = await CartonContentRepository(session, tenant).list_for_carton(carton.id)
+    return CartonScanResult(
+        packing_order=PackingOrderSummary.model_validate(order),
+        carton=carton_detail(carton, contents),
+    )
 
 
 async def list_packing_materials(

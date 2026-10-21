@@ -4362,6 +4362,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/packing/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find a carton by scanning its barcode
+         * @description Resolves a carton label within the authenticated company and returns the recorded order, seal state, weights and contents.
+         */
+        get: operations["scan_carton_api_v1_packing_scan_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/packing/trace/serial/{serial_id}": {
         parameters: {
             query?: never;
@@ -10183,6 +10203,20 @@ export interface components {
              */
             success: boolean;
         };
+        /** ApiResponse[CartonScanResult] */
+        ApiResponse_CartonScanResult_: {
+            data?: components["schemas"]["CartonScanResult"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
         /** ApiResponse[CategoryOut] */
         ApiResponse_CategoryOut_: {
             data?: components["schemas"]["CategoryOut"] | null;
@@ -14578,6 +14612,11 @@ export interface components {
              * @default 0
              */
             serial_count: number;
+        };
+        /** CartonScanResult */
+        CartonScanResult: {
+            carton: components["schemas"]["CartonDetail"];
+            packing_order: components["schemas"]["PackingOrderSummary"];
         };
         /**
          * CartonType
@@ -63621,6 +63660,100 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaginatedResponse_ReadyForDispatchRow_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    scan_carton_api_v1_packing_scan_get: {
+        parameters: {
+            query: {
+                barcode: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_CartonScanResult_"];
                 };
             };
             /** @description Malformed request */

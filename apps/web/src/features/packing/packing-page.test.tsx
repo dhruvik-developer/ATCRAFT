@@ -275,6 +275,79 @@ describe('carton labels', () => {
   })
 })
 
+describe('carton barcode lookup', () => {
+  it('finds a carton and opens the matching packing record', async () => {
+    const cartonId = '01a00000-0000-7000-8000-0000000000ca'
+    const recorder = urlRecorder()
+    const { user, fetch } = renderScreen(<PackingPage />, {
+      permissions: [P.PACKING_VIEW],
+      routes: {
+        'GET /packing': page([]),
+        'GET /assembly/ready-for-packing': page([]),
+        'GET /packing/scan': ({ url }) => {
+          recorder.urls.push(url)
+          return ok({
+            packing_order: order({ status: 'PACKED', total_cartons: 1 }),
+            carton: {
+              id: cartonId,
+              packing_order_id: ORDER_ID,
+              carton_number: 1,
+              carton_type: 'BOX',
+              barcode: 'PK-0001-C001',
+              length_cm: null,
+              width_cm: null,
+              height_cm: null,
+              tare_weight_kg: '0.5000',
+              net_weight_kg: '2.0000',
+              gross_weight_kg: '2.5000',
+              packing_material_item_id: '01a0000000007000800000000000pm01',
+              packing_material_quantity: '1.0000',
+              material_transaction_id: null,
+              is_sealed: true,
+              sealed_at: '2026-09-04T10:00:00Z',
+              contents: [],
+            },
+          })
+        },
+        [`GET /packing/${ORDER_ID}`]: ok(orderDetail('PACKED')),
+        [`GET /packing/${ORDER_ID}/cartons`]: page([]),
+      },
+    })
+
+    const barcodeInput = screen.getByLabelText('Scan a carton barcode')
+    await user.type(barcodeInput, 'pk-0001-c001')
+    await user.click(screen.getByRole('button', { name: 'Find carton' }))
+
+    expect(await screen.findByText('PK-0001-C001 · Carton 1')).toBeVisible()
+    expect(recorder.paramsAt(0).barcode).toBe('PK-0001-C001')
+
+    await user.clear(barcodeInput)
+    expect(screen.queryByText('PK-0001-C001 · Carton 1')).toBeNull()
+    await user.type(barcodeInput, 'pk-0001-c001')
+    await user.click(screen.getByRole('button', { name: 'Find carton' }))
+
+    await user.click(screen.getByRole('button', { name: 'Open packing record' }))
+    expect(await screen.findByText('Packing PK-0001')).toBeVisible()
+    expect(fetch.calls.some((call) => call.path === `/packing/${ORDER_ID}`)).toBe(true)
+  })
+
+  it('shows a failed scan as an error rather than an empty result', async () => {
+    const { user } = renderScreen(<PackingPage />, {
+      permissions: [P.PACKING_VIEW],
+      routes: {
+        'GET /packing': page([]),
+        'GET /assembly/ready-for-packing': page([]),
+        'GET /packing/scan': fail(404, 'NOT_FOUND', 'Carton not found'),
+      },
+    })
+
+    await user.type(screen.getByLabelText('Scan a carton barcode'), 'PK-0001-C001')
+    await user.click(screen.getByRole('button', { name: 'Find carton' }))
+
+    expect(await screen.findByText('Carton not found')).toBeVisible()
+  })
+})
+
 describe('the hand-over gate', () => {
   it('offers the hand-over to a packer who may also raise a dispatch', async () => {
     await openOrder('PACKED', [

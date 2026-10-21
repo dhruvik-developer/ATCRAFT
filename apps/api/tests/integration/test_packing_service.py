@@ -42,6 +42,7 @@ from src.core.errors import (
     BusinessRuleError,
     InsufficientStockError,
     InvalidStateTransitionError,
+    NotFoundError,
 )
 from src.core.models import Base
 from src.core.pagination import PageParams
@@ -934,6 +935,37 @@ async def test_a_serial_can_be_traced_back_to_the_carton_holding_it(
     found = await service.find_cartons_holding_serial(session, tenant, serial_id)
     assert [c.id for c in found] == [carton.id]
     assert found[0].contents[0].serial_ids == [serial_id]
+
+
+async def test_a_scanned_carton_returns_its_order_and_packing_record(
+    ctx: tuple[AsyncSession, TenantContext], bench: Bench
+) -> None:
+    session, tenant = ctx
+    order = await started_order(session, tenant, bench)
+    carton = await service.add_carton(
+        session, tenant, order.id, bench.carton_payload(quantity="10")
+    )
+
+    result = await service.find_carton_by_barcode(session, tenant, carton.barcode.lower())
+
+    assert result.packing_order.id == order.id
+    assert result.carton.id == carton.id
+    assert result.carton.barcode == carton.barcode
+    assert result.carton.contents[0].quantity == Decimal("10.0000")
+
+
+async def test_a_carton_barcode_is_not_visible_to_another_company(
+    ctx: tuple[AsyncSession, TenantContext], bench: Bench
+) -> None:
+    session, tenant = ctx
+    order = await started_order(session, tenant, bench)
+    carton = await service.add_carton(
+        session, tenant, order.id, bench.carton_payload(quantity="10")
+    )
+    other_tenant = TenantContext(company_id=uuid.uuid4(), user_id=tenant.user_id)
+
+    with pytest.raises(NotFoundError):
+        await service.find_carton_by_barcode(session, other_tenant, carton.barcode)
 
 
 async def test_one_serial_cannot_be_packed_into_two_cartons(

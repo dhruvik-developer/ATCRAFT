@@ -13022,6 +13022,34 @@
           }
         },
         {
+          "name": "Find a carton by scanning its barcode",
+          "request": {
+            "description": "Resolves a carton label within the authenticated company and returns the recorded order, seal state, weights and contents.",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "packing",
+                "scan"
+              ],
+              "query": [
+                {
+                  "description": "",
+                  "disabled": false,
+                  "key": "barcode",
+                  "value": ""
+                }
+              ],
+              "raw": "{{base_url}}/api/v1/packing/scan?"
+            }
+          }
+        },
+        {
           "name": "Finish packing and publish the order to dispatch",
           "request": {
             "body": {
