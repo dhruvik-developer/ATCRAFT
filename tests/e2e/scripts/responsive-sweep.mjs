@@ -53,6 +53,7 @@ const STATIC_ROUTES = [
   '/inventory/ledger',
   '/inventory/reservations',
   '/inventory/movements',
+  '/inventory/tracking',
   '/bom',
   '/routing',
   '/masters?tab=categories',

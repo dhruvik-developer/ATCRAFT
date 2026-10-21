@@ -55,6 +55,7 @@ const ROUTES = [
   ['/warehouses', 'warehouse.view'],
   ['/inventory', 'inventory.view'],
   ['/inventory/movements', 'inventory.view'],
+  ['/inventory/tracking', 'inventory.view'],
   ['/sales-orders', 'sales_order.view'],
   ['/profile', null],
   // --- everything below is a right this user does not hold ---

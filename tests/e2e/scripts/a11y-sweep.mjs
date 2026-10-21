@@ -30,6 +30,7 @@ const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']
 const ROUTES = [
   '/', '/items', '/warehouses', '/warehouses/locations', '/masters',
   '/inventory', '/inventory/ledger', '/inventory/reservations', '/inventory/movements',
+  '/inventory/tracking',
   '/bom', '/routing',
   '/sales-orders', '/customers', '/dealers',
   '/mrp',

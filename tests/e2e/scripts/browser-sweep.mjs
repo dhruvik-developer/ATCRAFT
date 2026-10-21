@@ -26,6 +26,7 @@ import { readyAdminToken, signInThroughForm } from '../lib/session.mjs'
 const STATIC_ROUTES = [
   '/', '/items', '/warehouses', '/warehouses/locations',
   '/inventory', '/inventory/ledger', '/inventory/reservations', '/inventory/movements',
+  '/inventory/tracking',
   '/bom', '/routing', '/masters',
   '/sales-orders', '/customers', '/dealers',
   '/mrp',
