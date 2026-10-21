@@ -75,6 +75,7 @@ def _planned(line_number: int, excess: str) -> PlannedLine:
         order_line=SimpleNamespace(line_number=line_number),  # type: ignore[arg-type]
         entry=SimpleNamespace(),  # type: ignore[arg-type]
         plan=plan,
+        batch_id=None,
     )
 
 
