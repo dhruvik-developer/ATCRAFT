@@ -147,7 +147,59 @@ describe('completing an order', () => {
       entry_date: '2026-10-14',
       actual_end_date: '2026-10-14',
       shift_id: 'shift-day',
+      output_batch_id: null,
+      output_serial_numbers: [],
       note: 'Final inspection complete',
+    })
+  })
+
+  it('captures the output lot and one serial per produced unit', async () => {
+    const inProgress = detail({ status: 'IN_PROCESS' })
+    const { user, fetch } = renderScreen(<ProductionDetailPage />, {
+      permissions: [P.PRODUCTION_ORDER_VIEW, P.PRODUCTION_ENTRY_CREATE],
+      route: `/production/${ORDER_ID}`,
+      path: '/production/:orderId',
+      routes: {
+        [`GET /production/${ORDER_ID}`]: ok(inProgress),
+        [`GET /production/${ORDER_ID}/components`]: ok([]),
+        [`GET /products/items/${inProgress.item_id}`]: ok({
+          id: inProgress.item_id,
+          is_batch_tracked: true,
+          is_serial_tracked: true,
+        }),
+        'GET /inventory/batches': page([
+          {
+            id: 'batch-fg-1',
+            item_id: inProgress.item_id,
+            batch_number: 'FG-LOT-2601',
+            status: 'ACTIVE',
+          },
+        ]),
+        [`POST /production/${ORDER_ID}/complete`]: ok({
+          message: 'Production completed.',
+          order: detail({ status: 'COMPLETED' }),
+          output_movement: null,
+          backflush_issue_code: null,
+          backflush_movements: [],
+          consumed_component_count: 0,
+        }),
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: /^complete$/i }))
+    fireEvent.change(screen.getByLabelText('Final good output'), { target: { value: '2' } })
+    await user.click(await screen.findByRole('combobox', { name: 'Batch' }))
+    await user.click(await screen.findByRole('option', { name: /FG-LOT-2601/ }))
+    await user.type(screen.getByLabelText('Output serial numbers'), 'out-1{enter}OUT-2')
+    await user.click(screen.getByRole('button', { name: 'Complete order' }))
+
+    const body = (await waitFor(() =>
+      fetch.requestFor('POST', `/production/${ORDER_ID}/complete`),
+    )) as Record<string, unknown>
+    expect(body).toMatchObject({
+      produced_quantity: '2',
+      output_batch_id: 'batch-fg-1',
+      output_serial_numbers: ['OUT-1', 'OUT-2'],
     })
   })
 })

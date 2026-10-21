@@ -18,7 +18,7 @@
  * hides a wrong gate.
  */
 
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
@@ -51,6 +51,8 @@ function assemblyOrder(overrides: Partial<AssemblyOrderRow> = {}): AssemblyOrder
     requires_qc: false,
     qc_inspection_id: null,
     qc_held_at: null,
+    output_batch_id: null,
+    output_serial_ids: null,
     packing_order_id: null,
     packed_at: null,
     source_type: 'MANUAL',
@@ -72,6 +74,9 @@ function assemblyComponent(overrides: Partial<AssemblyComponent> = {}): Assembly
     issued_quantity: '40.0000',
     consumed_quantity: '0.0000',
     is_serial_tracked_component: false,
+    is_batch_tracked_component: false,
+    issued_batch_id: null,
+    consumed_batch_id: null,
     consumed_serial_ids: [],
     reservation_id: null,
     notes: null,
@@ -374,7 +379,61 @@ describe('completing an assembly', () => {
       assembled_quantity: '6',
       rejected_quantity: '0',
       reason: 'Assembly completed',
+      output_batch_id: null,
+      output_serial_numbers: [],
       components: [{ line_number: 2, serial_ids: [] }],
+    })
+  })
+
+  it('captures the finished lot and serials for a tracked output item', async () => {
+    const order = inProgress()
+    const { user, fetch } = renderScreen(<AssemblyPage />, {
+      permissions: [P.ASSEMBLY_ORDER_VIEW, P.ASSEMBLY_COMPLETE],
+      routes: {
+        ...panelRoutes(order, [assemblyComponent()]),
+        [`GET /products/items/${order.item_id}`]: ok({
+          id: order.item_id,
+          is_batch_tracked: true,
+          is_serial_tracked: true,
+        }),
+        'GET /inventory/batches': page([
+          {
+            id: 'batch-output-1',
+            item_id: order.item_id,
+            batch_number: 'ASM-LOT-2601',
+            status: 'ACTIVE',
+          },
+        ]),
+        'POST /assembly/asm-1/complete': ok({
+          order: { ...order, status: 'COMPLETED' },
+          consume_movement_count: 1,
+          output_quantity: '2.0000',
+          output_held_for_qc: false,
+          qc_inspection_created: false,
+        }),
+      },
+    })
+    await openPanel(user)
+    await user.click(screen.getByRole('button', { name: 'Complete' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Assembled' }), {
+      target: { value: '2' },
+    })
+    await user.click(await screen.findByRole('combobox', { name: 'Batch' }))
+    await user.click(await screen.findByRole('option', { name: /ASM-LOT-2601/ }))
+    await user.type(
+      screen.getByRole('textbox', { name: 'Output serial numbers' }),
+      'asm-001{enter}ASM-002',
+    )
+    await user.click(screen.getByRole('button', { name: 'Complete assembly' }))
+
+    const body = (await waitFor(() =>
+      fetch.requestFor('POST', '/assembly/asm-1/complete'),
+    )) as Record<string, unknown>
+    expect(body).toMatchObject({
+      assembled_quantity: '2',
+      output_batch_id: 'batch-output-1',
+      output_serial_numbers: ['ASM-001', 'ASM-002'],
+      components: [],
     })
   })
 

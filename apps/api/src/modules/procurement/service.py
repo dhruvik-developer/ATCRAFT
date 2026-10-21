@@ -316,16 +316,6 @@ REQUISITION_AUDITED_FIELDS = [
 # place, if a small team wants it relaxed.
 SUPER_ADMIN_ROLE_CODE = "SUPER_ADMIN"
 
-# ASSUMPTION: a serial-tracked item cannot be received through a goods receipt.
-# The inventory engine requires a serial id on every movement of one, and the
-# procurement contract gives a receipt line nowhere to record the many serials
-# that arrive against a single line. Refusing with an explicit message is better
-# than posting stock whose units cannot be identified afterwards.
-SERIAL_RECEIPT_MESSAGE = (
-    "is serial tracked. Serial numbers cannot be captured on a goods receipt line; "
-    "register the units through inventory and receive them there."
-)
-
 
 def can_approve(principal: Principal, created_by_id: uuid.UUID | None) -> bool:
     """Whether this principal may approve a document raised by ``created_by_id``."""
@@ -4399,10 +4389,18 @@ async def create_goods_receipt(
                     },
                 )
             item = items[order_line.item_id]
-            if item.is_serial_tracked:
+            if item.is_serial_tracked and not payload_line.serial_numbers:
                 raise BusinessRuleError(
-                    f"Item {item.code} {SERIAL_RECEIPT_MESSAGE}",
+                    f"Item {item.code} is serial tracked; name one serial per accepted unit "
+                    f"on line {payload_line.line_number}.",
+                    code=ErrorCode.SERIAL_REQUIRED,
                     details={"item_code": item.code, "item_id": str(item.id)},
+                )
+            if not item.is_serial_tracked and payload_line.serial_numbers:
+                raise BusinessRuleError(
+                    f"Line {payload_line.line_number}: {item.code} is not serial tracked; "
+                    "remove the serial numbers.",
+                    details={"item_code": item.code, "line_number": payload_line.line_number},
                 )
             if item.is_batch_tracked and not (payload_line.batch_number or "").strip():
                 raise BusinessRuleError(
@@ -4471,6 +4469,7 @@ async def create_goods_receipt(
                         fallback_unit_price=Decimal(order_line.unit_price),
                     ),
                     batch_number=(payload_line.batch_number or "").strip().upper() or None,
+                    serial_numbers=payload_line.serial_numbers or None,
                     manufactured_on=payload_line.manufactured_on,
                     expires_on=payload_line.expires_on,
                     location_id=payload_line.location_id,
@@ -4566,6 +4565,74 @@ async def _resolve_batches(
         line.batch_id = batch_id
 
 
+async def _resolve_serials(
+    session: AsyncSession,
+    tenant: TenantContext,
+    receipt: GoodsReceipt,
+    lines: Sequence[GoodsReceiptLine],
+    items: dict[uuid.UUID, PurchasableItem],
+) -> None:
+    """Adopt pre-registered units and mint the rest for one receipt.
+
+    A serial may be registered at goods-in before the paperwork is keyed. The
+    adoption/mint rule belongs to the inventory tracker, not here - this only
+    answers the receipt-specific questions: is the item tracked, and does the
+    count match what was accepted?
+    """
+    traceability = TraceabilityService(session, tenant)
+    seen: set[str] = set()
+
+    for line in lines:
+        numbers = list(line.serial_numbers or [])
+        accepted = Decimal(line.accepted_quantity)
+        if accepted <= 0:
+            if numbers:
+                raise BusinessRuleError(
+                    f"Line {line.line_number} has serials but no accepted quantity."
+                )
+            continue
+        item = items[line.item_id]
+        if item.is_serial_tracked and not numbers:
+            raise BusinessRuleError(
+                f"Line {line.line_number}: {item.code} is serial tracked; name one serial "
+                "per accepted unit.",
+                code=ErrorCode.SERIAL_REQUIRED,
+                details={"line_number": line.line_number, "item_code": item.code},
+            )
+        if not item.is_serial_tracked:
+            if numbers:
+                raise BusinessRuleError(
+                    f"Line {line.line_number}: {item.code} is not serial tracked."
+                )
+            continue
+        if Decimal(len(numbers)) != accepted:
+            raise BusinessRuleError(
+                f"Line {line.line_number}: {len(numbers)} serials were captured for "
+                f"{accepted} accepted units.",
+                code=ErrorCode.SERIAL_REQUIRED,
+                details={"line_number": line.line_number, "item_code": item.code},
+            )
+        repeated = seen.intersection(numbers)
+        if repeated:
+            raise BusinessRuleError(
+                f"Serial {sorted(repeated)[0]} appears on more than one receipt line.",
+                details={"serial_number": sorted(repeated)[0]},
+            )
+        seen.update(numbers)
+        line.serial_ids = await traceability.resolve_serial_ids(
+            line.item_id,
+            numbers,
+            batch_id=line.batch_id,
+            warehouse_id=receipt.warehouse_id,
+            location_id=line.location_id,
+            received_on=receipt.receipt_date,
+            unit_cost=Decimal(line.unit_cost),
+            source=receipt.code,
+        )
+
+    await session.flush()
+
+
 async def post_goods_receipt(
     session: AsyncSession,
     tenant: TenantContext,
@@ -4643,6 +4710,7 @@ async def post_goods_receipt(
             vendor_id=receipt.vendor_id,
             received_on=receipt.receipt_date,
         )
+        await _resolve_serials(session, tenant, receipt, lines, context.items)
 
         movements = _build_receipt_movements(context)
         transactions = await post_movements(session, tenant, movements) if movements else []
@@ -4796,11 +4864,13 @@ def _clear_qc_on_unaccepted_lines(context: _ReceiptContext) -> None:
 
 
 def _build_receipt_movements(context: _ReceiptContext) -> list[MovementRequest]:
-    """One movement per accepted line, routed by the QC requirement.
+    """One movement per accepted line, or per unit on a serialised line.
 
     Built as a batch so the inventory engine locks every affected balance row in
     primary-key order - the deadlock-free pattern database.md section 4.4
-    requires for a multi-line document.
+    requires for a multi-line document. A serialised line posts one movement per
+    unit because the unit's lifecycle is decided per row, and each unit is
+    physically the thing being received.
     """
     movements: list[MovementRequest] = []
     for line in context.lines:
@@ -4809,25 +4879,46 @@ def _build_receipt_movements(context: _ReceiptContext) -> list[MovementRequest]:
             continue
         state = StockState.QC_HOLD if line.requires_qc else StockState.AVAILABLE
         line.posted_stock_state = str(state)
-        movements.append(
-            MovementRequest(
-                item_id=line.item_id,
-                warehouse_id=context.receipt.warehouse_id,
-                quantity=accepted,
-                transaction_type=TransactionType.PURCHASE_RECEIPT,
-                reference_type=MOVEMENT_REFERENCE_GRN,
-                reference_id=context.receipt.id,
-                reference_code=context.receipt.code,
-                reason=(
-                    f"Goods receipt {context.receipt.code} against {context.order.code}"
-                    + (" (held for incoming inspection)" if line.requires_qc else "")
-                ),
-                location_id=line.location_id,
-                batch_id=line.batch_id,
-                unit_cost=Decimal(line.unit_cost),
-                stock_state=state,
-            )
+        reason = f"Goods receipt {context.receipt.code} against {context.order.code}" + (
+            " (held for incoming inspection)" if line.requires_qc else ""
         )
+        serial_ids = line.serial_ids or []
+        if serial_ids:
+            for serial_id in serial_ids:
+                movements.append(
+                    MovementRequest(
+                        item_id=line.item_id,
+                        warehouse_id=context.receipt.warehouse_id,
+                        quantity=Decimal("1"),
+                        transaction_type=TransactionType.PURCHASE_RECEIPT,
+                        reference_type=MOVEMENT_REFERENCE_GRN,
+                        reference_id=context.receipt.id,
+                        reference_code=context.receipt.code,
+                        reason=reason,
+                        location_id=line.location_id,
+                        batch_id=line.batch_id,
+                        serial_id=serial_id,
+                        unit_cost=Decimal(line.unit_cost),
+                        stock_state=state,
+                    )
+                )
+        else:
+            movements.append(
+                MovementRequest(
+                    item_id=line.item_id,
+                    warehouse_id=context.receipt.warehouse_id,
+                    quantity=accepted,
+                    transaction_type=TransactionType.PURCHASE_RECEIPT,
+                    reference_type=MOVEMENT_REFERENCE_GRN,
+                    reference_id=context.receipt.id,
+                    reference_code=context.receipt.code,
+                    reason=reason,
+                    location_id=line.location_id,
+                    batch_id=line.batch_id,
+                    unit_cost=Decimal(line.unit_cost),
+                    stock_state=state,
+                )
+            )
     return movements
 
 

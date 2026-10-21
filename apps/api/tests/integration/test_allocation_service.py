@@ -56,7 +56,14 @@ from src.modules.allocation.schemas import (
 )
 from src.modules.audit.models import AuditAction, AuditLog
 from src.modules.inventory import service as inv
-from src.modules.inventory.models import InventoryTransaction, StockState, TransactionType
+from src.modules.inventory.models import (
+    InventoryTransaction,
+    SerialStatus,
+    StockSerial,
+    StockState,
+    TransactionType,
+)
+from src.modules.inventory.schemas import StockSerialBulkCreate
 from src.modules.notifications.models import Notification, NotificationType
 from src.modules.products.models import Item, ItemGroup
 from src.modules.sales.models import (
@@ -219,6 +226,48 @@ async def stock_at(
             unit_cost=Decimal("10"),
         )
     return item_id, warehouse_id
+
+
+async def serial_stock_at(
+    session: AsyncSession, tenant: TenantContext, quantity: int = 2
+) -> tuple[uuid.UUID, uuid.UUID, list[uuid.UUID]]:
+    """A serial-tracked item whose units are individually on the shelf."""
+    item = await seed_support.seed_item(
+        session,
+        company_id=tenant.company_id,
+        code=_code("SN"),
+        item_group=ItemGroup.COMPONENT,
+        gst_rate=Decimal("18"),
+        standard_cost=Decimal("10"),
+        is_serial_tracked=True,
+    )
+    warehouse_id = await seed_warehouse(session, tenant.company_id, code=_code("WH"))
+    serials = await inv.TraceabilityService(session, tenant).bulk_create_serials(
+        StockSerialBulkCreate(
+            item_id=item.id,
+            serial_numbers=[f"{_code('UNIT')}-{index}" for index in range(quantity)],
+            warehouse_id=warehouse_id,
+            received_on=today(),
+            unit_cost=Decimal("10"),
+        )
+    )
+    async with transaction(session):
+        for serial in serials:
+            await inv.post_movement(
+                session,
+                tenant,
+                item_id=item.id,
+                warehouse_id=warehouse_id,
+                quantity=Decimal("1"),
+                transaction_type=TransactionType.OPENING_BALANCE,
+                reference_type="opening",
+                reference_id=None,
+                reference_code="OPENING",
+                reason="allocation serial fixture opening stock",
+                unit_cost=Decimal("10"),
+                serial_id=serial.id,
+            )
+    return item.id, warehouse_id, [serial.id for serial in serials]
 
 
 async def reserve_for(
@@ -507,6 +556,54 @@ class TestConsume:
         assert balance.on_hand_quantity == Decimal("40.0000")
         assert balance.reserved_quantity == Decimal("0.0000")
         assert balance.available_quantity == Decimal("40.0000")
+
+    async def test_consuming_a_serial_reservation_moves_each_named_unit(self, ctx) -> None:
+        session, tenant, _, _ = ctx
+        item_id, warehouse_id, serial_ids = await serial_stock_at(session, tenant, 2)
+        reservation = await reserve_for(
+            session,
+            tenant,
+            item_id,
+            warehouse_id,
+            "2",
+            demand_type=DemandType.SALES_ORDER,
+        )
+
+        updated = await alloc.consume(
+            session,
+            tenant,
+            reservation_id=reservation.id,
+            quantity=Decimal("2"),
+            reference_type="dispatch",
+            reference_id=uuid.uuid4(),
+            reference_code="DSP/SERIAL/00001",
+            serial_ids=serial_ids,
+        )
+
+        assert updated.status is ReservationStatus.CONSUMED
+        balance = await balance_of(session, tenant, item_id, warehouse_id)
+        assert balance.on_hand_quantity == Decimal("0.0000")
+        assert balance.reserved_quantity == Decimal("0.0000")
+        serials = (
+            (await session.execute(select(StockSerial).where(StockSerial.id.in_(serial_ids))))
+            .scalars()
+            .all()
+        )
+        assert {serial.status for serial in serials} == {SerialStatus.DISPATCHED}
+        posted = (
+            (
+                await session.execute(
+                    select(InventoryTransaction).where(
+                        InventoryTransaction.item_id == item_id,
+                        InventoryTransaction.transaction_type == TransactionType.DISPATCH,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert {row.serial_id for row in posted} == set(serial_ids)
+        assert all(row.quantity == Decimal("-1.0000") for row in posted)
 
     async def test_the_demand_type_decides_the_movement_type(self, ctx) -> None:
         """A dispatch posted as a material issue would put a customer delivery in

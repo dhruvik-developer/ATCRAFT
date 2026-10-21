@@ -67,7 +67,7 @@ import anyio
 from sqlalchemy import Exists, and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.clock import utcnow
+from src.core.clock import today, utcnow
 from src.core.config import settings
 from src.core.database import affected_rows, session_scope, transaction
 from src.core.deps import TenantContext, system_tenant
@@ -75,6 +75,8 @@ from src.core.errors import BusinessRuleError
 from src.core.logging import get_logger
 from src.modules.allocation import service as allocation_service
 from src.modules.allocation.models import OPEN_RESERVATION_STATUSES, StockReservation
+from src.modules.inventory.models import BatchStatus, StockBatch
+from src.modules.inventory.service import BATCH_EXPIRY_WARN_DAYS, TraceabilityService
 from src.modules.quality import service as quality_service
 from src.modules.reports import service as reports_service
 from src.modules.sales import service as sales_service
@@ -593,6 +595,71 @@ async def reconcile_quality_owners(request_id: str | None = None, **_: Any) -> d
     }
 
 
+# -----------------------------------------------------------------------------
+# Batch expiry
+# -----------------------------------------------------------------------------
+
+
+async def _companies_with_expiring_batches(session: AsyncSession) -> list[uuid.UUID]:
+    """Tenants with a lot at or near its expiry date."""
+    stmt = (
+        select(StockBatch.company_id)
+        .where(
+            StockBatch.status.in_((BatchStatus.ACTIVE, BatchStatus.QUARANTINED)),
+            StockBatch.expires_on.is_not(None),
+            StockBatch.expires_on <= today() + timedelta(days=BATCH_EXPIRY_WARN_DAYS),
+        )
+        .distinct()
+    )
+    return list((await session.execute(stmt)).scalars().all())
+
+
+@async_task(name="maintenance.expire_batches", queue="default")
+async def expire_batches(request_id: str | None = None, **_: Any) -> dict[str, Any]:
+    """Expire lots whose date has passed and warn about the ones approaching.
+
+    The lifecycle rules live in ``TraceabilityService.sweep_expiry``; this only
+    finds the tenants and gives each its own session. Idempotent: an already
+    expired lot is not returned by the sweep, and a lot with no expiry date is
+    never touched.
+    """
+    async with session_scope() as session:
+        companies = await _companies_with_expiring_batches(session)
+
+    expired = warning = failed = 0
+    for company_id in companies:
+        try:
+            async with session_scope() as session:
+                result = await TraceabilityService(
+                    session, _system_tenant(company_id)
+                ).sweep_expiry()
+        except Exception as exc:
+            failed += 1
+            log.error(
+                "maintenance.batch_expiry_failed",
+                company_id=str(company_id),
+                error=str(exc),
+                exc_info=exc,
+            )
+            continue
+        expired += len(result.expired_batch_ids)
+        warning += len(result.warning_batch_ids)
+
+    log.info(
+        "maintenance.batches_expired",
+        companies=len(companies),
+        expired=expired,
+        warning=warning,
+        failed=failed,
+    )
+    return {
+        "companies": len(companies),
+        "expired": expired,
+        "warning": warning,
+        "failed": failed,
+    }
+
+
 __all__ = [
     "MAX_PURGE_BATCHES",
     "MAX_TOPUP_ORDERS",
@@ -600,6 +667,7 @@ __all__ = [
     "SESSION_RETENTION_DAYS",
     "TEMP_FILE_MAX_AGE_HOURS",
     "allocate_short_orders",
+    "expire_batches",
     "purge_expired_sessions",
     "purge_temp_files",
     "reconcile_quality_owners",

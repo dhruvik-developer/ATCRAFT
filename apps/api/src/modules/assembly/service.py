@@ -63,12 +63,13 @@ taken, named, and is changeable in one place.
   carries no inspection policy and inventing one would put the rule in two
   places that could disagree; ``goods_receipt_lines.requires_qc`` makes the same
   choice.
-* A **batch-tracked** component or output, and a **serial-tracked output**, are
-  refused at order creation. The inventory engine requires a batch on every
-  movement of a batch-tracked item and a serial on every movement of a
-  serialised one, and this module has no contract for choosing a batch or
-  minting a serial. Refusing at creation fails before anything is committed to,
-  rather than after the components have been issued.
+* **Tracked components and tracked output are supported.** A batch-tracked
+  component is reserved by one ACTIVE, unexpired lot at release - chosen FEFO and
+  recorded on the line, so the operator can see which lot was picked - and the
+  consumed lot is confirmed at completion. A serial-tracked component names the
+  exact units at completion. A tracked output names its lot and one serial per
+  assembled unit, because the inventory engine refuses every other shape of
+  movement.
 * **Rejected output produces no stock.** Only ``assembled_quantity`` is
   received. A failed assembly is not a saleable unit, and receiving it would put
   scrap into the finished-goods balance.
@@ -161,6 +162,7 @@ from src.modules.bom.repository import BomLineRepository, BomRepository
 from src.modules.inventory.models import StockState, TransactionType
 from src.modules.inventory.service import (
     MovementRequest,
+    TraceabilityService,
     change_stock_state,
     post_movements,
 )
@@ -386,6 +388,9 @@ class ComponentConsumption:
     component: AssemblyOrderComponent
     quantity: Decimal
     serial_ids: tuple[uuid.UUID, ...]
+    #: One lot per component line. The model deliberately does not split a
+    #: kitting line across lots; a pick that genuinely needs two is two lines.
+    batch_id: uuid.UUID | None
 
 
 def plan_consumption(
@@ -394,6 +399,7 @@ def plan_consumption(
     planned_quantity: Decimal,
     produced_quantity: Decimal,
     serials_by_line: dict[int, list[uuid.UUID]],
+    batches_by_line: dict[int, uuid.UUID | None] | None = None,
 ) -> list[ComponentConsumption]:
     """Work out what each component gives up, and check it against what it has.
 
@@ -457,8 +463,31 @@ def plan_consumption(
                 details={"line_number": component.line_number},
             )
 
+        requested_batch = (batches_by_line or {}).get(component.line_number)
+        if requested_batch is None:
+            requested_batch = component.issued_batch_id
+        if component.is_batch_tracked_component:
+            if requested_batch is None:
+                raise BusinessRuleError(
+                    f"Component line {component.line_number} is batch tracked; name the lot "
+                    "it consumed.",
+                    code=ErrorCode.BATCH_REQUIRED,
+                    details={"line_number": component.line_number},
+                )
+        elif requested_batch is not None:
+            raise BusinessRuleError(
+                f"Component line {component.line_number} is not batch tracked, so it cannot "
+                "name a batch.",
+                details={"line_number": component.line_number},
+            )
+
         plan.append(
-            ComponentConsumption(component=component, quantity=quantity, serial_ids=serials)
+            ComponentConsumption(
+                component=component,
+                quantity=quantity,
+                serial_ids=serials,
+                batch_id=requested_batch,
+            )
         )
 
     return plan
@@ -495,6 +524,7 @@ def build_movements(
             "reference_id": order.id,
             "reference_code": order.code,
             "reason": reason,
+            "batch_id": entry.batch_id,
             "occurred_at": occurred_at,
         }
         if entry.serial_ids:
@@ -507,23 +537,29 @@ def build_movements(
 
     assembled = to_quantity(Decimal(order.assembled_quantity))
     if assembled > ZERO:
-        movements.append(
-            MovementRequest(
-                item_id=order.item_id,
-                warehouse_id=order.output_warehouse_id,
-                quantity=assembled,
-                transaction_type=TransactionType.ASSEMBLY_RECEIPT,
-                reference_type=MOVEMENT_REFERENCE_ASSEMBLY,
-                reference_id=order.id,
-                reference_code=order.code,
-                reason=reason,
-                # The whole QC behaviour, in one argument: a held receipt raises
-                # qc_hold_quantity instead of the available pool, so the output
-                # exists and is countable but nothing can be promised from it.
-                stock_state=(StockState.QC_HOLD if order.requires_qc else StockState.AVAILABLE),
-                occurred_at=occurred_at,
+        output_common: dict[str, Any] = {
+            "item_id": order.item_id,
+            "warehouse_id": order.output_warehouse_id,
+            "transaction_type": TransactionType.ASSEMBLY_RECEIPT,
+            "reference_type": MOVEMENT_REFERENCE_ASSEMBLY,
+            "reference_id": order.id,
+            "reference_code": order.code,
+            "reason": reason,
+            "batch_id": order.output_batch_id,
+            # The whole QC behaviour, in one argument: a held receipt raises
+            # qc_hold_quantity instead of the available pool, so the output
+            # exists and is countable but nothing can be promised from it.
+            "stock_state": (StockState.QC_HOLD if order.requires_qc else StockState.AVAILABLE),
+            "occurred_at": occurred_at,
+        }
+        serial_ids = list(order.output_serial_ids or [])
+        if serial_ids:
+            movements.extend(
+                MovementRequest(quantity=Decimal("1"), serial_id=serial_id, **output_common)
+                for serial_id in serial_ids
             )
-        )
+        else:
+            movements.append(MovementRequest(quantity=assembled, **output_common))
 
     return movements
 
@@ -692,6 +728,7 @@ class AllocationPort(Protocol):
         reservation_type: ReservationType = ReservationType.HARD,
         priority: int = DEFAULT_RESERVATION_PRIORITY,
         required_date: date | None = None,
+        batch_id: uuid.UUID | None = None,
     ) -> Any: ...
 
     async def release(
@@ -724,6 +761,7 @@ class AllocationService:
         reservation_type: ReservationType = ReservationType.HARD,
         priority: int = DEFAULT_RESERVATION_PRIORITY,
         required_date: date | None = None,
+        batch_id: uuid.UUID | None = None,
     ) -> Any:
         from src.modules.allocation.service import reserve as _reserve
 
@@ -741,6 +779,7 @@ class AllocationService:
             priority=priority,
             required_date=required_date,
             reason=reason,
+            batch_id=batch_id,
         )
 
     async def release(
@@ -936,28 +975,6 @@ async def _resolve_bom(
     return bom
 
 
-def _assert_trackable(item: AssemblyItem, *, role: str) -> None:
-    """Refuse tracking modes this module has no contract to satisfy.
-
-    See the module's Assumptions. Checked at creation so the order never reaches
-    a bench it cannot be completed from.
-    """
-    if item.is_batch_tracked:
-        raise BusinessRuleError(
-            f"{item.code} is batch tracked and cannot be used as an assembly {role}: "
-            "there is no contract for choosing a batch on this path.",
-            code=ErrorCode.BATCH_REQUIRED,
-            details={"item_code": item.code, "role": role},
-        )
-    if role == "output" and item.is_serial_tracked:
-        raise BusinessRuleError(
-            f"{item.code} is serial tracked and cannot be an assembly output: there is no "
-            "contract for minting a serial number on this path.",
-            code=ErrorCode.SERIAL_REQUIRED,
-            details={"item_code": item.code},
-        )
-
-
 async def _explode_components(
     session: AsyncSession,
     tenant: TenantContext,
@@ -1006,8 +1023,6 @@ async def _explode_components(
                 f"{item.code} is not flagged as usable in an assembly.",
                 details={"item_code": item.code, "line_number": line.line_number},
             )
-        _assert_trackable(item, role="component")
-
         exploded.append(
             (
                 line,
@@ -1039,6 +1054,7 @@ async def _persist_components(
                 uom_id=line.uom_id,
                 required_quantity=quantity,
                 is_serial_tracked_component=item.is_serial_tracked,
+                is_batch_tracked_component=item.is_batch_tracked,
                 consumed_serial_ids=[],
                 notes=line.notes,
             )
@@ -1074,6 +1090,16 @@ async def _kit_position(
     available = await ComponentAvailabilityRepository(session, tenant).reservable_by_item(
         [component.item_id for component in components], order.warehouse_id
     )
+    # A batch-tracked component's stock lives on lot rows, never the batch-less
+    # position the reservation engine uses for untracked items. Count both so
+    # the pre-flight shortage report reflects what is really promisable.
+    batches = await ComponentAvailabilityRepository(session, tenant).reservable_batches(
+        [component.item_id for component in components], order.warehouse_id
+    )
+    for item_id, lots in batches.items():
+        available[item_id] = available.get(item_id, ZERO) + sum(
+            (lot.available_quantity for lot in lots), ZERO
+        )
     needs = [
         ComponentNeed(
             line_number=component.line_number,
@@ -1373,7 +1399,6 @@ async def create_order(
                 f"Item {output_item.code} is inactive and cannot be assembled.",
                 details={"item_id": str(payload.item_id)},
             )
-        _assert_trackable(output_item, role="output")
 
         output_warehouse_id = payload.output_warehouse_id or payload.warehouse_id
         await _assert_warehouses(session, tenant, payload.warehouse_id, output_warehouse_id)
@@ -1616,18 +1641,64 @@ async def release_order(
         await _assert_kit_available(session, tenant, order, components)
 
         required_date = reservation_required_date(order.planned_start)
+        batch_lots = await ComponentAvailabilityRepository(session, tenant).reservable_batches(
+            [component.item_id for component in components], order.warehouse_id
+        )
+        remaining_by_batch = {
+            lot.batch_id: lot.available_quantity for lots in batch_lots.values() for lot in lots
+        }
         # Reserving in a fixed order across every caller of this path is what
         # stops two releases that share components from taking the same balance
         # locks in opposite orders and deadlocking.
         for component in sorted(components, key=lambda row: (row.item_id, row.line_number)):
             if component.reservation_id is not None:
                 continue
+            quantity = Decimal(component.required_quantity)
+            batch_id: uuid.UUID | None = None
+            if component.is_batch_tracked_component:
+                lots = batch_lots.get(component.item_id, [])
+                preferred = component.issued_batch_id
+                chosen = next(
+                    (
+                        lot
+                        for lot in lots
+                        if lot.batch_id == preferred
+                        and remaining_by_batch[lot.batch_id] >= quantity
+                    ),
+                    None,
+                )
+                if chosen is None:
+                    chosen = next(
+                        (lot for lot in lots if remaining_by_batch[lot.batch_id] >= quantity),
+                        None,
+                    )
+                if chosen is None:
+                    raise KitShortageError(
+                        f"{order.code} cannot be released: component line "
+                        f"{component.line_number} is batch tracked and no single lot "
+                        f"can cover {to_quantity(quantity)}.",
+                        details={
+                            "line_number": component.line_number,
+                            "item_id": str(component.item_id),
+                            "required": str(to_quantity(quantity)),
+                            "lots": [
+                                {
+                                    "batch_id": str(lot.batch_id),
+                                    "batch_number": lot.batch_number,
+                                    "available": str(lot.available_quantity),
+                                }
+                                for lot in lots
+                            ],
+                        },
+                    )
+                batch_id = chosen.batch_id
+                remaining_by_batch[batch_id] -= quantity
             reservation = await port.reserve(
                 session,
                 tenant,
                 item_id=component.item_id,
                 warehouse_id=order.warehouse_id,
-                quantity=Decimal(component.required_quantity),
+                quantity=quantity,
                 demand_type=DemandType.ASSEMBLY_ORDER,
                 demand_id=order.id,
                 demand_line_id=component.id,
@@ -1636,8 +1707,11 @@ async def release_order(
                 priority=order.priority,
                 required_date=required_date,
                 reason=f"{order.code} released to the assembly line: {reason}"[:255],
+                batch_id=batch_id,
             )
             component.reservation_id = reservation.id
+            if batch_id is not None:
+                component.issued_batch_id = batch_id
             component_repo.touch(component)
         await session.flush()
 
@@ -1689,10 +1763,27 @@ async def issue_components(
             for component in components
         }
         overrides = {line.line_number: to_quantity(line.issued_quantity) for line in payload.lines}
+        batches = {line.line_number: line.batch_id for line in payload.lines}
         plan = plan_issue(components, overrides, top_up=top_up)
 
         for component in components:
             component.issued_quantity = plan[component.line_number]
+            requested_batch = batches.get(component.line_number)
+            if requested_batch is not None and not component.is_batch_tracked_component:
+                raise BusinessRuleError(
+                    f"Component line {component.line_number} is not batch tracked, so it "
+                    "cannot name a lot.",
+                    details={"line_number": component.line_number},
+                )
+            if requested_batch is not None:
+                if component.issued_batch_id not in (None, requested_batch):
+                    raise BusinessRuleError(
+                        f"Component line {component.line_number} already has a different lot "
+                        "issued to the bench.",
+                        code=ErrorCode.CONFLICT,
+                        details={"line_number": component.line_number},
+                    )
+                component.issued_batch_id = requested_batch
             component_repo.touch(component)
         await session.flush()
 
@@ -1814,6 +1905,19 @@ async def _validate_serials(
                         "order_warehouse_id": str(warehouse_id),
                     },
                 )
+            if entry.batch_id is not None and serial.batch_id != entry.batch_id:
+                raise BusinessRuleError(
+                    f"Serial {serial.serial_number} belongs to a different lot than component "
+                    f"line {entry.component.line_number}.",
+                    details={
+                        "serial_id": str(serial_id),
+                        "line_number": entry.component.line_number,
+                        "serial_batch_id": (
+                            str(serial.batch_id) if serial.batch_id is not None else None
+                        ),
+                        "consumed_batch_id": str(entry.batch_id),
+                    },
+                )
             consumed_by = already.get(serial_id)
             if consumed_by is not None:
                 raise BusinessRuleError(
@@ -1908,12 +2012,64 @@ async def complete_assembly(
         # fails without having released a single reservation.
         ASSEMBLY_ORDER_LIFECYCLE.assert_transition(AssemblyOrderStatus(order.status), target)
 
+        output_items = await ItemLookupRepository(session, tenant).load([order.item_id])
+        output_item = output_items.get(order.item_id)
+        if output_item is None:
+            raise NotFoundError("Item", order.item_id)
+        if assembled <= ZERO:
+            if payload.output_batch_id is not None or payload.output_serial_numbers:
+                raise BusinessRuleError(
+                    "A run that assembled nothing has no output lot or serials to record."
+                )
+        else:
+            if output_item.is_batch_tracked and payload.output_batch_id is None:
+                raise BusinessRuleError(
+                    f"{output_item.code} is batch tracked; name the output lot.",
+                    code=ErrorCode.BATCH_REQUIRED,
+                    details={"item_code": output_item.code, "order_code": order.code},
+                )
+            if not output_item.is_batch_tracked and payload.output_batch_id is not None:
+                raise BusinessRuleError(
+                    f"{output_item.code} is not batch tracked; remove the output lot.",
+                    details={"item_code": output_item.code, "order_code": order.code},
+                )
+            if output_item.is_serial_tracked:
+                if len(payload.output_serial_numbers) != int(assembled):
+                    raise BusinessRuleError(
+                        f"{output_item.code} is serial tracked; name one serial per assembled "
+                        "unit.",
+                        code=ErrorCode.SERIAL_REQUIRED,
+                        details={
+                            "item_code": output_item.code,
+                            "assembled_quantity": str(assembled),
+                            "serial_count": len(payload.output_serial_numbers),
+                        },
+                    )
+                order.output_serial_ids = await TraceabilityService(
+                    session, tenant
+                ).resolve_serial_ids(
+                    order.item_id,
+                    payload.output_serial_numbers,
+                    batch_id=payload.output_batch_id,
+                    warehouse_id=order.output_warehouse_id,
+                    location_id=None,
+                    received_on=(payload.occurred_at or utcnow()).date(),
+                    source=order.code,
+                )
+            elif payload.output_serial_numbers:
+                raise BusinessRuleError(
+                    f"{output_item.code} is not serial tracked; remove the output serials.",
+                    details={"item_code": output_item.code, "order_code": order.code},
+                )
+            order.output_batch_id = payload.output_batch_id
+
         components = await component_repo.list_for_order(order.id)
         plan = plan_consumption(
             components,
             planned_quantity=planned,
             produced_quantity=produced,
             serials_by_line={line.line_number: line.serial_ids for line in payload.components},
+            batches_by_line={line.line_number: line.batch_id for line in payload.components},
         )
         await _validate_serials(session, tenant, plan, warehouse_id=order.warehouse_id)
 
@@ -1951,6 +2107,7 @@ async def complete_assembly(
         for entry in plan:
             entry.component.consumed_quantity = entry.quantity
             entry.component.consumed_serial_ids = list(entry.serial_ids)
+            entry.component.consumed_batch_id = entry.batch_id
             component_repo.touch(entry.component)
 
         held_for_qc = target is AssemblyOrderStatus.QC_PENDING
@@ -1998,6 +2155,13 @@ async def complete_assembly(
                     for entry in plan
                     if entry.serial_ids
                 },
+                "consumed_batches": {
+                    str(entry.component.line_number): entry.batch_id
+                    for entry in plan
+                    if entry.batch_id is not None
+                },
+                "output_batch_id": order.output_batch_id,
+                "output_serial_ids": list(order.output_serial_ids or []),
             },
             context={
                 "reason": payload.reason,
@@ -2025,7 +2189,11 @@ async def complete_assembly(
 
     return CompletionResult(
         order=detail,
-        consume_movement_count=len(movements) - (1 if assembled > ZERO else 0),
+        consume_movement_count=sum(
+            1
+            for movement in movements
+            if movement.transaction_type is TransactionType.ASSEMBLY_CONSUME
+        ),
         output_quantity=assembled,
         output_held_for_qc=held_for_qc,
         qc_inspection_created=inspection_created,

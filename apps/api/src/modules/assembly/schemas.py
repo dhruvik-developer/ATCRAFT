@@ -134,6 +134,9 @@ class AssemblyComponentRead(BaseModel):
     issued_quantity: Decimal
     consumed_quantity: Decimal
     is_serial_tracked_component: bool
+    is_batch_tracked_component: bool = False
+    issued_batch_id: uuid.UUID | None = None
+    consumed_batch_id: uuid.UUID | None = None
     consumed_serial_ids: list[uuid.UUID]
     reservation_id: uuid.UUID | None
     notes: str | None
@@ -161,6 +164,8 @@ class AssemblyOrderSummary(BaseModel):
     requires_qc: bool
     qc_held_at: datetime | None
     qc_inspection_id: uuid.UUID | None
+    output_batch_id: uuid.UUID | None = None
+    output_serial_ids: list[uuid.UUID] | None = None
     packing_order_id: uuid.UUID | None
     packed_at: datetime | None
     source_type: AssemblySourceType
@@ -220,6 +225,9 @@ class ComponentIssueIn(BaseModel):
 
     line_number: Annotated[int, Field(ge=1, le=100_000)]
     issued_quantity: PositiveQuantity
+    #: The lot handed over. Required for a batch-tracked component once the
+    #: service has the item master; ignored for every other line.
+    batch_id: uuid.UUID | None = None
 
 
 class IssueComponentsRequest(BaseModel):
@@ -255,6 +263,9 @@ class ComponentConsumptionIn(BaseModel):
 
     line_number: Annotated[int, Field(ge=1, le=100_000)]
     serial_ids: list[uuid.UUID] = Field(default_factory=list, max_length=10_000)
+    #: The lot consumed. Defaults to the lot issued to the line; naming a
+    #: different one records a correction rather than hiding it.
+    batch_id: uuid.UUID | None = None
 
     @model_validator(mode="after")
     def _serials_are_distinct(self) -> ComponentConsumptionIn:
@@ -279,6 +290,9 @@ class CompleteRequest(BaseModel):
     #: Business time of the assembly, when it differs from now - a night shift
     #: keyed in the following morning.
     occurred_at: datetime | None = None
+    #: The finished lot and units. Required when the output item is tracked.
+    output_batch_id: uuid.UUID | None = None
+    output_serial_numbers: list[str] = Field(default_factory=list, max_length=10_000)
     components: list[ComponentConsumptionIn] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -291,6 +305,14 @@ class CompleteRequest(BaseModel):
         seen = {line.line_number for line in self.components}
         if len(seen) != len(self.components):
             raise ValueError("A component line may only be given one serial set.")
+        cleaned = ["".join(value.split()).upper() for value in self.output_serial_numbers]
+        if any(not value or len(value) > 64 for value in cleaned):
+            raise ValueError("Every output serial must be 1-64 characters.")
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError("An output serial is repeated.")
+        if cleaned and Decimal(len(cleaned)) != self.assembled_quantity:
+            raise ValueError("Name one output serial per assembled unit.")
+        self.output_serial_numbers = cleaned
         return self
 
 

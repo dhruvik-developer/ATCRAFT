@@ -4753,6 +4753,32 @@
         "title": "ApiResponse[StockBatchRead]",
         "type": "object"
       },
+      "ApiResponse_StockSerialDetail_": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StockSerialDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[StockSerialDetail]",
+        "type": "object"
+      },
       "ApiResponse_StockSerialRead_": {
         "properties": {
           "data": {
@@ -6077,6 +6103,36 @@
         "title": "ApiResponse[list[ShiftAssignmentRead]]",
         "type": "object"
       },
+      "ApiResponse_list_StockSerialRead__": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/StockSerialRead"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "message": {
+            "default": "Operation completed successfully",
+            "title": "Message",
+            "type": "string"
+          },
+          "success": {
+            "default": true,
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "title": "ApiResponse[list[StockSerialRead]]",
+        "type": "object"
+      },
       "ApiResponse_list_TransporterOption__": {
         "properties": {
           "data": {
@@ -6590,6 +6646,18 @@
             "title": "Assembly Order Id",
             "type": "string"
           },
+          "consumed_batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consumed Batch Id"
+          },
           "consumed_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Consumed Quantity",
@@ -6608,9 +6676,26 @@
             "title": "Id",
             "type": "string"
           },
+          "is_batch_tracked_component": {
+            "default": false,
+            "title": "Is Batch Tracked Component",
+            "type": "boolean"
+          },
           "is_serial_tracked_component": {
             "title": "Is Serial Tracked Component",
             "type": "boolean"
+          },
+          "issued_batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Issued Batch Id"
           },
           "issued_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -6983,6 +7068,33 @@
             ],
             "title": "Notes"
           },
+          "output_batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Batch Id"
+          },
+          "output_serial_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Serial Ids"
+          },
           "output_warehouse_id": {
             "format": "uuid",
             "title": "Output Warehouse Id",
@@ -7235,6 +7347,33 @@
               }
             ],
             "title": "Notes"
+          },
+          "output_batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Batch Id"
+          },
+          "output_serial_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Serial Ids"
           },
           "output_warehouse_id": {
             "format": "uuid",
@@ -12960,6 +13099,18 @@
         "additionalProperties": false,
         "description": "The serialised units one component contributed to this assembly.\n\nRequired for every serial-tracked component and rejected for every other\none: a serial identifies a single physical unit, so the count has to equal\nthe quantity consumed, and a non-serialised part has nothing to name.",
         "properties": {
+          "batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
           "line_number": {
             "maximum": 100000.0,
             "minimum": 1.0,
@@ -12986,6 +13137,18 @@
         "additionalProperties": false,
         "description": "How much of one component has been handed to the line, in total.\n\nOmitting a line issues its full ``required_quantity``, which is the normal\ncase. An explicit quantity exists for issuing short because the rest\narrives later; a later top-up states the line's new total, which may not be\nbelow what is already on the bench nor above the reserved requirement.",
         "properties": {
+          "batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
           "issued_quantity": {
             "anyOf": [
               {
@@ -21545,6 +21708,14 @@
               }
             ],
             "title": "Requires Qc"
+          },
+          "serial_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "Serial Numbers",
+            "type": "array"
           }
         },
         "required": [
@@ -21724,6 +21895,35 @@
             "title": "Returned Quantity",
             "type": "string"
           },
+          "serial_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Serial Ids"
+          },
+          "serial_numbers": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Serial Numbers"
+          },
           "unit_cost": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Unit Cost",
@@ -21750,6 +21950,8 @@
           "unit_cost",
           "batch_number",
           "batch_id",
+          "serial_numbers",
+          "serial_ids",
           "manufactured_on",
           "expires_on",
           "location_id",
@@ -30911,6 +31113,7 @@
           "SALES_ORDER_AT_RISK",
           "STOCK_BELOW_REORDER",
           "STOCK_SHORTAGE",
+          "STOCK_EXPIRY",
           "ALLOCATION_CHANGED",
           "QC_INSPECTION_PENDING",
           "QC_FAILED",
@@ -36494,7 +36697,7 @@
             "items": {
               "$ref": "#/components/schemas/NotificationPreferenceUpdate"
             },
-            "maxItems": 36,
+            "maxItems": 37,
             "minItems": 1,
             "title": "Preferences",
             "type": "array"
@@ -37205,6 +37408,26 @@
             ],
             "title": "Operator User Id"
           },
+          "output_batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Batch Id"
+          },
+          "output_serial_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Output Serial Numbers",
+            "type": "array"
+          },
           "produced_quantity": {
             "anyOf": [
               {
@@ -37332,6 +37555,33 @@
             ],
             "title": "Operator User Id"
           },
+          "output_batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Batch Id"
+          },
+          "output_serial_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Serial Ids"
+          },
           "output_transaction_id": {
             "anyOf": [
               {
@@ -37343,6 +37593,21 @@
               }
             ],
             "title": "Output Transaction Id"
+          },
+          "output_transaction_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Transaction Ids"
           },
           "produced_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -47636,7 +47901,7 @@
             "items": {
               "type": "string"
             },
-            "maxItems": 183,
+            "maxItems": 184,
             "title": "Permissions",
             "type": "array"
           }
@@ -47848,7 +48113,7 @@
                 "items": {
                   "type": "string"
                 },
-                "maxItems": 183,
+                "maxItems": 184,
                 "type": "array"
               },
               {
@@ -52490,6 +52755,7 @@
       "SerialStatus": {
         "enum": [
           "IN_STOCK",
+          "IN_TRANSIT",
           "ISSUED",
           "DISPATCHED",
           "RETURNED",
@@ -53392,6 +53658,15 @@
             ],
             "title": "Quantity"
           },
+          "serial_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "Serial Ids",
+            "type": "array"
+          },
           "unit_cost": {
             "anyOf": [
               {
@@ -53494,6 +53769,21 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Quantity",
             "type": "string"
+          },
+          "serial_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Serial Ids"
           },
           "system_quantity": {
             "anyOf": [
@@ -53781,6 +54071,23 @@
         "title": "StockAdjustmentUpdate",
         "type": "object"
       },
+      "StockBatchAction": {
+        "additionalProperties": false,
+        "description": "A lifecycle action on a lot.\n\nA reason is required even for activation: \"why was this lot released?\" is\nthe question a recall or an audit asks, and it is unanswerable if the\nrelease left no trace.",
+        "properties": {
+          "reason": {
+            "maxLength": 255,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "StockBatchAction",
+        "type": "object"
+      },
       "StockBatchCreate": {
         "properties": {
           "batch_number": {
@@ -53905,6 +54212,12 @@
       },
       "StockBatchRead": {
         "properties": {
+          "available_quantity": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Available Quantity",
+            "type": "string"
+          },
           "batch_number": {
             "title": "Batch Number",
             "type": "string"
@@ -53931,15 +54244,43 @@
             "title": "Id",
             "type": "string"
           },
+          "in_transit_quantity": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "In Transit Quantity",
+            "type": "string"
+          },
           "initial_quantity": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Initial Quantity",
             "type": "string"
           },
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
           "item_id": {
             "format": "uuid",
             "title": "Item Id",
             "type": "string"
+          },
+          "item_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Name"
           },
           "manufactured_on": {
             "anyOf": [
@@ -53963,6 +54304,12 @@
               }
             ],
             "title": "Notes"
+          },
+          "on_hand_quantity": {
+            "default": "0",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "On Hand Quantity",
+            "type": "string"
           },
           "received_on": {
             "format": "date",
@@ -54017,6 +54364,106 @@
           "created_at"
         ],
         "title": "StockBatchRead",
+        "type": "object"
+      },
+      "StockSerialBulkCreate": {
+        "additionalProperties": false,
+        "description": "Register a bounded range of units before their receipt.\n\nThe cap is deliberately small: this is a label-printing operation at a\ngoods-in desk, not a bulk import. A larger set belongs in the GRN itself,\nwhere each unit is tied to the line that brought it in.",
+        "properties": {
+          "batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Id"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "location_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Id"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "received_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Received On"
+          },
+          "serial_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Serial Numbers",
+            "type": "array"
+          },
+          "unit_cost": {
+            "anyOf": [
+              {
+                "maximum": 99999999999999.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "default": "0",
+            "title": "Unit Cost"
+          },
+          "warehouse_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warehouse Id"
+          }
+        },
+        "required": [
+          "item_id",
+          "serial_numbers"
+        ],
+        "title": "StockSerialBulkCreate",
         "type": "object"
       },
       "StockSerialCreate": {
@@ -54114,6 +54561,26 @@
         "title": "StockSerialCreate",
         "type": "object"
       },
+      "StockSerialDetail": {
+        "description": "One unit and the ledger rows that moved it, newest first.",
+        "properties": {
+          "movements": {
+            "items": {
+              "$ref": "#/components/schemas/LedgerEntryRead"
+            },
+            "title": "Movements",
+            "type": "array"
+          },
+          "serial": {
+            "$ref": "#/components/schemas/StockSerialRead"
+          }
+        },
+        "required": [
+          "serial"
+        ],
+        "title": "StockSerialDetail",
+        "type": "object"
+      },
       "StockSerialRead": {
         "properties": {
           "batch_id": {
@@ -54128,6 +54595,17 @@
             ],
             "title": "Batch Id"
           },
+          "batch_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Number"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -54138,10 +54616,32 @@
             "title": "Id",
             "type": "string"
           },
+          "item_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Code"
+          },
           "item_id": {
             "format": "uuid",
             "title": "Item Id",
             "type": "string"
+          },
+          "item_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Name"
           },
           "location_id": {
             "anyOf": [
@@ -54189,6 +54689,17 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Unit Cost",
             "type": "string"
+          },
+          "warehouse_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warehouse Code"
           },
           "warehouse_id": {
             "anyOf": [
@@ -54376,6 +54887,15 @@
             ],
             "title": "Quantity"
           },
+          "serial_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 500,
+            "title": "Serial Ids",
+            "type": "array"
+          },
           "source_line_id": {
             "anyOf": [
               {
@@ -54495,6 +55015,21 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Received Quantity",
             "type": "string"
+          },
+          "serial_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Serial Ids"
           },
           "source_line_id": {
             "anyOf": [
@@ -66110,6 +66645,26 @@
             ],
             "title": "Occurred At"
           },
+          "output_batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Batch Id"
+          },
+          "output_serial_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "title": "Output Serial Numbers",
+            "type": "array"
+          },
           "reason": {
             "maxLength": 255,
             "minLength": 3,
@@ -66645,6 +67200,26 @@
               }
             ],
             "title": "Operator User Id"
+          },
+          "output_batch_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Batch Id"
+          },
+          "output_serial_numbers": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Output Serial Numbers",
+            "type": "array"
           },
           "produced_quantity": {
             "anyOf": [
@@ -93959,6 +94534,56 @@
             }
           },
           {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/BatchStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expiry_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expiry From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expiry_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expiry To"
+            }
+          },
+          {
             "description": "1-based page number",
             "in": "query",
             "name": "page",
@@ -94212,6 +94837,508 @@
           }
         ],
         "summary": "Record a stock batch",
+        "tags": [
+          "Inventory"
+        ]
+      }
+    },
+    "/api/v1/inventory/batches/{batch_id}": {
+      "get": {
+        "operationId": "get_batch_api_v1_inventory_batches__batch_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_StockBatchRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read one stock batch",
+        "tags": [
+          "Inventory"
+        ]
+      }
+    },
+    "/api/v1/inventory/batches/{batch_id}/activate": {
+      "post": {
+        "operationId": "activate_batch_api_v1_inventory_batches__batch_id__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StockBatchAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_StockBatchRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Release a lot from quarantine",
+        "tags": [
+          "Inventory"
+        ]
+      }
+    },
+    "/api/v1/inventory/batches/{batch_id}/expire": {
+      "post": {
+        "operationId": "expire_batch_api_v1_inventory_batches__batch_id__expire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StockBatchAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_StockBatchRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retire a lot",
+        "tags": [
+          "Inventory"
+        ]
+      }
+    },
+    "/api/v1/inventory/batches/{batch_id}/quarantine": {
+      "post": {
+        "operationId": "quarantine_batch_api_v1_inventory_batches__batch_id__quarantine_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "batch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Batch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StockBatchAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_StockBatchRead_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Quarantine a lot and move its available stock to QC hold",
         "tags": [
           "Inventory"
         ]
@@ -98192,6 +99319,39 @@
             }
           },
           {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SerialStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "batch_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Batch Id"
+            }
+          },
+          {
             "description": "1-based page number",
             "in": "query",
             "name": "page",
@@ -98444,6 +99604,240 @@
           }
         ],
         "summary": "Record a serial number",
+        "tags": [
+          "Inventory"
+        ]
+      }
+    },
+    "/api/v1/inventory/serials/bulk": {
+      "post": {
+        "operationId": "bulk_create_serials_api_v1_inventory_serials_bulk_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StockSerialBulkCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_list_StockSerialRead__"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Register a bounded run of serial numbers",
+        "tags": [
+          "Inventory"
+        ]
+      }
+    },
+    "/api/v1/inventory/serials/{serial_id}": {
+      "get": {
+        "operationId": "get_serial_api_v1_inventory_serials__serial_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "serial_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Serial Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_StockSerialDetail_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Read one serial number and its ledger history",
         "tags": [
           "Inventory"
         ]

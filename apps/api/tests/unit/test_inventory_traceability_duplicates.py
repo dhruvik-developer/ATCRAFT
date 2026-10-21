@@ -42,7 +42,7 @@ def _knows_item(
     monkeypatch: pytest.MonkeyPatch, service: TraceabilityService, item_id: uuid.UUID
 ) -> None:
     async def _facts(item_ids: Any) -> dict[uuid.UUID, Any]:
-        return {item_id: SimpleNamespace(code="HNG-SS-100")}
+        return {item_id: SimpleNamespace(id=item_id, code="HNG-SS-100", is_serial_tracked=True)}
 
     monkeypatch.setattr(service.inventory, "item_facts", _facts)
 

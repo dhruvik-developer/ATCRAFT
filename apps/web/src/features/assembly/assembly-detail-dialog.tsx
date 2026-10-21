@@ -16,7 +16,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
 import { CheckCircle2, PackageMinus, ScanBarcode, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { useFieldArray, useForm } from 'react-hook-form'
+import { Controller, useFieldArray, useForm } from 'react-hook-form'
 import { Link } from 'react-router-dom'
 import { z } from 'zod'
 
@@ -34,6 +34,10 @@ import {
 } from '@/components/ui/overlays'
 import { Alert, AlertDescription, Badge, Input, Label, Skeleton } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { BatchSelect } from '@/features/dispatch/stock-pickers'
+import MovementBatchPicker from '@/features/inventory/movement-batch-picker'
+import { SerialNumbersField } from '@/features/inventory/serial-numbers-field'
+import { splitSerialNumbers } from '@/features/inventory/serial-numbers'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE, REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
@@ -105,6 +109,7 @@ const issueSchema = z.object({
       line_number: z.number(),
       item_id: z.string(),
       label: z.string(),
+      batch_id: z.string(),
       quantity: z
         .string()
         .trim()
@@ -133,6 +138,7 @@ function issueDefaults(components: AssemblyComponent[]): IssueFormValues {
       line_number: component.line_number,
       item_id: component.item_id,
       label: `Line ${component.line_number} - ${component.item_id.slice(0, 8)}`,
+      batch_id: component.issued_batch_id ?? '',
       quantity: toDecimal(component.required_quantity).toFixed(),
     })),
   }
@@ -184,6 +190,7 @@ function IssueComponentsDialog({
         lines: values.lines.map((line) => ({
           line_number: line.line_number,
           issued_quantity: asDecimal(line.quantity),
+          ...(line.batch_id ? { batch_id: line.batch_id } : {}),
         })),
       }),
     onSuccess: (updated) => {
@@ -258,6 +265,23 @@ function IssueComponentsDialog({
                           {formatQuantity(onBenchQuantity(component).toFixed())}
                           {component.is_serial_tracked_component && ' - serial tracked'}
                         </p>
+                      )}
+                      {component?.is_batch_tracked_component && (
+                        <div className="mt-2">
+                          <Controller
+                            control={control}
+                            name={`lines.${index}.batch_id`}
+                            render={({ field: batch }) => (
+                              <BatchSelect
+                                id={`assembly-issue-batch-${index}`}
+                                itemId={component.item_id}
+                                value={batch.value}
+                                onChange={batch.onChange}
+                              />
+                            )}
+                          />
+                          <FieldError message={errors.lines?.[index]?.batch_id?.message} />
+                        </div>
                       )}
                     </div>
                     <div>
@@ -506,24 +530,38 @@ function SerialPicker({
   )
 }
 
-const completeSchema = z.object({
-  assembled_quantity: z
-    .string()
-    .trim()
-    .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places'),
-  rejected_quantity: z
-    .string()
-    .trim()
-    .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
-  reason: z
-    .string()
-    .trim()
-    .min(
-      REASON_MIN_LENGTH,
-      `The completion is recorded with a reason of at least ${REASON_MIN_LENGTH} characters`,
-    )
-    .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
-})
+const completeSchema = z
+  .object({
+    assembled_quantity: z
+      .string()
+      .trim()
+      .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places'),
+    rejected_quantity: z
+      .string()
+      .trim()
+      .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
+    reason: z
+      .string()
+      .trim()
+      .min(
+        REASON_MIN_LENGTH,
+        `The completion is recorded with a reason of at least ${REASON_MIN_LENGTH} characters`,
+      )
+      .max(REASON_MAX_LENGTH, `At most ${REASON_MAX_LENGTH} characters`),
+    output_batch_id: z.string(),
+    output_serial_numbers: z.string(),
+  })
+  .superRefine((values, ctx) => {
+    const serials = splitSerialNumbers(values.output_serial_numbers)
+    const assembled = toDecimal(values.assembled_quantity)
+    if (serials.length > 0 && !assembled.equals(serials.length)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Name one output serial per assembled unit - ${assembled.toString()} assembled, ${serials.length} captured`,
+        path: ['output_serial_numbers'],
+      })
+    }
+  })
 
 type CompleteFormValues = z.infer<typeof completeSchema>
 
@@ -550,17 +588,32 @@ function CompleteAssemblyDialog({
 }) {
   const queryClient = useQueryClient()
   const [serialsByLine, setSerialsByLine] = useState<Record<number, StockSerial[]>>({})
+  const [batchesByLine, setBatchesByLine] = useState<Record<number, string>>({})
 
-  const tracked = useMemo(
+  const serialTracked = useMemo(
     () => components.filter((component) => component.is_serial_tracked_component),
+    [components],
+  )
+  const batchTracked = useMemo(
+    () => components.filter((component) => component.is_batch_tracked_component),
+    [components],
+  )
+  const trackedComponents = useMemo(
+    () =>
+      components.filter(
+        (component) =>
+          component.is_serial_tracked_component || component.is_batch_tracked_component,
+      ),
     [components],
   )
 
   const {
     register,
+    control,
     handleSubmit,
     reset,
     setError,
+    watch,
     formState: { errors },
   } = useForm<CompleteFormValues>({
     resolver: zodResolver(completeSchema),
@@ -568,6 +621,8 @@ function CompleteAssemblyDialog({
       assembled_quantity: remainingToAssemble(order).toFixed(),
       rejected_quantity: '0',
       reason: 'Assembly completed',
+      output_batch_id: '',
+      output_serial_numbers: '',
     },
   })
 
@@ -578,8 +633,17 @@ function CompleteAssemblyDialog({
         assembled_quantity: remainingToAssemble(order).toFixed(),
         rejected_quantity: '0',
         reason: 'Assembly completed',
+        output_batch_id: '',
+        output_serial_numbers: '',
       })
       setSerialsByLine({})
+      setBatchesByLine(
+        Object.fromEntries(
+          components
+            .filter((component) => component.issued_batch_id)
+            .map((component) => [component.line_number, component.issued_batch_id ?? '']),
+        ),
+      )
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, orderId, reset])
@@ -592,11 +656,18 @@ function CompleteAssemblyDialog({
         assembled_quantity: asDecimal(values.assembled_quantity),
         rejected_quantity: asDecimal(values.rejected_quantity),
         reason: values.reason.trim(),
-        // Only the serialised lines. A line that is not serial tracked "has
-        // nothing to name" and is refused outright if it names anything.
-        components: tracked.map((component) => ({
+        output_batch_id: values.output_batch_id || null,
+        output_serial_numbers: splitSerialNumbers(values.output_serial_numbers),
+        // Only tracked lines. A line that names neither a serial nor a lot "has
+        // nothing to name", and a serial on an untracked line is refused.
+        components: trackedComponents.map((component) => ({
           line_number: component.line_number,
           serial_ids: (serialsByLine[component.line_number] ?? []).map((serial) => serial.id),
+          ...(component.is_batch_tracked_component
+            ? {
+                batch_id: batchesByLine[component.line_number] || component.issued_batch_id || null,
+              }
+            : {}),
         })),
       }),
     onSuccess: (result) => {
@@ -700,7 +771,7 @@ function CompleteAssemblyDialog({
               <FieldError message={errors.reason?.message} />
             </div>
 
-            {tracked.length > 0 && (
+            {serialTracked.length > 0 && (
               <div className="space-y-2">
                 <p className="text-sm font-medium">Serial numbers consumed</p>
                 <p className="text-xs text-muted-foreground">
@@ -708,7 +779,7 @@ function CompleteAssemblyDialog({
                   many that is from what was produced and refuses the completion if the count does
                   not match.
                 </p>
-                {tracked.map((component) => (
+                {serialTracked.map((component) => (
                   <SerialPicker
                     key={component.id}
                     component={component}
@@ -725,6 +796,74 @@ function CompleteAssemblyDialog({
                 ))}
               </div>
             )}
+
+            {batchTracked.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Lots consumed</p>
+                <p className="text-xs text-muted-foreground">
+                  Name the lot each batch-tracked line actually consumed. The lot kitted at issue is
+                  preselected; change it if the bench drew from a different one.
+                </p>
+                {batchTracked.map((component) => (
+                  <div key={component.id} className="rounded-md border p-3">
+                    <p className="mb-2 text-sm font-medium">
+                      Line {component.line_number}
+                      <span className="ml-2 font-mono text-xs font-normal text-muted-foreground">
+                        {component.item_id.slice(0, 8)}
+                      </span>
+                    </p>
+                    <BatchSelect
+                      id={`assembly-complete-batch-${component.line_number}`}
+                      itemId={component.item_id}
+                      value={
+                        batchesByLine[component.line_number] ?? component.issued_batch_id ?? ''
+                      }
+                      onChange={(value) =>
+                        setBatchesByLine((current) => ({
+                          ...current,
+                          [component.line_number]: value,
+                        }))
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="space-y-3 rounded-md border p-3">
+              <p className="text-sm font-medium">Finished output</p>
+              <p className="text-xs text-muted-foreground">
+                Capture the lot and units received for a tracked finished item. Leave both empty for
+                an untracked item.
+              </p>
+              <Controller
+                control={control}
+                name="output_batch_id"
+                render={({ field }) => (
+                  <MovementBatchPicker
+                    id="assembly-complete-output-batch"
+                    itemId={order.item_id}
+                    value={field.value}
+                    onChange={field.onChange}
+                  />
+                )}
+              />
+              <Controller
+                control={control}
+                name="output_serial_numbers"
+                render={({ field }) => (
+                  <SerialNumbersField
+                    id="assembly-complete-output-serials"
+                    label="Output serial numbers"
+                    value={field.value}
+                    onChange={field.onChange}
+                    expected={watch('assembled_quantity')}
+                    hint="One serial per good unit assembled. The rejected quantity is never received into stock."
+                    error={errors.output_serial_numbers?.message}
+                  />
+                )}
+              />
+            </div>
 
             {order.requires_qc && (
               <Alert variant="info">
@@ -760,10 +899,11 @@ function CompleteAssemblyDialog({
 /**
  * What a release would still be short of, read live.
  *
- * Release reserves every component at the bin-less, batch-less position and
- * refuses the whole order when one line is short, so the shortage is shown
- * before anything is promised. Availability is never cached and never comes
- * from the kitting list, which carries no stock figure at all.
+ * Release reserves an untracked component at the bin-less, batch-less position
+ * and a batch-tracked one against a single ACTIVE, unexpired lot, and refuses
+ * the whole order when one line is short. The shortage is shown before anything
+ * is promised. Availability is never cached and never comes from the kitting
+ * list, which carries no stock figure at all.
  */
 function ReleaseReadiness({
   availability,
@@ -811,8 +951,8 @@ function ReleaseReadiness({
   if (short.length === 0) {
     return (
       <p className="pb-3 text-sm text-success">
-        Every component is covered at the position a release reserves. Releasing takes the
-        reservations now.
+        Every component is covered. Untracked lines are reserved from free stock; each batch-tracked
+        line is reserved against one lot with enough on hand. Releasing takes the reservations now.
       </p>
     )
   }

@@ -29,7 +29,13 @@ const routes = {
 
 function booking(permissions: string[], extra = {}) {
   return renderScreen(
-    <RecordProductionDialog open onOpenChange={vi.fn()} orderId="job-1" orderCode="PO-1" />,
+    <RecordProductionDialog
+      open
+      onOpenChange={vi.fn()}
+      orderId="job-1"
+      orderCode="PO-1"
+      itemId="item-1"
+    />,
     { permissions, routes: { ...routes, ...extra } },
   )
 }

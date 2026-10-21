@@ -260,6 +260,14 @@ class AssemblyOrder(TenantEntity, OptimisticLockMixin):
     #: deployed. Bare UUID, no foreign key.
     qc_inspection_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
 
+    # --- traceability --------------------------------------------------------
+    #: The lot the finished assemblies belong to. Bare UUID for the same
+    #: reason as the other cross-module links here.
+    output_batch_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+    #: One entry per assembled unit when the output is serial tracked. Minted
+    #: in the completion transaction, exactly as a production receipt does.
+    output_serial_ids: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(GUID), nullable=True)
+
     # --- packing handover ----------------------------------------------------
     #: The ``packing_orders`` row that took this assembly's output. Bare UUID,
     #: no foreign key: ``packing`` owns that table and is deployed separately.
@@ -410,6 +418,17 @@ class AssemblyOrderComponent(TenantEntity):
     is_serial_tracked_component: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+    #: Snapshot of ``items.is_batch_tracked`` for the same reason. A batch
+    #: component names one lot at issue and completion; splitting a single
+    #: component line across lots is deliberately not modelled because the
+    #: kitting list has one pick per line.
+    is_batch_tracked_component: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    #: The lot handed to the bench, and the lot actually consumed at
+    #: completion. They may differ if the store corrected the pick.
+    issued_batch_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+    consumed_batch_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
     #: The exact serialised units this assembly swallowed. A lock set built from
     #: specific cylinders stays traceable to them for the life of the product.
     consumed_serial_ids: Mapped[list[uuid.UUID]] = mapped_column(

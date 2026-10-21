@@ -93,6 +93,7 @@ async def test_batch_picker_search_pages_and_selected_lookup_keep_item_and_tenan
     ]
     await session.flush()
     oldest = records[0].id
+    newest = records[-1].id
     service = inv.TraceabilityService(session, tenant)
     first, first_page = await service.list_batches(
         item_id, None, PageParams(limit=20, with_total=False)
@@ -101,8 +102,11 @@ async def test_batch_picker_search_pages_and_selected_lookup_keep_item_and_tenan
         item_id, None, PageParams(page=3, limit=20, with_total=False)
     )
     assert len(first) == 20 and first_page.has_next
-    assert oldest not in {batch.id for batch in first}
-    assert oldest in {batch.id for batch in third} and not third_page.has_next
+    # No lot has an expiry date, so the pick order is receipt date: the oldest
+    # is page one and the newest is page three. This is FEFO's fallback, not
+    # insertion order - it changed deliberately with the tracker.
+    assert oldest in {batch.id for batch in first}
+    assert newest in {batch.id for batch in third} and not third_page.has_next
 
     searched, _ = await service.list_batches(item_id, "OLDER-000", PageParams(limit=20))
     assert [batch.id for batch in searched] == [oldest]

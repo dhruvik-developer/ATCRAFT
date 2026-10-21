@@ -2801,6 +2801,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/inventory/batches/{batch_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one stock batch */
+        get: operations["get_batch_api_v1_inventory_batches__batch_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/batches/{batch_id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Release a lot from quarantine */
+        post: operations["activate_batch_api_v1_inventory_batches__batch_id__activate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/batches/{batch_id}/expire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retire a lot */
+        post: operations["expire_batch_api_v1_inventory_batches__batch_id__expire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/batches/{batch_id}/quarantine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Quarantine a lot and move its available stock to QC hold */
+        post: operations["quarantine_batch_api_v1_inventory_batches__batch_id__quarantine_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/inventory/bin-moves": {
         parameters: {
             query?: never;
@@ -3198,6 +3266,40 @@ export interface paths {
         put?: never;
         /** Record a serial number */
         post: operations["create_serial_api_v1_inventory_serials_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/serials/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register a bounded run of serial numbers */
+        post: operations["bulk_create_serials_api_v1_inventory_serials_bulk_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/serials/{serial_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one serial number and its ledger history */
+        get: operations["get_serial_api_v1_inventory_serials__serial_id__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -11958,6 +12060,20 @@ export interface components {
              */
             success: boolean;
         };
+        /** ApiResponse[StockSerialDetail] */
+        ApiResponse_StockSerialDetail_: {
+            data?: components["schemas"]["StockSerialDetail"] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
         /** ApiResponse[StockSerialRead] */
         ApiResponse_StockSerialRead_: {
             data?: components["schemas"]["StockSerialRead"] | null;
@@ -12649,6 +12765,21 @@ export interface components {
              */
             success: boolean;
         };
+        /** ApiResponse[list[StockSerialRead]] */
+        ApiResponse_list_StockSerialRead__: {
+            /** Data */
+            data?: components["schemas"]["StockSerialRead"][] | null;
+            /**
+             * Message
+             * @default Operation completed successfully
+             */
+            message: string;
+            /**
+             * Success
+             * @default true
+             */
+            success: boolean;
+        };
         /** ApiResponse[list[TransporterOption]] */
         ApiResponse_list_TransporterOption__: {
             /** Data */
@@ -12887,6 +13018,8 @@ export interface components {
              * Format: uuid
              */
             assembly_order_id: string;
+            /** Consumed Batch Id */
+            consumed_batch_id?: string | null;
             /** Consumed Quantity */
             consumed_quantity: string;
             /** Consumed Serial Ids */
@@ -12896,8 +13029,15 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Is Batch Tracked Component
+             * @default false
+             */
+            is_batch_tracked_component: boolean;
             /** Is Serial Tracked Component */
             is_serial_tracked_component: boolean;
+            /** Issued Batch Id */
+            issued_batch_id?: string | null;
             /** Issued Quantity */
             issued_quantity: string;
             /**
@@ -13029,6 +13169,10 @@ export interface components {
             item_id: string;
             /** Notes */
             notes: string | null;
+            /** Output Batch Id */
+            output_batch_id?: string | null;
+            /** Output Serial Ids */
+            output_serial_ids?: string[] | null;
             /**
              * Output Warehouse Id
              * Format: uuid
@@ -13112,6 +13256,10 @@ export interface components {
             item_id: string;
             /** Notes */
             notes: string | null;
+            /** Output Batch Id */
+            output_batch_id?: string | null;
+            /** Output Serial Ids */
+            output_serial_ids?: string[] | null;
             /**
              * Output Warehouse Id
              * Format: uuid
@@ -15118,6 +15266,8 @@ export interface components {
          *     the quantity consumed, and a non-serialised part has nothing to name.
          */
         ComponentConsumptionIn: {
+            /** Batch Id */
+            batch_id?: string | null;
             /** Line Number */
             line_number: number;
             /** Serial Ids */
@@ -15133,6 +15283,8 @@ export interface components {
          *     below what is already on the bench nor above the reserved requirement.
          */
         ComponentIssueIn: {
+            /** Batch Id */
+            batch_id?: string | null;
             /** Issued Quantity */
             issued_quantity: number | string;
             /** Line Number */
@@ -18106,6 +18258,8 @@ export interface components {
             rejection_reason?: string | null;
             /** Requires Qc */
             requires_qc?: boolean | null;
+            /** Serial Numbers */
+            serial_numbers?: string[];
         };
         /** GoodsReceiptLineRead */
         GoodsReceiptLineRead: {
@@ -18162,6 +18316,10 @@ export interface components {
             requires_qc: boolean;
             /** Returned Quantity */
             returned_quantity: string;
+            /** Serial Ids */
+            serial_ids: string[] | null;
+            /** Serial Numbers */
+            serial_numbers: string[] | null;
             /** Unit Cost */
             unit_cost: string;
             /**
@@ -21440,7 +21598,7 @@ export interface components {
          *     inherits the defaults in :mod:`src.modules.notifications.service`.
          * @enum {string}
          */
-        NotificationType: "APPROVAL_PENDING" | "APPROVAL_GRANTED" | "APPROVAL_REJECTED" | "PURCHASE_ORDER_DELAYED" | "PRODUCTION_ORDER_DELAYED" | "JOB_WORK_OVERDUE" | "DISPATCH_DELAYED" | "SALES_ORDER_AT_RISK" | "STOCK_BELOW_REORDER" | "STOCK_SHORTAGE" | "ALLOCATION_CHANGED" | "QC_INSPECTION_PENDING" | "QC_FAILED" | "GOODS_RECEIPT_POSTED" | "PAYMENT_DUE" | "MRP_RUN_COMPLETED" | "REPORT_READY" | "BACKGROUND_JOB_COMPLETED" | "BACKGROUND_JOB_FAILED" | "PURCHASE_ORDER_SENT" | "PURCHASE_ORDER_ACKNOWLEDGED" | "PURCHASE_ORDER_DECLINED" | "PURCHASE_ORDER_DATE_CHANGED" | "PURCHASE_ORDER_READY" | "PURCHASE_ORDER_SHIPPED" | "VENDOR_INVOICE_STATUS" | "VENDOR_PAYMENT_RECORDED" | "DEALER_ORDER_REQUEST_RECEIVED" | "DEALER_ORDER_CONFIRMED" | "DEALER_ORDER_DISPATCHED" | "DEALER_ORDER_DELIVERED" | "DEALER_INVOICE_ISSUED" | "DEALER_PAYMENT_REMINDER" | "DEALER_RETURN_RECEIVED" | "DEALER_CREDIT_NOTE_ISSUED" | "SYSTEM_ANNOUNCEMENT";
+        NotificationType: "APPROVAL_PENDING" | "APPROVAL_GRANTED" | "APPROVAL_REJECTED" | "PURCHASE_ORDER_DELAYED" | "PRODUCTION_ORDER_DELAYED" | "JOB_WORK_OVERDUE" | "DISPATCH_DELAYED" | "SALES_ORDER_AT_RISK" | "STOCK_BELOW_REORDER" | "STOCK_SHORTAGE" | "STOCK_EXPIRY" | "ALLOCATION_CHANGED" | "QC_INSPECTION_PENDING" | "QC_FAILED" | "GOODS_RECEIPT_POSTED" | "PAYMENT_DUE" | "MRP_RUN_COMPLETED" | "REPORT_READY" | "BACKGROUND_JOB_COMPLETED" | "BACKGROUND_JOB_FAILED" | "PURCHASE_ORDER_SENT" | "PURCHASE_ORDER_ACKNOWLEDGED" | "PURCHASE_ORDER_DECLINED" | "PURCHASE_ORDER_DATE_CHANGED" | "PURCHASE_ORDER_READY" | "PURCHASE_ORDER_SHIPPED" | "VENDOR_INVOICE_STATUS" | "VENDOR_PAYMENT_RECORDED" | "DEALER_ORDER_REQUEST_RECEIVED" | "DEALER_ORDER_CONFIRMED" | "DEALER_ORDER_DISPATCHED" | "DEALER_ORDER_DELIVERED" | "DEALER_INVOICE_ISSUED" | "DEALER_PAYMENT_REMINDER" | "DEALER_RETURN_RECEIVED" | "DEALER_CREDIT_NOTE_ISSUED" | "SYSTEM_ANNOUNCEMENT";
         /**
          * OfferScopeKind
          * @description What an offer applies to. The matching id column is required; the others are null.
@@ -24446,6 +24604,10 @@ export interface components {
             notes?: string | null;
             /** Operator User Id */
             operator_user_id?: string | null;
+            /** Output Batch Id */
+            output_batch_id?: string | null;
+            /** Output Serial Numbers */
+            output_serial_numbers?: string[];
             /**
              * Produced Quantity
              * @default 0
@@ -24488,8 +24650,14 @@ export interface components {
             notes: string | null;
             /** Operator User Id */
             operator_user_id: string | null;
+            /** Output Batch Id */
+            output_batch_id?: string | null;
+            /** Output Serial Ids */
+            output_serial_ids?: string[] | null;
             /** Output Transaction Id */
             output_transaction_id: string | null;
+            /** Output Transaction Ids */
+            output_transaction_ids?: string[] | null;
             /** Produced Quantity */
             produced_quantity: string;
             /**
@@ -29621,7 +29789,7 @@ export interface components {
          * SerialStatus
          * @enum {string}
          */
-        SerialStatus: "IN_STOCK" | "ISSUED" | "DISPATCHED" | "RETURNED" | "SCRAPPED";
+        SerialStatus: "IN_STOCK" | "IN_TRANSIT" | "ISSUED" | "DISPATCHED" | "RETURNED" | "SCRAPPED";
         /** SessionRead */
         SessionRead: {
             /**
@@ -30026,6 +30194,8 @@ export interface components {
             notes?: string | null;
             /** Quantity */
             quantity: number | string;
+            /** Serial Ids */
+            serial_ids?: string[];
             /** Unit Cost */
             unit_cost?: number | string | null;
         };
@@ -30055,6 +30225,8 @@ export interface components {
             notes: string | null;
             /** Quantity */
             quantity: string;
+            /** Serial Ids */
+            serial_ids?: string[] | null;
             /** System Quantity */
             system_quantity: string | null;
             /** Total Cost */
@@ -30142,6 +30314,18 @@ export interface components {
              */
             warehouse_id: string;
         };
+        /**
+         * StockBatchAction
+         * @description A lifecycle action on a lot.
+         *
+         *     A reason is required even for activation: "why was this lot released?" is
+         *     the question a recall or an audit asks, and it is unanswerable if the
+         *     release left no trace.
+         */
+        StockBatchAction: {
+            /** Reason */
+            reason: string;
+        };
         /** StockBatchCreate */
         StockBatchCreate: {
             /** Batch Number */
@@ -30176,6 +30360,11 @@ export interface components {
         };
         /** StockBatchRead */
         StockBatchRead: {
+            /**
+             * Available Quantity
+             * @default 0
+             */
+            available_quantity: string;
             /** Batch Number */
             batch_number: string;
             /**
@@ -30190,17 +30379,31 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * In Transit Quantity
+             * @default 0
+             */
+            in_transit_quantity: string;
             /** Initial Quantity */
             initial_quantity: string;
+            /** Item Code */
+            item_code?: string | null;
             /**
              * Item Id
              * Format: uuid
              */
             item_id: string;
+            /** Item Name */
+            item_name?: string | null;
             /** Manufactured On */
             manufactured_on: string | null;
             /** Notes */
             notes: string | null;
+            /**
+             * On Hand Quantity
+             * @default 0
+             */
+            on_hand_quantity: string;
             /**
              * Received On
              * Format: date
@@ -30213,6 +30416,38 @@ export interface components {
             unit_cost: string;
             /** Vendor Id */
             vendor_id: string | null;
+        };
+        /**
+         * StockSerialBulkCreate
+         * @description Register a bounded range of units before their receipt.
+         *
+         *     The cap is deliberately small: this is a label-printing operation at a
+         *     goods-in desk, not a bulk import. A larger set belongs in the GRN itself,
+         *     where each unit is tied to the line that brought it in.
+         */
+        StockSerialBulkCreate: {
+            /** Batch Id */
+            batch_id?: string | null;
+            /**
+             * Item Id
+             * Format: uuid
+             */
+            item_id: string;
+            /** Location Id */
+            location_id?: string | null;
+            /** Notes */
+            notes?: string | null;
+            /** Received On */
+            received_on?: string | null;
+            /** Serial Numbers */
+            serial_numbers: string[];
+            /**
+             * Unit Cost
+             * @default 0
+             */
+            unit_cost: number | string;
+            /** Warehouse Id */
+            warehouse_id?: string | null;
         };
         /** StockSerialCreate */
         StockSerialCreate: {
@@ -30239,10 +30474,21 @@ export interface components {
             /** Warehouse Id */
             warehouse_id?: string | null;
         };
+        /**
+         * StockSerialDetail
+         * @description One unit and the ledger rows that moved it, newest first.
+         */
+        StockSerialDetail: {
+            /** Movements */
+            movements?: components["schemas"]["LedgerEntryRead"][];
+            serial: components["schemas"]["StockSerialRead"];
+        };
         /** StockSerialRead */
         StockSerialRead: {
             /** Batch Id */
             batch_id: string | null;
+            /** Batch Number */
+            batch_number?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -30253,11 +30499,15 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Item Code */
+            item_code?: string | null;
             /**
              * Item Id
              * Format: uuid
              */
             item_id: string;
+            /** Item Name */
+            item_name?: string | null;
             /** Location Id */
             location_id: string | null;
             /** Notes */
@@ -30269,6 +30519,8 @@ export interface components {
             status: components["schemas"]["SerialStatus"];
             /** Unit Cost */
             unit_cost: string;
+            /** Warehouse Code */
+            warehouse_code?: string | null;
             /** Warehouse Id */
             warehouse_id: string | null;
         };
@@ -30326,6 +30578,8 @@ export interface components {
             notes?: string | null;
             /** Quantity */
             quantity: number | string;
+            /** Serial Ids */
+            serial_ids?: string[];
             /** Source Line Id */
             source_line_id?: string | null;
             /** To Location Id */
@@ -30361,6 +30615,8 @@ export interface components {
             quantity: string;
             /** Received Quantity */
             received_quantity: string;
+            /** Serial Ids */
+            serial_ids?: string[] | null;
             /** Source Line Id */
             source_line_id?: string | null;
             /** To Location Id */
@@ -34085,6 +34341,10 @@ export interface components {
             components?: components["schemas"]["ComponentConsumptionIn"][];
             /** Occurred At */
             occurred_at?: string | null;
+            /** Output Batch Id */
+            output_batch_id?: string | null;
+            /** Output Serial Numbers */
+            output_serial_numbers?: string[];
             /** Reason */
             reason: string;
             /**
@@ -34323,6 +34583,10 @@ export interface components {
             note?: string | null;
             /** Operator User Id */
             operator_user_id?: string | null;
+            /** Output Batch Id */
+            output_batch_id?: string | null;
+            /** Output Serial Numbers */
+            output_serial_numbers?: string[];
             /**
              * Produced Quantity
              * @default 0
@@ -52497,6 +52761,9 @@ export interface operations {
                 search?: string | null;
                 /** @description Resolve a selected batch within the item and tenant */
                 batch_id?: string | null;
+                status?: components["schemas"]["BatchStatus"] | null;
+                expiry_from?: string | null;
+                expiry_to?: string | null;
                 /** @description 1-based page number */
                 page?: number;
                 /** @description Rows per page */
@@ -52608,6 +52875,394 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_StockBatchRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_batch_api_v1_inventory_batches__batch_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_StockBatchRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    activate_batch_api_v1_inventory_batches__batch_id__activate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockBatchAction"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_StockBatchRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    expire_batch_api_v1_inventory_batches__batch_id__expire_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockBatchAction"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_StockBatchRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    quarantine_batch_api_v1_inventory_batches__batch_id__quarantine_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                batch_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockBatchAction"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -55168,6 +55823,8 @@ export interface operations {
                 item_id?: string | null;
                 warehouse_id?: string | null;
                 search?: string | null;
+                status?: components["schemas"]["SerialStatus"] | null;
+                batch_id?: string | null;
                 /** @description 1-based page number */
                 page?: number;
                 /** @description Rows per page */
@@ -55284,6 +55941,196 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_StockSerialRead_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    bulk_create_serials_api_v1_inventory_serials_bulk_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockSerialBulkCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_list_StockSerialRead__"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_serial_api_v1_inventory_serials__serial_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                serial_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_StockSerialDetail_"];
                 };
             };
             /** @description Malformed request */

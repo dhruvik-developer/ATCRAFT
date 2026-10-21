@@ -25,6 +25,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -40,6 +41,7 @@ from src.core.responses import OffsetPagination
 from src.modules.inventory.models import (
     BALANCE_GRAIN_SQL,
     SERIAL_IN_WAREHOUSE_STATUSES,
+    BatchStatus,
     BinMove,
     BinMoveLine,
     CostLayerPool,
@@ -153,6 +155,44 @@ class LocationFacts:
     code: str
     warehouse_id: uuid.UUID
     is_active: bool
+
+
+@dataclass(frozen=True, slots=True)
+class BatchFacts:
+    """The lot facts the movement engine validates against.
+
+    Separate from the ``(item_id, batch_number)`` projection used by the
+    posting callers because the engine needs the lifecycle state and expiry,
+    and the callers must keep working unchanged.
+    """
+
+    item_id: uuid.UUID
+    batch_number: str
+    status: BatchStatus
+    expires_on: date | None
+    received_on: date | None
+
+
+@dataclass(frozen=True, slots=True)
+class BatchQuantityTotals:
+    on_hand: Decimal
+    available: Decimal
+    in_transit: Decimal
+    job_work: Decimal
+    scrap: Decimal
+
+    @property
+    def owned(self) -> Decimal:
+        """Every unit the company still owns, wherever it is."""
+        return self.on_hand + self.in_transit + self.job_work + self.scrap
+
+
+@dataclass(frozen=True, slots=True)
+class FefoBatch:
+    batch_id: uuid.UUID
+    expires_on: date | None
+    received_on: date | None
+    available_quantity: Decimal
 
 
 # -----------------------------------------------------------------------------
@@ -526,6 +566,141 @@ class InventoryRepository(BaseRepository[InventoryBalance]):
             for row in (await self.session.execute(stmt)).all()
         }
 
+    async def batch_facts(self, batch_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, BatchFacts]:
+        """The lifecycle facts behind a set of lots, in one query."""
+        wanted = list(dict.fromkeys(batch_ids))
+        if not wanted:
+            return {}
+        rows = await self.session.execute(
+            select(
+                StockBatch.id,
+                StockBatch.item_id,
+                StockBatch.batch_number,
+                StockBatch.status,
+                StockBatch.expires_on,
+                StockBatch.received_on,
+            ).where(
+                StockBatch.company_id == self.tenant.company_id,
+                StockBatch.id.in_(wanted),
+            )
+        )
+        return {
+            row.id: BatchFacts(
+                item_id=row.item_id,
+                batch_number=row.batch_number,
+                status=BatchStatus(row.status),
+                expires_on=row.expires_on,
+                received_on=row.received_on,
+            )
+            for row in rows
+        }
+
+    async def batch_totals(
+        self, batch_ids: Sequence[uuid.UUID], *, scoped: bool = True
+    ) -> dict[uuid.UUID, BatchQuantityTotals]:
+        """Current quantities per lot, including stock that has left the shelf.
+
+        ``scoped=False`` is for the lifecycle decision, which is about the
+        company's whole ownership of the lot. A warehouse-limited user issuing
+        the last unit they can see must not mark a lot consumed while another
+        warehouse still holds it.
+        """
+        wanted = list(dict.fromkeys(batch_ids))
+        if not wanted:
+            return {}
+        rows = await self.session.execute(
+            select(
+                InventoryBalance.batch_id,
+                func.coalesce(func.sum(InventoryBalance.on_hand_quantity), 0),
+                func.coalesce(func.sum(InventoryBalance.available_quantity), 0),
+                func.coalesce(func.sum(InventoryBalance.in_transit_quantity), 0),
+                func.coalesce(func.sum(InventoryBalance.job_work_quantity), 0),
+                func.coalesce(func.sum(InventoryBalance.scrap_quantity), 0),
+            )
+            .where(
+                InventoryBalance.company_id == self.tenant.company_id,
+                InventoryBalance.batch_id.in_(wanted),
+                *(warehouse_scope(self.tenant, InventoryBalance.warehouse_id) if scoped else ()),
+            )
+            .group_by(InventoryBalance.batch_id)
+        )
+        return {
+            row[0]: BatchQuantityTotals(
+                on_hand=row[1], available=row[2], in_transit=row[3], job_work=row[4], scrap=row[5]
+            )
+            for row in rows
+            if row[0] is not None
+        }
+
+    async def batch_available_positions(self, batch_id: uuid.UUID) -> list[InventoryBalance]:
+        """Every position holding available quantity of one lot.
+
+        Used by quarantine: all of it moves to QC hold, not just the position
+        the operator happened to open. Scoped like a read, because the action
+        may only move stock in the warehouses the principal can see.
+        """
+        stmt = select(InventoryBalance).where(
+            InventoryBalance.company_id == self.tenant.company_id,
+            InventoryBalance.batch_id == batch_id,
+            InventoryBalance.available_quantity > 0,
+            *warehouse_scope(self.tenant, InventoryBalance.warehouse_id),
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def fefo_candidates(
+        self,
+        *,
+        item_id: uuid.UUID,
+        warehouse_id: uuid.UUID,
+        location_id: uuid.UUID | None,
+        minimum_quantity: Decimal,
+        as_of: date,
+    ) -> list[FefoBatch]:
+        """Lots that can cover a pick, oldest expiry first.
+
+        A single lot must cover the whole movement: splitting one movement
+        across several balances would change the cost layers it draws from
+        under a caller that asked for one line. When no single lot is enough
+        the caller gets nothing, and the ordinary shortfall error explains why.
+        """
+        stmt = (
+            select(
+                InventoryBalance.batch_id,
+                StockBatch.expires_on,
+                StockBatch.received_on,
+                InventoryBalance.available_quantity,
+            )
+            .join(StockBatch, StockBatch.id == InventoryBalance.batch_id)
+            .where(
+                InventoryBalance.company_id == self.tenant.company_id,
+                InventoryBalance.item_id == item_id,
+                InventoryBalance.warehouse_id == warehouse_id,
+                InventoryBalance.batch_id.is_not(None),
+                InventoryBalance.available_quantity >= minimum_quantity,
+                StockBatch.status == BatchStatus.ACTIVE,
+                (StockBatch.expires_on.is_(None)) | (StockBatch.expires_on >= as_of),
+            )
+            .order_by(
+                StockBatch.expires_on.asc().nulls_last(),
+                StockBatch.received_on.asc(),
+                StockBatch.id.asc(),
+            )
+        )
+        if location_id is None:
+            stmt = stmt.where(InventoryBalance.location_id.is_(None))
+        else:
+            stmt = stmt.where(InventoryBalance.location_id == location_id)
+        rows = await self.session.execute(stmt)
+        return [
+            FefoBatch(
+                batch_id=row[0],
+                expires_on=row[1],
+                received_on=row[2],
+                available_quantity=row[3],
+            )
+            for row in rows
+        ]
+
     async def warehouse_facts(
         self, warehouse_ids: Sequence[uuid.UUID]
     ) -> dict[uuid.UUID, WarehouseFacts]:
@@ -669,6 +844,44 @@ class LedgerRepository(BaseRepository[InventoryTransaction]):
     """Append-only movement history. Read paths only - writes go through the engine."""
 
     model = InventoryTransaction
+
+    async def for_serial(
+        self, serial_id: uuid.UUID, *, limit: int = 500
+    ) -> list[InventoryTransaction]:
+        """A unit's whole journey, newest first."""
+        stmt = (
+            select(InventoryTransaction)
+            .where(
+                InventoryTransaction.company_id == self.tenant.company_id,
+                InventoryTransaction.serial_id == serial_id,
+                *warehouse_scope(self.tenant, InventoryTransaction.warehouse_id),
+            )
+            .order_by(
+                InventoryTransaction.occurred_at.desc(),
+                InventoryTransaction.created_at.desc(),
+                InventoryTransaction.id.desc(),
+            )
+            .limit(limit)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
+    async def by_ids(
+        self, transaction_ids: Sequence[uuid.UUID]
+    ) -> dict[uuid.UUID, InventoryTransaction]:
+        """Load outbound rows by id so a multi-serial receipt can price each unit.
+
+        The rows are returned in the same order as the ids the caller supplied,
+        because a transfer line's ``dispatch_transaction_ids`` array is aligned
+        with its ``serial_ids``.
+        """
+        wanted = list(dict.fromkeys(transaction_ids))
+        if not wanted:
+            return {}
+        stmt = select(InventoryTransaction).where(
+            InventoryTransaction.company_id == self.tenant.company_id,
+            InventoryTransaction.id.in_(wanted),
+        )
+        return {row.id: row for row in (await self.session.execute(stmt)).scalars().all()}
 
     def build_list_stmt(self, filters: LedgerFilters) -> Select[tuple[InventoryTransaction]]:
         stmt = select(InventoryTransaction).where(
@@ -1211,16 +1424,72 @@ class StockBatchRepository(BaseRepository[StockBatch]):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def lock_for_update(self, batch_id: uuid.UUID) -> StockBatch | None:
+        stmt = (
+            self._scoped()
+            .where(StockBatch.id == batch_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return (await self.session.execute(stmt)).scalar_one_or_none()
+
     def build_list_stmt(
-        self, *, item_id: uuid.UUID | None, search: str | None, batch_id: uuid.UUID | None = None
+        self,
+        *,
+        item_id: uuid.UUID | None,
+        search: str | None,
+        batch_id: uuid.UUID | None = None,
+        status: BatchStatus | None = None,
+        expiry_from: date | None = None,
+        expiry_to: date | None = None,
     ) -> Select[tuple[StockBatch]]:
         stmt = self._scoped()
         if item_id is not None:
             stmt = stmt.where(StockBatch.item_id == item_id)
         if batch_id is not None:
             stmt = stmt.where(StockBatch.id == batch_id)
+        if status is not None:
+            stmt = stmt.where(StockBatch.status == status)
+        if expiry_from is not None:
+            stmt = stmt.where(StockBatch.expires_on >= expiry_from)
+        if expiry_to is not None:
+            stmt = stmt.where(StockBatch.expires_on <= expiry_to)
         stmt = self._apply_search(stmt, search)
-        return stmt.order_by(StockBatch.received_on.desc(), StockBatch.id.desc())
+        # FEFO order, with undated lots last: the tracker's default is the
+        # order a picker should work in, not the order rows were created.
+        return stmt.order_by(
+            StockBatch.expires_on.asc().nulls_last(),
+            StockBatch.received_on.asc(),
+            StockBatch.id.asc(),
+        )
+
+    async def companies_with_batches(self) -> list[uuid.UUID]:
+        """Companies the expiry sweep has work for, without a tenant scope."""
+        rows = await self.session.execute(
+            select(StockBatch.company_id)
+            .where(
+                StockBatch.status.in_([BatchStatus.ACTIVE, BatchStatus.QUARANTINED]),
+                StockBatch.expires_on.is_not(None),
+            )
+            .distinct()
+        )
+        return [row[0] for row in rows]
+
+    async def expiring(
+        self, *, as_of: date, warn_before: date, limit: int = 500
+    ) -> list[StockBatch]:
+        """Lots already expired or about to, oldest expiry first."""
+        stmt = (
+            self._scoped()
+            .where(
+                StockBatch.status.in_([BatchStatus.ACTIVE, BatchStatus.QUARANTINED]),
+                StockBatch.expires_on.is_not(None),
+                StockBatch.expires_on <= warn_before,
+            )
+            .order_by(StockBatch.expires_on.asc(), StockBatch.id.asc())
+            .limit(limit)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
 
 
 class StockSerialRepository(BaseRepository[StockSerial]):
@@ -1263,16 +1532,62 @@ class StockSerialRepository(BaseRepository[StockSerial]):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
+    async def by_ids(self, serial_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, StockSerial]:
+        wanted = list(dict.fromkeys(serial_ids))
+        if not wanted:
+            return {}
+        stmt = self._scoped().where(StockSerial.id.in_(wanted))
+        return {row.id: row for row in (await self.session.execute(stmt)).scalars().all()}
+
+    async def by_numbers(
+        self, item_id: uuid.UUID, serial_numbers: Sequence[str]
+    ) -> dict[str, StockSerial]:
+        wanted = list(dict.fromkeys(serial_numbers))
+        if not wanted:
+            return {}
+        stmt = self._scoped().where(
+            StockSerial.item_id == item_id, StockSerial.serial_number.in_(wanted)
+        )
+        return {
+            row.serial_number: row for row in (await self.session.execute(stmt)).scalars().all()
+        }
+
+    async def in_stock_for_batch(self, batch_id: uuid.UUID) -> list[StockSerial]:
+        """Every in-stock unit of one lot, in one query, ordered for grouping.
+
+        Quarantine needs the individual units because the engine refuses any
+        movement of more than one against a serialised item. The serial row has
+        no pool column, so this can only ask "which units are still in stock",
+        not "which are in the AVAILABLE pool": the caller compares each
+        position's count with its balance and refuses rather than guessing when
+        the two disagree.
+        """
+        stmt = (
+            self._scoped()
+            .where(
+                StockSerial.batch_id == batch_id,
+                StockSerial.status == SerialStatus.IN_STOCK,
+            )
+            .order_by(StockSerial.serial_number)
+        )
+        return list((await self.session.execute(stmt)).scalars().all())
+
     def build_list_stmt(
         self,
         *,
         item_id: uuid.UUID | None,
         warehouse_id: uuid.UUID | None,
         search: str | None,
+        status: SerialStatus | None = None,
+        batch_id: uuid.UUID | None = None,
     ) -> Select[tuple[StockSerial]]:
         stmt = self._scoped()
         if item_id is not None:
             stmt = stmt.where(StockSerial.item_id == item_id)
+        if status is not None:
+            stmt = stmt.where(StockSerial.status == status)
+        if batch_id is not None:
+            stmt = stmt.where(StockSerial.batch_id == batch_id)
         if warehouse_id is not None:
             # ASSUMPTION: "the units at this warehouse" means the ones that are
             # still there. ``warehouse_id`` on a serial records the last position

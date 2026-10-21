@@ -1314,6 +1314,10 @@ class GoodsReceiptLine(TenantEntity):
     #: posting time - inventory owns that table and creates the row.
     batch_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
     batch_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+    #: The serial numbers the vendor's packing list names, captured at receipt
+    #: and resolved to ``stock_serials`` rows when the receipt posts.
+    serial_numbers: Mapped[list[str] | None] = mapped_column(ARRAY(String(64)), nullable=True)
+    serial_ids: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(GUID), nullable=True)
     manufactured_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     expires_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     location_id: Mapped[uuid.UUID | None] = mapped_column(

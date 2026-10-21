@@ -30,6 +30,7 @@ const InventoryBalancesPage = lazy(routeLoaders['/inventory'])
 const InventoryLedgerPage = lazy(routeLoaders['/inventory/ledger'])
 const ReservationsPage = lazy(routeLoaders['/inventory/reservations'])
 const MovementsPage = lazy(routeLoaders['/inventory/movements'])
+const TrackingPage = lazy(routeLoaders['/inventory/tracking'])
 const BomListPage = lazy(routeLoaders['/bom'])
 const BomDetailPage = lazy(routeLoaders['/bom/:bomId'])
 const RoutingPage = lazy(routeLoaders['/routing'])
@@ -274,6 +275,9 @@ const routeGroups: { path: string; element: ReactNode; permissions: PermissionKe
   // Transfers, adjustments and physical counts are all listed under
   // INVENTORY_VIEW; each write right stays on the page's own button.
   { path: '/inventory/movements', element: <MovementsPage />, permissions: [P.INVENTORY_VIEW] },
+  // The register is readable with INVENTORY_VIEW; lifecycle actions and label
+  // runs are gated on INVENTORY_BATCH_MANAGE inside the page and by the API.
+  { path: '/inventory/tracking', element: <TrackingPage />, permissions: [P.INVENTORY_VIEW] },
 
   { path: '/bom', element: <BomListPage />, permissions: [P.BOM_VIEW] },
   { path: '/bom/:bomId', element: <BomDetailPage />, permissions: [P.BOM_VIEW] },

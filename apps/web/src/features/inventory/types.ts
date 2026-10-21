@@ -496,3 +496,44 @@ export const ADJUSTMENT_REASON_CODES = [
   'OPENING',
 ] as const
 export type AdjustmentReasonCode = (typeof ADJUSTMENT_REASON_CODES)[number]
+
+// -------------------------------------------------- batches and serials -----
+
+/**
+ * The tracker's two registers. Derived from the contract because every field
+ * here is rendered: the enriched item label, the four quantity pools and the
+ * batch/serial links are filled by the service, and a hand-written copy would
+ * drift silently the way `StockBatchRead` itself already did before it was
+ * widened.
+ */
+export type StockBatchRow = SchemaOf<'StockBatchRead'>
+export type StockSerialRow = SchemaOf<'StockSerialRead'>
+export type StockSerialDetail = SchemaOf<'StockSerialDetail'>
+export type BatchStatus = SchemaOf<'BatchStatus'>
+export type SerialStatus = SchemaOf<'SerialStatus'>
+
+/** Every lot state the register can filter on, in lifecycle order. */
+export const BATCH_STATUSES: BatchStatus[] = ['ACTIVE', 'QUARANTINED', 'EXPIRED', 'CONSUMED']
+
+/**
+ * `BATCH_FLOW` has edges ACTIVE -> QUARANTINED/EXPIRED, QUARANTINED ->
+ * ACTIVE/EXPIRED, and CONSUMED/EXPIRED are terminal. The UI offers exactly
+ * those, so a button never confirms an invalid transition.
+ */
+export function batchLifecycleActions(
+  status: BatchStatus,
+): { action: 'quarantine' | 'activate' | 'expire'; label: string }[] {
+  if (status === 'ACTIVE') {
+    return [
+      { action: 'quarantine', label: 'Quarantine' },
+      { action: 'expire', label: 'Expire' },
+    ]
+  }
+  if (status === 'QUARANTINED') {
+    return [
+      { action: 'activate', label: 'Activate' },
+      { action: 'expire', label: 'Expire' },
+    ]
+  }
+  return []
+}

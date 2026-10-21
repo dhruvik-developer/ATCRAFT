@@ -59,6 +59,8 @@ import {
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { LocationPicker } from '@/features/inventory/location-picker'
+import { SerialNumbersField } from '@/features/inventory/serial-numbers-field'
+import { splitSerialNumbers } from '@/features/inventory/serial-numbers'
 import { useUomOptions } from '@/features/items/item-model'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { useWarehouseOptions } from '@/features/warehouses/warehouse-model'
@@ -253,6 +255,9 @@ const lineSchema = z.object({
   accepted_quantity: z.string().trim().regex(QUANTITY, 'Up to 4 decimal places'),
   rejected_quantity: z.string().trim().regex(QUANTITY, 'Up to 4 decimal places'),
   batch_number: z.string().trim().max(64, 'At most 64 characters'),
+  manufactured_on: z.string(),
+  expires_on: z.string(),
+  serial_numbers: z.string(),
   rejection_reason: z.string().trim().max(2000, 'At most 2000 characters'),
 })
 
@@ -299,6 +304,25 @@ const schema = z
           code: z.ZodIssueCode.custom,
           path: ['lines', index, 'rejection_reason'],
           message: 'Say why the quantity was rejected',
+        })
+      }
+
+      // A serial identifies one physical unit, so a captured run must be
+      // exactly as long as what was accepted into stock. The API enforces the
+      // same count; catching it here names the line before the request.
+      const serials = splitSerialNumbers(line.serial_numbers)
+      if (serials.length > 0 && !accepted.equals(serials.length)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['lines', index, 'serial_numbers'],
+          message: `Capture one serial per accepted unit - ${accepted.toString()} accepted, ${serials.length} captured`,
+        })
+      }
+      if (serials.length > 500) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['lines', index, 'serial_numbers'],
+          message: 'At most 500 serials can be captured on one line',
         })
       }
     })
@@ -376,6 +400,9 @@ function linesFrom(order: PurchaseOrderDetail): ReceiptFormValues['lines'] {
         accepted_quantity: '',
         rejected_quantity: '',
         batch_number: '',
+        manufactured_on: '',
+        expires_on: '',
+        serial_numbers: '',
         rejection_reason: '',
       }))
   )
@@ -469,6 +496,11 @@ export function GrnReceiveDialog({
           rejected_quantity: line.rejected_quantity.trim() || '0',
           batch_number: orNull(line.batch_number),
           rejection_reason: orNull(line.rejection_reason),
+          ...(splitSerialNumbers(line.serial_numbers).length > 0
+            ? { serial_numbers: splitSerialNumbers(line.serial_numbers) }
+            : {}),
+          ...(line.manufactured_on ? { manufactured_on: line.manufactured_on } : {}),
+          ...(line.expires_on ? { expires_on: line.expires_on } : {}),
           ...(!line.requires_qc && line.location_id ? { location_id: line.location_id } : {}),
         })),
       }
@@ -774,6 +806,28 @@ export function GrnReceiveDialog({
                           </p>
                         </div>
 
+                        <div>
+                          <Label htmlFor={`grn-manufactured-${index}`}>Manufactured on</Label>
+                          <Input
+                            id={`grn-manufactured-${index}`}
+                            type="date"
+                            {...register(`lines.${index}.manufactured_on`)}
+                            className="mt-1.5"
+                          />
+                          <FieldError message={errors.lines?.[index]?.manufactured_on?.message} />
+                        </div>
+
+                        <div>
+                          <Label htmlFor={`grn-expires-${index}`}>Expires on</Label>
+                          <Input
+                            id={`grn-expires-${index}`}
+                            type="date"
+                            {...register(`lines.${index}.expires_on`)}
+                            className="mt-1.5"
+                          />
+                          <FieldError message={errors.lines?.[index]?.expires_on?.message} />
+                        </div>
+
                         {!field.requires_qc && (
                           <Controller
                             control={control}
@@ -794,6 +848,25 @@ export function GrnReceiveDialog({
                             Receive at warehouse level for inspection. Put accepted stock into its
                             bin with a bin move.
                           </p>
+                        )}
+                        {toDecimal(line?.accepted_quantity ?? '').greaterThan(0) && (
+                          <div className="sm:col-span-2 lg:col-span-4">
+                            <Controller
+                              control={control}
+                              name={`lines.${index}.serial_numbers`}
+                              render={({ field: serials }) => (
+                                <SerialNumbersField
+                                  id={`grn-serials-${index}`}
+                                  label="Serial numbers"
+                                  value={serials.value}
+                                  onChange={serials.onChange}
+                                  expected={line?.accepted_quantity}
+                                  hint="Required for a serial-tracked item: one serial per accepted unit. Type, scan or generate the labels."
+                                  error={errors.lines?.[index]?.serial_numbers?.message}
+                                />
+                              )}
+                            />
+                          </div>
                         )}
                         {toDecimal(line?.rejected_quantity ?? '').greaterThan(0) && (
                           <div className="sm:col-span-2 lg:col-span-4">

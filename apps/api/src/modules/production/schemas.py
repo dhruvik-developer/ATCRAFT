@@ -301,12 +301,24 @@ class CompleteRequest(BaseModel):
     operator_user_id: uuid.UUID | None = None
     machine_id: uuid.UUID | None = None
     actual_end_date: date | None = None
+    #: Traceability for the final booking. Required when the finished item is
+    #: tracked, exactly as on a shift booking.
+    output_batch_id: uuid.UUID | None = None
+    output_serial_numbers: list[str] = Field(default_factory=list, max_length=1000)
     note: str | None = Field(default=None, max_length=1000)
 
     @model_validator(mode="after")
     def _rejection_has_a_reason(self) -> CompleteRequest:
         if self.rejected_quantity > 0 and not self.rejection_reason:
             raise ValueError("rejection_reason is required when rejecting output")
+        cleaned = ["".join(value.split()).upper() for value in self.output_serial_numbers]
+        if any(not value or len(value) > 64 for value in cleaned):
+            raise ValueError("Every output serial must be 1-64 characters.")
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError("An output serial is repeated.")
+        if cleaned and Decimal(len(cleaned)) != self.produced_quantity:
+            raise ValueError("Name one output serial per produced unit.")
+        self.output_serial_numbers = cleaned
         return self
 
 
@@ -560,6 +572,11 @@ class ProductionEntryCreate(BaseModel):
     downtime_minutes: Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=4)] = Decimal(
         "0"
     )
+    #: The lot and units this shift produced. Both are optional on the wire
+    #: because most items are untracked; the service requires them when the
+    #: finished item is.
+    output_batch_id: uuid.UUID | None = None
+    output_serial_numbers: list[str] = Field(default_factory=list, max_length=1000)
     notes: str | None = Field(default=None, max_length=4000)
 
     @model_validator(mode="after")
@@ -571,6 +588,14 @@ class ProductionEntryCreate(BaseModel):
             )
         if self.rejected_quantity > 0 and not self.rejection_reason:
             raise ValueError("rejection_reason is required when rejecting output")
+        cleaned = ["".join(value.split()).upper() for value in self.output_serial_numbers]
+        if any(not value or len(value) > 64 for value in cleaned):
+            raise ValueError("Every output serial must be 1-64 characters.")
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError("An output serial is repeated.")
+        if cleaned and Decimal(len(cleaned)) != self.produced_quantity:
+            raise ValueError("Name one output serial per produced unit.")
+        self.output_serial_numbers = cleaned
         return self
 
 
@@ -591,6 +616,9 @@ class ProductionEntryRead(BaseModel):
     downtime_minutes: Decimal
     notes: str | None
     output_transaction_id: uuid.UUID | None
+    output_transaction_ids: list[uuid.UUID] | None = None
+    output_batch_id: uuid.UUID | None = None
+    output_serial_ids: list[uuid.UUID] | None = None
     #: The in-process inspection this booking raised, when the order holds
     #: output for QC. Cleared by the quality verdict, which releases the hold.
     qc_inspection_id: uuid.UUID | None = None

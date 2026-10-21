@@ -323,6 +323,46 @@ describe('what one submit achieves', () => {
     ])
   })
 
+  it('captures the unit labels and lot dates on the receipt line', async () => {
+    const { user, fetch } = renderScreen(<GoodsReceiptsPage />, {
+      permissions: STOREKEEPER,
+      routes: formRoutes({
+        [`POST ${RECEIPTS_PATH}`]: ok({ id: NEW_RECEIPT_ID, code: 'GRN-0008' }),
+        [`POST ${RECEIPTS_PATH}/${NEW_RECEIPT_ID}/post`]: ok({
+          receipt: { id: NEW_RECEIPT_ID, code: 'GRN-0008', status: 'POSTED' },
+          movements: [],
+          purchase_order_status: 'RECEIVED',
+          qc_hold_line_count: 0,
+          qc_inspections_created: false,
+        }),
+      }),
+    })
+
+    await openReceipt(user, fetch)
+    await countLine(user, 0, '2')
+    await stable(() => screen.getAllByRole('textbox', { name: 'Batch number' })[0]!)
+
+    await user.type(screen.getAllByRole('textbox', { name: 'Batch number' })[0]!, 'LOT-2601')
+    await user.type(screen.getAllByLabelText('Manufactured on')[0]!, '2026-01-05')
+    await user.type(screen.getAllByLabelText('Expires on')[0]!, '2027-01-05')
+    await user.type(
+      screen.getAllByRole('textbox', { name: 'Serial numbers' })[0]!,
+      'sn-001{enter}SN-002',
+    )
+    await user.click(screen.getByRole('button', { name: 'Post receipt' }))
+
+    await waitFor(() => fetch.requestFor('POST', RECEIPTS_PATH))
+    const body = fetch.requestFor('POST', RECEIPTS_PATH) as { lines: Record<string, unknown>[] }
+    expect(body.lines[0]).toEqual(
+      expect.objectContaining({
+        batch_number: 'LOT-2601',
+        manufactured_on: '2026-01-05',
+        expires_on: '2027-01-05',
+        serial_numbers: ['SN-001', 'SN-002'],
+      }),
+    )
+  })
+
   it('lands a line error on the line that was actually sent, not on payload index 0', async () => {
     const { user, fetch } = renderScreen(<GoodsReceiptsPage />, {
       permissions: STOREKEEPER,

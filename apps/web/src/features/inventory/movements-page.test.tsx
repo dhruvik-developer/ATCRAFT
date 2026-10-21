@@ -203,13 +203,11 @@ describe('transfers', () => {
     expect(call.body).toEqual({})
   })
 
-  it('sends line quantities as decimal strings and narrows the item search', async () => {
+  it('sends line quantities as decimal strings and offers serial-tracked items', async () => {
     // Two things at once because they are one screen's contract: quantities stay
-    // strings, and the picker asks the API for non-serial items only.
-    // docs/assumptions.md 25 - a transfer line has nowhere to name units, so the
-    // API refuses a serial-tracked item outright. Narrowing server-side means
-    // the refusal is never reached; filtering in the browser would silently drop
-    // matches past the first page.
+    // strings, and the picker no longer narrows the search away from serial
+    // tracked items. A transfer line can now name its units, so hiding them
+    // would make a supported movement impossible to raise.
     const itemSearches: URL[] = []
     const { user, fetch } = renderScreen(<MovementsPage />, {
       route: TRANSFERS_TAB,
@@ -238,7 +236,11 @@ describe('transfers', () => {
     )
     await user.click(within(dialog).getByRole('combobox', { name: /item, line 1/i }))
     await user.click(await screen.findByRole('option', { name: /BRASS-ROD-12/ }))
-    await user.type(within(dialog).getByRole('textbox', { name: /^quantity$/i }), '12.5000')
+    await user.type(within(dialog).getByRole('textbox', { name: /^quantity$/i }), '2.0000')
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Serial numbers' }),
+      'sn-1{enter}SN-2',
+    )
 
     await user.click(within(dialog).getByRole('button', { name: /create transfer/i }))
 
@@ -247,15 +249,17 @@ describe('transfers', () => {
       from_warehouse_id: string
       to_warehouse_id: string
       reason: string
-      lines: { item_id: string; quantity: unknown }[]
+      lines: { item_id: string; quantity: unknown; serial_numbers?: string[] }[]
     }
     expect(body.from_warehouse_id).toBe(FROM.id)
     expect(body.to_warehouse_id).toBe(TO.id)
-    expect(body.lines).toEqual([{ item_id: ITEM.id, quantity: '12.5000' }])
+    expect(body.lines).toEqual([
+      { item_id: ITEM.id, quantity: '2.0000', serial_numbers: ['SN-1', 'SN-2'] },
+    ])
     expect(typeof body.lines[0]!.quantity).toBe('string')
 
     expect(itemSearches.length).toBeGreaterThan(0)
-    expect(itemSearches[0]!.searchParams.get('is_serial_tracked')).toBe('false')
+    expect(itemSearches[0]!.searchParams.has('is_serial_tracked')).toBe(false)
   })
 
   it('will not send a transfer from a warehouse to itself', async () => {
@@ -458,7 +462,11 @@ describe('adjustments', () => {
     )
     await user.click(within(dialog).getByRole('combobox', { name: /item, line 1/i }))
     await user.click(await screen.findByRole('option', { name: /BRASS-ROD-12/ }))
-    await user.type(within(dialog).getByRole('textbox', { name: /^quantity$/i }), '-12.5000')
+    await user.type(within(dialog).getByRole('textbox', { name: /^quantity$/i }), '-2.0000')
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Serial numbers' }),
+      'dmg-1{enter}DMG-2',
+    )
 
     await user.click(within(dialog).getByRole('button', { name: /raise adjustment/i }))
 
@@ -467,11 +475,13 @@ describe('adjustments', () => {
       warehouse_id: string
       reason_code: string
       reason: string
-      lines: { item_id: string; quantity: unknown }[]
+      lines: { item_id: string; quantity: unknown; serial_numbers?: string[] }[]
     }
     expect(body.warehouse_id).toBe(FROM.id)
     expect(body.reason_code).toBe('DAMAGE')
-    expect(body.lines).toEqual([{ item_id: ITEM.id, quantity: '-12.5000' }])
+    expect(body.lines).toEqual([
+      { item_id: ITEM.id, quantity: '-2.0000', serial_numbers: ['DMG-1', 'DMG-2'] },
+    ])
     expect(typeof body.lines[0]!.quantity).toBe('string')
   })
 

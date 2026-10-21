@@ -136,6 +136,14 @@ celery_app.conf.update(
             "schedule": 86400.0,
             "options": {"queue": "default", "expires": 3600},
         },
+        # A lot past its expiry date cannot be issued. Driving that from the
+        # clock rather than from the next issue means the tracker tells the
+        # truth even when nobody tries to pick the lot.
+        "expire-batches": {
+            "task": "maintenance.expire_batches",
+            "schedule": 86400.0,
+            "options": {"queue": "default", "expires": 3600},
+        },
     },
 )
 

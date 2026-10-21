@@ -787,7 +787,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"assembled_quantity\": 0,\n  \"reason\": \"\",\n  \"components\": [\n    {\n      \"line_number\": {},\n      \"serial_ids\": {}\n    }\n  ],\n  \"occurred_at\": \"2026-01-01T00:00:00Z\",\n  \"rejected_quantity\": 0\n}"
+              "raw": "{\n  \"assembled_quantity\": 0,\n  \"reason\": \"\",\n  \"components\": [\n    {\n      \"line_number\": {},\n      \"batch_id\": {},\n      \"serial_ids\": {}\n    }\n  ],\n  \"occurred_at\": \"2026-01-01T00:00:00Z\",\n  \"output_batch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"output_serial_numbers\": [\n    \"\"\n  ],\n  \"rejected_quantity\": 0\n}"
             },
             "description": "One transaction: an ASSEMBLY_CONSUME movement for every component - one per serial for serialised parts - and an ASSEMBLY_RECEIPT for the assembled output, posted as a single locked batch. When the order requires inspection the output is received onto QC hold instead of into the available pool and an inspection is raised.",
             "header": [
@@ -1152,7 +1152,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"reason\": \"\",\n  \"lines\": [\n    {\n      \"issued_quantity\": {},\n      \"line_number\": {}\n    }\n  ]\n}"
+              "raw": "{\n  \"reason\": \"\",\n  \"lines\": [\n    {\n      \"issued_quantity\": {},\n      \"line_number\": {},\n      \"batch_id\": {}\n    }\n  ]\n}"
             },
             "description": "Records what was physically kitted. No stock moves here - the components are still owned, still in their warehouse position and still reserved to this order. The ledger is written at completion, when it is known what they were turned into. From RELEASED this is the first issue; while the order is COMPONENTS_ISSUED or IN_PROGRESS it is a top-up that raises the issued totals and leaves the status alone. Totals never go down and never exceed the reserved requirement.",
             "header": [
@@ -7917,7 +7917,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"location_id\": {},\n      \"notes\": {},\n      \"unit_cost\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"reason_code\": \"DAMAGE\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"adjustment_date\": \"2026-01-01\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\"\n}"
+              "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"location_id\": {},\n      \"notes\": {},\n      \"serial_ids\": {},\n      \"unit_cost\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"reason_code\": \"DAMAGE\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"adjustment_date\": \"2026-01-01\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\"\n}"
             },
             "description": "Lines are valued at what the position's FIFO cost layers say the stock cost. If the total exceeds the approval threshold - a fixed value, ADJUSTMENT_APPROVAL_VALUE_THRESHOLD in the inventory service, echoed in the error's details when posting is refused - the document must be approved by a second person before it can post.",
             "header": [
@@ -7985,7 +7985,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"location_id\": {},\n      \"notes\": {},\n      \"unit_cost\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"reason_code\": \"DAMAGE\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"adjustment_date\": \"2026-01-01\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\"\n}"
+              "raw": "{\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"location_id\": {},\n      \"notes\": {},\n      \"serial_ids\": {},\n      \"unit_cost\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"reason_code\": \"DAMAGE\",\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"adjustment_date\": \"2026-01-01\",\n  \"cost_centre_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\"\n}"
             },
             "description": "Replaces the draft's header and lines and re-prices it against the FIFO layers as they stand now. Only a DRAFT can be edited. A line's unit cost may be stated only by a caller holding item.cost_view or inventory.valuation_view.",
             "header": [
@@ -8527,6 +8527,18 @@
                   "value": ""
                 },
                 {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": "IN_STOCK"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "batch_id",
+                  "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
                   "description": "1-based page number",
                   "disabled": true,
                   "key": "page",
@@ -8671,6 +8683,24 @@
                   "disabled": true,
                   "key": "batch_id",
                   "value": "00000000-0000-0000-0000-000000000000"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "status",
+                  "value": "ACTIVE"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expiry_from",
+                  "value": "2026-01-01"
+                },
+                {
+                  "description": "",
+                  "disabled": true,
+                  "key": "expiry_to",
+                  "value": "2026-01-01"
                 },
                 {
                   "description": "1-based page number",
@@ -9135,6 +9165,49 @@
           }
         },
         {
+          "name": "Quarantine a lot and move its available stock to QC hold",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Quarantine a lot and move its available stock to QC hold",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "inventory",
+                "batches",
+                ":batch_id",
+                "quarantine"
+              ],
+              "raw": "{{base_url}}/api/v1/inventory/batches/{batch_id}/quarantine",
+              "variable": [
+                {
+                  "description": "batch_id of the record",
+                  "key": "batch_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Raise a stock transfer",
           "request": {
             "body": {
@@ -9144,7 +9217,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"from_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"from_location_id\": {},\n      \"notes\": {},\n      \"source_line_id\": {},\n      \"to_location_id\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"to_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"expected_date\": \"2026-01-01\",\n  \"notes\": \"\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\",\n  \"transfer_date\": \"2026-01-01\"\n}"
+              "raw": "{\n  \"from_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"lines\": [\n    {\n      \"item_id\": {},\n      \"quantity\": {},\n      \"batch_id\": {},\n      \"from_location_id\": {},\n      \"notes\": {},\n      \"serial_ids\": {},\n      \"source_line_id\": {},\n      \"to_location_id\": {}\n    }\n  ],\n  \"reason\": \"\",\n  \"to_warehouse_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"expected_date\": \"2026-01-01\",\n  \"notes\": \"\",\n  \"source_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"source_type\": \"MANUAL\",\n  \"transfer_date\": \"2026-01-01\"\n}"
             },
             "description": "Raise a stock transfer",
             "header": [
@@ -9165,6 +9238,62 @@
                 "transfers"
               ],
               "raw": "{{base_url}}/api/v1/inventory/transfers"
+            }
+          }
+        },
+        {
+          "name": "Read one serial number and its ledger history",
+          "request": {
+            "description": "Read one serial number and its ledger history",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "inventory",
+                "serials",
+                ":serial_id"
+              ],
+              "raw": "{{base_url}}/api/v1/inventory/serials/{serial_id}",
+              "variable": [
+                {
+                  "description": "serial_id of the record",
+                  "key": "serial_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Read one stock batch",
+          "request": {
+            "description": "Read one stock batch",
+            "header": [],
+            "method": "GET",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "inventory",
+                "batches",
+                ":batch_id"
+              ],
+              "raw": "{{base_url}}/api/v1/inventory/batches/{batch_id}",
+              "variable": [
+                {
+                  "description": "batch_id of the record",
+                  "key": "batch_id",
+                  "value": ""
+                }
+              ]
             }
           }
         },
@@ -9309,6 +9438,41 @@
           }
         },
         {
+          "name": "Register a bounded run of serial numbers",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"item_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"serial_numbers\": [\n    \"\"\n  ],\n  \"batch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"location_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"received_on\": \"2026-01-01\",\n  \"unit_cost\": 0,\n  \"warehouse_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            },
+            "description": "Register a bounded run of serial numbers",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "inventory",
+                "serials",
+                "bulk"
+              ],
+              "raw": "{{base_url}}/api/v1/inventory/serials/bulk"
+            }
+          }
+        },
+        {
           "name": "Reject a pending internal issue",
           "request": {
             "body": {
@@ -9395,6 +9559,49 @@
           }
         },
         {
+          "name": "Release a lot from quarantine",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Release a lot from quarantine",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "inventory",
+                "batches",
+                ":batch_id",
+                "activate"
+              ],
+              "raw": "{{base_url}}/api/v1/inventory/batches/{batch_id}/activate",
+              "variable": [
+                {
+                  "description": "batch_id of the record",
+                  "key": "batch_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
           "name": "Reopen a finished sheet for a recount",
           "request": {
             "body": {
@@ -9431,6 +9638,49 @@
                 {
                   "description": "count_id of the record",
                   "key": "count_id",
+                  "value": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Retire a lot",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"reason\": \"\"\n}"
+            },
+            "description": "Retire a lot",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "inventory",
+                "batches",
+                ":batch_id",
+                "expire"
+              ],
+              "raw": "{{base_url}}/api/v1/inventory/batches/{batch_id}/expire",
+              "variable": [
+                {
+                  "description": "batch_id of the record",
+                  "key": "batch_id",
                   "value": ""
                 }
               ]
@@ -15908,7 +16158,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"lines\": [\n    {\n      \"accepted_quantity\": {},\n      \"line_number\": {},\n      \"purchase_order_line_id\": {},\n      \"received_quantity\": {},\n      \"batch_number\": {},\n      \"expires_on\": {},\n      \"location_id\": {},\n      \"manufactured_on\": {},\n      \"notes\": {},\n      \"rejected_quantity\": {},\n      \"rejection_reason\": {},\n      \"requires_qc\": {}\n    }\n  ],\n  \"purchase_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"gate_entry_number\": \"\",\n  \"notes\": \"\",\n  \"receipt_date\": \"2026-01-01\",\n  \"transporter_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vehicle_number\": \"\",\n  \"vendor_delivery_note\": \"\",\n  \"vendor_invoice_number\": \"\"\n}"
+              "raw": "{\n  \"lines\": [\n    {\n      \"accepted_quantity\": {},\n      \"line_number\": {},\n      \"purchase_order_line_id\": {},\n      \"received_quantity\": {},\n      \"batch_number\": {},\n      \"expires_on\": {},\n      \"location_id\": {},\n      \"manufactured_on\": {},\n      \"notes\": {},\n      \"rejected_quantity\": {},\n      \"rejection_reason\": {},\n      \"requires_qc\": {},\n      \"serial_numbers\": {}\n    }\n  ],\n  \"purchase_order_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"gate_entry_number\": \"\",\n  \"notes\": \"\",\n  \"receipt_date\": \"2026-01-01\",\n  \"transporter_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"vehicle_number\": \"\",\n  \"vendor_delivery_note\": \"\",\n  \"vendor_invoice_number\": \"\"\n}"
             },
             "description": "Validates each line against the order and the over-receipt tolerance at the gate. No stock moves until the receipt is posted.",
             "header": [
@@ -16799,7 +17049,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"downtime_minutes\": 0,\n  \"entry_date\": \"2026-01-01\",\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"produced_quantity\": 0,\n  \"rejected_quantity\": 0,\n  \"rejection_reason\": \"\",\n  \"shift_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"work_order_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"downtime_minutes\": 0,\n  \"entry_date\": \"2026-01-01\",\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"notes\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"output_batch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"output_serial_numbers\": [\n    \"\"\n  ],\n  \"produced_quantity\": 0,\n  \"rejected_quantity\": 0,\n  \"rejection_reason\": \"\",\n  \"shift_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"work_order_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "A booking against the **last** operation of the routing - or against a job with no routing at all - posts the `PRODUCTION_RECEIPT` into the output warehouse. A booking at an intermediate operation moves that operation's completed quantity and receives no stock. Rejected output is counted but never received: it was never good stock.",
             "header": [
@@ -17188,7 +17438,7 @@
                   "language": "json"
                 }
               },
-              "raw": "{\n  \"actual_end_date\": \"2026-01-01\",\n  \"entry_date\": \"2026-01-01\",\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"note\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"produced_quantity\": 0,\n  \"rejected_quantity\": 0,\n  \"rejection_reason\": \"\",\n  \"scrap_quantity\": 0,\n  \"shift_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"work_order_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              "raw": "{\n  \"actual_end_date\": \"2026-01-01\",\n  \"entry_date\": \"2026-01-01\",\n  \"machine_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"note\": \"\",\n  \"operator_user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"output_batch_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"output_serial_numbers\": [\n    \"\"\n  ],\n  \"produced_quantity\": 0,\n  \"rejected_quantity\": 0,\n  \"rejection_reason\": \"\",\n  \"scrap_quantity\": 0,\n  \"shift_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"work_order_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
             },
             "description": "Books the final output when a quantity is given - which posts the `PRODUCTION_RECEIPT` into the output warehouse - backflushes any automatic components in proportion to what was actually made, and accounts the issued material as consumed. Consumption posts nothing: the stock left the store when it was issued.",
             "header": [

@@ -1183,6 +1183,9 @@ class GoodsReceiptLineIn(BaseModel):
     rejection_reason: str | None = Field(default=None, max_length=2000)
 
     batch_number: str | None = Field(default=None, max_length=64)
+    #: Typed or scanned by goods-in, one entry per accepted unit. Minted as
+    #: ``stock_serials`` rows when the receipt posts.
+    serial_numbers: list[str] = Field(default_factory=list, max_length=500)
     manufactured_on: date | None = None
     expires_on: date | None = None
     location_id: uuid.UUID | None = None
@@ -1202,6 +1205,17 @@ class GoodsReceiptLineIn(BaseModel):
             raise ValueError(f"A rejected quantity needs a reason (line {self.line_number}).")
         if self.expires_on and self.manufactured_on and self.expires_on < self.manufactured_on:
             raise ValueError(f"Expiry cannot precede manufacture (line {self.line_number}).")
+        cleaned = ["".join(value.split()).upper() for value in self.serial_numbers]
+        if any(not value or len(value) > 64 for value in cleaned):
+            raise ValueError(f"Every serial must be 1-64 characters (line {self.line_number}).")
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError(f"A serial is repeated (line {self.line_number}).")
+        if cleaned and Decimal(len(cleaned)) != self.accepted_quantity:
+            raise ValueError(
+                "A serialised receipt line must name one unit per accepted quantity "
+                f"(line {self.line_number})."
+            )
+        self.serial_numbers = cleaned
         return self
 
 
@@ -1222,6 +1236,8 @@ class GoodsReceiptLineRead(BaseModel):
     unit_cost: Decimal
     batch_number: str | None
     batch_id: uuid.UUID | None
+    serial_numbers: list[str] | None
+    serial_ids: list[uuid.UUID] | None
     manufactured_on: date | None
     expires_on: date | None
     location_id: uuid.UUID | None
@@ -1255,6 +1271,9 @@ class GoodsReceiptCreate(BaseModel):
                 "A purchase order line may appear only once on a goods receipt; "
                 "combine the quantities onto one line."
             )
+        serials = [serial for line in self.lines for serial in line.serial_numbers]
+        if len(set(serials)) != len(serials):
+            raise ValueError("A serial number may only be received once on a document.")
         return self
 
 

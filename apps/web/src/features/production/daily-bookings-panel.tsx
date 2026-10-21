@@ -252,6 +252,7 @@ export function DailyBookingsPanel() {
           }}
           orderId={recording.id}
           orderCode={recording.code}
+          itemId={recording.item_id}
         />
       )}
     </div>

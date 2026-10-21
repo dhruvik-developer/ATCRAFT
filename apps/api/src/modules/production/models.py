@@ -71,6 +71,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.models import OptimisticLockMixin, TenantEntity, sql_in_list
@@ -837,6 +838,15 @@ class ProductionEntry(TenantEntity):
     #: A bare UUID rather than a foreign key: the ledger outlives its source, so
     #: purging an archived booking must not be able to delete stock history.
     output_transaction_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+    #: Every movement a serialised output posted, one per unit. The singular id
+    #: above is kept for old rows; new bookings write the full set here.
+    output_transaction_ids: Mapped[list[uuid.UUID] | None] = mapped_column(
+        ARRAY(GUID), nullable=True
+    )
+    #: The lot this booking produced, and the units minted from it. Both NULL
+    #: on untracked output and on bookings made before tracking was captured.
+    output_batch_id: Mapped[uuid.UUID | None] = mapped_column(GUID, nullable=True)
+    output_serial_ids: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(GUID), nullable=True)
 
     #: The in-process inspection this booking raised, when the order requires
     #: QC. A bare UUID for the same reason as above: quality owns the row, and

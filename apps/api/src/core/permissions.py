@@ -88,6 +88,10 @@ class Permission(StrEnum):
     # --- inventory ----------------------------------------------------------
     INVENTORY_VIEW = "inventory.view"
     INVENTORY_LEDGER_VIEW = "inventory.ledger_view"
+    #: Lot lifecycle actions - quarantine, release, expire - and serial
+    #: registration. Separate from viewing the tracker because releasing a lot
+    #: is a quality decision, not a read.
+    INVENTORY_BATCH_MANAGE = "inventory.batch_manage"
     INVENTORY_TRANSFER = "inventory.transfer"
     INVENTORY_ADJUST = "inventory.adjust"
     INVENTORY_ADJUST_APPROVE = "inventory.adjust_approve"
@@ -375,6 +379,7 @@ _STORE = frozenset(
     {
         Permission.INVENTORY_VIEW,
         Permission.INVENTORY_LEDGER_VIEW,
+        Permission.INVENTORY_BATCH_MANAGE,
         Permission.INVENTORY_TRANSFER,
         Permission.INVENTORY_SCRAP_DISPOSE,
         Permission.INTERNAL_ISSUE_CREATE,
@@ -478,6 +483,9 @@ _PRODUCTION = frozenset(
         Permission.MACHINE_VIEW,
         Permission.INVENTORY_VIEW,
         Permission.INVENTORY_LEDGER_VIEW,
+        # A shift that produces a tracked lot registers the lot and its units
+        # before booking output against them.
+        Permission.INVENTORY_BATCH_MANAGE,
         Permission.RESERVATION_VIEW,
         Permission.ALLOCATION_VIEW,
         Permission.MRP_VIEW,
@@ -500,6 +508,9 @@ _QC = frozenset(
         Permission.QC_DECIDE,
         Permission.ITEM_VIEW,
         Permission.INVENTORY_VIEW,
+        # Inspectors quarantine and release lots; that is a quality decision
+        # recorded against the lot, not a warehouse edit.
+        Permission.INVENTORY_BATCH_MANAGE,
         Permission.GRN_VIEW,
         Permission.JOB_WORK_VIEW,
         Permission.PRODUCTION_ORDER_VIEW,

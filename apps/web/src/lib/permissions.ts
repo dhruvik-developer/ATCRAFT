@@ -77,6 +77,7 @@ export const P = {
   // inventory
   INVENTORY_VIEW: 'inventory.view',
   INVENTORY_LEDGER_VIEW: 'inventory.ledger_view',
+  INVENTORY_BATCH_MANAGE: 'inventory.batch_manage',
   INVENTORY_TRANSFER: 'inventory.transfer',
   INVENTORY_ADJUST: 'inventory.adjust',
   INVENTORY_ADJUST_APPROVE: 'inventory.adjust_approve',

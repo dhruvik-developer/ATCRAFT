@@ -61,6 +61,8 @@ from src.modules.inventory.models import (
     StockState,
     TransactionType,
 )
+from src.modules.inventory.schemas import StockBatchCreate
+from src.modules.inventory.service import TraceabilityService
 from src.modules.products.models import ItemGroup, ProductionType
 from tests import seed_support
 from tests.schema_support import prepare_metadata, report_database_setup_failure
@@ -789,21 +791,24 @@ async def test_consuming_more_than_was_issued_is_refused_and_posts_nothing(ctx) 
         ),
     )
     await service.start_assembly(session, tenant, order.id, reason="Started")
+    order_id = order.id
 
     with pytest.raises(BusinessRuleError, match="issued"):
         await service.complete_assembly(
             session,
             tenant,
-            order.id,
+            order_id,
             CompleteRequest(assembled_quantity=Decimal("100"), reason="Full run"),
         )
 
-    # Nothing was posted: the whole completion is one transaction.
+    # Nothing was posted: the whole completion is one transaction. Capture the
+    # id first: a savepoint rollback expires the ORM instance, and reading
+    # `order.id` here would need IO from a non-awaiting expression.
     posted = (
         await session.execute(
             select(func.count())
             .select_from(InventoryTransaction)
-            .where(InventoryTransaction.reference_id == order.id)
+            .where(InventoryTransaction.reference_id == order_id)
         )
     ).scalar_one()
     assert posted == 0
@@ -1251,7 +1256,7 @@ async def test_completion_leaves_no_reservation_behind(ctx) -> None:
     )
 
 
-async def test_a_batch_tracked_component_is_refused_before_anything_is_committed(ctx) -> None:
+async def test_a_batch_tracked_component_is_accepted_and_requires_a_lot(ctx) -> None:
     session, tenant = ctx
     uom_id = await seed_uom(session, tenant.company_id)
     warehouse_id = await seed_warehouse(session, tenant.company_id)
@@ -1269,16 +1274,144 @@ async def test_a_batch_tracked_component_is_refused_before_anything_is_committed
         components={child: Decimal("1")},
     )
 
-    # Refused at creation rather than at completion, when the components would
-    # already be on the bench.
-    with pytest.raises(BusinessRuleError, match="batch tracked"):
-        await service.create_order(
+    # A batch-tracked component is supported now. Creation records that fact on
+    # the line; completion is where the operator must name the lot consumed.
+    order, _ = await service.create_order(
+        session,
+        tenant,
+        AssemblyOrderCreate(
+            item_id=parent, planned_quantity=Decimal("1"), warehouse_id=warehouse_id
+        ),
+    )
+    components = await service.list_components(session, tenant, order.id)
+    assert [line.is_batch_tracked_component for line in components] == [True]
+
+
+async def test_a_tracked_component_and_tracked_output_are_recorded_end_to_end(ctx) -> None:
+    session, tenant = ctx
+    uom_id = await seed_uom(session, tenant.company_id)
+    warehouse_id = await seed_warehouse(session, tenant.company_id)
+    output_warehouse_id = await seed_warehouse(session, tenant.company_id)
+    parent = await seed_item(
+        session,
+        tenant.company_id,
+        uom_id,
+        code=_code("TRACKED-ASM"),
+        assembly_component=False,
+        batch_tracked=True,
+        serial_tracked=True,
+    )
+    child = await seed_item(
+        session,
+        tenant.company_id,
+        uom_id,
+        code=_code("TRACKED-GLUE"),
+        batch_tracked=True,
+    )
+    await seed_assembly_bom(
+        session,
+        tenant,
+        parent_item_id=parent,
+        uom_id=uom_id,
+        components={child: Decimal("1")},
+    )
+    trace = TraceabilityService(session, tenant)
+    component_batch = await trace.create_batch(
+        StockBatchCreate(
+            item_id=child,
+            batch_number=_code("COMP-LOT"),
+            received_on=today(),
+        )
+    )
+    async with transaction(session):
+        await inv.post_movement(
             session,
             tenant,
-            AssemblyOrderCreate(
-                item_id=parent, planned_quantity=Decimal("1"), warehouse_id=warehouse_id
-            ),
+            item_id=child,
+            warehouse_id=warehouse_id,
+            quantity=Decimal("3"),
+            transaction_type=TransactionType.OPENING_BALANCE,
+            reference_type="opening",
+            reference_id=None,
+            reference_code="OPENING",
+            reason="assembly tracked fixture",
+            unit_cost=Decimal("10"),
+            batch_id=component_batch.id,
         )
+    balance = await inv.get_balance(
+        session, tenant, child, warehouse_id, batch_id=component_batch.id
+    )
+    assert balance is not None
+    assert balance.available_quantity == Decimal("3")
+
+    order, _ = await service.create_order(
+        session,
+        tenant,
+        AssemblyOrderCreate(
+            item_id=parent,
+            planned_quantity=Decimal("2"),
+            warehouse_id=warehouse_id,
+            output_warehouse_id=output_warehouse_id,
+        ),
+    )
+    await service.approve_order(session, tenant, order.id, reason="Scheduled")
+    await service.release_order(session, tenant, order.id, reason="To the line")
+    await service.issue_components(
+        session,
+        tenant,
+        order.id,
+        IssueComponentsRequest(
+            reason="Kitted",
+            lines=[
+                ComponentIssueIn(
+                    line_number=1,
+                    issued_quantity=Decimal("2"),
+                    batch_id=component_batch.id,
+                )
+            ],
+        ),
+    )
+    await service.start_assembly(session, tenant, order.id, reason="Shift started")
+
+    output_batch = await trace.create_batch(
+        StockBatchCreate(
+            item_id=parent,
+            batch_number=_code("OUT-LOT"),
+            received_on=today(),
+        )
+    )
+    completion = await service.complete_assembly(
+        session,
+        tenant,
+        order.id,
+        CompleteRequest(
+            assembled_quantity=Decimal("2"),
+            reason="Built and checked",
+            output_batch_id=output_batch.id,
+            output_serial_numbers=["ASM-SN-001", "ASM-SN-002"],
+            components=[ComponentConsumptionIn(line_number=1, batch_id=component_batch.id)],
+        ),
+    )
+
+    assert completion.order.output_batch_id == output_batch.id
+    assert completion.order.components[0].consumed_batch_id == component_batch.id
+    assert len(completion.order.output_serial_ids or []) == 2
+    serials = (
+        (
+            await session.execute(
+                select(StockSerial).where(
+                    StockSerial.company_id == tenant.company_id,
+                    StockSerial.item_id == parent,
+                    StockSerial.batch_id == output_batch.id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert {serial.serial_number for serial in serials} == {"ASM-SN-001", "ASM-SN-002"}
+    assert all(serial.status is SerialStatus.IN_STOCK for serial in serials)
+    assert all(serial.warehouse_id == output_warehouse_id for serial in serials)
 
 
 async def test_the_output_stock_state_is_recorded_on_the_receipt_row(ctx) -> None:

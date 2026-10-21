@@ -65,6 +65,7 @@ from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import (
+    ARRAY,
     Boolean,
     CheckConstraint,
     Computed,
@@ -264,6 +265,10 @@ class BatchStatus(StrEnum):
 
 class SerialStatus(StrEnum):
     IN_STOCK = "IN_STOCK"
+    #: Issued to a bench, on a lorry or otherwise outside the warehouse but
+    #: still owned by us. Separate from ISSUED because a transfer has a known
+    #: destination and will come back into stock there, not from production.
+    IN_TRANSIT = "IN_TRANSIT"
     ISSUED = "ISSUED"
     DISPATCHED = "DISPATCHED"
     RETURNED = "RETURNED"
@@ -1134,6 +1139,9 @@ class StockSerial(TenantEntity):
         # to work from the number alone.
         Index("ix_stock_serials_number", "company_id", "serial_number"),
         Index("ix_stock_serials_location", "company_id", "warehouse_id", "status"),
+        # The tracker filters one lot's units, and recall work walks the same
+        # path in the opposite direction.
+        Index("ix_stock_serials_batch", "company_id", "batch_id", "status"),
         CheckConstraint("unit_cost >= 0", name="unit_cost_non_negative"),
     )
 
@@ -1288,6 +1296,14 @@ class StockTransferLine(TenantEntity):
         ),
         nullable=True,
     )
+    #: The exact units on a serialised line. One movement is posted per unit at
+    #: dispatch, so the line also remembers every outbound transaction: the
+    #: legacy single id above cannot price a line whose units came from
+    #: different cost layers.
+    serial_ids: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(GUID), nullable=True)
+    dispatch_transaction_ids: Mapped[list[uuid.UUID] | None] = mapped_column(
+        ARRAY(GUID), nullable=True
+    )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     #: The sales order line this movement answers, when the transfer was
@@ -1317,6 +1333,12 @@ class StockTransferLine(TenantEntity):
         # Receiving more than was dispatched would create stock out of nothing.
         CheckConstraint(
             "received_quantity <= dispatched_quantity", name="received_within_dispatched"
+        ),
+        # A serialised transfer line names one physical unit per unit moved.
+        # NULL means the line is not serialised; an empty array is meaningless.
+        CheckConstraint(
+            "serial_ids IS NULL OR cardinality(serial_ids) = quantity",
+            name="serial_count_matches_quantity",
         ),
     )
 
@@ -1432,6 +1454,10 @@ class StockAdjustmentLine(TenantEntity):
     )
 
     quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
+    #: The exact units on a serialised adjustment. The sign of ``quantity``
+    #: decides whether they are written on or off; the array is always whole
+    #: units, so its length is the absolute quantity.
+    serial_ids: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(GUID), nullable=True)
     unit_cost: Mapped[Decimal] = mapped_column(
         UnitPrice, nullable=False, default=Decimal("0"), server_default="0"
     )
@@ -1455,6 +1481,10 @@ class StockAdjustmentLine(TenantEntity):
         Index("ix_stock_adjustment_lines_adjustment", "adjustment_id"),
         Index("ix_stock_adjustment_lines_item", "company_id", "item_id"),
         CheckConstraint("quantity <> 0", name="quantity_non_zero"),
+        CheckConstraint(
+            "serial_ids IS NULL OR cardinality(serial_ids) = abs(quantity)",
+            name="serial_count_matches_quantity",
+        ),
         CheckConstraint("unit_cost >= 0", name="unit_cost_non_negative"),
     )
 

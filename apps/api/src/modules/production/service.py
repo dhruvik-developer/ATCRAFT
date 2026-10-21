@@ -72,7 +72,12 @@ from src.modules.bom.models import Bom, BomStatus
 from src.modules.bom.repository import BomRepository
 from src.modules.inventory.models import InventoryTransaction, StockState, TransactionType
 from src.modules.inventory.repository import BalanceGrain
-from src.modules.inventory.service import MovementEngine, MovementRequest, post_movements
+from src.modules.inventory.service import (
+    MovementEngine,
+    MovementRequest,
+    TraceabilityService,
+    post_movements,
+)
 from src.modules.organization.service import require_cost_centre
 from src.modules.production.models import (
     ISSUABLE_PRODUCTION_STATUSES,
@@ -253,18 +258,6 @@ SUPER_ADMIN_ROLE_CODE = "SUPER_ADMIN"
 # writes one row and takes one reservation per component inside a single
 # transaction.
 MAX_COMPONENTS_PER_ORDER = 500
-
-# ASSUMPTION: batch- and serial-tracked finished goods cannot be received
-# through a production booking. Every movement of such an item needs a batch or
-# a serial (the inventory engine enforces it), and ``production_entries`` has
-# nowhere to record the lot the shift produced. Refusing with an explicit
-# message is better than posting output nobody can trace afterwards - the same
-# decision procurement made for serial-tracked receipts.
-TRACKED_OUTPUT_MESSAGE = (
-    "is batch or serial tracked. Finished-goods lots cannot be captured on a production "
-    "booking; receive the output through inventory once the lot has been registered."
-)
-
 
 # =============================================================================
 # State machines - the only things permitted to move a status column
@@ -2226,6 +2219,8 @@ async def complete_order(
                     produced_quantity=payload.produced_quantity,
                     rejected_quantity=payload.rejected_quantity,
                     rejection_reason=payload.rejection_reason,
+                    output_batch_id=payload.output_batch_id,
+                    output_serial_numbers=payload.output_serial_numbers,
                     notes=payload.note,
                 ),
                 force_output=True,
@@ -3525,6 +3520,7 @@ async def _book_entry(
         rejected_quantity=rejected,
         rejection_reason=payload.rejection_reason,
         downtime_minutes=to_quantity(payload.downtime_minutes),
+        output_batch_id=payload.output_batch_id,
         notes=payload.notes,
     )
     ProductionEntryRepository(session, tenant).add(entry)
@@ -3544,6 +3540,7 @@ async def _book_entry(
             order,
             entry,
             produced,
+            payload.output_serial_numbers,
             stock_state=StockState.QC_HOLD if hold_for_qc else StockState.AVAILABLE,
         )
         order.produced_quantity = to_quantity(Decimal(order.produced_quantity) + produced)
@@ -3617,6 +3614,7 @@ async def _post_output_receipt(
     order: ProductionOrder,
     entry: ProductionEntry,
     quantity: Decimal,
+    serial_numbers: Sequence[str],
     *,
     stock_state: StockState = StockState.AVAILABLE,
 ) -> PostedMovement:
@@ -3628,36 +3626,102 @@ async def _post_output_receipt(
     issued and operations are still running - and revaluing finished stock from
     standard to actual is a finance function this module does not own. The actual
     figure is computed at closure and reported by ``GET /production/{id}/cost``.
+
+    A tracked output posts one movement per physical unit. The lot and the units
+    are recorded on the booking, so "which shift made this serial?" is one read
+    rather than a join through the ledger.
     """
     items = await _load_items(session, tenant, [order.item_id])
     item = items[order.item_id]
-    if item.is_batch_tracked or item.is_serial_tracked:
+    batch_id = entry.output_batch_id
+    if item.is_batch_tracked and batch_id is None:
         raise BusinessRuleError(
-            f"Item {item.code} {TRACKED_OUTPUT_MESSAGE}",
-            code=(ErrorCode.BATCH_REQUIRED if item.is_batch_tracked else ErrorCode.SERIAL_REQUIRED),
+            f"Item {item.code} is batch tracked; name the lot this booking produced.",
+            code=ErrorCode.BATCH_REQUIRED,
             details={"item_code": item.code, "order_code": order.code},
         )
+    if not item.is_batch_tracked and batch_id is not None:
+        raise BusinessRuleError(
+            f"{item.code} is not batch tracked; remove the output batch.",
+            details={"item_code": item.code, "order_code": order.code},
+        )
+    if not item.is_serial_tracked and serial_numbers:
+        raise BusinessRuleError(
+            f"{item.code} is not serial tracked; remove the output serials.",
+            details={"item_code": item.code, "order_code": order.code},
+        )
+    if item.is_serial_tracked and Decimal(len(serial_numbers)) != quantity:
+        raise BusinessRuleError(
+            f"Name one output serial per produced unit on {order.code}.",
+            code=ErrorCode.SERIAL_REQUIRED,
+            details={
+                "item_code": item.code,
+                "order_code": order.code,
+                "quantity": str(quantity),
+                "serial_count": len(serial_numbers),
+            },
+        )
+    serial_ids: list[uuid.UUID] = []
+    if item.is_serial_tracked:
+        serial_ids = await TraceabilityService(session, tenant).resolve_serial_ids(
+            order.item_id,
+            serial_numbers,
+            batch_id=batch_id,
+            warehouse_id=order.warehouse_id,
+            location_id=None,
+            received_on=entry.entry_date,
+            source=order.code,
+        )
+        entry.output_serial_ids = serial_ids
 
-    posted = await post_movements(
-        session,
-        tenant,
-        [
-            MovementRequest(
-                item_id=order.item_id,
-                warehouse_id=order.warehouse_id,
-                quantity=quantity,
-                transaction_type=TransactionType.PRODUCTION_RECEIPT,
-                reference_type=MOVEMENT_REFERENCE_ORDER,
-                reference_id=order.id,
-                reference_code=order.code,
-                reason=f"Production receipt from {order.code}"[:255],
-                stock_state=stock_state,
-                occurred_at=datetime.combine(entry.entry_date, datetime.min.time(), tzinfo=UTC),
-            )
-        ],
-    )
+    reason = f"Production receipt from {order.code}"[:255]
+    occurred_at = datetime.combine(entry.entry_date, datetime.min.time(), tzinfo=UTC)
+    movements = [
+        MovementRequest(
+            item_id=order.item_id,
+            warehouse_id=order.warehouse_id,
+            quantity=Decimal("1") if serial_ids else quantity,
+            transaction_type=TransactionType.PRODUCTION_RECEIPT,
+            reference_type=MOVEMENT_REFERENCE_ORDER,
+            reference_id=order.id,
+            reference_code=order.code,
+            reason=reason,
+            batch_id=batch_id,
+            serial_id=serial_ids[index] if serial_ids else None,
+            stock_state=stock_state,
+            occurred_at=occurred_at,
+        )
+        for index in range(len(serial_ids))
+    ] or [
+        MovementRequest(
+            item_id=order.item_id,
+            warehouse_id=order.warehouse_id,
+            quantity=quantity,
+            transaction_type=TransactionType.PRODUCTION_RECEIPT,
+            reference_type=MOVEMENT_REFERENCE_ORDER,
+            reference_id=order.id,
+            reference_code=order.code,
+            reason=reason,
+            batch_id=batch_id,
+            stock_state=stock_state,
+            occurred_at=occurred_at,
+        )
+    ]
+    posted = await post_movements(session, tenant, movements)
+    entry.output_transaction_ids = [transaction.id for transaction in posted]
     entry.output_transaction_id = posted[0].id
-    return _posted_movement(posted[0])
+    if not serial_ids:
+        return _posted_movement(posted[0])
+    total_cost = sum((Decimal(transaction.total_cost) for transaction in posted), Decimal("0"))
+    return PostedMovement(
+        transaction_id=posted[0].id,
+        item_id=order.item_id,
+        warehouse_id=order.warehouse_id,
+        quantity=to_quantity(quantity),
+        unit_cost=to_unit_price(total_cost / quantity),
+        total_cost=to_money(total_cost),
+        transaction_type=str(TransactionType.PRODUCTION_RECEIPT),
+    )
 
 
 async def _raise_output_inspection(

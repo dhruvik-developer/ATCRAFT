@@ -51,6 +51,7 @@ from src.modules.finance.models import LedgerAccount, LedgerEntry, PartyType, Sy
 from src.modules.inventory.models import (
     InventoryBalance,
     InventoryTransaction,
+    StockSerial,
     StockState,
     TransactionType,
 )
@@ -419,6 +420,7 @@ async def receive(
     accepted: str | None = None,
     rejected: str = "0",
     batch_number: str | None = None,
+    serial_numbers: list[str] | None = None,
     post: bool = True,
 ):
     accepted_quantity = Decimal(accepted if accepted is not None else received) - Decimal(rejected)
@@ -436,6 +438,7 @@ async def receive(
                     rejected_quantity=Decimal(rejected),
                     rejection_reason="Damaged in transit" if Decimal(rejected) > 0 else None,
                     batch_number=batch_number,
+                    serial_numbers=serial_numbers or [],
                 )
             ],
         ),
@@ -755,10 +758,8 @@ async def test_a_batch_tracked_item_without_a_lot_number_is_refused_at_the_gate(
     assert exc.value.code is ErrorCode.BATCH_REQUIRED
 
 
-async def test_a_serial_tracked_item_is_refused_with_an_explicit_message(
-    db, tenant, buyer, masters
-):
-    """A receipt line has nowhere to record the many serials that arrive on it."""
+async def test_a_serial_tracked_receipt_without_labels_is_refused(db, tenant, buyer, masters):
+    """A quantity-only receipt would leave three units untraceable."""
     order, lines, _ = await make_order(
         db, tenant, buyer, masters, quantity="3", item=masters["serialised_item"]
     )
@@ -766,7 +767,57 @@ async def test_a_serial_tracked_item_is_refused_with_an_explicit_message(
 
     with pytest.raises(BusinessRuleError) as exc:
         await receive(db, tenant, buyer, order, lines[0], received="3")
+    assert exc.value.code is ErrorCode.SERIAL_REQUIRED
     assert "serial tracked" in exc.value.message
+
+
+async def test_serial_numbers_mint_one_movement_per_received_unit(db, tenant, buyer, masters):
+    """The labels scanned at the gate become the units the ledger moves."""
+    order, lines, _ = await make_order(
+        db, tenant, buyer, masters, quantity="3", item=masters["serialised_item"]
+    )
+    await send_order(db, tenant, buyer, order)
+
+    _, result = await receive(
+        db,
+        tenant,
+        buyer,
+        order,
+        lines[0],
+        received="3",
+        serial_numbers=[" sn 001 ", "SN-002", "SN-003"],
+    )
+
+    receipt_line = result.receipt.lines[0]
+    assert receipt_line.serial_numbers == ["SN001", "SN-002", "SN-003"]
+    assert receipt_line.serial_ids is not None and len(receipt_line.serial_ids) == 3
+    assert len(result.movements) == 3
+    legs = list(
+        (
+            await db.execute(
+                select(InventoryTransaction).where(
+                    InventoryTransaction.reference_id == receipt_line.goods_receipt_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert {leg.serial_id for leg in legs} == set(receipt_line.serial_ids)
+    assert all(leg.quantity == Decimal("1.0000") for leg in legs)
+
+    balance = await balance_of(db, tenant, masters["serialised_item"].id, masters["warehouse"].id)
+    assert balance.on_hand_quantity == Decimal("3.0000")
+    serials = list(
+        (
+            await db.execute(
+                select(StockSerial).where(StockSerial.item_id == masters["serialised_item"].id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert {unit.serial_number for unit in serials} == {"SN001", "SN-002", "SN-003"}
 
 
 # --- posting is guarded ---------------------------------------------------------

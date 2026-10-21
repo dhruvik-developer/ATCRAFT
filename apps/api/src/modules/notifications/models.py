@@ -117,6 +117,9 @@ class NotificationType(StrEnum):
     # --- inventory / quality ------------------------------------------------
     STOCK_BELOW_REORDER = "STOCK_BELOW_REORDER"
     STOCK_SHORTAGE = "STOCK_SHORTAGE"
+    #: A lot is expired or will expire soon. One digest per company per sweep,
+    #: not one per batch - see ``TraceabilityService.sweep_expiry``.
+    STOCK_EXPIRY = "STOCK_EXPIRY"
     ALLOCATION_CHANGED = "ALLOCATION_CHANGED"
     QC_INSPECTION_PENDING = "QC_INSPECTION_PENDING"
     QC_FAILED = "QC_FAILED"

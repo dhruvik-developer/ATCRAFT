@@ -31,6 +31,7 @@ export const routeLoaders = {
   '/inventory/ledger': () => import('@/features/inventory/ledger-page'),
   '/inventory/reservations': () => import('@/features/inventory/reservations-page'),
   '/inventory/movements': () => import('@/features/inventory/movements-page'),
+  '/inventory/tracking': () => import('@/features/inventory/tracking-page'),
   '/bom': () => import('@/features/bom/bom-list-page'),
   '/bom/:bomId': () => import('@/features/bom/bom-detail-page'),
   '/routing': () => import('@/features/routing/routing-page'),

@@ -163,9 +163,29 @@ async def test_batch_selection_binds_server_search_paging_and_selected_id(
             pass
 
         async def list_batches(
-            self, item_id: Any, search: Any, params: Any, *, batch_id: Any = None
+            self,
+            item_id: Any,
+            search: Any,
+            params: Any,
+            *,
+            batch_id: Any = None,
+            status: Any = None,
+            expiry_from: Any = None,
+            expiry_to: Any = None,
         ) -> tuple[list[Any], OffsetPagination]:
-            seen.append((item_id, search, params.page, params.limit, params.with_total, batch_id))
+            seen.append(
+                (
+                    item_id,
+                    search,
+                    params.page,
+                    params.limit,
+                    params.with_total,
+                    batch_id,
+                    status,
+                    expiry_from,
+                    expiry_to,
+                )
+            )
             return [], OffsetPagination(page=params.page, limit=params.limit)
 
     monkeypatch.setattr(inventory_router, "TraceabilityService", Recorder)
@@ -181,4 +201,4 @@ async def test_batch_selection_binds_server_search_paging_and_selected_id(
         },
     )
     assert response.status_code == 200, response.text
-    assert seen == [(item_id, "OLDER", 3, 20, False, batch_id)]
+    assert seen == [(item_id, "OLDER", 3, 20, False, batch_id, None, None, None)]

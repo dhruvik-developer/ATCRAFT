@@ -41,7 +41,7 @@ from src.modules.sales.models import SalesSettings
 
 pytestmark = pytest.mark.integration
 
-HEAD_REVISION = "20261023_0100"
+HEAD_REVISION = "20261024_0100"
 DB_NAME = f"atcraft_baseline_mig_{uuid.uuid4().hex[:8]}"
 CONNECTION_GUARDS = (
     "connect_timeout=10&keepalives=1&keepalives_idle=15&keepalives_interval=5&keepalives_count=3"

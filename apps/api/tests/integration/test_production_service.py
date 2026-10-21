@@ -55,6 +55,7 @@ from src.modules.bom.models import Bom, BomLine, BomOperation, BomStatus, BomTyp
 from src.modules.inventory.models import (
     InventoryBalance,
     InventoryTransaction,
+    StockBatch,
     TransactionType,
 )
 from src.modules.inventory.service import post_movement
@@ -1560,6 +1561,60 @@ async def test_release_issue_complete_moves_stock_end_to_end(
     ledger = await movements_of(db, tenant, reference_id=order.id)
     assert [t.transaction_type for t in ledger] == [TransactionType.PRODUCTION_RECEIPT]
     assert ledger[0].quantity == Decimal("100.0000")
+
+
+async def test_a_tracked_finished_good_is_booked_unit_by_unit_into_its_lot(
+    db, tenant, stocked, planner, approver
+):
+    """The output of a booking is a lot and a set of units, not a quantity."""
+    kit = stocked["kit"]
+    kit.is_batch_tracked = True
+    kit.is_serial_tracked = True
+    await db.flush()
+    lot = StockBatch(
+        company_id=tenant.company_id,
+        item_id=kit.id,
+        batch_number="FG-LOT-1",
+        received_on=today(),
+    )
+    db.add(lot)
+    await db.flush()
+
+    order = await make_order(db, tenant, stocked, quantity="2")
+    await approve(db, tenant, approver, order)
+    await release(db, tenant, order)
+    await issue_everything(db, tenant, planner, order)
+    await service.start_order(db, tenant, order.id, StartRequest())
+    detail = await service.get_order_detail(db, tenant, order.id)
+    work_order_id = detail.work_orders[0].id
+    started = datetime(2026, 4, 1, 8, 0, tzinfo=UTC)
+    await service.transition_work_order(
+        db,
+        tenant,
+        work_order_id,
+        WorkOrderTransitionRequest(status=WorkOrderStatus.IN_PROGRESS, occurred_at=started),
+    )
+
+    booking = await service.create_production_entry(
+        db,
+        tenant,
+        order.id,
+        ProductionEntryCreate(
+            work_order_id=work_order_id,
+            produced_quantity=Decimal("2"),
+            output_batch_id=lot.id,
+            output_serial_numbers=[" fg 001 ", "FG-002"],
+        ),
+    )
+
+    assert booking.entry.output_batch_id == lot.id
+    assert booking.entry.output_serial_ids is not None and len(booking.entry.output_serial_ids) == 2
+    ledger = await movements_of(db, tenant, reference_id=order.id)
+    output = [row for row in ledger if row.transaction_type is TransactionType.PRODUCTION_RECEIPT]
+    assert len(output) == 2
+    assert {row.serial_id for row in output} == set(booking.entry.output_serial_ids)
+    assert all(row.batch_id == lot.id for row in output)
+    assert all(row.quantity == Decimal("1.0000") for row in output)
 
 
 async def test_closing_costs_the_job_from_real_movements_and_real_time(

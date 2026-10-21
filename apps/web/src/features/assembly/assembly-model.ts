@@ -178,6 +178,10 @@ export interface AssemblyOrderRow {
   qc_inspection_id: string | null
   qc_held_at: string | null
 
+  /** Final-output tracking, set when the order is completed. */
+  output_batch_id: string | null
+  output_serial_ids: string[] | null
+
   packing_order_id: string | null
   packed_at: string | null
 
@@ -214,6 +218,11 @@ export interface AssemblyComponent {
   consumed_quantity: DecimalString
 
   is_serial_tracked_component: boolean
+  is_batch_tracked_component: boolean
+  /** The lot named when the components were kitted, if any. */
+  issued_batch_id: string | null
+  /** The lot actually consumed, once the order is completed. */
+  consumed_batch_id: string | null
   /** The serials already eaten by this order; ids only, no serial numbers. */
   consumed_serial_ids: string[]
 

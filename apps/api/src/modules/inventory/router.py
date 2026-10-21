@@ -47,11 +47,13 @@ from src.core.responses import (
 from src.modules.inventory.models import (
     AdjustmentReason,
     AdjustmentStatus,
+    BatchStatus,
     BinMoveStatus,
     InternalIssueStatus,
     PhysicalCountStatus,
     ScrapDisposalKind,
     ScrapDisposalStatus,
+    SerialStatus,
     StockState,
     TransactionType,
     TransferStatus,
@@ -89,9 +91,12 @@ from src.modules.inventory.schemas import (
     StockAdjustmentCreate,
     StockAdjustmentRead,
     StockAdjustmentUpdate,
+    StockBatchAction,
     StockBatchCreate,
     StockBatchRead,
+    StockSerialBulkCreate,
     StockSerialCreate,
+    StockSerialDetail,
     StockSerialRead,
     StockTransferCreate,
     StockTransferRead,
@@ -440,9 +445,18 @@ async def list_batches(
     batch_id: Annotated[
         uuid.UUID | None, Query(description="Resolve a selected batch within the item and tenant")
     ] = None,
+    batch_status: Annotated[BatchStatus | None, Query(alias="status")] = None,
+    expiry_from: Annotated[date | None, Query()] = None,
+    expiry_to: Annotated[date | None, Query()] = None,
 ) -> PaginatedResponse[StockBatchRead]:
     items, pagination = await TraceabilityService(session, tenant).list_batches(
-        item_id, search, params, batch_id=batch_id
+        item_id,
+        search,
+        params,
+        batch_id=batch_id,
+        status=batch_status,
+        expiry_from=expiry_from,
+        expiry_to=expiry_to,
     )
     return PaginatedResponse[StockBatchRead](data=items, pagination=pagination)
 
@@ -456,13 +470,74 @@ async def list_batches(
         "A batch-tracked item cannot receive stock until the lot exists: the "
         "engine refuses any movement of such an item without a batch."
     ),
-    dependencies=[require_permission(Permission.INVENTORY_ADJUST)],
+    dependencies=[require_permission(Permission.INVENTORY_BATCH_MANAGE)],
 )
 async def create_batch(
     payload: StockBatchCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[StockBatchRead]:
     created = await TraceabilityService(session, tenant).create_batch(payload)
     return ApiResponse[StockBatchRead].ok(created, "Batch recorded")
+
+
+@router.get(
+    "/batches/{batch_id}",
+    response_model=ApiResponse[StockBatchRead],
+    summary="Read one stock batch",
+    dependencies=[require_permission(Permission.INVENTORY_VIEW)],
+)
+async def get_batch(
+    batch_id: uuid.UUID, session: DbSession, tenant: Tenant
+) -> ApiResponse[StockBatchRead]:
+    batch = await TraceabilityService(session, tenant).get_batch(batch_id)
+    return ApiResponse[StockBatchRead].ok(batch)
+
+
+@router.post(
+    "/batches/{batch_id}/quarantine",
+    response_model=ApiResponse[StockBatchRead],
+    summary="Quarantine a lot and move its available stock to QC hold",
+    dependencies=[require_permission(Permission.INVENTORY_BATCH_MANAGE)],
+)
+async def quarantine_batch(
+    batch_id: uuid.UUID,
+    payload: StockBatchAction,
+    session: DbSession,
+    tenant: Tenant,
+) -> ApiResponse[StockBatchRead]:
+    batch = await TraceabilityService(session, tenant).quarantine_batch(batch_id, payload)
+    return ApiResponse[StockBatchRead].ok(batch, "Batch quarantined")
+
+
+@router.post(
+    "/batches/{batch_id}/activate",
+    response_model=ApiResponse[StockBatchRead],
+    summary="Release a lot from quarantine",
+    dependencies=[require_permission(Permission.INVENTORY_BATCH_MANAGE)],
+)
+async def activate_batch(
+    batch_id: uuid.UUID,
+    payload: StockBatchAction,
+    session: DbSession,
+    tenant: Tenant,
+) -> ApiResponse[StockBatchRead]:
+    batch = await TraceabilityService(session, tenant).activate_batch(batch_id, payload)
+    return ApiResponse[StockBatchRead].ok(batch, "Batch activated")
+
+
+@router.post(
+    "/batches/{batch_id}/expire",
+    response_model=ApiResponse[StockBatchRead],
+    summary="Retire a lot",
+    dependencies=[require_permission(Permission.INVENTORY_BATCH_MANAGE)],
+)
+async def expire_batch(
+    batch_id: uuid.UUID,
+    payload: StockBatchAction,
+    session: DbSession,
+    tenant: Tenant,
+) -> ApiResponse[StockBatchRead]:
+    batch = await TraceabilityService(session, tenant).expire_batch(batch_id, payload)
+    return ApiResponse[StockBatchRead].ok(batch, "Batch expired")
 
 
 @router.get(
@@ -478,11 +553,45 @@ async def list_serials(
     item_id: Annotated[uuid.UUID | None, Query()] = None,
     warehouse_id: Annotated[uuid.UUID | None, Query()] = None,
     search: Annotated[str | None, Query(max_length=64)] = None,
+    serial_status: Annotated[SerialStatus | None, Query(alias="status")] = None,
+    batch_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> PaginatedResponse[StockSerialRead]:
     items, pagination = await TraceabilityService(session, tenant).list_serials(
-        item_id, warehouse_id, search, params
+        item_id,
+        warehouse_id,
+        search,
+        params,
+        status=serial_status,
+        batch_id=batch_id,
     )
     return PaginatedResponse[StockSerialRead](data=items, pagination=pagination)
+
+
+@router.post(
+    "/serials/bulk",
+    response_model=ApiResponse[list[StockSerialRead]],
+    status_code=status.HTTP_201_CREATED,
+    summary="Register a bounded run of serial numbers",
+    dependencies=[require_permission(Permission.INVENTORY_BATCH_MANAGE)],
+)
+async def bulk_create_serials(
+    payload: StockSerialBulkCreate, session: DbSession, tenant: Tenant
+) -> ApiResponse[list[StockSerialRead]]:
+    created = await TraceabilityService(session, tenant).bulk_create_serials(payload)
+    return ApiResponse[list[StockSerialRead]].ok(created, "Serials recorded")
+
+
+@router.get(
+    "/serials/{serial_id}",
+    response_model=ApiResponse[StockSerialDetail],
+    summary="Read one serial number and its ledger history",
+    dependencies=[require_permission(Permission.INVENTORY_VIEW)],
+)
+async def get_serial(
+    serial_id: uuid.UUID, session: DbSession, tenant: Tenant
+) -> ApiResponse[StockSerialDetail]:
+    serial = await TraceabilityService(session, tenant).get_serial(serial_id)
+    return ApiResponse[StockSerialDetail].ok(serial)
 
 
 @router.post(
@@ -490,7 +599,7 @@ async def list_serials(
     response_model=ApiResponse[StockSerialRead],
     status_code=status.HTTP_201_CREATED,
     summary="Record a serial number",
-    dependencies=[require_permission(Permission.INVENTORY_ADJUST)],
+    dependencies=[require_permission(Permission.INVENTORY_BATCH_MANAGE)],
 )
 async def create_serial(
     payload: StockSerialCreate, session: DbSession, tenant: Tenant

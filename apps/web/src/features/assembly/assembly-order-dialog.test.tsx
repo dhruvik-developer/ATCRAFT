@@ -87,6 +87,8 @@ function draft(overrides: Partial<AssemblyOrderRow> = {}): AssemblyOrderRow {
     requires_qc: false,
     qc_inspection_id: null,
     qc_held_at: null,
+    output_batch_id: null,
+    output_serial_ids: null,
     packing_order_id: null,
     packed_at: null,
     source_type: 'MANUAL',

@@ -41,7 +41,10 @@ import { Alert, AlertDescription, Input, Label, Textarea } from '@/components/ui
 import { CostCentreSelect } from '@/features/admin/cost-centre-select'
 import { useAuth } from '@/features/auth/auth-context'
 import { LocationPicker } from '@/features/inventory/location-picker'
+import MovementBatchPicker from '@/features/inventory/movement-batch-picker'
 import { ItemPicker, WarehouseSelect } from '@/features/inventory/pickers'
+import { SerialNumbersField } from '@/features/inventory/serial-numbers-field'
+import { splitSerialNumbers } from '@/features/inventory/serial-numbers'
 import { useOperatorOptions } from '@/hooks/use-operator-options'
 import { ShiftSelect } from '@/features/shifts/shift-select'
 import { api } from '@/lib/api-client'
@@ -103,6 +106,8 @@ const completionSchema = z
       .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
     actual_end_date: z.string().min(1, 'Enter the actual end date'),
     shift_id: z.string(),
+    output_batch_id: z.string(),
+    output_serial_numbers: z.string(),
     note: z.string().trim().max(1000, 'At most 1000 characters'),
   })
   .superRefine((values, ctx) => {
@@ -111,6 +116,15 @@ const completionSchema = z
         code: z.ZodIssueCode.custom,
         message: 'A rejection needs a reason',
         path: ['rejection_reason'],
+      })
+    }
+    const serials = splitSerialNumbers(values.output_serial_numbers)
+    const produced = toDecimal(values.produced_quantity)
+    if (serials.length > 0 && !produced.equals(serials.length)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Name one output serial per produced unit - ${produced.toString()} produced, ${serials.length} captured`,
+        path: ['output_serial_numbers'],
       })
     }
   })
@@ -125,6 +139,8 @@ type CompletionPayload = {
   entry_date: string
   actual_end_date: string
   shift_id: string | null
+  output_batch_id: string | null
+  output_serial_numbers: string[]
   note: string | null
 }
 
@@ -136,6 +152,8 @@ function completionDefaults(): CompletionFormValues {
     scrap_quantity: '0',
     actual_end_date: today(),
     shift_id: '',
+    output_batch_id: '',
+    output_serial_numbers: '',
     note: '',
   }
 }
@@ -151,7 +169,12 @@ export function CompleteProductionDialog({
   onOpenChange: (open: boolean) => void
   order: Pick<
     ProductionOrderRow,
-    'code' | 'planned_quantity' | 'produced_quantity' | 'rejected_quantity' | 'scrap_quantity'
+    | 'item_id'
+    | 'code'
+    | 'planned_quantity'
+    | 'produced_quantity'
+    | 'rejected_quantity'
+    | 'scrap_quantity'
   >
   loading: boolean
   onConfirm: (payload: CompletionPayload) => void
@@ -161,6 +184,7 @@ export function CompleteProductionDialog({
     control,
     handleSubmit,
     reset,
+    watch,
     formState: { errors },
   } = useForm<CompletionFormValues>({
     resolver: zodResolver(completionSchema),
@@ -180,6 +204,8 @@ export function CompleteProductionDialog({
       entry_date: values.actual_end_date,
       actual_end_date: values.actual_end_date,
       shift_id: orNull(values.shift_id),
+      output_batch_id: orNull(values.output_batch_id),
+      output_serial_numbers: splitSerialNumbers(values.output_serial_numbers),
       note: orNull(values.note),
     })
   }
@@ -288,6 +314,35 @@ export function CompleteProductionDialog({
                       value={field.value || null}
                       onChange={(value) => field.onChange(value ?? '')}
                       enabled={open}
+                    />
+                  )}
+                />
+              </div>
+              <div className="space-y-3 sm:col-span-2">
+                <Controller
+                  control={control}
+                  name="output_batch_id"
+                  render={({ field }) => (
+                    <MovementBatchPicker
+                      id="production-complete-output-batch"
+                      itemId={order.item_id}
+                      value={field.value}
+                      onChange={field.onChange}
+                    />
+                  )}
+                />
+                <Controller
+                  control={control}
+                  name="output_serial_numbers"
+                  render={({ field }) => (
+                    <SerialNumbersField
+                      id="production-complete-output-serials"
+                      label="Output serial numbers"
+                      value={field.value}
+                      onChange={field.onChange}
+                      expected={watch('produced_quantity')}
+                      hint="For a serial-tracked finished item: one serial per good unit received. Leave empty for an untracked item."
+                      error={errors.output_serial_numbers?.message}
                     />
                   )}
                 />
@@ -1499,6 +1554,8 @@ const entrySchema = z
       .regex(OPTIONAL_QUANTITY, 'Enter a quantity with up to 4 decimal places'),
     rejection_reason: z.string().trim().max(255, 'At most 255 characters'),
     downtime_minutes: z.string().trim().regex(MINUTES, 'Enter minutes, up to 4 decimals'),
+    output_batch_id: z.string(),
+    output_serial_numbers: z.string(),
   })
   .superRefine((values, ctx) => {
     const produced = toDecimal(values.produced_quantity)
@@ -1519,6 +1576,14 @@ const entrySchema = z
         path: ['rejection_reason'],
       })
     }
+    const serials = splitSerialNumbers(values.output_serial_numbers)
+    if (serials.length > 0 && !produced.equals(serials.length)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Name one output serial per produced unit - ${produced.toString()} produced, ${serials.length} captured`,
+        path: ['output_serial_numbers'],
+      })
+    }
   })
 
 type EntryFormValues = z.infer<typeof entrySchema>
@@ -1534,6 +1599,8 @@ function emptyEntry(): EntryFormValues {
     rejected_quantity: '',
     rejection_reason: '',
     downtime_minutes: '',
+    output_batch_id: '',
+    output_serial_numbers: '',
   }
 }
 
@@ -1542,11 +1609,13 @@ export function RecordProductionDialog({
   onOpenChange,
   orderId,
   orderCode,
+  itemId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   orderId: string
   orderCode: string
+  itemId: string
 }) {
   const { can } = useAuth()
   const queryClient = useQueryClient()
@@ -1583,6 +1652,12 @@ export function RecordProductionDialog({
   const operatorId = watch('operator_user_id')
   const workOrderId = watch('work_order_id')
   const selectedWorkOrder = workOrders.data?.data.find((row) => row.id === workOrderId)
+  const lastOpenSequence = Math.max(0, ...(workOrders.data?.data ?? []).map((row) => row.sequence))
+  // The last operation, or the whole job when no operation is named, is what
+  // the service receives into stock. Tracking fields on an intermediate
+  // operation would be stored on the booking without minting anything, so they
+  // are shown only where the output is actually booked.
+  const booksOutput = !selectedWorkOrder || selectedWorkOrder.sequence === lastOpenSequence
   const roster = useQuery({
     queryKey: [
       ...queryKeys.routing.all,
@@ -1628,6 +1703,12 @@ export function RecordProductionDialog({
         // Downtime is a measured value like everything else here, so it stays a
         // decimal string rather than being parsed into a double.
         downtime_minutes: asDecimal(values.downtime_minutes),
+        ...(booksOutput
+          ? {
+              output_batch_id: orNull(values.output_batch_id),
+              output_serial_numbers: splitSerialNumbers(values.output_serial_numbers),
+            }
+          : {}),
       }),
     onSuccess: (result) => {
       // Output is received into stock, so the balances move with the order.
@@ -1816,6 +1897,39 @@ export function RecordProductionDialog({
                 />
                 <FieldError message={errors.rejection_reason?.message} />
               </div>
+
+              {booksOutput && (
+                <div className="space-y-3 sm:col-span-2">
+                  <p className="text-sm font-medium">Final output</p>
+                  <Controller
+                    control={control}
+                    name="output_batch_id"
+                    render={({ field }) => (
+                      <MovementBatchPicker
+                        id="entry-output-batch"
+                        itemId={itemId}
+                        value={field.value}
+                        onChange={field.onChange}
+                      />
+                    )}
+                  />
+                  <Controller
+                    control={control}
+                    name="output_serial_numbers"
+                    render={({ field }) => (
+                      <SerialNumbersField
+                        id="entry-output-serials"
+                        label="Output serial numbers"
+                        value={field.value}
+                        onChange={field.onChange}
+                        expected={watch('produced_quantity')}
+                        hint="For a serial-tracked finished item, one serial per good unit. Leave empty for an untracked item."
+                        error={errors.output_serial_numbers?.message}
+                      />
+                    )}
+                  />
+                </div>
+              )}
 
               <div>
                 <Label htmlFor="entry-downtime">Downtime (minutes)</Label>

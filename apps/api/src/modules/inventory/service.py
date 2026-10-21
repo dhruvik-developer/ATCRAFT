@@ -126,6 +126,7 @@ from src.modules.inventory.models import (
     TRANSACTION_SIGNS,
     AdjustmentReason,
     AdjustmentStatus,
+    BatchStatus,
     BinMove,
     BinMoveLine,
     BinMoveStatus,
@@ -157,6 +158,7 @@ from src.modules.inventory.models import (
 )
 from src.modules.inventory.repository import (
     BalanceGrain,
+    BatchFacts,
     BinMoveLineRepository,
     BinMoveRepository,
     CostConsumptionRepository,
@@ -208,9 +210,12 @@ from src.modules.inventory.schemas import (
     StockAdjustmentLineRead,
     StockAdjustmentRead,
     StockAdjustmentUpdate,
+    StockBatchAction,
     StockBatchCreate,
     StockBatchRead,
+    StockSerialBulkCreate,
     StockSerialCreate,
+    StockSerialDetail,
     StockSerialRead,
     StockTransferCreate,
     StockTransferLineRead,
@@ -1336,6 +1341,39 @@ def find_shortfall(
 # and unreachable by any document. That is strictly worse than booking goods
 # that are physically standing there into a position that is retired, which the
 # operator can then transfer out or write off.
+#: Movements that consume stock rather than shuffle custody. An expired or
+#: quarantined lot may still be transferred, returned to a vendor, adjusted or
+#: disposed of - refusing those would trap it - but it may not be issued,
+#: dispatched, consumed by assembly or sent to a job-work vendor.
+BATCH_ISSUE_BLOCKED: frozenset[TransactionType] = frozenset(
+    {
+        TransactionType.MATERIAL_ISSUE,
+        TransactionType.DISPATCH,
+        TransactionType.ASSEMBLY_CONSUME,
+        TransactionType.JOB_WORK_ISSUE,
+    }
+)
+
+#: Movements where the engine picks a lot when the caller named none. Custody
+#: moves and adjustments keep their explicit lot: a vendor return or a write-off
+#: must say which lot is leaving, while an ordinary issue is exactly the case
+#: FEFO exists to decide.
+FEFO_MOVEMENTS: frozenset[TransactionType] = frozenset(
+    {
+        TransactionType.MATERIAL_ISSUE,
+        TransactionType.DISPATCH,
+        TransactionType.ASSEMBLY_CONSUME,
+        TransactionType.JOB_WORK_ISSUE,
+        TransactionType.TRANSFER_OUT,
+    }
+)
+
+#: How far ahead the expiry sweep warns. Thirty days is long enough to use a
+#: lot up or arrange a return, short enough that the warning still means
+#: something when it arrives.
+BATCH_EXPIRY_WARN_DAYS = 30
+
+
 def validate_movement(
     movement: MovementRequest,
     *,
@@ -1344,6 +1382,8 @@ def validate_movement(
     batch_owner: tuple[uuid.UUID, str] | None,
     serial_owner: tuple[uuid.UUID, str] | None,
     location: LocationFacts | None = None,
+    batch_status: BatchStatus | None = None,
+    batch_expires_on: date | None = None,
 ) -> None:
     """Master-data rules a movement must satisfy, independent of any balance.
 
@@ -1534,6 +1574,48 @@ def validate_movement(
             f"Batch {batch_owner[1]} belongs to a different item.",
             details={"batch_id": str(movement.batch_id), "item_code": item.code},
         )
+
+    if batch_owner is not None and batch_status is not None:
+        # Inbound policy. A transfer completing from IN_TRANSIT is exempt for
+        # the same reason it is exempt from the tracking flags: the decision was
+        # taken at dispatch, and refusing the arrival would strand stock in a
+        # pool nobody can reach.
+        if gates_policy and batch_status is not BatchStatus.ACTIVE:
+            raise BusinessRuleError(
+                f"Batch {batch_owner[1]} is {batch_status} and cannot receive stock.",
+                details={
+                    "batch_id": str(movement.batch_id),
+                    "batch_number": batch_owner[1],
+                    "status": str(batch_status),
+                },
+            )
+        expires_on = batch_expires_on
+        if gates_policy and expires_on is not None and expires_on < today():
+            raise BusinessRuleError(
+                f"Batch {batch_owner[1]} expired on {expires_on.isoformat()} and cannot "
+                "receive stock.",
+                details={
+                    "batch_id": str(movement.batch_id),
+                    "batch_number": batch_owner[1],
+                    "expires_on": expires_on.isoformat(),
+                },
+            )
+        # Outbound policy. Expiry is checked from the date as well as the status:
+        # a batch whose expiry has passed but whose sweep has not run yet is
+        # just as unusable.
+        if movement.transaction_type in BATCH_ISSUE_BLOCKED and (
+            batch_status is not BatchStatus.ACTIVE
+            or (expires_on is not None and expires_on < today())
+        ):
+            raise BusinessRuleError(
+                f"Batch {batch_owner[1]} is expired or quarantined and cannot be issued.",
+                details={
+                    "batch_id": str(movement.batch_id),
+                    "batch_number": batch_owner[1],
+                    "status": str(batch_status),
+                    "expires_on": expires_on.isoformat() if expires_on else None,
+                },
+            )
 
     if serial_owner is not None:
         if serial_owner[0] != movement.item_id:
@@ -1840,6 +1922,19 @@ SERIAL_FLOW: StateMachine[SerialStatus] = StateMachine(
             label="Scrap",
             is_irreversible=True,
         ),
+        # The outbound leg keeps ownership but takes the unit off the shelf; it
+        # is neither issueable at the source nor receivable at the destination
+        # until the inbound leg completes.
+        Transition(
+            SerialStatus.IN_STOCK,
+            SerialStatus.IN_TRANSIT,
+            label="Transfer out",
+        ),
+        Transition(
+            SerialStatus.IN_TRANSIT,
+            SerialStatus.IN_STOCK,
+            label="Transfer in",
+        ),
         # Material returned from the shop floor. The unit is back on the shelf.
         Transition(
             SerialStatus.ISSUED,
@@ -1879,6 +1974,29 @@ SERIAL_FLOW: StateMachine[SerialStatus] = StateMachine(
     terminal=frozenset({SerialStatus.SCRAPPED}),
 )
 
+#: A lot's quality lifecycle. CONSUMED is reached automatically and is terminal;
+#: an expired lot can still be consumed to zero but cannot be reactivated,
+#: because its expiry date is a physical fact rather than a quality decision.
+BATCH_FLOW: StateMachine[BatchStatus] = StateMachine(
+    entity="Stock batch",
+    initial=BatchStatus.ACTIVE,
+    transitions=(
+        Transition(BatchStatus.ACTIVE, BatchStatus.QUARANTINED, label="Quarantine"),
+        Transition(BatchStatus.QUARANTINED, BatchStatus.ACTIVE, label="Reactivate"),
+        Transition(
+            BatchStatus.ACTIVE,
+            BatchStatus.EXPIRED,
+            label="Expire",
+            is_irreversible=True,
+        ),
+        Transition(BatchStatus.QUARANTINED, BatchStatus.EXPIRED, label="Expire"),
+        Transition(BatchStatus.ACTIVE, BatchStatus.CONSUMED, label="Consume"),
+        Transition(BatchStatus.QUARANTINED, BatchStatus.CONSUMED, label="Consume"),
+        Transition(BatchStatus.EXPIRED, BatchStatus.CONSUMED, label="Consume"),
+    ),
+    terminal=frozenset({BatchStatus.CONSUMED}),
+)
+
 #: :data:`~src.modules.inventory.models.SERIAL_IN_WAREHOUSE_STATUSES` is
 #: re-exported here because it is half of this graph: a movement that handles a
 #: unit without changing whose hands it is in - a QC hold, a QC release, either
@@ -1916,11 +2034,12 @@ SERIAL_MOVEMENT_TARGETS: dict[TransactionType, SerialStatus | None] = {
     TransactionType.PURCHASE_RETURN: SerialStatus.DISPATCHED,
     TransactionType.SCRAP: SerialStatus.SCRAPPED,
     TransactionType.ADJUSTMENT_DECREASE: SerialStatus.SCRAPPED,
+    # --- the unit stays ours, and its status follows the move ----------------
+    TransactionType.TRANSFER_OUT: SerialStatus.IN_TRANSIT,
+    TransactionType.TRANSFER_IN: SerialStatus.IN_STOCK,
     # --- the unit stays ours, and stays where it is -------------------------
     TransactionType.QC_HOLD: None,
     TransactionType.QC_RELEASE: None,
-    TransactionType.TRANSFER_OUT: None,
-    TransactionType.TRANSFER_IN: None,
     TransactionType.SCRAP_DISPOSAL: None,
 }
 
@@ -2180,7 +2299,9 @@ class _MasterData:
     items: dict[uuid.UUID, ItemFacts]
     warehouses: dict[uuid.UUID, WarehouseFacts]
     locations: dict[uuid.UUID, LocationFacts]
-    batches: dict[uuid.UUID, tuple[uuid.UUID, str]]
+    #: The lot facts, not just its owner: the engine has to decide whether the
+    #: lot is active and unexpired before it may receive or issue against it.
+    batches: dict[uuid.UUID, BatchFacts]
     #: ``serial_id -> (item_id, serial_number)``. Both columns are immutable, so
     #: this is read *without* a lock and every pure master-data rule can be
     #: checked before the engine takes its first one - which is what lets a
@@ -2286,6 +2407,7 @@ class MovementEngine:
         self.balances = InventoryRepository(session, tenant)
         self.ledger = LedgerRepository(session, tenant)
         self.serials = StockSerialRepository(session, tenant)
+        self.batches = StockBatchRepository(session, tenant)
         self.cost_layers = CostLayerRepository(session, tenant)
         self.consumptions = CostConsumptionRepository(session, tenant)
 
@@ -2354,6 +2476,7 @@ class MovementEngine:
         *,
         extra_grains: list[BalanceGrain] | None = None,
         prelocked: dict[BalanceGrain, InventoryBalance] | None = None,
+        auto_consume_batches: bool = True,
     ) -> tuple[list[InventoryTransaction], dict[BalanceGrain, InventoryBalance]]:
         """Post a batch of movements atomically.
 
@@ -2381,6 +2504,10 @@ class MovementEngine:
             *(grain.warehouse_id for grain in (prelocked or {})),
         )
         async with transaction(self.session):
+            # FEFO is a decision made before validation, because the chosen lot
+            # is itself a master-data fact the movement is then held to. An
+            # explicit lot is never overridden.
+            movements = await self._assign_fefo_batches(movements)
             master = await self._load_master_data(movements, extra)
             # Master data is validated before the first lock is taken. The
             # balance upsert has foreign keys of its own, so a movement naming a
@@ -2483,6 +2610,9 @@ class MovementEngine:
             # below are flushed once as well.
             await self.session.flush()
 
+            if auto_consume_batches:
+                await self.consume_empty_batches(movements)
+
             for step in applied:
                 await self._audit(step, master)
             for serial_change in serial_changes:
@@ -2495,6 +2625,77 @@ class MovementEngine:
             await self.session.flush()
 
         return transactions, locked
+
+    async def _assign_fefo_batches(self, movements: list[MovementRequest]) -> list[MovementRequest]:
+        """Fill in a lot for issue movements that did not name one.
+
+        The caller keeps the right to choose; this only answers the question
+        when it was left open. Candidates are active, unexpired and hold enough
+        *available* quantity at the exact position the movement addresses. If
+        no single lot can cover the whole line, the movement is left alone and
+        the ordinary stock-shortfall error explains the position.
+        """
+        wanted = [
+            index
+            for index, movement in enumerate(movements)
+            if movement.batch_id is None
+            and movement.serial_id is None
+            and movement.transaction_type in FEFO_MOVEMENTS
+        ]
+        if not wanted:
+            return movements
+        items = await self.balances.item_facts([movements[index].item_id for index in wanted])
+        assigned = list(movements)
+        for index in wanted:
+            movement = movements[index]
+            item = items.get(movement.item_id)
+            if item is None or not item.is_batch_tracked:
+                continue
+            lots = await self.balances.fefo_candidates(
+                item_id=movement.item_id,
+                warehouse_id=movement.warehouse_id,
+                location_id=movement.location_id,
+                minimum_quantity=movement.quantity,
+                as_of=today(),
+            )
+            if lots:
+                assigned[index] = replace(movement, batch_id=lots[0].batch_id)
+        return assigned
+
+    async def consume_empty_batches(self, movements: Sequence[MovementRequest]) -> None:
+        """Mark a lot CONSUMED when the company no longer owns any of it.
+
+        The total includes in-transit, job-work and scrap quantities, not only
+        on-hand: a lot with units on a lorry or at a plater is not finished.
+        The transfer dispatch path suppresses this and calls it again after it
+        has moved the quantity into the destination's in-transit pool.
+        """
+        batch_ids = [m.batch_id for m in movements if m.batch_id is not None]
+        if not batch_ids:
+            return
+        totals = await self.balances.batch_totals(batch_ids, scoped=False)
+        for batch_id, quantity in totals.items():
+            if quantity.owned != 0:
+                continue
+            batch = await self.batches.lock_for_update(batch_id)
+            if batch is None or BatchStatus(batch.status) is BatchStatus.CONSUMED:
+                continue
+            previous = BatchStatus(batch.status)
+            BATCH_FLOW.assert_transition(previous, BatchStatus.CONSUMED)
+            batch.status = BatchStatus.CONSUMED
+            self.batches.touch(batch)
+            await record_status_change(
+                self.session,
+                company_id=self.tenant.company_id,
+                entity_type=AUDIT_ENTITY_BATCH,
+                entity_id=batch.id,
+                entity_code=batch.batch_number,
+                from_status=str(previous),
+                to_status=str(BatchStatus.CONSUMED),
+                user_id=self.tenant.user_id,
+                reason="Batch quantity reached zero.",
+            )
+        await self.session.flush()
 
     @staticmethod
     def _assert_cost_carriers(movements: list[MovementRequest]) -> None:
@@ -2793,7 +2994,7 @@ class MovementEngine:
             [m.location_id for m in movements if m.location_id is not None]
             + [g.location_id for g in grains if g.location_id is not None]
         )
-        batches = await self.balances.batch_owners(
+        batches = await self.balances.batch_facts(
             [m.batch_id for m in movements if m.batch_id is not None]
         )
         serial_owners = await self.balances.serial_owners(
@@ -2988,12 +3189,15 @@ class MovementEngine:
         if movement.serial_id is not None and movement.serial_id not in master.serial_owners:
             raise NotFoundError("Stock serial", movement.serial_id)
 
+        batch = master.batches.get(movement.batch_id) if movement.batch_id else None
         validate_movement(
             movement,
             item=item,
             warehouse=warehouse,
             location=location,
-            batch_owner=master.batches.get(movement.batch_id) if movement.batch_id else None,
+            batch_owner=(batch.item_id, batch.batch_number) if batch else None,
+            batch_status=batch.status if batch else None,
+            batch_expires_on=batch.expires_on if batch else None,
             serial_owner=(
                 master.serial_owners.get(movement.serial_id) if movement.serial_id else None
             ),
@@ -3311,6 +3515,19 @@ class MovementEngine:
         serial = master.serials.get(movement.serial_id)
         if serial is None:  # pragma: no cover - _validate already refused this
             raise NotFoundError("Stock serial", movement.serial_id)
+
+        # A unit belongs to one lot. Naming the other lot would draw from a
+        # position the unit is not in and leave both records disagreeing.
+        if serial.batch_id is not None and movement.batch_id != serial.batch_id:
+            raise BusinessRuleError(
+                f"Serial {serial.serial_number} belongs to a different batch "
+                f"({serial.batch_id}); name that batch on the movement.",
+                details={
+                    "serial_number": serial.serial_number,
+                    "serial_batch_id": str(serial.batch_id),
+                    "movement_batch_id": str(movement.batch_id) if movement.batch_id else None,
+                },
+            )
 
         # Where the unit is comes before what the movement does to it: a
         # posting raised at the wrong store is a mis-key, and answering it with
@@ -3993,6 +4210,12 @@ class InventoryQueryService:
 # -----------------------------------------------------------------------------
 
 
+@dataclass(frozen=True, slots=True)
+class ExpirySweepResult:
+    expired_batch_ids: tuple[uuid.UUID, ...]
+    warning_batch_ids: tuple[uuid.UUID, ...]
+
+
 class TraceabilityService:
     """Batches and serial numbers.
 
@@ -4048,7 +4271,13 @@ class TraceabilityService:
                     batch, ["item_id", "batch_number", "expires_on", "unit_cost", "status"]
                 ),
             )
-        return StockBatchRead.model_validate(batch)
+        return (await self._batch_reads([batch]))[0]
+
+    async def get_batch(self, batch_id: uuid.UUID) -> StockBatchRead:
+        batch = await self.batches.get(batch_id)
+        if batch is None:
+            raise NotFoundError("Stock batch", batch_id)
+        return (await self._batch_reads([batch]))[0]
 
     async def list_batches(
         self,
@@ -4057,10 +4286,40 @@ class TraceabilityService:
         params: PageParams,
         *,
         batch_id: uuid.UUID | None = None,
+        status: BatchStatus | None = None,
+        expiry_from: date | None = None,
+        expiry_to: date | None = None,
     ) -> tuple[list[StockBatchRead], OffsetPagination]:
-        stmt = self.batches.build_list_stmt(item_id=item_id, search=search, batch_id=batch_id)
+        stmt = self.batches.build_list_stmt(
+            item_id=item_id,
+            search=search,
+            batch_id=batch_id,
+            status=status,
+            expiry_from=expiry_from,
+            expiry_to=expiry_to,
+        )
         rows, pagination = await paginate(self.session, stmt, params)
-        return [StockBatchRead.model_validate(row) for row in rows], pagination
+        return await self._batch_reads(rows), pagination
+
+    async def _batch_reads(self, rows: Sequence[StockBatch]) -> list[StockBatchRead]:
+        """Attach the labels and current quantities a tracker row needs."""
+        if not rows:
+            return []
+        items = await self.inventory.item_facts([row.item_id for row in rows])
+        totals = await self.inventory.batch_totals([row.id for row in rows])
+        reads: list[StockBatchRead] = []
+        for row in rows:
+            read = StockBatchRead.model_validate(row)
+            item = items.get(row.item_id)
+            read.item_code = item.code if item else None
+            read.item_name = item.name if item else None
+            quantity = totals.get(row.id)
+            if quantity is not None:
+                read.on_hand_quantity = quantity.on_hand
+                read.available_quantity = quantity.available
+                read.in_transit_quantity = quantity.in_transit
+            reads.append(read)
+        return reads
 
     async def create_serial(self, payload: StockSerialCreate) -> StockSerialRead:
         async with transaction(self.session):
@@ -4068,6 +4327,11 @@ class TraceabilityService:
             item = items.get(payload.item_id)
             if item is None:
                 raise NotFoundError("Item", payload.item_id)
+            if not item.is_serial_tracked:
+                raise BusinessRuleError(
+                    f"{item.code} is not serial tracked, so it has no serial numbers to record.",
+                    details={"item_code": item.code, "item_id": str(item.id)},
+                )
             existing = await self.serials.by_number(payload.item_id, payload.serial_number)
             if existing is not None:
                 raise DuplicateError(
@@ -4138,7 +4402,185 @@ class TraceabilityService:
                 user_id=self.tenant.user_id,
                 new_values=snapshot(serial, ["item_id", "serial_number", "status", "unit_cost"]),
             )
-        return StockSerialRead.model_validate(serial)
+        return (await self._serial_reads([serial]))[0]
+
+    async def bulk_create_serials(self, payload: StockSerialBulkCreate) -> list[StockSerialRead]:
+        """Register a label run in one transaction.
+
+        This is the only bulk entry point into the serial register, and it is
+        capped at :data:`MAX_SERIAL_BULK`. Anything larger belongs on the goods
+        receipt that actually brought the units in, where each serial is tied to
+        a purchase order line and a batch.
+        """
+        async with transaction(self.session):
+            items = await self.inventory.item_facts([payload.item_id])
+            item = items.get(payload.item_id)
+            if item is None:
+                raise NotFoundError("Item", payload.item_id)
+            if not item.is_serial_tracked:
+                raise BusinessRuleError(
+                    f"{item.code} is not serial tracked, so it has no serial numbers to record.",
+                    details={"item_code": item.code, "item_id": str(item.id)},
+                )
+            await self._validate_serial_position(
+                item_id=payload.item_id,
+                batch_id=payload.batch_id,
+                warehouse_id=payload.warehouse_id,
+                location_id=payload.location_id,
+            )
+            existing = await self.serials.by_numbers(payload.item_id, payload.serial_numbers)
+            if existing:
+                duplicate = next(iter(existing))
+                raise DuplicateError(
+                    f"Serial {duplicate} already exists for item {item.code}.",
+                    details={"serial_number": duplicate, "duplicates": sorted(existing)},
+                )
+            serials = [
+                StockSerial(
+                    item_id=payload.item_id,
+                    serial_number=serial_number,
+                    batch_id=payload.batch_id,
+                    warehouse_id=payload.warehouse_id,
+                    location_id=payload.location_id,
+                    received_on=payload.received_on or today(),
+                    unit_cost=payload.unit_cost,
+                    notes=payload.notes,
+                )
+                for serial_number in payload.serial_numbers
+            ]
+            for serial in serials:
+                self.serials.add(serial)
+            await self.session.flush()
+            for serial in serials:
+                await record_audit(
+                    self.session,
+                    company_id=self.tenant.company_id,
+                    action=AuditAction.CREATE,
+                    entity_type=AUDIT_ENTITY_SERIAL,
+                    entity_id=serial.id,
+                    entity_code=serial.serial_number,
+                    summary=f"Created serial {serial.serial_number} for {item.code}",
+                    user_id=self.tenant.user_id,
+                    new_values=snapshot(
+                        serial, ["item_id", "serial_number", "status", "unit_cost"]
+                    ),
+                )
+            await self.session.flush()
+            return await self._serial_reads(serials)
+
+    async def resolve_serial_ids(
+        self,
+        item_id: uuid.UUID,
+        serial_numbers: Sequence[str],
+        *,
+        batch_id: uuid.UUID | None,
+        warehouse_id: uuid.UUID | None,
+        location_id: uuid.UUID | None,
+        received_on: date | None,
+        unit_cost: Decimal = Decimal("0"),
+        source: str,
+    ) -> list[uuid.UUID]:
+        """Adopt pre-registered units and mint the rest, preserving input order.
+
+        A serial row with no receipt movement is a label printed ahead of the
+        goods; one with a receipt movement is a unit already on the shelf and a
+        second receipt of it is a duplicate. That distinction is the ledger's,
+        not the status column's, because both rows are ``IN_STOCK``.
+        """
+        items = await self.inventory.item_facts([item_id])
+        item = items.get(item_id)
+        if item is None:
+            raise NotFoundError("Item", item_id)
+        if not item.is_serial_tracked:
+            raise BusinessRuleError(
+                f"{item.code} is not serial tracked; remove the serial numbers.",
+                details={"item_code": item.code, "source": source},
+            )
+        cleaned = ["".join(value.split()).upper() for value in serial_numbers]
+        if len(set(cleaned)) != len(cleaned):
+            raise BusinessRuleError(
+                "A document cannot name the same serial twice.",
+                details={"item_code": item.code, "source": source},
+            )
+        existing = await self.serials.by_numbers(item_id, cleaned)
+        already_received = await LedgerRepository(self.session, self.tenant).received_serial_ids(
+            [serial.id for serial in existing.values()]
+        )
+        if already_received:
+            by_id = {serial.id: serial.serial_number for serial in existing.values()}
+            duplicate = by_id[next(iter(already_received))]
+            raise DuplicateError(
+                f"Serial {duplicate} has already been received.",
+                details={"serial_number": duplicate, "item_code": item.code, "source": source},
+            )
+        for serial in existing.values():
+            if SerialStatus(serial.status) is not SerialStatus.IN_STOCK:
+                raise BusinessRuleError(
+                    f"Serial {serial.serial_number} is {serial.status} and cannot be received.",
+                    details={"serial_number": serial.serial_number, "status": str(serial.status)},
+                )
+            if serial.batch_id != batch_id:
+                if serial.batch_id is None and batch_id is not None:
+                    serial.batch_id = batch_id
+                else:
+                    raise BusinessRuleError(
+                        f"Serial {serial.serial_number} is registered to a different batch.",
+                        details={
+                            "serial_number": serial.serial_number,
+                            "batch_id": str(serial.batch_id) if serial.batch_id else None,
+                        },
+                    )
+        missing = [serial_number for serial_number in cleaned if serial_number not in existing]
+        if missing:
+            await self.bulk_create_serials(
+                StockSerialBulkCreate(
+                    item_id=item_id,
+                    serial_numbers=missing,
+                    batch_id=batch_id,
+                    warehouse_id=warehouse_id,
+                    location_id=location_id,
+                    received_on=received_on,
+                    unit_cost=unit_cost,
+                )
+            )
+        after = await self.serials.by_numbers(item_id, cleaned)
+        absent = [serial_number for serial_number in cleaned if serial_number not in after]
+        if absent:
+            raise NotFoundError("Stock serial", absent[0])
+        return [after[number].id for number in cleaned]
+
+    async def _validate_serial_position(
+        self,
+        *,
+        item_id: uuid.UUID,
+        batch_id: uuid.UUID | None,
+        warehouse_id: uuid.UUID | None,
+        location_id: uuid.UUID | None,
+    ) -> None:
+        if batch_id is not None:
+            facts = await self.inventory.batch_facts([batch_id])
+            owner = facts.get(batch_id)
+            if owner is None:
+                raise NotFoundError("Stock batch", batch_id)
+            if owner.item_id != item_id:
+                raise BusinessRuleError("That batch belongs to a different item.")
+        if warehouse_id is not None:
+            warehouses = await self.inventory.warehouse_facts([warehouse_id])
+            if warehouse_id not in warehouses:
+                raise NotFoundError("Warehouse", warehouse_id)
+        if location_id is not None:
+            locations = await self.inventory.location_facts([location_id])
+            location = locations.get(location_id)
+            if location is None:
+                raise NotFoundError("Storage location", location_id)
+            if warehouse_id is not None and location.warehouse_id != warehouse_id:
+                raise BusinessRuleError(
+                    f"Storage location {location.code} is not in that warehouse.",
+                    details={
+                        "location_id": str(location_id),
+                        "warehouse_id": str(warehouse_id),
+                    },
+                )
 
     async def list_serials(
         self,
@@ -4146,12 +4588,247 @@ class TraceabilityService:
         warehouse_id: uuid.UUID | None,
         search: str | None,
         params: PageParams,
+        *,
+        status: SerialStatus | None = None,
+        batch_id: uuid.UUID | None = None,
     ) -> tuple[list[StockSerialRead], OffsetPagination]:
         stmt = self.serials.build_list_stmt(
-            item_id=item_id, warehouse_id=warehouse_id, search=search
+            item_id=item_id,
+            warehouse_id=warehouse_id,
+            search=search,
+            status=status,
+            batch_id=batch_id,
         )
         rows, pagination = await paginate(self.session, stmt, params)
-        return [StockSerialRead.model_validate(row) for row in rows], pagination
+        return await self._serial_reads(rows), pagination
+
+    async def _serial_reads(self, rows: Sequence[StockSerial]) -> list[StockSerialRead]:
+        if not rows:
+            return []
+        items = await self.inventory.item_facts([row.item_id for row in rows])
+        batch_ids = [row.batch_id for row in rows if row.batch_id is not None]
+        batches = await self.inventory.batch_facts(batch_ids) if batch_ids else {}
+        warehouse_ids = [row.warehouse_id for row in rows if row.warehouse_id is not None]
+        warehouses = await self.inventory.warehouse_facts(warehouse_ids) if warehouse_ids else {}
+        reads: list[StockSerialRead] = []
+        for row in rows:
+            read = StockSerialRead.model_validate(row)
+            item = items.get(row.item_id)
+            read.item_code = item.code if item else None
+            read.item_name = item.name if item else None
+            if row.batch_id is not None and row.batch_id in batches:
+                read.batch_number = batches[row.batch_id].batch_number
+            if row.warehouse_id is not None:
+                warehouse = warehouses.get(row.warehouse_id)
+                read.warehouse_code = warehouse.code if warehouse else None
+            reads.append(read)
+        return reads
+
+    async def get_serial(self, serial_id: uuid.UUID) -> StockSerialDetail:
+        serial = await self.serials.get(serial_id)
+        if serial is None:
+            raise NotFoundError("Stock serial", serial_id)
+        read = (await self._serial_reads([serial]))[0]
+        movements = await LedgerRepository(self.session, self.tenant).for_serial(serial_id)
+        items = await self.inventory.item_facts([serial.item_id])
+        warehouses = await self.inventory.warehouse_facts(
+            [movement.warehouse_id for movement in movements]
+        )
+        entries: list[LedgerEntryRead] = []
+        for movement in movements:
+            entry = LedgerEntryRead.model_validate(movement)
+            item = items.get(movement.item_id)
+            entry.item_code = item.code if item else None
+            entry.item_name = item.name if item else None
+            warehouse = warehouses.get(movement.warehouse_id)
+            entry.warehouse_code = warehouse.code if warehouse else None
+            entries.append(entry)
+        return StockSerialDetail(serial=read, movements=entries)
+
+    async def quarantine_batch(
+        self, batch_id: uuid.UUID, payload: StockBatchAction
+    ) -> StockBatchRead:
+        async with transaction(self.session):
+            batch = await self._lock_batch(batch_id)
+            previous = BatchStatus(batch.status)
+            BATCH_FLOW.assert_transition(previous, BatchStatus.QUARANTINED)
+            positions = await self.inventory.batch_available_positions(batch_id)
+            movements = await self._quarantine_movements(batch, positions, payload.reason)
+            batch.status = BatchStatus.QUARANTINED
+            self.batches.touch(batch)
+            if movements:
+                await MovementEngine(self.session, self.tenant).post(movements)
+            await self._record_batch_transition(batch, previous, payload.reason)
+        return await self.get_batch(batch_id)
+
+    async def _quarantine_movements(
+        self,
+        batch: StockBatch,
+        positions: Sequence[InventoryBalance],
+        reason: str,
+    ) -> list[MovementRequest]:
+        """One movement per position, and one per unit where it is serialised.
+
+        The engine refuses a quantity other than one against a serialised item,
+        so a lot-level hold has to name the individual units. Their count must
+        equal the position's AVAILABLE quantity: a serial row records that a
+        unit is in stock, not which pool it is in, so a shortfall means some
+        units of this lot are already held elsewhere and moving the rest by
+        count would take the wrong ones. Refusing is the only safe answer.
+        """
+        if not positions:
+            return []
+        items = await self.inventory.item_facts([position.item_id for position in positions])
+        units_by_position: dict[tuple[uuid.UUID | None, uuid.UUID | None], list[StockSerial]] = {}
+        for unit in await self.serials.in_stock_for_batch(batch.id):
+            units_by_position.setdefault((unit.warehouse_id, unit.location_id), []).append(unit)
+
+        movements: list[MovementRequest] = []
+        for position in positions:
+            item = items.get(position.item_id)
+            if item is None:
+                raise NotFoundError("Item", position.item_id)
+            common: dict[str, Any] = {
+                "item_id": position.item_id,
+                "warehouse_id": position.warehouse_id,
+                "location_id": position.location_id,
+                "batch_id": batch.id,
+                "transaction_type": TransactionType.QC_HOLD,
+                "reference_type": AUDIT_ENTITY_BATCH,
+                "reference_id": batch.id,
+                "reference_code": batch.batch_number,
+                "reason": reason,
+                "stock_state": StockState.QC_HOLD,
+                "from_state": StockState.AVAILABLE,
+            }
+            quantity = Decimal(position.available_quantity)
+            if item.is_serial_tracked:
+                units = units_by_position.get((position.warehouse_id, position.location_id), [])
+                if Decimal(len(units)) != quantity:
+                    raise BusinessRuleError(
+                        f"Lot {batch.batch_number} has {quantity} available unit(s) but "
+                        f"{len(units)} in-stock serial(s) in this position. Reconcile the "
+                        "serial register before quarantining the lot.",
+                        details={
+                            "batch_id": str(batch.id),
+                            "warehouse_id": str(position.warehouse_id),
+                            "location_id": (
+                                str(position.location_id)
+                                if position.location_id is not None
+                                else None
+                            ),
+                            "available_quantity": str(quantity),
+                            "in_stock_serials": len(units),
+                        },
+                    )
+                movements.extend(
+                    MovementRequest(quantity=Decimal("1"), serial_id=unit.id, **common)
+                    for unit in units
+                )
+            else:
+                movements.append(MovementRequest(quantity=quantity, **common))
+        return movements
+
+    async def activate_batch(
+        self, batch_id: uuid.UUID, payload: StockBatchAction
+    ) -> StockBatchRead:
+        """Release a quarantined lot's status.
+
+        Stock already sitting in QC hold stays there: releasing a lot from
+        quarantine is a quality decision about the lot, while releasing stock
+        from a hold is a warehouse movement with its own record. Doing both here
+        would hide a stock movement inside a status button.
+        """
+        async with transaction(self.session):
+            batch = await self._lock_batch(batch_id)
+            previous = BatchStatus(batch.status)
+            BATCH_FLOW.assert_transition(previous, BatchStatus.ACTIVE)
+            batch.status = BatchStatus.ACTIVE
+            self.batches.touch(batch)
+            await self._record_batch_transition(batch, previous, payload.reason)
+        return await self.get_batch(batch_id)
+
+    async def expire_batch(self, batch_id: uuid.UUID, payload: StockBatchAction) -> StockBatchRead:
+        async with transaction(self.session):
+            batch = await self._lock_batch(batch_id)
+            await self._expire(batch, payload.reason)
+        return await self.get_batch(batch_id)
+
+    async def _lock_batch(self, batch_id: uuid.UUID) -> StockBatch:
+        batch = await self.batches.lock_for_update(batch_id)
+        if batch is None:
+            raise NotFoundError("Stock batch", batch_id)
+        return batch
+
+    async def _expire(self, batch: StockBatch, reason: str) -> None:
+        previous = BatchStatus(batch.status)
+        BATCH_FLOW.assert_transition(previous, BatchStatus.EXPIRED)
+        batch.status = BatchStatus.EXPIRED
+        self.batches.touch(batch)
+        await self._record_batch_transition(batch, previous, reason)
+
+    async def _record_batch_transition(
+        self, batch: StockBatch, previous: BatchStatus, reason: str
+    ) -> None:
+        await self.session.flush()
+        await record_status_change(
+            self.session,
+            company_id=self.tenant.company_id,
+            entity_type=AUDIT_ENTITY_BATCH,
+            entity_id=batch.id,
+            entity_code=batch.batch_number,
+            from_status=str(previous),
+            to_status=str(batch.status),
+            user_id=self.tenant.user_id,
+            reason=reason,
+        )
+
+    async def sweep_expiry(self, *, warn_days: int = BATCH_EXPIRY_WARN_DAYS) -> ExpirySweepResult:
+        """Expire lots whose date has passed and warn about the rest.
+
+        One query, one digest per company per day. The notification is a
+        ``STOCK_EXPIRY`` alert to the roles that can act on it rather than one
+        notification per lot, which would bury the bell under a warehouse's
+        worth of near-expiry labels.
+        """
+        now = today()
+        batches = await self.batches.expiring(
+            as_of=now, warn_before=now + timedelta(days=warn_days)
+        )
+        expired: list[uuid.UUID] = []
+        warning: list[uuid.UUID] = []
+        for batch in batches:
+            if batch.expires_on is not None and batch.expires_on < now:
+                await self._expire(
+                    batch,
+                    f"Expired on {batch.expires_on.isoformat()} (automatic sweep).",
+                )
+                expired.append(batch.id)
+            else:
+                warning.append(batch.id)
+        await self.session.flush()
+        if expired or warning:
+            from src.modules.notifications.models import NotificationSeverity, NotificationType
+            from src.modules.notifications.service import notify_role
+
+            body = (
+                f"{len(expired)} lot(s) expired and {len(warning)} expire within {warn_days} days."
+            )
+            await notify_role(
+                self.session,
+                company_id=self.tenant.company_id,
+                role_codes=("STORE_KEEPER", "QC_INSPECTOR", "PLANT_MANAGER", "ADMIN"),
+                notification_type=NotificationType.STOCK_EXPIRY,
+                title="Batch expiry review",
+                body=body,
+                severity=NotificationSeverity.WARNING,
+                entity_type=AUDIT_ENTITY_BATCH,
+                entity_id=(expired + warning)[0],
+                action_url="/inventory/tracking?tab=batches",
+                group_key=f"stock-expiry:{now.isoformat()}",
+                actor_id=self.tenant.user_id,
+            )
+        return ExpirySweepResult(expired_batch_ids=tuple(expired), warning_batch_ids=tuple(warning))
 
 
 def _declare_lines_empty_if_unloaded(row: Any) -> None:
@@ -4258,7 +4935,7 @@ class StockTransferService:
             if missing:
                 raise NotFoundError("Item", missing[0])
 
-            self._assert_lines_are_traceable(payload, items)
+            await self._assert_lines_are_traceable(payload, items)
             await self._validate_line_locations(payload, warehouses)
 
             code = await next_document_number(
@@ -4291,6 +4968,7 @@ class StockTransferService:
                         from_location_id=line.from_location_id,
                         to_location_id=line.to_location_id,
                         quantity=to_quantity(line.quantity),
+                        serial_ids=line.serial_ids or None,
                         source_line_id=line.source_line_id,
                         notes=line.notes,
                     )
@@ -4402,21 +5080,47 @@ class StockTransferService:
             )
             previous = transfer.status
 
-            movements = [
-                MovementRequest(
-                    item_id=line.item_id,
-                    warehouse_id=transfer.from_warehouse_id,
-                    location_id=line.from_location_id,
-                    batch_id=line.batch_id,
-                    quantity=line.quantity,
-                    transaction_type=TransactionType.TRANSFER_OUT,
-                    reference_type=AUDIT_ENTITY_TRANSFER,
-                    reference_id=transfer.id,
-                    reference_code=transfer.code,
-                    reason=reason or transfer.reason,
-                )
-                for line in transfer.lines
-            ]
+            movements: list[MovementRequest] = []
+            movement_slices: list[tuple[int, int]] = []
+            for line in transfer.lines:
+                start = len(movements)
+                serial_ids = line.serial_ids or []
+                if serial_ids:
+                    # One movement per unit. The unit's own status supplies the
+                    # serial lifecycle, and each carries its own cost layer so
+                    # the destination can price every serial separately.
+                    for serial_id in serial_ids:
+                        movements.append(
+                            MovementRequest(
+                                item_id=line.item_id,
+                                warehouse_id=transfer.from_warehouse_id,
+                                location_id=line.from_location_id,
+                                batch_id=line.batch_id,
+                                serial_id=serial_id,
+                                quantity=Decimal("1"),
+                                transaction_type=TransactionType.TRANSFER_OUT,
+                                reference_type=AUDIT_ENTITY_TRANSFER,
+                                reference_id=transfer.id,
+                                reference_code=transfer.code,
+                                reason=reason or transfer.reason,
+                            )
+                        )
+                else:
+                    movements.append(
+                        MovementRequest(
+                            item_id=line.item_id,
+                            warehouse_id=transfer.from_warehouse_id,
+                            location_id=line.from_location_id,
+                            batch_id=line.batch_id,
+                            quantity=line.quantity,
+                            transaction_type=TransactionType.TRANSFER_OUT,
+                            reference_type=AUDIT_ENTITY_TRANSFER,
+                            reference_id=transfer.id,
+                            reference_code=transfer.code,
+                            reason=reason or transfer.reason,
+                        )
+                    )
+                movement_slices.append((start, len(movements)))
             # Destination positions are locked in the same operation as the
             # source ones: two transfers running in opposite directions between
             # the same pair of warehouses would otherwise be able to deadlock.
@@ -4431,32 +5135,50 @@ class StockTransferService:
             ]
 
             posted, locked = await self.engine.post_with_balances(
-                movements, extra_grains=destination_grains
+                movements,
+                extra_grains=destination_grains,
+                auto_consume_batches=False,
             )
 
-            for line, grain, txn in zip(transfer.lines, destination_grains, posted, strict=True):
+            for line, grain, (start, end) in zip(
+                transfer.lines, destination_grains, movement_slices, strict=True
+            ):
                 balance = locked[grain]
                 balance.in_transit_quantity = to_quantity(
                     Decimal(balance.in_transit_quantity) + Decimal(line.quantity)
                 )
                 balance.updated_by_id = self.tenant.user_id
                 line.dispatched_quantity = line.quantity
+                line_posted = posted[start:end]
                 # The value the stock left the source with, blended, for display
                 # on the document.
-                line.unit_cost = Decimal(txn.unit_cost)
-                # And the movement that carried it, so ``receive`` can read the
-                # *unblended* per-layer breakdown out of
-                # ``inventory_cost_consumptions`` and re-open exactly those
-                # costs at the destination. Moving goods between two of the
-                # company's own warehouses must not change what the company's
-                # stock is worth, and a single blended price cannot promise that
-                # for a draw that spanned two layers at different prices.
-                line.dispatch_transaction_id = txn.id
+                total_quantity = sum((Decimal(txn.quantity) for txn in line_posted), Decimal("0"))
+                if total_quantity > 0:
+                    line.unit_cost = to_quantity(
+                        sum(
+                            (Decimal(txn.quantity) * Decimal(txn.unit_cost) for txn in line_posted),
+                            Decimal("0"),
+                        )
+                        / total_quantity
+                    )
+                elif line_posted:
+                    line.unit_cost = Decimal(line_posted[0].unit_cost)
+                # And every movement that carried it, so ``receive`` can read
+                # the *unblended* per-layer breakdown out of
+                # ``inventory_cost_consumptions`` per serial and re-open exactly
+                # those costs at the destination.
+                line.dispatch_transaction_id = line_posted[0].id if line_posted else None
+                line.dispatch_transaction_ids = (
+                    [txn.id for txn in line_posted] if line.serial_ids else None
+                )
 
             transfer.status = TransferStatus.IN_TRANSIT
             transfer.dispatched_at = utcnow()
             self.repo.touch(transfer)
             await self.session.flush()
+            # Now that the destination's in-transit quantity is written, a lot
+            # that has no company-owned units anywhere can be marked CONSUMED.
+            await self.engine.consume_empty_batches(movements)
 
             await self._record_transition(transfer, previous, TransferStatus.IN_TRANSIT, reason)
         return await self.get_transfer(transfer_id)
@@ -4490,33 +5212,77 @@ class StockTransferService:
             # company's stock is worth the same after the transfer as before it.
             # A line dispatched before FIFO valuation landed has no breakdown to
             # replay and falls back to its stored blended ``unit_cost``.
-            carried = await CostConsumptionRepository(self.session, self.tenant).by_transaction(
-                [
-                    line.dispatch_transaction_id
-                    for line in transfer.lines
-                    if line.dispatch_transaction_id is not None
-                ]
-            )
-
-            movements = [
-                MovementRequest(
-                    item_id=line.item_id,
-                    warehouse_id=transfer.to_warehouse_id,
-                    location_id=line.to_location_id,
-                    batch_id=line.batch_id,
-                    quantity=line.dispatched_quantity,
-                    transaction_type=TransactionType.TRANSFER_IN,
-                    reference_type=AUDIT_ENTITY_TRANSFER,
-                    reference_id=transfer.id,
-                    reference_code=transfer.code,
-                    reason=reason or transfer.reason,
-                    unit_cost=Decimal(line.unit_cost),
-                    cost_layers=_carried_layers(carried, line.dispatch_transaction_id),
-                    completes_in_transit=True,
-                )
+            dispatch_ids = [
+                transaction_id
                 for line in transfer.lines
-                if line.dispatched_quantity > 0
+                for transaction_id in (
+                    line.dispatch_transaction_ids
+                    or (
+                        [line.dispatch_transaction_id]
+                        if line.dispatch_transaction_id is not None
+                        else []
+                    )
+                )
             ]
+            carried = await CostConsumptionRepository(self.session, self.tenant).by_transaction(
+                dispatch_ids
+            )
+            outbound = await LedgerRepository(self.session, self.tenant).by_ids(dispatch_ids)
+
+            movements: list[MovementRequest] = []
+            for line in transfer.lines:
+                if line.dispatched_quantity <= 0:
+                    continue
+                serial_ids = line.serial_ids or []
+                ids = line.dispatch_transaction_ids or (
+                    [line.dispatch_transaction_id]
+                    if line.dispatch_transaction_id is not None
+                    else []
+                )
+                if serial_ids:
+                    for index, serial_id in enumerate(serial_ids):
+                        transaction_id = ids[index] if index < len(ids) else None
+                        transaction_row = outbound.get(transaction_id) if transaction_id else None
+                        movements.append(
+                            MovementRequest(
+                                item_id=line.item_id,
+                                warehouse_id=transfer.to_warehouse_id,
+                                location_id=line.to_location_id,
+                                batch_id=line.batch_id,
+                                serial_id=serial_id,
+                                quantity=Decimal("1"),
+                                transaction_type=TransactionType.TRANSFER_IN,
+                                reference_type=AUDIT_ENTITY_TRANSFER,
+                                reference_id=transfer.id,
+                                reference_code=transfer.code,
+                                reason=reason or transfer.reason,
+                                unit_cost=(
+                                    Decimal(transaction_row.unit_cost)
+                                    if transaction_row is not None
+                                    else Decimal(line.unit_cost)
+                                ),
+                                cost_layers=_carried_layers(carried, transaction_id),
+                                completes_in_transit=True,
+                            )
+                        )
+                else:
+                    movements.append(
+                        MovementRequest(
+                            item_id=line.item_id,
+                            warehouse_id=transfer.to_warehouse_id,
+                            location_id=line.to_location_id,
+                            batch_id=line.batch_id,
+                            quantity=line.dispatched_quantity,
+                            transaction_type=TransactionType.TRANSFER_IN,
+                            reference_type=AUDIT_ENTITY_TRANSFER,
+                            reference_id=transfer.id,
+                            reference_code=transfer.code,
+                            reason=reason or transfer.reason,
+                            unit_cost=Decimal(line.unit_cost),
+                            cost_layers=_carried_layers(carried, line.dispatch_transaction_id),
+                            completes_in_transit=True,
+                        )
+                    )
             _, locked = await self.engine.post_with_balances(movements)
 
             for line in transfer.lines:
@@ -4558,48 +5324,81 @@ class StockTransferService:
 
     # --- helpers ------------------------------------------------------------
 
-    @staticmethod
-    def _assert_lines_are_traceable(
-        payload: StockTransferCreate, items: dict[uuid.UUID, ItemFacts]
+    async def _assert_lines_are_traceable(
+        self, payload: StockTransferCreate, items: dict[uuid.UUID, ItemFacts]
     ) -> None:
         """Traceability, decided where the line is keyed rather than at dispatch.
 
         The movement engine gates batch and serial requirements on movements
         that *start* stock into a position, which the outbound leg of a transfer
-        is not - a rule that could refuse an exit would trap whatever the flag
-        was flipped over. That is right for the engine and leaves this document
-        with a hole of its own: a batch-tracked item keyed with no batch would
-        get as far as ``dispatch`` and come back as "only 0 available", which
-        names neither the real problem nor the line it is on.
-
-        So the document answers it at creation, where nothing has moved and the
-        operator is looking at the line.
-
-        ASSUMPTION: a serial-tracked item cannot be moved by a stock transfer at
-        all. ``stock_transfer_lines`` carries ``batch_id`` and no unit list, so
-        there is nowhere to name the units being shipped - the same "no contract
-        on this path" refusal assembly and job work already make, and refusing
-        at entry is how those two express it too. A transfer of an item that
-        *became* serial tracked after the line was keyed is deliberately not
-        refused: those goods carry no units to name either way, and refusing
-        would strand them. ``receive`` records that gap on the movement.
+        is not. That is right for the engine and leaves this document with a
+        hole of its own: a tracked item keyed without its lot or units would get
+        as far as ``dispatch`` and come back as "only 0 available", naming
+        neither the real problem nor the line it is on. The document answers it
+        at creation, where nothing has moved and the operator is looking at the
+        line.
         """
+        all_serial_ids = [serial_id for line in payload.lines for serial_id in line.serial_ids]
+        serials = await StockSerialRepository(self.session, self.tenant).by_ids(all_serial_ids)
+        missing = [serial_id for serial_id in all_serial_ids if serial_id not in serials]
+        if missing:
+            raise NotFoundError("Stock serial", missing[0])
+
         for number, line in enumerate(payload.lines, start=1):
             item = items[line.item_id]
             if item.is_batch_tracked and line.batch_id is None:
+                # A serial carries its lot, so a line naming units has already
+                # answered the batch question. Adopt it onto the line so both
+                # legs key the same grain.
+                if line.serial_ids:
+                    batches = {serials[serial_id].batch_id for serial_id in line.serial_ids}
+                    if len(batches) != 1 or None in batches:
+                        raise BusinessRuleError(
+                            f"Line {number}: the serials named belong to different batches or "
+                            "none; a batch is required.",
+                            code=ErrorCode.BATCH_REQUIRED,
+                            details={"line_number": number, "item_code": item.code},
+                        )
+                    line.batch_id = next(iter(batches))
+                else:
+                    raise BusinessRuleError(
+                        f"Line {number}: {item.code} is batch tracked, so the batch being "
+                        "transferred must be named.",
+                        code=ErrorCode.BATCH_REQUIRED,
+                        details={"line_number": number, "item_code": item.code},
+                    )
+            if item.is_serial_tracked and not line.serial_ids:
                 raise BusinessRuleError(
-                    f"Line {number}: {item.code} is batch tracked, so the batch being "
+                    f"Line {number}: {item.code} is serial tracked, so the units being "
                     "transferred must be named.",
-                    code=ErrorCode.BATCH_REQUIRED,
-                    details={"line_number": number, "item_code": item.code},
-                )
-            if item.is_serial_tracked:
-                raise BusinessRuleError(
-                    f"Line {number}: {item.code} is serial tracked and cannot be moved by a "
-                    "stock transfer: there is no contract for naming the units on this path.",
                     code=ErrorCode.SERIAL_REQUIRED,
                     details={"line_number": number, "item_code": item.code},
                 )
+            if not item.is_serial_tracked and line.serial_ids:
+                raise BusinessRuleError(
+                    f"Line {number}: {item.code} is not serial tracked; remove the serials.",
+                    details={"line_number": number, "item_code": item.code},
+                )
+            for serial_id in line.serial_ids:
+                serial = serials[serial_id]
+                if serial.item_id != line.item_id:
+                    raise BusinessRuleError(
+                        f"Line {number}: serial {serial.serial_number} belongs to another item.",
+                        details={
+                            "line_number": number,
+                            "serial_number": serial.serial_number,
+                            "item_code": item.code,
+                        },
+                    )
+                if line.batch_id is not None and serial.batch_id != line.batch_id:
+                    raise BusinessRuleError(
+                        f"Line {number}: serial {serial.serial_number} is not in the named batch.",
+                        details={
+                            "line_number": number,
+                            "serial_number": serial.serial_number,
+                            "batch_id": str(line.batch_id),
+                        },
+                    )
 
     async def _validate_line_locations(
         self, payload: StockTransferCreate, warehouses: dict[uuid.UUID, WarehouseFacts]
@@ -4939,6 +5738,63 @@ class StockAdjustmentService:
         missing = [line.item_id for line in payload.lines if line.item_id not in items]
         if missing:
             raise NotFoundError("Item", missing[0])
+
+        serial_ids = [serial_id for line in payload.lines for serial_id in line.serial_ids]
+        serials = await StockSerialRepository(self.session, self.tenant).by_ids(serial_ids)
+        missing_serials = [serial_id for serial_id in serial_ids if serial_id not in serials]
+        if missing_serials:
+            raise NotFoundError("Stock serial", missing_serials[0])
+
+        for number, line in enumerate(payload.lines, start=1):
+            item = items[line.item_id]
+            if item.is_serial_tracked and not line.serial_ids:
+                raise BusinessRuleError(
+                    f"Line {number}: {item.code} is serial tracked, so the units being "
+                    "adjusted must be named.",
+                    code=ErrorCode.SERIAL_REQUIRED,
+                    details={"line_number": number, "item_code": item.code},
+                )
+            if not item.is_serial_tracked and line.serial_ids:
+                raise BusinessRuleError(
+                    f"Line {number}: {item.code} is not serial tracked; remove the serials.",
+                    details={"line_number": number, "item_code": item.code},
+                )
+            if line.serial_ids:
+                batches = {serials[serial_id].batch_id for serial_id in line.serial_ids}
+                if item.is_batch_tracked and line.batch_id is None:
+                    if len(batches) != 1 or None in batches:
+                        raise BusinessRuleError(
+                            f"Line {number}: the units named span several batches or none; "
+                            "a batch is required.",
+                            code=ErrorCode.BATCH_REQUIRED,
+                            details={"line_number": number, "item_code": item.code},
+                        )
+                    line.batch_id = next(iter(batches))
+                for serial_id in line.serial_ids:
+                    serial = serials[serial_id]
+                    if serial.item_id != line.item_id:
+                        raise BusinessRuleError(
+                            f"Line {number}: serial {serial.serial_number} belongs to another "
+                            "item.",
+                            details={"line_number": number, "item_code": item.code},
+                        )
+                    if line.batch_id is not None and serial.batch_id != line.batch_id:
+                        raise BusinessRuleError(
+                            f"Line {number}: serial {serial.serial_number} is not in the "
+                            "named batch.",
+                            details={
+                                "line_number": number,
+                                "serial_number": serial.serial_number,
+                                "batch_id": str(line.batch_id),
+                            },
+                        )
+            elif item.is_batch_tracked and line.batch_id is None:
+                raise BusinessRuleError(
+                    f"Line {number}: {item.code} is batch tracked, so the batch being "
+                    "adjusted must be named.",
+                    code=ErrorCode.BATCH_REQUIRED,
+                    details={"line_number": number, "item_code": item.code},
+                )
         return items
 
     async def _write_lines(
@@ -4984,6 +5840,7 @@ class StockAdjustmentService:
                         location_id=line.location_id,
                         batch_id=line.batch_id,
                         quantity=quantity,
+                        serial_ids=line.serial_ids or None,
                         unit_cost=cost.unit_cost,
                         total_cost=cost.total_cost,
                         system_quantity=preview.on_hand(grain),
@@ -5122,32 +5979,46 @@ class StockAdjustmentService:
                 )
 
             previous = adjustment.status
-            movements = [
-                MovementRequest(
-                    item_id=line.item_id,
-                    warehouse_id=adjustment.warehouse_id,
-                    location_id=line.location_id,
-                    batch_id=line.batch_id,
-                    quantity=abs(Decimal(line.quantity)),
-                    transaction_type=(
-                        TransactionType.ADJUSTMENT_INCREASE
-                        if line.quantity > 0
-                        else TransactionType.ADJUSTMENT_DECREASE
-                    ),
-                    reference_type=AUDIT_ENTITY_ADJUSTMENT,
-                    reference_id=adjustment.id,
-                    reference_code=adjustment.code,
-                    reason=f"{adjustment.reason_code}: {adjustment.reason}"[:255],
-                    unit_cost=Decimal(line.unit_cost),
-                    occurred_at=datetime.combine(adjustment.adjustment_date, utcnow().timetz()),
+            movements: list[MovementRequest] = []
+            movement_slices: list[tuple[int, int]] = []
+            for line in adjustment.lines:
+                start = len(movements)
+                transaction_type = (
+                    TransactionType.ADJUSTMENT_INCREASE
+                    if line.quantity > 0
+                    else TransactionType.ADJUSTMENT_DECREASE
                 )
-                for line in adjustment.lines
-            ]
+                common: dict[str, Any] = {
+                    "item_id": line.item_id,
+                    "warehouse_id": adjustment.warehouse_id,
+                    "location_id": line.location_id,
+                    "batch_id": line.batch_id,
+                    "transaction_type": transaction_type,
+                    "reference_type": AUDIT_ENTITY_ADJUSTMENT,
+                    "reference_id": adjustment.id,
+                    "reference_code": adjustment.code,
+                    "reason": f"{adjustment.reason_code}: {adjustment.reason}"[:255],
+                    "unit_cost": Decimal(line.unit_cost),
+                    "occurred_at": datetime.combine(adjustment.adjustment_date, utcnow().timetz()),
+                }
+                if line.serial_ids:
+                    for serial_id in line.serial_ids:
+                        movements.append(
+                            MovementRequest(**common, serial_id=serial_id, quantity=Decimal("1"))
+                        )
+                else:
+                    movements.append(
+                        MovementRequest(**common, quantity=abs(Decimal(line.quantity)))
+                    )
+                movement_slices.append((start, len(movements)))
             transactions = await self.engine.post(movements)
             # What the ledger charged, layer by layer - not what the draft
             # estimated. From here on the document says the same number the
             # stock ledger does.
-            self._restate_from_ledger(adjustment, transactions)
+            self._restate_from_ledger(
+                adjustment,
+                [transactions[start:end] for start, end in movement_slices],
+            )
             if (
                 previous is AdjustmentStatus.DRAFT
                 and adjustment.total_value > ADJUSTMENT_APPROVAL_VALUE_THRESHOLD
@@ -5291,13 +6162,15 @@ class StockAdjustmentService:
         return adjustment.total_value
 
     def _restate_from_ledger(
-        self, adjustment: StockAdjustment, transactions: Sequence[InventoryTransaction]
+        self,
+        adjustment: StockAdjustment,
+        transactions: Sequence[Sequence[InventoryTransaction]],
     ) -> Decimal:
         """Write what the engine actually charged back onto the document.
 
-        ``transactions`` come back in the order the movements were given, which
-        is the order ``adjustment.lines`` produced them, so the pairing is
-        positional and ``strict=True`` is what proves it stayed that way.
+        One inner sequence per line. A serialised line posts one movement per
+        unit, and each of those can draw from a different layer, so the line is
+        restated from its own slice rather than from a single blended row.
 
         ``total_cost`` on a ledger row is a magnitude - the sign lives on
         ``quantity`` - and the header adds the magnitudes up, exactly as the
@@ -5305,9 +6178,21 @@ class StockAdjustmentService:
         moved rather than nothing.
         """
         total = Decimal("0")
-        for line, txn in zip(adjustment.lines, transactions, strict=True):
-            line.unit_cost = to_unit_price(txn.unit_cost)
-            line.total_cost = to_money(abs(Decimal(txn.total_cost)))
+        for line, rows in zip(adjustment.lines, transactions, strict=True):
+            quantity = sum((abs(Decimal(row.quantity)) for row in rows), Decimal("0"))
+            if quantity > 0:
+                line.unit_cost = to_unit_price(
+                    sum(
+                        (abs(Decimal(row.quantity)) * Decimal(row.unit_cost) for row in rows),
+                        Decimal("0"),
+                    )
+                    / quantity
+                )
+            elif rows:
+                line.unit_cost = to_unit_price(rows[0].unit_cost)
+            line.total_cost = to_money(
+                sum((abs(Decimal(row.total_cost)) for row in rows), Decimal("0"))
+            )
             self.line_repo.touch(line)
             total += line.total_cost
         self._set_value(adjustment, total)

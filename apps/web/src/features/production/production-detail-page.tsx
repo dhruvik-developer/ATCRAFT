@@ -1002,7 +1002,7 @@ export default function ProductionDetailPage() {
       body,
     }: {
       action: ActionKey
-      body?: Record<string, string | null>
+      body?: Record<string, string | string[] | null>
     }) => {
       const result = await api.post<TransitionResult>(
         `/production/${orderId}/${action}`,
@@ -1474,6 +1474,7 @@ export default function ProductionDetailPage() {
           onOpenChange={setRecordOpen}
           orderId={order.id}
           orderCode={order.code}
+          itemId={order.item_id}
         />
       )}
 

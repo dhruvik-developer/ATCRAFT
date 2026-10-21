@@ -26,14 +26,15 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, and_, delete, func, select
+from sqlalchemy import Select, and_, delete, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute
 
 from src.common.repository import BaseRepository
+from src.core.clock import today
 from src.core.database import affected_rows
 from src.core.pagination import COUNT_CEILING, PageParams, SortParams, paginate
 from src.core.responses import OffsetPagination
@@ -51,7 +52,13 @@ from src.modules.assembly.schemas import (
     AssemblyOrderFilters,
     ReadyForPackingRow,
 )
-from src.modules.inventory.models import InventoryBalance, SerialStatus, StockSerial
+from src.modules.inventory.models import (
+    BatchStatus,
+    InventoryBalance,
+    SerialStatus,
+    StockBatch,
+    StockSerial,
+)
 from src.modules.products.models import Item
 from src.modules.warehouses.models import Warehouse
 
@@ -84,6 +91,7 @@ class SerialFacts:
     item_id: uuid.UUID
     serial_number: str
     warehouse_id: uuid.UUID | None
+    batch_id: uuid.UUID | None
     status: SerialStatus
 
 
@@ -155,6 +163,7 @@ class SerialLookupRepository(BaseRepository[StockSerial]):
             StockSerial.item_id,
             StockSerial.serial_number,
             StockSerial.warehouse_id,
+            StockSerial.batch_id,
             StockSerial.status,
         ).where(
             StockSerial.company_id == self.tenant.company_id,
@@ -166,6 +175,7 @@ class SerialLookupRepository(BaseRepository[StockSerial]):
                 item_id=row.item_id,
                 serial_number=row.serial_number,
                 warehouse_id=row.warehouse_id,
+                batch_id=row.batch_id,
                 status=SerialStatus(row.status),
             )
             for row in (await self.session.execute(stmt)).all()
@@ -543,6 +553,23 @@ class AssemblyOrderRepository(BaseRepository[AssemblyOrder]):
         return list((await self.session.execute(stmt)).scalars().all())
 
 
+@dataclass(frozen=True, slots=True)
+class BatchAvailability:
+    """One lot with promisable stock at a component warehouse.
+
+    A batch-tracked assembly line reserves one lot, not an anonymous item
+    balance: the inventory engine refuses every movement of a batch-tracked
+    item that does not name a batch. ``expires_on`` is carried so the service
+    can take the earliest-expiring lot that can cover the whole line.
+    """
+
+    batch_id: uuid.UUID
+    available_quantity: Decimal
+    expires_on: date | None
+    received_on: date
+    batch_number: str
+
+
 class ComponentAvailabilityRepository(BaseRepository[InventoryBalance]):
     """Promisable stock where a component reservation would hold it."""
 
@@ -554,10 +581,11 @@ class ComponentAvailabilityRepository(BaseRepository[InventoryBalance]):
         """``available_quantity`` per item at the warehouse's bin-less, batch-less
         position, in one statement. Never cached (section 34).
 
-        That position, and no other, is what release reserves against:
-        ``allocation.reserve`` called with no bin and no batch holds the position
-        that has neither. Stock in a bin is real but a release cannot claim it,
-        so counting it here would promise a release that is then refused.
+        That position is what release reserves against for an untracked
+        component: ``allocation.reserve`` called with no bin and no batch holds
+        the position that has neither. Stock in a bin is real but a release
+        cannot claim it, so counting it here would promise a release that is then
+        refused. A batch-tracked component uses :meth:`reservable_batches`.
         """
         if not item_ids:
             return {}
@@ -579,6 +607,66 @@ class ComponentAvailabilityRepository(BaseRepository[InventoryBalance]):
             row.item_id: Decimal(str(row.available))
             for row in (await self.session.execute(stmt)).all()
         }
+
+    async def reservable_batches(
+        self, item_ids: Sequence[uuid.UUID], warehouse_id: uuid.UUID
+    ) -> dict[uuid.UUID, list[BatchAvailability]]:
+        """Lots with promisable stock per item, earliest expiry first.
+
+        Only an ACTIVE, unexpired lot can be issued, so only those are offered
+        to a release. The service picks one lot that covers a whole component
+        line; a lot split across a line would need a second line, which the
+        assembly model deliberately does not allow.
+        """
+        if not item_ids:
+            return {}
+        stmt = (
+            select(
+                InventoryBalance.item_id,
+                InventoryBalance.batch_id,
+                func.sum(InventoryBalance.available_quantity).label("available"),
+                StockBatch.expires_on,
+                StockBatch.received_on,
+                StockBatch.batch_number,
+            )
+            .join(StockBatch, StockBatch.id == InventoryBalance.batch_id)
+            .where(
+                InventoryBalance.company_id == self.tenant.company_id,
+                InventoryBalance.warehouse_id == warehouse_id,
+                InventoryBalance.item_id.in_(list(dict.fromkeys(item_ids))),
+                InventoryBalance.location_id.is_(None),
+                InventoryBalance.batch_id.is_not(None),
+                InventoryBalance.available_quantity > 0,
+                StockBatch.company_id == self.tenant.company_id,
+                StockBatch.status == BatchStatus.ACTIVE,
+                or_(StockBatch.expires_on.is_(None), StockBatch.expires_on >= today()),
+            )
+            .group_by(
+                InventoryBalance.item_id,
+                InventoryBalance.batch_id,
+                StockBatch.expires_on,
+                StockBatch.received_on,
+                StockBatch.batch_number,
+            )
+            .order_by(
+                InventoryBalance.item_id,
+                StockBatch.expires_on.asc().nullslast(),
+                StockBatch.received_on.asc(),
+                StockBatch.batch_number.asc(),
+            )
+        )
+        batches: dict[uuid.UUID, list[BatchAvailability]] = {}
+        for row in (await self.session.execute(stmt)).all():
+            batches.setdefault(row.item_id, []).append(
+                BatchAvailability(
+                    batch_id=row.batch_id,
+                    available_quantity=Decimal(str(row.available)),
+                    expires_on=row.expires_on,
+                    received_on=row.received_on,
+                    batch_number=row.batch_number,
+                )
+            )
+        return batches
 
 
 def _packing_row(row: Any) -> ReadyForPackingRow:
@@ -602,6 +690,7 @@ __all__ = [
     "AssemblyComponentRepository",
     "AssemblyItem",
     "AssemblyOrderRepository",
+    "BatchAvailability",
     "ComponentAvailabilityRepository",
     "ItemLookupRepository",
     "SerialFacts",

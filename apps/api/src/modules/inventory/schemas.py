@@ -66,6 +66,10 @@ NonNegativeMoney = Annotated[Decimal, Field(ge=0, max_digits=18, decimal_places=
 #: time, which is how one careless import stalls every other stock movement.
 MAX_DOCUMENT_LINES = 500
 
+#: A label run at goods-in. Small enough that registering the range and then
+#: receiving it stays one quick transaction.
+MAX_SERIAL_BULK = 500
+
 
 # -----------------------------------------------------------------------------
 # Balances and ledger
@@ -317,6 +321,26 @@ class StockBatchRead(BaseModel):
     status: BatchStatus
     notes: str | None
     created_at: datetime
+    #: Labels and current totals, filled by the service. Optional so every
+    #: existing caller that validates a bare row keeps working.
+    item_code: str | None = None
+    item_name: str | None = None
+    on_hand_quantity: Decimal = Decimal("0")
+    available_quantity: Decimal = Decimal("0")
+    in_transit_quantity: Decimal = Decimal("0")
+
+
+class StockBatchAction(BaseModel):
+    """A lifecycle action on a lot.
+
+    A reason is required even for activation: "why was this lot released?" is
+    the question a recall or an audit asks, and it is unanswerable if the
+    release left no trace.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Reason
 
 
 class StockSerialCreate(BaseModel):
@@ -352,6 +376,47 @@ class StockSerialRead(BaseModel):
     unit_cost: Decimal
     notes: str | None
     created_at: datetime
+    item_code: str | None = None
+    item_name: str | None = None
+    batch_number: str | None = None
+    warehouse_code: str | None = None
+
+
+class StockSerialBulkCreate(BaseModel):
+    """Register a bounded range of units before their receipt.
+
+    The cap is deliberately small: this is a label-printing operation at a
+    goods-in desk, not a bulk import. A larger set belongs in the GRN itself,
+    where each unit is tied to the line that brought it in.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: uuid.UUID
+    serial_numbers: Annotated[list[str], Field(min_length=1, max_length=MAX_SERIAL_BULK)]
+    batch_id: uuid.UUID | None = None
+    warehouse_id: uuid.UUID | None = None
+    location_id: uuid.UUID | None = None
+    received_on: date | None = None
+    unit_cost: UnitCost = Decimal("0")
+    notes: str | None = None
+
+    @field_validator("serial_numbers")
+    @classmethod
+    def _normalise_and_unique(cls, values: list[str]) -> list[str]:
+        cleaned = ["".join(value.split()).upper() for value in values]
+        if any(not value or len(value) > 64 for value in cleaned):
+            raise ValueError("Every serial number must be between 1 and 64 characters.")
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError("A bulk registration cannot contain the same serial number twice.")
+        return cleaned
+
+
+class StockSerialDetail(BaseModel):
+    """One unit and the ledger rows that moved it, newest first."""
+
+    serial: StockSerialRead
+    movements: list[LedgerEntryRead] = Field(default_factory=list)
 
 
 # -----------------------------------------------------------------------------
@@ -363,6 +428,9 @@ class StockTransferLineCreate(BaseModel):
     item_id: uuid.UUID
     quantity: PositiveQuantity
     batch_id: uuid.UUID | None = None
+    #: Required for a serial-tracked item, and forbidden otherwise by the
+    #: service once it has the item master. One physical unit per quantity.
+    serial_ids: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_DOCUMENT_LINES)
     from_location_id: uuid.UUID | None = None
     to_location_id: uuid.UUID | None = None
     #: The sales order line this line answers (WP E1b section 4). Only set when
@@ -370,6 +438,14 @@ class StockTransferLineCreate(BaseModel):
     #: names the order itself.
     source_line_id: uuid.UUID | None = None
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def _serials_are_whole_units(self) -> StockTransferLineCreate:
+        if self.serial_ids and Decimal(len(self.serial_ids)) != self.quantity:
+            raise ValueError("A serialised transfer line must name one unit per unit moved.")
+        if len(set(self.serial_ids)) != len(self.serial_ids):
+            raise ValueError("A serialised transfer line cannot repeat a serial.")
+        return self
 
 
 class StockTransferCreate(BaseModel):
@@ -400,6 +476,9 @@ class StockTransferCreate(BaseModel):
         seen = {(line.item_id, line.batch_id, line.from_location_id) for line in self.lines}
         if len(seen) != len(self.lines):
             raise ValueError("The same item, batch and source location appears on two lines.")
+        serial_ids = [serial_id for line in self.lines for serial_id in line.serial_ids]
+        if len(set(serial_ids)) != len(serial_ids):
+            raise ValueError("A unit may only be transferred once on a document.")
         return self
 
 
@@ -428,6 +507,7 @@ class StockTransferLineRead(BaseModel):
     dispatched_quantity: Decimal
     received_quantity: Decimal
     unit_cost: Decimal
+    serial_ids: list[uuid.UUID] | None = None
     source_line_id: uuid.UUID | None = None
     notes: str | None
 
@@ -479,6 +559,9 @@ class StockAdjustmentLineCreate(BaseModel):
     quantity: NonZeroQuantity
     location_id: uuid.UUID | None = None
     batch_id: uuid.UUID | None = None
+    #: Required for a serial-tracked item. The sign of ``quantity`` says which
+    #: way the named units move; its absolute value must equal their count.
+    serial_ids: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_DOCUMENT_LINES)
     #: Valuation for a write-up. Ignored on a write-down, which is always valued
     #: at what the position's FIFO cost layers cost so the balance cannot be drained
     #: of value by quoting a low price.
@@ -491,6 +574,14 @@ class StockAdjustmentLineCreate(BaseModel):
         if value == 0:
             raise ValueError("An adjustment line of zero changes nothing.")
         return value
+
+    @model_validator(mode="after")
+    def _serials_are_whole_units(self) -> StockAdjustmentLineCreate:
+        if self.serial_ids and Decimal(len(self.serial_ids)) != abs(self.quantity):
+            raise ValueError("A serialised adjustment line must name one unit per unit moved.")
+        if len(set(self.serial_ids)) != len(self.serial_ids):
+            raise ValueError("A serialised adjustment line cannot repeat a serial.")
+        return self
 
 
 class StockAdjustmentCreate(BaseModel):
@@ -510,6 +601,9 @@ class StockAdjustmentCreate(BaseModel):
         seen = {(line.item_id, line.batch_id, line.location_id) for line in self.lines}
         if len(seen) != len(self.lines):
             raise ValueError("The same item, batch and location appears on two lines.")
+        serial_ids = [serial_id for line in self.lines for serial_id in line.serial_ids]
+        if len(set(serial_ids)) != len(serial_ids):
+            raise ValueError("A unit may only be adjusted once on a document.")
         return self
 
 
@@ -523,6 +617,7 @@ class StockAdjustmentLineRead(BaseModel):
     item_name: str | None = None
     location_id: uuid.UUID | None
     batch_id: uuid.UUID | None
+    serial_ids: list[uuid.UUID] | None = None
     quantity: Decimal
     unit_cost: Decimal
     total_cost: Decimal
@@ -1055,9 +1150,12 @@ __all__ = [
     "StockAdjustmentLineRead",
     "StockAdjustmentRead",
     "StockAdjustmentUpdate",
+    "StockBatchAction",
     "StockBatchCreate",
     "StockBatchRead",
+    "StockSerialBulkCreate",
     "StockSerialCreate",
+    "StockSerialDetail",
     "StockSerialRead",
     "StockTransferCreate",
     "StockTransferLineCreate",

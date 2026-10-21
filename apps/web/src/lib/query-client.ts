@@ -142,6 +142,8 @@ export const queryKeys = {
     batches: (params: unknown) => ['inventory', 'batches', params] as const,
     batch: (itemId: string, batchId: string) =>
       ['inventory', 'batches', 'detail', itemId, batchId] as const,
+    serials: (params: unknown) => ['inventory', 'serials', params] as const,
+    serial: (serialId: string) => ['inventory', 'serials', 'detail', serialId] as const,
     balances: (params: unknown) => ['inventory', 'balances', params] as const,
     ledger: (params: unknown) => ['inventory', 'ledger', params] as const,
     itemStock: (itemId: string) => ['inventory', 'item-stock', itemId] as const,

@@ -73,17 +73,9 @@ import type { SchemaOf } from '@/types/api'
 
 import { ItemPicker, WarehouseSelect } from './pickers'
 import { LocationPicker } from './location-picker'
+import { SerialNumbersField } from './serial-numbers-field'
+import { splitSerialNumbers } from './serial-numbers'
 import { ADJUSTMENT_REASON_CODES, type PhysicalCountLineRow, type PhysicalCountRow } from './types'
-
-/**
- * What a stock transfer may carry. See docs/assumptions.md 25: a serial-tracked
- * item is refused at create, not at dispatch, so the picker must not offer one.
- *
- * Batch-tracked items are still offered even though the API requires the line to
- * name its batch: hiding them would be wrong - they are transferable - and the
- * missing control is a batch picker on the line, noted rather than faked.
- */
-const TRANSFERABLE_ITEM_FILTERS = { is_serial_tracked: false }
 
 // --------------------------------------------------------- validation ------
 
@@ -112,6 +104,7 @@ interface LineFields {
     location_id?: string
     from_location_id?: string
     to_location_id?: string
+    serial_numbers?: string
     unit_cost?: string
   }[]
 }
@@ -292,6 +285,26 @@ function LineEditor<T extends LineFields>({
               />
             )}
           </div>
+          {values?.[index]?.item_id && (
+            <div className="sm:col-span-3">
+              <Controller
+                control={lineControl}
+                name={`lines.${index}.serial_numbers`}
+                render={({ field: serials }) => (
+                  <SerialNumbersField
+                    id={`${idPrefix}-serials-${index}`}
+                    value={serials.value ?? ''}
+                    onChange={serials.onChange}
+                    expected={values?.[index]?.quantity}
+                    label="Serial numbers"
+                    hint="One serial per unit moved. Leave empty for an untracked item."
+                    error={errors.lines?.[index]?.serial_numbers?.message}
+                    rows={2}
+                  />
+                )}
+              />
+            </div>
+          )}
         </div>
       ))}
 
@@ -315,6 +328,11 @@ function LineEditor<T extends LineFields>({
 
 // ------------------------------------------------------------ transfer -----
 
+/**
+ * A stock transfer now carries its units: the API has a serial list on each
+ * line and parks the named units in transit. A line may carry labels for a
+ * serial-tracked item; an untracked item simply sends none.
+ */
 const transferSchema = z
   .object({
     from_warehouse_id: z.string().min(1, 'Choose the warehouse the stock leaves.'),
@@ -326,6 +344,7 @@ const transferSchema = z
         z.object({
           item_id: z.string().min(1, 'Choose an item.'),
           batch_id: z.string().optional(),
+          serial_numbers: z.string().optional(),
           from_location_id: z.string().optional(),
           to_location_id: z.string().optional(),
           quantity: z
@@ -404,6 +423,9 @@ export function CreateTransferDialog({
           item_id: line.item_id,
           quantity: line.quantity.trim(),
           ...(line.batch_id ? { batch_id: line.batch_id } : {}),
+          ...(splitSerialNumbers(line.serial_numbers ?? '').length
+            ? { serial_numbers: splitSerialNumbers(line.serial_numbers ?? '') }
+            : {}),
           ...(line.from_location_id ? { from_location_id: line.from_location_id } : {}),
           ...(line.to_location_id ? { to_location_id: line.to_location_id } : {}),
           ...(initial?.sourceLineId && line.item_id === initial.itemId
@@ -503,19 +525,12 @@ export function CreateTransferDialog({
             warehouseId={form.watch('from_warehouse_id')}
             toWarehouseId={form.watch('to_warehouse_id')}
             quantityLabel="Quantity"
-            // docs/assumptions.md 25: a stock transfer refuses a serial-tracked
-            // item outright, because `stock_transfer_lines` has nowhere to name
-            // the units being shipped. The search is narrowed server-side so the
-            // refusal is never reached, rather than offering a choice that
-            // always comes back an error at submit.
-            itemFilters={TRANSFERABLE_ITEM_FILTERS}
-            itemEmptyMessage="No transferable item matches that search. Serial-tracked items cannot move on a transfer."
           />
 
           <p className="text-xs text-muted-foreground">
-            Serial-tracked items are not listed: a transfer line carries no unit list, so there is
-            nowhere to record which units shipped. Move them with a goods issue and a receipt
-            instead.
+            A serial-tracked item moves by naming its units on the line. The units stay attributed
+            to the source warehouse while in transit and are relocated when the transfer is
+            received.
           </p>
 
           <FieldError message={errors.root?.message} />
@@ -553,6 +568,7 @@ const adjustmentSchema = z.object({
       z.object({
         item_id: z.string().min(1, 'Choose an item.'),
         batch_id: z.string().optional(),
+        serial_numbers: z.string().optional(),
         location_id: z.string().optional(),
         unit_cost: z
           .string()
@@ -635,6 +651,9 @@ export function CreateAdjustmentDialog({
           item_id: line.item_id,
           quantity: line.quantity.trim(),
           ...(line.batch_id ? { batch_id: line.batch_id } : {}),
+          ...(splitSerialNumbers(line.serial_numbers ?? '').length
+            ? { serial_numbers: splitSerialNumbers(line.serial_numbers ?? '') }
+            : {}),
           ...(line.location_id ? { location_id: line.location_id } : {}),
           ...(canEditCost && line.unit_cost ? { unit_cost: line.unit_cost.trim() } : {}),
         })),
