@@ -13584,6 +13584,40 @@
           }
         },
         {
+          "name": "Record a carton barcode scan",
+          "request": {
+            "body": {
+              "mode": "raw",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              },
+              "raw": "{\n  \"barcode\": \"\"\n}"
+            },
+            "description": "Resolves a carton label within the authenticated company and records the successful scan in the audit trail.",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "method": "POST",
+            "url": {
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "packing",
+                "scan"
+              ],
+              "raw": "{{base_url}}/api/v1/packing/scan"
+            }
+          }
+        },
+        {
           "name": "Remove an unsealed carton",
           "request": {
             "description": "Remove an unsealed carton",

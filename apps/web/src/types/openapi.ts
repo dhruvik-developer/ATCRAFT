@@ -4375,7 +4375,11 @@ export interface paths {
          */
         get: operations["scan_carton_api_v1_packing_scan_get"];
         put?: never;
-        post?: never;
+        /**
+         * Record a carton barcode scan
+         * @description Resolves a carton label within the authenticated company and records the successful scan in the audit trail.
+         */
+        post: operations["record_carton_scan_api_v1_packing_scan_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -13188,7 +13192,7 @@ export interface components {
          * @description The action vocabulary from master rules section 41.
          * @enum {string}
          */
-        AuditAction: "LOGIN" | "LOGIN_FAILED" | "LOGOUT" | "PASSWORD_CHANGED" | "PASSWORD_RESET_REQUESTED" | "CREATE" | "UPDATE" | "DELETE" | "APPROVE" | "REJECT" | "CANCEL" | "STATUS_CHANGE" | "PERMISSION_CHANGE" | "ROLE_CHANGE" | "CONFIG_CHANGE" | "DOCUMENT_UPLOAD" | "DOCUMENT_DELETE" | "DATA_EXPORT" | "INVENTORY_MOVEMENT" | "RESERVATION_CHANGE" | "ALLOCATION_CHANGE" | "REALLOCATION" | "STOCK_ADJUSTMENT" | "QC_DECISION" | "PURCHASE_APPROVAL" | "PRODUCTION_STATUS_CHANGE" | "DISPATCH_CHANGE" | "PAYMENT" | "MRP_RUN" | "JOB_STARTED" | "JOB_FAILED";
+        AuditAction: "LOGIN" | "LOGIN_FAILED" | "LOGOUT" | "PASSWORD_CHANGED" | "PASSWORD_RESET_REQUESTED" | "CREATE" | "UPDATE" | "DELETE" | "APPROVE" | "REJECT" | "CANCEL" | "STATUS_CHANGE" | "PERMISSION_CHANGE" | "ROLE_CHANGE" | "CONFIG_CHANGE" | "DOCUMENT_UPLOAD" | "DOCUMENT_DELETE" | "DATA_EXPORT" | "INVENTORY_MOVEMENT" | "RESERVATION_CHANGE" | "ALLOCATION_CHANGE" | "REALLOCATION" | "STOCK_ADJUSTMENT" | "QC_DECISION" | "PURCHASE_APPROVAL" | "PRODUCTION_STATUS_CHANGE" | "DISPATCH_CHANGE" | "PAYMENT" | "MRP_RUN" | "JOB_STARTED" | "JOB_FAILED" | "SCAN";
         /**
          * AuditLogListItem
          * @description One row of the audit feed.
@@ -14612,6 +14616,11 @@ export interface components {
              * @default 0
              */
             serial_count: number;
+        };
+        /** CartonScanRequest */
+        CartonScanRequest: {
+            /** Barcode */
+            barcode: string;
         };
         /** CartonScanResult */
         CartonScanResult: {
@@ -63746,6 +63755,102 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_CartonScanResult_"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication required or token invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated but missing the required permission */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Record not found in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict: concurrent edit, duplicate, or invalid state transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation or business-rule failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Rate limit exceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unexpected server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    record_carton_scan_api_v1_packing_scan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CartonScanRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

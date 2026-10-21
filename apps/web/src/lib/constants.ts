@@ -45,6 +45,9 @@ export const PAGE_SIZES = [25, 50, 100, 200] as const
 /** Default rows per page on a list screen. */
 export const DEFAULT_PAGE_SIZE = 50
 
+/** Recent scan-history window shown on the packing screen. */
+export const CARTON_SCAN_HISTORY_DAYS = 30
+
 /** Rows fetched per keystroke in a search-as-you-type picker. */
 export const PICKER_PAGE_SIZE = 20
 

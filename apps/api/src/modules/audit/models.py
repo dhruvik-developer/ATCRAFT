@@ -62,6 +62,7 @@ class AuditAction(StrEnum):
     MRP_RUN = "MRP_RUN"
     JOB_STARTED = "JOB_STARTED"
     JOB_FAILED = "JOB_FAILED"
+    SCAN = "SCAN"
 
 
 class AuditLog(ImmutableLedgerEntity):

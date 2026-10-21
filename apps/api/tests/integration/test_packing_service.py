@@ -954,6 +954,37 @@ async def test_a_scanned_carton_returns_its_order_and_packing_record(
     assert result.carton.contents[0].quantity == Decimal("10.0000")
 
 
+async def test_a_recorded_carton_scan_is_written_to_the_audit_trail(
+    ctx: tuple[AsyncSession, TenantContext], bench: Bench
+) -> None:
+    session, tenant = ctx
+    order = await started_order(session, tenant, bench)
+    carton = await service.add_carton(
+        session, tenant, order.id, bench.carton_payload(quantity="10")
+    )
+
+    result = await service.record_carton_scan(session, tenant, carton.barcode.lower())
+
+    audit = await session.scalar(
+        select(AuditLog).where(
+            AuditLog.company_id == tenant.company_id,
+            AuditLog.action == AuditAction.SCAN,
+            AuditLog.entity_type == "carton_scan",
+            AuditLog.entity_id == carton.id,
+        )
+    )
+    assert result.carton.id == carton.id
+    assert audit is not None
+    assert audit.entity_code == carton.barcode
+    assert audit.created_by_id == tenant.user_id
+    assert audit.summary == f"Scanned carton {carton.barcode} for packing order {order.code}"
+    assert audit.context == {
+        "packing_order_id": str(order.id),
+        "packing_order_code": order.code,
+        "carton_number": carton.carton_number,
+    }
+
+
 async def test_a_carton_barcode_is_not_visible_to_another_company(
     ctx: tuple[AsyncSession, TenantContext], bench: Bench
 ) -> None:

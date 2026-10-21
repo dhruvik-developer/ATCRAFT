@@ -36,6 +36,7 @@ from src.modules.packing.schemas import (
     CartonCreate,
     CartonDetail,
     CartonLabel,
+    CartonScanRequest,
     CartonScanResult,
     CompleteRequest,
     DispatchHandoverRequest,
@@ -188,6 +189,23 @@ async def scan_carton(
     barcode: Annotated[str, Query(min_length=8, max_length=64, pattern=r"^[0-9A-Za-z-]+$")],
 ) -> ApiResponse[CartonScanResult]:
     result = await service.find_carton_by_barcode(session, tenant, barcode)
+    return ApiResponse[CartonScanResult].ok(result)
+
+
+@router.post(
+    "/scan",
+    response_model=ApiResponse[CartonScanResult],
+    summary="Record a carton barcode scan",
+    description=(
+        "Resolves a carton label within the authenticated company and records the successful "
+        "scan in the audit trail."
+    ),
+    dependencies=[require_permission(Permission.PACKING_VIEW)],
+)
+async def record_carton_scan(
+    session: DbSession, tenant: Tenant, payload: CartonScanRequest
+) -> ApiResponse[CartonScanResult]:
+    result = await service.record_carton_scan(session, tenant, payload.barcode)
     return ApiResponse[CartonScanResult].ok(result)
 
 

@@ -46,6 +46,7 @@ export const AUDIT_ACTIONS = [
   'MRP_RUN',
   'JOB_STARTED',
   'JOB_FAILED',
+  'SCAN',
 ] as const
 
 export type AuditActionValue = (typeof AUDIT_ACTIONS)[number]
@@ -85,6 +86,7 @@ export const AUDIT_ENTITY_TYPES = [
   'job_work_order',
   'qc_inspection',
   'packing_order',
+  'carton_scan',
   'dispatch',
   'vendor_invoice',
   'payment',
@@ -169,6 +171,7 @@ export function actionTone(action: string): BadgeTone {
     case 'LOGOUT':
     case 'PASSWORD_CHANGED':
     case 'PASSWORD_RESET_REQUESTED':
+    case 'SCAN':
       return 'muted'
     case 'UPDATE':
     case 'STATUS_CHANGE':

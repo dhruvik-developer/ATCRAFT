@@ -11,7 +11,8 @@
  */
 
 import { type ColumnDef } from '@tanstack/react-table'
-import { useMutation } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { subDays } from 'date-fns'
 import { Boxes, PackageOpen, PackagePlus, ScanBarcode, X } from 'lucide-react'
 import { useMemo, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -28,19 +29,28 @@ import {
 } from '@/components/ui/overlays'
 import { Badge, Checkbox, Input, Label } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
+import { fetchAuditPage, type AuditLogRow } from '@/features/audit/audit-types'
 import { CustomerPicker } from '@/features/customers/customer-picker'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
-import { SELECT_ALL } from '@/lib/constants'
-import { formatDate, formatDateTime, formatNumber, formatQuantity, humanise } from '@/lib/format'
+import { CARTON_SCAN_HISTORY_DAYS, DEFAULT_PAGE_SIZE, SELECT_ALL } from '@/lib/constants'
+import {
+  formatDate,
+  formatDateTime,
+  formatNumber,
+  formatQuantity,
+  humanise,
+  toDateInput,
+} from '@/lib/format'
 import { P } from '@/lib/permissions'
-import { staleTimes } from '@/lib/query-client'
+import { queryKeys, staleTimes } from '@/lib/query-client'
 
 import { PackingOrderDialog } from './packing-order-dialog'
 import { PackingOrderCreateDialog } from './packing-order-create-dialog'
 import {
   PACKING_STATUSES,
   packingKeys,
+  type CartonScanRequest,
   type CartonScanResult,
   type PackingOrderRow,
 } from './packing-types'
@@ -57,11 +67,88 @@ const FILTER_KEYS = [
   'planned_to',
 ] as const
 
-function CartonScanPanel({ onOpenOrder }: { onOpenOrder: (order: PackingOrderRow) => void }) {
+function CartonScanHistory() {
+  const filters = useMemo(() => {
+    const today = new Date()
+    return {
+      date_from: toDateInput(subDays(today, CARTON_SCAN_HISTORY_DAYS)),
+      date_to: toDateInput(today),
+      action: 'SCAN',
+      entity_type: 'carton_scan',
+      limit: DEFAULT_PAGE_SIZE,
+    }
+  }, [])
+  const history = useInfiniteQuery({
+    queryKey: queryKeys.audit.logs(filters),
+    queryFn: ({ pageParam }) =>
+      fetchAuditPage('/audit/logs', { ...filters, ...(pageParam ? { cursor: pageParam } : {}) }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) =>
+      lastPage.pagination.has_next ? (lastPage.pagination.next_cursor ?? undefined) : undefined,
+    staleTime: staleTimes.transactional,
+  })
+  const rows = useMemo(() => history.data?.pages.flatMap((page) => page.data) ?? [], [history.data])
+
+  return (
+    <div className="mt-4 border-t pt-3" aria-labelledby="carton-scan-history-heading">
+      <h3 id="carton-scan-history-heading" className="text-sm font-semibold">
+        Recent scan history
+      </h3>
+      {history.isLoading && <p className="mt-2 text-sm text-muted-foreground">Loading scans...</p>}
+      {history.error && (
+        <div className="mt-2">
+          <FieldError message={history.error.message} />
+        </div>
+      )}
+      {!history.isLoading && !history.error && rows.length === 0 && (
+        <p className="mt-2 text-sm text-muted-foreground">
+          No carton scans in the last {CARTON_SCAN_HISTORY_DAYS} days.
+        </p>
+      )}
+      {rows.length > 0 && (
+        <ul className="mt-2 space-y-1 text-sm">
+          {rows.map((row: AuditLogRow) => (
+            <li key={row.id} className="flex flex-wrap gap-x-2">
+              <time dateTime={row.created_at} className="text-muted-foreground">
+                {formatDateTime(row.created_at)}
+              </time>
+              <span>{row.actor_label ?? 'System'}</span>
+              <span>{row.summary}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {history.hasNextPage && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="mt-2"
+          disabled={history.isFetchingNextPage}
+          onClick={() => void history.fetchNextPage()}
+        >
+          {history.isFetchingNextPage ? 'Loading...' : 'Load older scans'}
+        </Button>
+      )}
+    </div>
+  )
+}
+
+function CartonScanPanel({
+  onOpenOrder,
+  showHistory,
+}: {
+  onOpenOrder: (order: PackingOrderRow) => void
+  showHistory: boolean
+}) {
   const [barcode, setBarcode] = useState('')
+  const queryClient = useQueryClient()
   const scan = useMutation({
     mutationFn: (value: string) =>
-      api.get<CartonScanResult>(`/packing/scan?barcode=${encodeURIComponent(value)}`),
+      api.post<CartonScanResult>('/packing/scan', { barcode: value } satisfies CartonScanRequest),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.audit.logsAll })
+    },
   })
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -134,6 +221,7 @@ function CartonScanPanel({ onOpenOrder }: { onOpenOrder: (order: PackingOrderRow
           </div>
         </div>
       )}
+      {showHistory && <CartonScanHistory />}
     </section>
   )
 }
@@ -323,7 +411,7 @@ export default function PackingPage() {
         }
       />
 
-      <CartonScanPanel onOpenOrder={setOpenOrder} />
+      <CartonScanPanel onOpenOrder={setOpenOrder} showHistory={can(P.AUDIT_LOG_VIEW)} />
 
       <ReadyFromAssemblyPanel />
 

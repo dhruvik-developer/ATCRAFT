@@ -7557,7 +7557,8 @@
           "PAYMENT",
           "MRP_RUN",
           "JOB_STARTED",
-          "JOB_FAILED"
+          "JOB_FAILED",
+          "SCAN"
         ],
         "title": "AuditAction",
         "type": "string"
@@ -11478,6 +11479,22 @@
           "quantity"
         ],
         "title": "CartonLabelLine",
+        "type": "object"
+      },
+      "CartonScanRequest": {
+        "properties": {
+          "barcode": {
+            "maxLength": 64,
+            "minLength": 8,
+            "pattern": "^[0-9A-Za-z-]+$",
+            "title": "Barcode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "barcode"
+        ],
+        "title": "CartonScanRequest",
         "type": "object"
       },
       "CartonScanResult": {
@@ -111222,6 +111239,121 @@
           }
         ],
         "summary": "Find a carton by scanning its barcode",
+        "tags": [
+          "Packing"
+        ]
+      },
+      "post": {
+        "description": "Resolves a carton label within the authenticated company and records the successful scan in the audit trail.",
+        "operationId": "record_carton_scan_api_v1_packing_scan_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CartonScanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_CartonScanResult_"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication required or token invalid"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authenticated but missing the required permission"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Record not found in this tenant"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict: concurrent edit, duplicate, or invalid state transition"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation or business-rule failure"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Rate limit exceeded"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unexpected server error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Record a carton barcode scan",
         "tags": [
           "Packing"
         ]

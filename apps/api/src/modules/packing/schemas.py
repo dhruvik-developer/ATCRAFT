@@ -347,6 +347,10 @@ class CartonScanResult(BaseModel):
     carton: CartonDetail
 
 
+class CartonScanRequest(BaseModel):
+    barcode: str = Field(min_length=8, max_length=64, pattern=r"^[0-9A-Za-z-]+$")
+
+
 class CartonFilters(BaseModel):
     packing_order_id: uuid.UUID | None = None
     barcode: str | None = None

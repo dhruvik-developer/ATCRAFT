@@ -243,6 +243,7 @@ export const queryKeys = {
     report: (key: string, params: unknown) => ['reports', key, params] as const,
   },
   audit: {
+    logsAll: ['audit', 'logs'] as const,
     logs: (params: unknown) => ['audit', 'logs', params] as const,
     entity: (type: string, id: string) => ['audit', 'entity', type, id] as const,
     /** The approval queue. Under `audit` so an `['audit']` invalidation sweeps it too. */

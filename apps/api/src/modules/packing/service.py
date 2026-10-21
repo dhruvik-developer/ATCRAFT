@@ -985,6 +985,33 @@ async def find_carton_by_barcode(
     )
 
 
+async def record_carton_scan(
+    session: AsyncSession, tenant: TenantContext, barcode: str
+) -> CartonScanResult:
+    """Resolve a carton and record the successful scan atomically."""
+    async with transaction(session):
+        result = await find_carton_by_barcode(session, tenant, barcode)
+        await record_audit(
+            session,
+            company_id=tenant.company_id,
+            action=AuditAction.SCAN,
+            entity_type="carton_scan",
+            entity_id=result.carton.id,
+            entity_code=result.carton.barcode,
+            summary=(
+                f"Scanned carton {result.carton.barcode} "
+                f"for packing order {result.packing_order.code}"
+            ),
+            user_id=tenant.user_id,
+            context={
+                "packing_order_id": str(result.packing_order.id),
+                "packing_order_code": result.packing_order.code,
+                "carton_number": result.carton.carton_number,
+            },
+        )
+    return result
+
+
 async def list_packing_materials(
     session: AsyncSession,
     tenant: TenantContext,

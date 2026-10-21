@@ -298,15 +298,13 @@ describe('carton labels', () => {
 describe('carton barcode lookup', () => {
   it('finds a carton and opens the matching packing record', async () => {
     const cartonId = '01a00000-0000-7000-8000-0000000000ca'
-    const recorder = urlRecorder()
     const { user, fetch } = renderScreen(<PackingPage />, {
       permissions: [P.PACKING_VIEW],
       routes: {
         'GET /packing': page([]),
         'GET /assembly/ready-for-packing': page([]),
-        'GET /packing/scan': ({ url }) => {
-          recorder.urls.push(url)
-          return ok({
+        'POST /packing/scan': () =>
+          ok({
             packing_order: order({ status: 'PACKED', total_cartons: 1 }),
             carton: {
               id: cartonId,
@@ -327,8 +325,7 @@ describe('carton barcode lookup', () => {
               sealed_at: '2026-09-04T10:00:00Z',
               contents: [],
             },
-          })
-        },
+          }),
         [`GET /packing/${ORDER_ID}`]: ok(orderDetail('PACKED')),
         [`GET /packing/${ORDER_ID}/cartons`]: page([]),
       },
@@ -339,7 +336,8 @@ describe('carton barcode lookup', () => {
     await user.click(screen.getByRole('button', { name: 'Find carton' }))
 
     expect(await screen.findByText('PK-0001-C001 · Carton 1')).toBeVisible()
-    expect(recorder.paramsAt(0).barcode).toBe('PK-0001-C001')
+    expect(fetch.requestFor('POST', '/packing/scan')).toEqual({ barcode: 'PK-0001-C001' })
+    expect(fetch.calls.some((call) => call.path === '/audit/logs')).toBe(false)
 
     await user.clear(barcodeInput)
     expect(screen.queryByText('PK-0001-C001 · Carton 1')).toBeNull()
@@ -357,7 +355,7 @@ describe('carton barcode lookup', () => {
       routes: {
         'GET /packing': page([]),
         'GET /assembly/ready-for-packing': page([]),
-        'GET /packing/scan': fail(404, 'NOT_FOUND', 'Carton not found'),
+        'POST /packing/scan': fail(404, 'NOT_FOUND', 'Carton not found'),
       },
     })
 
@@ -365,6 +363,41 @@ describe('carton barcode lookup', () => {
     await user.click(screen.getByRole('button', { name: 'Find carton' }))
 
     expect(await screen.findByText('Carton not found')).toBeVisible()
+  })
+
+  it('shows recent scan history only to audit-log viewers', async () => {
+    const { fetch } = renderScreen(<PackingPage />, {
+      permissions: [P.PACKING_VIEW, P.AUDIT_LOG_VIEW],
+      routes: {
+        'GET /packing': page([]),
+        'GET /assembly/ready-for-packing': page([]),
+        'GET /audit/logs': ({ url }) => {
+          expect(url.searchParams.get('action')).toBe('SCAN')
+          expect(url.searchParams.get('entity_type')).toBe('carton_scan')
+          return page([
+            {
+              id: '01a00000-0000-7000-8000-0000000000sc',
+              action: 'SCAN',
+              entity_type: 'carton_scan',
+              entity_id: '01a00000-0000-7000-8000-0000000000ca',
+              entity_code: 'PK-0001-C001',
+              summary: 'Scanned carton PK-0001-C001 for packing order PK-0001',
+              changed_fields: null,
+              request_id: null,
+              actor_label: 'Test User',
+              created_by_id: '01a00000-0000-7000-8000-000000000001',
+              created_at: '2026-09-04T10:00:00Z',
+            },
+          ])
+        },
+      },
+    })
+
+    expect(await screen.findByText('Recent scan history')).toBeVisible()
+    expect(
+      await screen.findByText('Scanned carton PK-0001-C001 for packing order PK-0001'),
+    ).toBeVisible()
+    expect(fetch.calls.some((call) => call.path === '/audit/logs')).toBe(true)
   })
 })
 

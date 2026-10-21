@@ -192,7 +192,10 @@ export interface PackingCompletionResult {
 /** `GET /packing/{id}/cartons/{carton_id}/label` (`CartonLabel`). */
 export type CartonLabel = SchemaOf<'CartonLabel'>
 
-/** `GET /packing/scan?barcode=...` (`CartonScanResult`). */
+/** `POST /packing/scan` (`CartonScanRequest`). */
+export type CartonScanRequest = SchemaOf<'CartonScanRequest'>
+
+/** `GET` or `POST /packing/scan` (`CartonScanResult`). */
 export type CartonScanResult = SchemaOf<'CartonScanResult'>
 
 // ------------------------------------------------------------------ job -----
