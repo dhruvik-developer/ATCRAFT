@@ -51,7 +51,13 @@ from src.modules.allocation.models import DemandType, ReservationStatus, StockRe
 from src.modules.audit.models import AuditLog
 from src.modules.customers.models import Customer, CustomerType
 from src.modules.dispatch import service
-from src.modules.dispatch.models import Dispatch, DispatchLine, DispatchStatus, DispatchType
+from src.modules.dispatch.models import (
+    Dispatch,
+    DispatchLine,
+    DispatchStatus,
+    DispatchTrackingEvent,
+    DispatchType,
+)
 from src.modules.dispatch.repository import CartonLookupRepository
 from src.modules.dispatch.schemas import (
     DeliveryConfirmation,
@@ -462,6 +468,44 @@ async def test_dispatch_draws_down_the_reservation_and_the_shelf_together(ctx: C
     assert after.available_quantity == Decimal("0.0000")
 
     assert result.consumed_reservation_ids == [bench.reservation.id]
+
+
+async def test_gate_details_are_saved_with_dispatch_and_tracking_event(ctx: Ctx) -> None:
+    bench = await seed_bench(ctx)
+    plan = await service.create_dispatch(ctx.session, ctx.tenant, bench.payload("40"))
+    await service.mark_ready(ctx.session, ctx.tenant, plan.id, reason="Loaded")
+
+    result = await service.dispatch_consignment(
+        ctx.session,
+        ctx.tenant,
+        plan.id,
+        DispatchRequest(
+            reason="Vehicle cleared the gate",
+            dispatch_date=TODAY + timedelta(days=1),
+            expected_delivery_date=TODAY + timedelta(days=6),
+            lr_number="LR-204",
+            vehicle_number="MH12AB1234",
+            tracking_id="TRACK-204",
+            location="Pune plant gate",
+        ),
+    )
+
+    assert result.dispatch.dispatch_date == TODAY + timedelta(days=1)
+    assert result.dispatch.expected_delivery_date == TODAY + timedelta(days=6)
+    assert result.dispatch.lr_number == "LR-204"
+    assert result.dispatch.vehicle_number == "MH12AB1234"
+    assert result.dispatch.tracking_id == "TRACK-204"
+    assert result.dispatch.dispatched_at is not None
+    event = (
+        await ctx.session.execute(
+            select(DispatchTrackingEvent).where(
+                DispatchTrackingEvent.company_id == ctx.company_id,
+                DispatchTrackingEvent.dispatch_id == plan.id,
+                DispatchTrackingEvent.event_status == DispatchStatus.DISPATCHED,
+            )
+        )
+    ).scalar_one()
+    assert event.location == "Pune plant gate"
 
 
 async def test_dispatch_writes_one_negative_ledger_row_pointing_at_the_consignment(

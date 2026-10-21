@@ -141,8 +141,33 @@ interface PendingAction {
    * box is asked for up front rather than learned from the rejection.
    */
   delayReasonRequired?: boolean
+  gateDetails?: boolean
   /** The transition's own payload shape - they are not interchangeable. */
-  buildBody: (note: string, delayReason: string) => Record<string, unknown>
+  buildBody: (
+    note: string,
+    delayReason: string,
+    gateDetails: DispatchGateDetails,
+  ) => Record<string, unknown>
+}
+
+interface DispatchGateDetails {
+  dispatchDate: string
+  expectedDeliveryDate: string
+  lrNumber: string
+  vehicleNumber: string
+  trackingId: string
+  location: string
+}
+
+function emptyDispatchGateDetails(): DispatchGateDetails {
+  return {
+    dispatchDate: '',
+    expectedDeliveryDate: '',
+    lrNumber: '',
+    vehicleNumber: '',
+    trackingId: '',
+    location: '',
+  }
 }
 
 /**
@@ -156,11 +181,12 @@ function ActionConfirm({ pending, onDone }: { pending: PendingAction | null; onD
   const queryClient = useQueryClient()
   const [note, setNote] = useState('')
   const [delayReason, setDelayReason] = useState('')
+  const [gateDetails, setGateDetails] = useState<DispatchGateDetails>(emptyDispatchGateDetails)
   const [touched, setTouched] = useState(false)
 
   const run = useMutation({
     mutationFn: (action: PendingAction) =>
-      api.post(action.path, action.buildBody(note.trim(), delayReason.trim())),
+      api.post(action.path, action.buildBody(note.trim(), delayReason.trim(), gateDetails)),
     onSuccess: (_result, action) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.dispatch.all })
       // Dispatching consumes the reservation and posts the stock movement, so
@@ -171,6 +197,7 @@ function ActionConfirm({ pending, onDone }: { pending: PendingAction | null; onD
       toast.success(action.successTitle, action.successBody)
       setNote('')
       setDelayReason('')
+      setGateDetails(emptyDispatchGateDetails())
       setTouched(false)
       onDone()
     },
@@ -190,6 +217,14 @@ function ActionConfirm({ pending, onDone }: { pending: PendingAction | null; onD
   const serverErrors = run.error instanceof ApiError ? run.error.fieldErrors : {}
   const noteServerError = serverErrors.reason?.[0] ?? serverErrors.delivery_note?.[0]
   const delayServerError = serverErrors.delay_reason?.[0]
+  const gateFieldErrors = {
+    dispatchDate: serverErrors.dispatch_date?.[0],
+    expectedDeliveryDate: serverErrors.expected_delivery_date?.[0],
+    lrNumber: serverErrors.lr_number?.[0],
+    vehicleNumber: serverErrors.vehicle_number?.[0],
+    trackingId: serverErrors.tracking_id?.[0],
+    location: serverErrors.location?.[0],
+  }
 
   return (
     <ConfirmDialog
@@ -198,6 +233,7 @@ function ActionConfirm({ pending, onDone }: { pending: PendingAction | null; onD
         if (!next) {
           setNote('')
           setDelayReason('')
+          setGateDetails(emptyDispatchGateDetails())
           setTouched(false)
           run.reset()
           onDone()
@@ -235,6 +271,123 @@ function ActionConfirm({ pending, onDone }: { pending: PendingAction | null; onD
             )}
             <FieldError message={delayServerError} />
           </div>
+        )}
+
+        {pending.gateDetails && (
+          <section className="space-y-3 rounded-md border p-3">
+            <div>
+              <h3 className="text-sm font-medium">Gate details</h3>
+              <p className="text-xs text-muted-foreground">
+                Record what is known when the vehicle leaves. Blank fields keep the planned values
+                unchanged.
+              </p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="dispatch-gate-date">Actual dispatch date</Label>
+                <Input
+                  id="dispatch-gate-date"
+                  type="date"
+                  value={gateDetails.dispatchDate}
+                  onChange={(event) =>
+                    setGateDetails((current) => ({
+                      ...current,
+                      dispatchDate: event.target.value,
+                    }))
+                  }
+                  className="mt-1.5"
+                  aria-invalid={Boolean(gateFieldErrors.dispatchDate)}
+                />
+                <FieldError message={gateFieldErrors.dispatchDate} />
+              </div>
+              <div>
+                <Label htmlFor="dispatch-gate-expected-date">Updated expected delivery</Label>
+                <Input
+                  id="dispatch-gate-expected-date"
+                  type="date"
+                  value={gateDetails.expectedDeliveryDate}
+                  onChange={(event) =>
+                    setGateDetails((current) => ({
+                      ...current,
+                      expectedDeliveryDate: event.target.value,
+                    }))
+                  }
+                  className="mt-1.5"
+                  aria-invalid={Boolean(gateFieldErrors.expectedDeliveryDate)}
+                />
+                <FieldError message={gateFieldErrors.expectedDeliveryDate} />
+              </div>
+              <div>
+                <Label htmlFor="dispatch-gate-lr">LR number</Label>
+                <Input
+                  id="dispatch-gate-lr"
+                  value={gateDetails.lrNumber}
+                  onChange={(event) =>
+                    setGateDetails((current) => ({ ...current, lrNumber: event.target.value }))
+                  }
+                  maxLength={64}
+                  autoComplete="off"
+                  className="mt-1.5"
+                  aria-invalid={Boolean(gateFieldErrors.lrNumber)}
+                />
+                <FieldError message={gateFieldErrors.lrNumber} />
+              </div>
+              <div>
+                <Label htmlFor="dispatch-gate-vehicle">Vehicle number</Label>
+                <Input
+                  id="dispatch-gate-vehicle"
+                  value={gateDetails.vehicleNumber}
+                  onChange={(event) =>
+                    setGateDetails((current) => ({
+                      ...current,
+                      vehicleNumber: event.target.value,
+                    }))
+                  }
+                  maxLength={32}
+                  autoComplete="off"
+                  className="mt-1.5"
+                  aria-invalid={Boolean(gateFieldErrors.vehicleNumber)}
+                />
+                <FieldError message={gateFieldErrors.vehicleNumber} />
+              </div>
+              <div>
+                <Label htmlFor="dispatch-gate-tracking">Tracking id</Label>
+                <Input
+                  id="dispatch-gate-tracking"
+                  value={gateDetails.trackingId}
+                  onChange={(event) =>
+                    setGateDetails((current) => ({
+                      ...current,
+                      trackingId: event.target.value,
+                    }))
+                  }
+                  maxLength={120}
+                  autoComplete="off"
+                  className="mt-1.5"
+                  aria-invalid={Boolean(gateFieldErrors.trackingId)}
+                />
+                <FieldError message={gateFieldErrors.trackingId} />
+              </div>
+              <div>
+                <Label htmlFor="dispatch-gate-location">Gate location</Label>
+                <Input
+                  id="dispatch-gate-location"
+                  value={gateDetails.location}
+                  onChange={(event) =>
+                    setGateDetails((current) => ({
+                      ...current,
+                      location: event.target.value,
+                    }))
+                  }
+                  maxLength={255}
+                  autoComplete="off"
+                  className="mt-1.5"
+                  aria-invalid={Boolean(gateFieldErrors.location)}
+                />
+                <FieldError message={gateFieldErrors.location} />
+              </div>
+            </div>
+          </section>
         )}
 
         <div>
@@ -542,7 +695,20 @@ function DispatchesTab({
                       successBody: `${dispatch.code} has left. Stock has moved out.`,
                       noteLabel: 'Reason',
                       noteRequired: true,
-                      buildBody: (note) => ({ reason: note }),
+                      gateDetails: true,
+                      buildBody: (note, _delayReason, gate) => ({
+                        reason: note,
+                        ...(gate.dispatchDate ? { dispatch_date: gate.dispatchDate } : {}),
+                        ...(gate.expectedDeliveryDate
+                          ? { expected_delivery_date: gate.expectedDeliveryDate }
+                          : {}),
+                        ...(gate.lrNumber.trim() ? { lr_number: gate.lrNumber.trim() } : {}),
+                        ...(gate.vehicleNumber.trim()
+                          ? { vehicle_number: gate.vehicleNumber.trim() }
+                          : {}),
+                        ...(gate.trackingId.trim() ? { tracking_id: gate.trackingId.trim() } : {}),
+                        ...(gate.location.trim() ? { location: gate.location.trim() } : {}),
+                      }),
                     })
                   }
                 >

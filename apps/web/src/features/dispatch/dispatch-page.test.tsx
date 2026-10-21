@@ -25,7 +25,7 @@
  * both what the menu offers and what the resulting request carries.
  */
 
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 
 import { P } from '@/lib/permissions'
@@ -338,6 +338,82 @@ describe('the lifecycle the row offers', () => {
       expect(items).not.toContain('Mark ready')
       // Still cancellable: nothing has left, so nothing has to come back.
       expect(items).toContain('Cancel dispatch')
+    },
+    POPPER,
+  )
+
+  it(
+    'records the actual gate details when a consignment leaves',
+    async () => {
+      const { user, fetch } = await openActions(
+        'READY_FOR_DISPATCH',
+        [P.DISPATCH_VIEW, P.DISPATCH_CREATE],
+        { [`POST /dispatch/${DISPATCH_ID}/dispatch`]: ok(null) },
+      )
+
+      await user.click(screen.getByRole('menuitem', { name: 'Dispatch' }))
+      await screen.findByText('Gate details')
+      await user.type(screen.getByLabelText(/reason/i), 'Vehicle cleared the gate')
+      fireEvent.change(screen.getByLabelText('Actual dispatch date'), {
+        target: { value: '2026-10-24' },
+      })
+      fireEvent.change(screen.getByLabelText('Updated expected delivery'), {
+        target: { value: '2026-10-28' },
+      })
+      await user.type(screen.getByLabelText('LR number'), 'LR-204')
+      await user.type(screen.getByLabelText('Vehicle number'), 'MH12AB1234')
+      await user.type(screen.getByLabelText('Tracking id'), 'TRACK-204')
+      await user.type(screen.getByLabelText('Gate location'), 'Pune plant gate')
+      await user.click(screen.getByRole('button', { name: /^Dispatch$/ }))
+
+      const body = (await waitFor(() =>
+        fetch.requestFor('POST', `/dispatch/${DISPATCH_ID}/dispatch`),
+      )) as Record<string, unknown>
+      expect(body).toEqual({
+        reason: 'Vehicle cleared the gate',
+        dispatch_date: '2026-10-24',
+        expected_delivery_date: '2026-10-28',
+        lr_number: 'LR-204',
+        vehicle_number: 'MH12AB1234',
+        tracking_id: 'TRACK-204',
+        location: 'Pune plant gate',
+      })
+    },
+    POPPER,
+  )
+
+  it(
+    'shows the recorded gate release time on the tracking timeline',
+    async () => {
+      const detail = {
+        ...dispatch({ status: 'DISPATCHED' }),
+        packing_order_id: null,
+        dispatched_at: '2026-10-24T12:30:00Z',
+        transport_name: null,
+        lr_number: 'LR-204',
+        vehicle_number: 'MH12AB1234',
+        driver_name: null,
+        driver_mobile: null,
+        freight_amount: '0',
+        freight_paid_by: null,
+        eway_bill_number: null,
+        invoice_document_id: null,
+        delivery_confirmed_by: null,
+        delivery_note: null,
+        delay_reason: null,
+        delay_notified_at: null,
+        notes: null,
+        version: 1,
+        lines: [],
+      }
+      const { user } = await openActions('DISPATCHED', [P.DISPATCH_VIEW], {
+        [`GET /dispatch/${DISPATCH_ID}`]: ok(detail),
+        [`GET /dispatch/${DISPATCH_ID}/tracking-events`]: ok([]),
+      })
+
+      await user.click(screen.getByRole('menuitem', { name: /tracking timeline/i }))
+      const gateTime = await screen.findByText('Gate time')
+      expect(gateTime.parentElement).toHaveTextContent('2026')
     },
     POPPER,
   )

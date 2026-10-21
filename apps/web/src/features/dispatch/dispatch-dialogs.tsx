@@ -1466,6 +1466,7 @@ export function DispatchTimelineDialog({
                   },
                   { label: 'E-way bill', value: consignment?.eway_bill_number ?? '-' },
                   { label: 'Dispatched', value: formatDate(dispatch.dispatch_date) },
+                  { label: 'Gate time', value: formatDateTime(consignment?.dispatched_at) },
                   { label: 'Expected', value: formatDate(dispatch.expected_delivery_date) },
                   { label: 'Delivered', value: formatDate(dispatch.actual_delivery_date) },
                   {
