@@ -12,6 +12,8 @@
   :root {
     --background: 0 0% 100%;
     --foreground: 222 20% 12%;
+    --print-background: 0 0% 100%;
+    --print-foreground: 222 20% 12%;
 
     --card: 0 0% 100%;
     --card-foreground: 222 20% 12%;
@@ -56,6 +58,8 @@
   .dark {
     --background: 222 24% 9%;
     --foreground: 214 18% 92%;
+    --print-background: 0 0% 100%;
+    --print-foreground: 222 20% 12%;
 
     --card: 222 22% 12%;
     --card-foreground: 214 18% 92%;
@@ -121,6 +125,45 @@
       animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
+    }
+  }
+
+  .packing-carton-label-print {
+    display: none;
+  }
+
+  @media print {
+    @page {
+      size: 100mm 150mm;
+      margin: 0;
+    }
+
+    body * {
+      visibility: hidden !important;
+    }
+
+    .packing-carton-label-print,
+    .packing-carton-label-print * {
+      visibility: visible !important;
+    }
+
+    .packing-carton-label-print {
+      display: block !important;
+      position: fixed !important;
+      inset: 0;
+      width: 100mm;
+      height: 150mm;
+      max-width: none !important;
+      overflow: hidden;
+      border: 0 !important;
+      border-radius: 0 !important;
+      background: hsl(var(--print-background)) !important;
+      color: hsl(var(--print-foreground)) !important;
+      padding: 4mm !important;
+    }
+
+    .packing-carton-label-no-print {
+      display: none !important;
     }
   }
 

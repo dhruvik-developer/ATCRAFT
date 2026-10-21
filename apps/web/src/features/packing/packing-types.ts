@@ -17,7 +17,7 @@
  *   required when the box is opened.
  */
 
-import type { DecimalString } from '@/types/api'
+import type { DecimalString, SchemaOf } from '@/types/api'
 
 // ------------------------------------------------------------ query keys ----
 
@@ -33,6 +33,8 @@ export const packingKeys = {
   list: (params: unknown) => ['packing', 'list', params] as const,
   detail: (id: string) => ['packing', 'detail', id] as const,
   cartons: (id: string) => ['packing', 'cartons', id] as const,
+  cartonLabel: (orderId: string, cartonId: string) =>
+    ['packing', 'cartons', orderId, cartonId, 'label'] as const,
   materials: (warehouseId: string, search = '') =>
     ['packing', 'materials', warehouseId, search] as const,
   packingListJob: (jobId: string) => ['packing', 'packing-list-job', jobId] as const,
@@ -185,6 +187,9 @@ export interface PackingCompletionResult {
   total_net_weight: DecimalString
   short_packed_line_numbers: number[]
 }
+
+/** `GET /packing/{id}/cartons/{carton_id}/label` (`CartonLabel`). */
+export type CartonLabel = SchemaOf<'CartonLabel'>
 
 // ------------------------------------------------------------------ job -----
 

@@ -37,12 +37,13 @@ import {
   PackageCheck,
   PackagePlus,
   Play,
+  Printer,
   Plus,
   Trash2,
   Truck,
   Weight,
 } from 'lucide-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import {
   ConfirmDialog,
@@ -114,6 +115,7 @@ import {
   type Carton,
   type CartonContent,
   type CartonContentIn,
+  type CartonLabel,
   type PackingCompletionResult,
   type PackingMaterialRow,
   type PackingOrderDetail,
@@ -673,6 +675,131 @@ function AddContentsForm({
 
 // ----------------------------------------------------------- carton card ----
 
+function CartonLabelPreview({ label }: { label: CartonLabel }) {
+  const barcodeRef = useRef<SVGSVGElement>(null)
+  const [barcodeError, setBarcodeError] = useState<string | null>(null)
+  const dimensions =
+    label.length_cm && label.width_cm && label.height_cm
+      ? `${label.length_cm} x ${label.width_cm} x ${label.height_cm} cm`
+      : null
+
+  useEffect(() => {
+    if (label.symbology !== 'CODE128') return
+    let active = true
+    void import('jsbarcode')
+      .then(({ default: renderBarcode }) => {
+        if (!active || !barcodeRef.current) return
+        renderBarcode(barcodeRef.current, label.barcode, {
+          format: 'CODE128',
+          displayValue: false,
+          height: 42,
+          margin: 0,
+          width: 1.6,
+        })
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setBarcodeError(
+            error instanceof Error ? error.message : 'The barcode renderer could not be loaded.',
+          )
+        }
+      })
+    return () => {
+      active = false
+    }
+  }, [label.barcode, label.symbology])
+
+  return (
+    <section
+      className="packing-carton-label-print mx-auto max-w-sm rounded-lg border p-4"
+      aria-label="Carton label preview"
+    >
+      <div className="packing-carton-label-no-print mb-3 flex items-center justify-between gap-2">
+        <h4 className="font-medium">Carton label preview</h4>
+        <Button type="button" size="sm" onClick={() => window.print()}>
+          <Printer />
+          Print label
+        </Button>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="text-lg font-bold">{label.customer_name}</p>
+            <p className="text-xs">{label.customer_code}</p>
+          </div>
+          <p className="text-right text-sm font-semibold">
+            {label.packing_order_code}
+            <span className="block">
+              Carton {label.carton_number} of {label.total_cartons}
+            </span>
+          </p>
+        </div>
+
+        <div className="flex justify-center border-y py-2">
+          {label.symbology === 'CODE128' && !barcodeError ? (
+            <div className="text-center">
+              <svg ref={barcodeRef} aria-label="Carton barcode" className="max-w-full" />
+              <p className="font-mono text-xs">{label.barcode}</p>
+            </div>
+          ) : barcodeError ? (
+            <Alert variant="destructive">
+              <AlertDescription>Could not render barcode: {barcodeError}</AlertDescription>
+            </Alert>
+          ) : (
+            <p role="alert" className="text-sm">
+              Barcode symbology {label.symbology} is not supported for browser printing.
+            </p>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
+          <span>Type</span>
+          <span className="text-right font-medium">{humanise(label.carton_type)}</span>
+          <span>Gross weight</span>
+          <span className="text-right font-medium">{formatQuantity(label.gross_weight_kg)} kg</span>
+          <span>Net weight</span>
+          <span className="text-right font-medium">{formatQuantity(label.net_weight_kg)} kg</span>
+          {dimensions && (
+            <>
+              <span>Dimensions</span>
+              <span className="text-right font-medium">{dimensions}</span>
+            </>
+          )}
+          {label.sales_order_code && (
+            <>
+              <span>Sales order</span>
+              <span className="text-right font-medium">{label.sales_order_code}</span>
+            </>
+          )}
+        </div>
+
+        {(label.lines ?? []).length > 0 && (
+          <div className="border-t pt-2">
+            <p className="mb-1 text-xs font-semibold uppercase">Contents</p>
+            <ul className="space-y-1 text-xs">
+              {(label.lines ?? []).map((line, index) => (
+                <li
+                  key={`${line.item_id}-${line.batch_number ?? 'batch'}-${index}`}
+                  className="flex justify-between gap-2"
+                >
+                  <span className="min-w-0">
+                    <span className="font-medium">{line.item_code}</span>
+                    <span className="block truncate">{line.item_name}</span>
+                    {line.batch_number && <span>Batch: {line.batch_number}</span>}
+                    {line.serial_count > 0 && <span>{line.serial_count} serialized units</span>}
+                  </span>
+                  <span className="shrink-0 font-medium">{formatQuantity(line.quantity)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
 function CartonCard({
   order,
   carton,
@@ -689,6 +816,14 @@ function CartonCard({
   const queryClient = useQueryClient()
   const [sealOpen, setSealOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [labelOpen, setLabelOpen] = useState(false)
+
+  const label = useQuery({
+    queryKey: packingKeys.cartonLabel(order.id, carton.id),
+    queryFn: () => api.get<CartonLabel>(`/packing/${order.id}/cartons/${carton.id}/label`),
+    enabled: labelOpen,
+    staleTime: staleTimes.transactional,
+  })
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: packingKeys.all })
@@ -762,22 +897,33 @@ function CartonCard({
           </p>
         </div>
 
-        {canManage && open && orderPackable && (
-          <div className="flex shrink-0 items-center gap-1">
-            <Button variant="outline" size="sm" onClick={() => setSealOpen(true)}>
-              <Lock />
-              Seal carton
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`Remove carton ${carton.carton_number}`}
-              onClick={() => setDeleteOpen(true)}
-            >
-              <Trash2 className="text-destructive" />
-            </Button>
-          </div>
-        )}
+        <div className="flex shrink-0 flex-wrap items-center gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setLabelOpen((current) => !current)}
+            aria-expanded={labelOpen}
+          >
+            <Printer />
+            {labelOpen ? 'Hide label' : 'Print label'}
+          </Button>
+          {canManage && open && orderPackable && (
+            <>
+              <Button variant="outline" size="sm" onClick={() => setSealOpen(true)}>
+                <Lock />
+                Seal carton
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Remove carton ${carton.carton_number}`}
+                onClick={() => setDeleteOpen(true)}
+              >
+                <Trash2 className="text-destructive" />
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="p-3">
@@ -875,6 +1021,24 @@ function CartonCard({
         {canManage && open && orderPackable && (
           <div className="mt-3">
             <AddContentsForm order={order} carton={carton} lines={lines} />
+          </div>
+        )}
+
+        {labelOpen && (
+          <div className="mt-4 border-t pt-4">
+            {label.isLoading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
+                <Skeleton className="h-4 w-4 rounded-full" />
+                Loading carton label...
+              </div>
+            )}
+            {label.error && (
+              <Alert variant="destructive">
+                <AlertTitle>Could not load carton label</AlertTitle>
+                <AlertDescription>{label.error.message}</AlertDescription>
+              </Alert>
+            )}
+            {label.data && <CartonLabelPreview label={label.data} />}
           </div>
         )}
       </div>

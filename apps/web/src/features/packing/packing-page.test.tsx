@@ -194,6 +194,87 @@ describe('the packing list', () => {
   })
 })
 
+describe('carton labels', () => {
+  it('loads the server label payload, renders its barcode and opens the print dialog', async () => {
+    const print = vi.spyOn(window, 'print').mockImplementation(() => undefined)
+    const cartonId = '01a00000-0000-7000-8000-0000000000ca'
+    const { user } = renderScreen(<PackingPage />, {
+      permissions: [P.PACKING_VIEW],
+      routes: {
+        'GET /packing': page([order({ status: 'PACKED', total_cartons: 1 })]),
+        'GET /assembly/ready-for-packing': page([]),
+        [`GET /packing/${ORDER_ID}`]: ok(orderDetail('PACKED')),
+        [`GET /packing/${ORDER_ID}/cartons`]: page([
+          {
+            id: cartonId,
+            packing_order_id: ORDER_ID,
+            carton_number: 1,
+            carton_type: 'BOX',
+            barcode: 'PK-0001-C001',
+            length_cm: null,
+            width_cm: null,
+            height_cm: null,
+            tare_weight_kg: '0.5000',
+            net_weight_kg: '2.0000',
+            gross_weight_kg: '2.5000',
+            packing_material_item_id: '01a00000-0000-7000-8000-0000000000pm',
+            packing_material_quantity: '1.0000',
+            material_transaction_id: null,
+            is_sealed: true,
+            sealed_at: '2026-09-05T10:00:00Z',
+            contents: [],
+          },
+        ]),
+        [`GET /packing/${ORDER_ID}/cartons/${cartonId}/label`]: ok({
+          barcode: 'PK-0001-C001',
+          symbology: 'CODE128',
+          packing_order_id: ORDER_ID,
+          packing_order_code: 'PK-0001',
+          carton_number: 1,
+          total_cartons: 1,
+          carton_type: 'BOX',
+          customer_id: CUSTOMER_ID,
+          customer_code: 'C-001',
+          customer_name: 'Customer One',
+          sales_order_code: null,
+          gross_weight_kg: '2.5000',
+          net_weight_kg: '2.0000',
+          length_cm: null,
+          width_cm: null,
+          height_cm: null,
+          is_sealed: true,
+          sealed_at: '2026-09-05T10:00:00Z',
+          lines: [
+            {
+              item_id: '01a00000-0000-7000-8000-0000000000i1',
+              item_code: 'HANDLE-01',
+              item_name: 'Handle',
+              quantity: '10.0000',
+              batch_number: 'B-104',
+              serial_count: 0,
+            },
+          ],
+        }),
+      },
+    })
+
+    await screen.findByText('PK-0001')
+    await user.click(screen.getByRole('button', { name: /^pack$|^view$/i }))
+    await screen.findByText('Packing PK-0001')
+    await user.click(screen.getByRole('button', { name: 'Print label' }))
+
+    expect(await screen.findByText('Carton label preview')).toBeVisible()
+    expect(screen.getByText('Customer One')).toBeVisible()
+    expect(screen.getByText('HANDLE-01')).toBeVisible()
+    const barcode = await screen.findByLabelText('Carton barcode')
+    await waitFor(() => expect(barcode.querySelector('rect')).not.toBeNull())
+
+    await user.click(screen.getByRole('button', { name: 'Print label' }))
+    expect(print).toHaveBeenCalledTimes(1)
+    print.mockRestore()
+  })
+})
+
 describe('the hand-over gate', () => {
   it('offers the hand-over to a packer who may also raise a dispatch', async () => {
     await openOrder('PACKED', [
