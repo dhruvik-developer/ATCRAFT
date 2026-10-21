@@ -12,7 +12,7 @@
 
 import { type ColumnDef } from '@tanstack/react-table'
 import { useMutation } from '@tanstack/react-query'
-import { Boxes, PackageOpen, ScanBarcode, X } from 'lucide-react'
+import { Boxes, PackageOpen, PackagePlus, ScanBarcode, X } from 'lucide-react'
 import { useMemo, useState, type FormEvent } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 
@@ -37,6 +37,7 @@ import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 
 import { PackingOrderDialog } from './packing-order-dialog'
+import { PackingOrderCreateDialog } from './packing-order-create-dialog'
 import {
   PACKING_STATUSES,
   packingKeys,
@@ -141,6 +142,8 @@ export default function PackingPage() {
   const { can } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const [openOrder, setOpenOrder] = useState<PackingOrderRow | null>(null)
+  const [createStandaloneOpen, setCreateStandaloneOpen] = useState(false)
+  const createFromSalesOrderId = searchParams.get('create_from_sales_order_id')
 
   const status = searchParams.get('status') ?? ''
   const customerId = searchParams.get('customer_id') ?? ''
@@ -309,7 +312,15 @@ export default function PackingPage() {
     <div>
       <PageHeader
         title="Packing"
-        description="Orders being made ready for despatch. Open one to build its cartons and generate the packing list that travels with the consignment."
+        description="Orders being made ready for despatch. Raise standalone or sales-order packing work, then build cartons and generate the packing list."
+        actions={
+          can(P.PACKING_MANAGE) && (
+            <Button onClick={() => setCreateStandaloneOpen(true)}>
+              <PackagePlus />
+              New packing order
+            </Button>
+          )
+        }
       />
 
       <CartonScanPanel onOpenOrder={setOpenOrder} />
@@ -333,7 +344,7 @@ export default function PackingPage() {
         searchPlaceholder="Search packing order code..."
         getRowId={(row) => row.id}
         emptyTitle="No packing orders"
-        emptyDescription="Nothing matches the current filters. Nothing here is created automatically: pack a completed assembly in the panel above."
+        emptyDescription="Nothing matches the current filters. Raise a standalone or sales-order packing order, or pack a completed assembly above."
         toolbar={
           <>
             <Select
@@ -436,6 +447,41 @@ export default function PackingPage() {
           if (!open) setOpenOrder(null)
         }}
       />
+
+      {(createStandaloneOpen || Boolean(createFromSalesOrderId)) && (
+        <PackingOrderCreateDialog
+          key={createFromSalesOrderId ?? 'standalone'}
+          open
+          salesOrderId={createFromSalesOrderId}
+          onOpenChange={(open) => {
+            if (open) return
+            setCreateStandaloneOpen(false)
+            setSearchParams(
+              (current) => {
+                const next = new URLSearchParams(current)
+                next.delete('create_from_sales_order_id')
+                return next
+              },
+              { replace: true },
+            )
+          }}
+          onCreated={(created) => {
+            setCreateStandaloneOpen(false)
+            setSearchParams(
+              (current) => {
+                const next = new URLSearchParams(current)
+                next.delete('create_from_sales_order_id')
+                if (created.sales_order_id) {
+                  next.set('sales_order_id', created.sales_order_id)
+                }
+                next.delete('page')
+                return next
+              },
+              { replace: true },
+            )
+          }}
+        />
+      )}
     </div>
   )
 }

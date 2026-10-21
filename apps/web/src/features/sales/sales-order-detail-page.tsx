@@ -22,6 +22,7 @@ import {
   Ban,
   CheckCircle2,
   ListPlus,
+  PackagePlus,
   PackageCheck,
   Pencil,
   RefreshCw,
@@ -1049,6 +1050,14 @@ export default function SalesOrderDetailPage() {
               <Button onClick={() => setDispatchOpen(true)}>
                 <Truck />
                 Dispatch
+              </Button>
+            )}
+            {isDispatchable(order.status) && can(P.PACKING_MANAGE) && can(P.PACKING_VIEW) && (
+              <Button asChild variant="outline">
+                <Link to={`/packing?create_from_sales_order_id=${order.id}`}>
+                  <PackagePlus />
+                  Create packing order
+                </Link>
               </Button>
             )}
             {draft && can(P.SALES_ORDER_UPDATE) && (

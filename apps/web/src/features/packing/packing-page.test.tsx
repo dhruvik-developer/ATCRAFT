@@ -113,6 +113,26 @@ async function openOrder(
 }
 
 describe('the packing list', () => {
+  it('offers standalone packing-order creation to packing managers', async () => {
+    const { user } = renderScreen(<PackingPage />, {
+      permissions: [
+        P.PACKING_VIEW,
+        P.PACKING_MANAGE,
+        P.ITEM_VIEW,
+        P.CUSTOMER_VIEW,
+        P.WAREHOUSE_VIEW,
+      ],
+      routes: {
+        'GET /packing': page([]),
+        'GET /assembly/ready-for-packing': page([]),
+        'GET /warehouses': page([]),
+      },
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'New packing order' }))
+    expect(await screen.findByRole('dialog')).toBeVisible()
+  })
+
   it('says whether the button will pack or only show', async () => {
     // The same row action does two different things, so it must not claim it
     // will pack for somebody whose account can only read the order.
