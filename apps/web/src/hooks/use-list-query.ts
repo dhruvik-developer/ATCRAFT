@@ -16,7 +16,7 @@ import { useSearchParams } from 'react-router-dom'
 
 import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
-import type { ListParams, PaginatedEnvelope } from '@/types/api'
+import type { ListParams } from '@/types/api'
 
 export interface UseListQueryOptions {
   /** API path, e.g. `/inventory/balances`. */
@@ -32,6 +32,8 @@ export interface UseListQueryOptions {
   defaultSortDir?: 'asc' | 'desc'
   /** Ask the API to skip the exact COUNT on very large tables. */
   withTotal?: boolean
+  /** Report endpoints may escalate from inline rows to an HTTP 202 background job. */
+  allowAccepted?: boolean
   enabled?: boolean
   staleTime?: number
   refetchInterval?: number | false
@@ -52,6 +54,7 @@ export function useListQuery<T>({
   defaultSortBy,
   defaultSortDir = 'asc',
   withTotal = true,
+  allowAccepted = false,
   enabled = true,
   staleTime,
   refetchInterval = false,
@@ -83,7 +86,8 @@ export function useListQuery<T>({
 
   const query = useQuery({
     queryKey: queryKey(params),
-    queryFn: () => api.getPage<T>(path, { params }),
+    queryFn: () =>
+      allowAccepted ? api.getPageOrAccepted<T>(path, { params }) : api.getPage<T>(path, { params }),
     // Keeps the previous page visible while the next one loads, so the table
     // does not collapse to a skeleton on every page click.
     placeholderData: keepPreviousData,
@@ -118,9 +122,12 @@ export function useListQuery<T>({
     [prefix, setSearchParams],
   )
 
+  const pageEnvelope = query.data && 'pagination' in query.data ? query.data : undefined
+
   return {
-    data: (query.data as PaginatedEnvelope<T> | undefined)?.data ?? [],
-    pagination: (query.data as PaginatedEnvelope<T> | undefined)?.pagination,
+    data: pageEnvelope?.data ?? [],
+    pagination: pageEnvelope?.pagination,
+    acceptedJob: query.data && !('pagination' in query.data) ? query.data.data : undefined,
     isLoading: query.isLoading,
     isFetching: query.isFetching,
     error: query.error as Error | null,

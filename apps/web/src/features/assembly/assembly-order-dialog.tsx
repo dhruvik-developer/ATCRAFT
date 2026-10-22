@@ -63,7 +63,7 @@ import {
 } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { humanise, toDateInput } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -81,13 +81,15 @@ const DEFAULT_BOM = '__default__'
 
 const schema = z
   .object({
-    item_id: z.string().min(1, 'Choose the item to assemble'),
+    item_id: z.string().min(1, validation.choose('the item to assemble')),
     bom_id: z.string(),
     planned_quantity: z
       .string()
       .trim()
       .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places'),
-    warehouse_id: z.string().min(1, 'Choose the warehouse the components are drawn from'),
+    warehouse_id: z
+      .string()
+      .min(1, validation.choose('the warehouse the components are drawn from')),
     output_warehouse_id: z.string(),
     assembly_line: z.string().trim().max(64, 'At most 64 characters'),
     planned_start: z.string(),

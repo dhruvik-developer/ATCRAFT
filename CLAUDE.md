@@ -180,6 +180,36 @@ Each of these cost real debugging time. They are fixed; do not reintroduce them.
   reintroduces a critical defect;
   `test_the_batch_and_serial_rules_disagree_on_purpose` exists to fail loudly
   when they do.
+- **A transfer moves a unit on both legs, and both legs are traceable now.** The
+  dispatch writes one `TRANSFER_OUT` per named unit, sets its serial
+  `IN_TRANSIT` and creates the destination in-transit balance in the same
+  transaction; receipt writes one `TRANSFER_IN` and sets `IN_STOCK` at the
+  destination. Do not "simplify" either leg into a quantity-only movement, and do
+  not defer the destination balance until receipt: the auto-consume check would
+  see the lot at zero in between and close it while it is still on a lorry. A
+  transfer line's `serial_numbers` are the labels an operator typed; the service
+  resolves them to ids in one query (`_adopt_named_serials`) and refuses an
+  unknown label rather than minting one. `serial_ids` is still the direct API
+  form, and both are validated against quantity and duplicates.
+- **A lot has a lifecycle, not just a label.** `ACTIVE -> QUARANTINED -> ACTIVE`
+  and `ACTIVE | QUARANTINED -> EXPIRED` are audited transitions; any status
+  becomes `CONSUMED` automatically only when that lot's stock across on-hand,
+  in-transit, job-work and scrap is zero. Quarantine moves *available* stock to
+  `QC_HOLD`; reactivating changes the status only, because releasing held stock is
+  a quality decision. Expired and quarantined lots must stay transferable,
+  returnable, adjustable and disposable — `BATCH_ISSUE_BLOCKED` names only the
+  consuming movements. Adding a new transaction type to both the issue gate and
+  the "can still get rid of it" set without thinking will trap stock.
+- **FEFO never splits a line.** When an outbound movement names no lot, the
+  engine picks the earliest-expiring `ACTIVE`, unexpired lot at the exact
+  position whose available quantity covers the whole line; otherwise the line
+  falls through to the ordinary shortfall. `MATERIAL_ISSUE`, `DISPATCH`,
+  `ASSEMBLY_CONSUME`, `JOB_WORK_ISSUE` and `TRANSFER_OUT` are the five types that
+  select. A caller needing two lots keys two lines, because one ledger row has
+  one `batch_id` and the document must say what it consumed. A stock transfer
+  document still requires its lot at create because both legs must key the same
+  grain; the `TRANSFER_OUT` fallback is for a direct movement with no document
+  lot to replay.
 - **Do not read a value while the loop that computes it is still mutating it.**
   MRP split a parent's supply at `bucket.earliest_date` inside the same loop
   that was still calling `note_date()` on that bucket, so an item both directly

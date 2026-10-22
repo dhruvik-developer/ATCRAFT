@@ -66,7 +66,7 @@ import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatMoney, formatQuantity, humanise, toDateInput, toDecimal } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -136,7 +136,7 @@ const today = (): string => toDateInput(new Date())
 
 const lineSchema = z
   .object({
-    item_id: z.string().min(1, 'Choose the material going out'),
+    item_id: z.string().min(1, validation.choose('the material going out')),
     is_batch_tracked: z.boolean(),
     batch_id: z.string(),
     quantity_to_issue: z
@@ -168,11 +168,11 @@ const lineSchema = z
   })
 
 const schema = z.object({
-  vendor_id: z.string().min(1, 'Choose the vendor who will do the work'),
+  vendor_id: z.string().min(1, validation.choose('the vendor who will do the work')),
   process_type: z.enum(JOB_WORK_PROCESSES),
   process_description: z.string().trim().max(2000, 'At most 2000 characters'),
   expected_return_date: z.string().min(1, 'Say when the material is due back'),
-  warehouse_id: z.string().min(1, 'Choose the store the material leaves'),
+  warehouse_id: z.string().min(1, validation.choose('the store the material leaves')),
   /** Blank means "the store it left", resolved explicitly before posting. */
   return_warehouse_id: z.string(),
   /** Blank means unallocated: the charges belong to no cost centre. */

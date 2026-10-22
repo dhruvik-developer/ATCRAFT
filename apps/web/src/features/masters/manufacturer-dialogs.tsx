@@ -34,7 +34,7 @@ import { Checkbox, Input, Label, Textarea } from '@/components/ui/primitives'
 import { manufacturerOptionKeys } from '@/hooks/use-manufacturer-options'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 import { asText } from '@/lib/utils'
 
@@ -45,10 +45,14 @@ import { RetireWithReasonDialog } from './masters-shared'
 const DEFAULT_COUNTRY = 'India'
 
 const manufacturerSchema = z.object({
-  code: z.string().trim().min(1, 'A code is required.').max(32, 'At most 32 characters.'),
-  name: z.string().trim().min(1, 'A name is required.').max(255, 'At most 255 characters.'),
+  code: z.string().trim().min(1, validation.required('Code')).max(32, 'At most 32 characters.'),
+  name: z.string().trim().min(1, validation.required('Name')).max(255, 'At most 255 characters.'),
   legal_name: z.string().trim().max(255, 'At most 255 characters.'),
-  country: z.string().trim().min(1, 'A country is required.').max(80, 'At most 80 characters.'),
+  country: z
+    .string()
+    .trim()
+    .min(1, validation.required('Country'))
+    .max(80, 'At most 80 characters.'),
   website: z.string().trim().max(255, 'At most 255 characters.'),
   notes: z.string(),
   is_active: z.boolean(),

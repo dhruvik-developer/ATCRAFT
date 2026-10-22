@@ -33,7 +33,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Path, Query
 
 from src.core.deps import CurrentUser, DbSession, Tenant, require_any_permission, require_permission
-from src.core.pagination import CursorParams, PageParams, cursor_params, page_params
+from src.core.messages import success_message
+from src.core.pagination import (
+    CursorParams,
+    PageParams,
+    bind_query_filters,
+    cursor_params,
+    page_params,
+)
 from src.core.permissions import Permission
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
@@ -86,7 +93,8 @@ def audit_log_filters(
         datetime | None, Query(description="End of the window (UTC). Defaults to now.")
     ] = None,
 ) -> AuditLogFilters:
-    return AuditLogFilters(
+    return bind_query_filters(
+        AuditLogFilters,
         entity_type=entity_type,
         entity_id=entity_id,
         action=action,
@@ -102,7 +110,7 @@ def approval_filters(
         str | None, Query(description="Only requests against this record type")
     ] = None,
 ) -> ApprovalFilters:
-    return ApprovalFilters(entity_type=entity_type)
+    return bind_query_filters(ApprovalFilters, entity_type=entity_type)
 
 
 LogFilterDep = Annotated[AuditLogFilters, Depends(audit_log_filters)]
@@ -241,7 +249,7 @@ async def approve_request(
     principal: CurrentUser,
 ) -> ApiResponse[ApprovalRequestRead]:
     decided = await ApprovalService(session, tenant, principal).approve(approval_id, payload)
-    return ApiResponse[ApprovalRequestRead].ok(decided, "Approval recorded")
+    return ApiResponse[ApprovalRequestRead].ok(decided, success_message("Approval", "recorded"))
 
 
 @router.post(
@@ -262,7 +270,7 @@ async def reject_request(
     principal: CurrentUser,
 ) -> ApiResponse[ApprovalRequestRead]:
     decided = await ApprovalService(session, tenant, principal).reject(approval_id, payload)
-    return ApiResponse[ApprovalRequestRead].ok(decided, "Rejection recorded")
+    return ApiResponse[ApprovalRequestRead].ok(decided, success_message("Rejection", "recorded"))
 
 
 __all__ = ["router"]

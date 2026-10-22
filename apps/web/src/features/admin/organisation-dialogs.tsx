@@ -42,7 +42,7 @@ import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { humanise, toDateInput } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 import { asId, asText } from '@/lib/utils'
 
@@ -72,19 +72,20 @@ const CODE_MESSAGE =
 const codeField = z
   .string()
   .trim()
-  .min(1, 'Code is required')
+  .min(1, validation.required('Code'))
   .max(32, 'At most 32 characters')
   .regex(CODE_PATTERN, CODE_MESSAGE)
 
-const nameField = z.string().trim().min(1, 'Name is required').max(255, 'At most 255 characters')
+const nameField = z
+  .string()
+  .trim()
+  .min(1, validation.required('Name'))
+  .max(255, 'At most 255 characters')
 
 const optionalEmail = z
   .string()
   .trim()
-  .refine(
-    (value) => value === '' || z.string().email().safeParse(value).success,
-    'Enter a valid email address',
-  )
+  .refine((value) => value === '' || z.string().email().safeParse(value).success, validation.email)
 
 // ---------------------------------------------------------------- branch ----
 
@@ -1186,9 +1187,9 @@ export function CostCentreFormDialog({
 
 const financialYearSchema = z
   .object({
-    code: z.string().trim().min(1, 'Code is required').max(16, 'At most 16 characters'),
-    start_date: z.string().min(1, 'Start date is required'),
-    end_date: z.string().min(1, 'End date is required'),
+    code: z.string().trim().min(1, validation.required('Code')).max(16, 'At most 16 characters'),
+    start_date: z.string().min(1, validation.required('Start date')),
+    end_date: z.string().min(1, validation.required('End date')),
     is_active: z.boolean(),
     notes: z.string().trim(),
   })

@@ -390,8 +390,8 @@ export function RegisterSerialsDialog({ onClose }: { onClose: () => void }) {
         <DialogHeader>
           <DialogTitle>Register serial numbers</DialogTitle>
           <DialogDescription>
-            Print labels ahead of the goods, or adopt a pasted run from a supplier. A later receipt
-            ties each unit to its line and lot; registering here does not move stock.
+            Register labels ahead of the goods, or adopt a pasted run from a supplier. A later
+            receipt ties each unit to its line and lot; registering here does not move stock.
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">

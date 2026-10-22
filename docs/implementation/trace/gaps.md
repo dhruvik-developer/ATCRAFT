@@ -1,3 +1,17 @@
+> **Post-audit update - 22 October 2026 (E8b).** The entries below are the
+> pre-E8b audit text and are left as written. P03.F3, P03.F4, P03.F6, P08.M11
+> and P09.M6 are now PRESENT. `/inventory/tracking` registers lots and units,
+> runs the lot lifecycle and traces a serial; receipts, production
+> bookings/completion, assembly completion, transfers and adjustments capture
+> batch and/or unit identity, with transfer and adjustment labels resolved
+> server-side. FEFO selects one covering lot for an unnamed issue, and the
+> expiry sweep emits one `STOCK_EXPIRY` digest per company per day. Remaining
+> boundaries: no printed barcode/PDF label output and no pattern-generated
+> label runs; bin moves, internal issues and job work cannot name serial units,
+> so those paths refuse serial-tracked stock; scrap disposal is quantity-only.
+> See `docs/implementation/specs/E8b-batch-serial-tracking.md` and
+> `docs/implementation/trace/notes.md`.
+>
 > **Post-audit update - 19 October 2026 (E3a).** P05.P2-P4 and P06.F2/F6/F7/F8
 > are closed: MRP now discovers low-level codes in batched per-level reads,
 > nets every item exactly once at its deepest level (free stock, then dated

@@ -15,7 +15,7 @@ import { QueryCache, QueryClient, MutationCache } from '@tanstack/react-query'
 
 import { ApiError, clearTokens } from './api-client'
 import { partitionFieldErrors } from './form-errors'
-import { errorDescription, errorTitle, errors } from './messages'
+import { errorDescription, errorTitle, errors, joinValidationMessages } from './messages'
 import { toast } from './toast'
 
 /** How long a domain's data may be served from cache before it is refetched. */
@@ -100,7 +100,7 @@ export const queryClient = new QueryClient({
         // said here. `applyFieldErrors` puts the same text on `root` for the
         // forms that do.
         if (orphans.length > 0) {
-          toast.error(errors.checkTheForm, orphans.join('. '))
+          toast.error(errors.checkTheForm, joinValidationMessages(orphans))
           return
         }
         // Field errors are rendered inline on the form; a toast on top would

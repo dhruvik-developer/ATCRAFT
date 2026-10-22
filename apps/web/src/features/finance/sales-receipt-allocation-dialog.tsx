@@ -20,6 +20,7 @@ import { api } from '@/lib/api-client'
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants'
 import { formatDate, formatMoney, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
+import { success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 import { MAX_ALLOCATIONS, paymentKeys, type PaymentDetail } from './payment-model'
 import { salesInvoiceKeys, type SalesInvoiceSummary } from './sales-invoice-types'
@@ -108,7 +109,7 @@ export function SalesReceiptAllocationDialog({
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: paymentKeys.all })
       void queryClient.invalidateQueries({ queryKey: ['finance'] })
-      toast.success('Receipt allocation saved')
+      toast.success(success.saved('Receipt allocation'))
       onClose()
     },
   })

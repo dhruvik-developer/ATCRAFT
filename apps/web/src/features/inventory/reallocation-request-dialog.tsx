@@ -21,6 +21,8 @@
  * Nothing moves either way until an approver acts on the PENDING request.
  */
 
+import { joinValidationMessages } from '@/lib/messages'
+
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
@@ -342,7 +344,7 @@ export function ReallocationRequestDialog({
                             </p>
                             {candidate.reasons.length > 0 && (
                               <p className="mt-1 text-xs text-muted-foreground">
-                                {candidate.reasons.join('. ')}
+                                {joinValidationMessages(candidate.reasons)}
                               </p>
                             )}
                             {route && (

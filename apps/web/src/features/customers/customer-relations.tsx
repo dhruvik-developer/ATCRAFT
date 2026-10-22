@@ -38,7 +38,7 @@ import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
-import { messages, success } from '@/lib/messages'
+import { messages, success, validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { GSTIN_PATTERN, PINCODE_PATTERN, STATE_CODE_PATTERN } from '@/lib/statutory'
 import { toast } from '@/lib/toast'
@@ -156,11 +156,11 @@ const addressSchema = z.object({
   address_line1: z
     .string()
     .trim()
-    .min(1, 'Address line 1 is required')
+    .min(1, validation.required('Address line 1'))
     .max(255, 'At most 255 characters'),
   address_line2: z.string().trim().max(255, 'At most 255 characters'),
   landmark: z.string().trim().max(255, 'At most 255 characters'),
-  city: z.string().trim().min(1, 'City is required').max(64, 'At most 64 characters'),
+  city: z.string().trim().min(1, validation.required('City')).max(64, 'At most 64 characters'),
   state: z.string().trim().max(64, 'At most 64 characters'),
   state_code: z
     .string()
@@ -170,7 +170,11 @@ const addressSchema = z.object({
     .string()
     .trim()
     .refine((v) => v === '' || PINCODE_PATTERN.test(v), 'Six digits, not starting with 0'),
-  country: z.string().trim().min(1, 'Country is required').max(64, 'At most 64 characters'),
+  country: z
+    .string()
+    .trim()
+    .min(1, validation.required('Country'))
+    .max(64, 'At most 64 characters'),
   gstin: z
     .string()
     .trim()
@@ -183,10 +187,7 @@ const addressSchema = z.object({
   email: z
     .string()
     .trim()
-    .refine(
-      (v) => v === '' || z.string().email().safeParse(v).success,
-      'Not a valid email address',
-    ),
+    .refine((v) => v === '' || z.string().email().safeParse(v).success, validation.email),
   is_default: z.boolean(),
 })
 
@@ -330,7 +331,7 @@ export function AddressesPanel({ customerId, canEdit }: { customerId: string; ca
       api.delete(`/customers/${customerId}/addresses/${address.id}`, { params: { reason } }),
     onSuccess: (_result, { address }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })
-      toast.success('Address removed', address.label ?? address.address_line1)
+      toast.success(success.removed('Address'), address.label ?? address.address_line1)
       setPendingDelete(null)
     },
     // The reason travels as a query parameter, so its 422 has no form control.
@@ -700,15 +701,12 @@ export function AddressesPanel({ customerId, canEdit }: { customerId: string; ca
 // ------------------------------------------------------------- contacts -----
 
 const contactSchema = z.object({
-  name: z.string().trim().min(1, 'Name is required').max(128, 'At most 128 characters'),
+  name: z.string().trim().min(1, validation.required('Name')).max(128, 'At most 128 characters'),
   designation: z.string().trim().max(64, 'At most 64 characters'),
   email: z
     .string()
     .trim()
-    .refine(
-      (v) => v === '' || z.string().email().safeParse(v).success,
-      'Not a valid email address',
-    ),
+    .refine((v) => v === '' || z.string().email().safeParse(v).success, validation.email),
   phone: z.string().trim().max(32, 'At most 32 characters'),
   is_primary: z.boolean(),
 })
@@ -803,7 +801,7 @@ export function ContactsPanel({ customerId, canEdit }: { customerId: string; can
       api.delete(`/customers/${customerId}/contacts/${contact.id}`, { params: { reason } }),
     onSuccess: (_result, { contact }) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.customers.all })
-      toast.success('Contact removed', contact.name)
+      toast.success(success.removed('Contact'), contact.name)
       setPendingDelete(null)
     },
     onError: (error) => reportFieldErrors(error, 'Could not remove this contact'),

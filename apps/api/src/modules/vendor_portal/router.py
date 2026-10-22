@@ -17,7 +17,8 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from src.core.deps import CurrentUser, DbSession, Tenant, require_permission, require_vendor_user
-from src.core.pagination import PageParams, page_params
+from src.core.messages import success_message
+from src.core.pagination import PageParams, bind_query_filters, page_params
 from src.core.permissions import Permission
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
@@ -117,7 +118,9 @@ async def list_orders(
     rows, page = await inbound_service.tracking_board(
         session,
         tenant,
-        InboundTrackingFilters(tab=tab, search=search, assigned_to_me=assigned_to_me),
+        bind_query_filters(
+            InboundTrackingFilters, tab=tab, search=search, assigned_to_me=assigned_to_me
+        ),
         params,
     )
     return PaginatedResponse(data=rows, pagination=page)
@@ -187,7 +190,7 @@ async def change_delivery_date(
 ) -> ApiResponse[VendorPortalOrderActionRead]:
     order = await VendorPortalService(session, tenant).change_date(order_id, payload)
     return ApiResponse[VendorPortalOrderActionRead].ok(
-        order, f"Committed delivery date of {order.code} updated"
+        order, success_message(f"Committed delivery date of {order.code}", "updated")
     )
 
 
@@ -232,7 +235,7 @@ async def record_shipment(
 ) -> ApiResponse[InboundShipmentRead]:
     shipment = await inbound_service.record_inbound_shipment(session, tenant, order_id, payload)
     return ApiResponse[InboundShipmentRead].ok(
-        shipment, f"Shipment {shipment.shipment_number} recorded"
+        shipment, success_message(f"Shipment {shipment.shipment_number}", "recorded")
     )
 
 
@@ -297,7 +300,9 @@ async def upload_document(
     document = await upload_vendor_document(
         session, tenant, principal, order_id, file, kind, shipment_id
     )
-    return ApiResponse[InboundDocumentRead].ok(document, f"{document.file_name} uploaded")
+    return ApiResponse[InboundDocumentRead].ok(
+        document, success_message(f"{document.file_name}", "uploaded")
+    )
 
 
 @router.get(
@@ -316,6 +321,14 @@ async def list_documents(
 @router.get(
     "/documents/{document_id}/download",
     response_class=StreamingResponse,
+    responses={
+        200: {
+            "content": {
+                "application/octet-stream": {"schema": {"type": "string", "format": "binary"}}
+            },
+            "description": "File content; the Content-Type header identifies its actual media type",
+        }
+    },
     summary="Download a file shared on one of the vendor's orders",
     dependencies=[require_permission(Permission.VENDOR_PORTAL_ACCESS)],
 )
@@ -390,7 +403,7 @@ async def create_invoice(
 ) -> ApiResponse[VendorPortalInvoiceDetail]:
     invoice = await VendorPortalService(session, tenant).create_invoice(payload)
     return ApiResponse[VendorPortalInvoiceDetail].ok(
-        invoice, f"Invoice {invoice.vendor_invoice_number} submitted"
+        invoice, success_message(f"Invoice {invoice.vendor_invoice_number}", "submitted")
     )
 
 

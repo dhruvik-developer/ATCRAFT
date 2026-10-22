@@ -445,7 +445,10 @@ export function InspectionDialog({
     onSuccess: ({ index, document }) => {
       setValue(`parameters.${index}.document_id`, document.id, { shouldDirty: true })
       setValue(`parameters.${index}.document_name`, document.file_name, { shouldDirty: true })
-      toast.success('Photo attached', `${document.file_name} is attached to this parameter.`)
+      toast.success(
+        success.attached('Photo'),
+        `${document.file_name} is attached to this parameter.`,
+      )
     },
     onSettled: () => setUploadingIndex(null),
   })

@@ -217,7 +217,7 @@ describe('the grid', () => {
 
     // The server's own wording, not "request failed": it is the only thing that
     // tells the user whether waiting will help.
-    expect(await screen.findByText('The database is failing over')).toBeVisible()
+    expect(await screen.findByText('The database is failing over', { exact: false })).toBeVisible()
     expect(screen.getByRole('button', { name: /try again/i })).toBeVisible()
   })
 })
@@ -432,7 +432,7 @@ describe('the create dialog', () => {
     await user.type(within(dialog).getByRole('textbox', { name: 'Name' }), 'Brass rod 14mm')
     await user.click(within(dialog).getByRole('button', { name: /create item/i }))
 
-    expect(await within(dialog).findByText('Base unit is required')).toBeVisible()
+    expect(await within(dialog).findByText('Base unit is required.')).toBeVisible()
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
   })
 

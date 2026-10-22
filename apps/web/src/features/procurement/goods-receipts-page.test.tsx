@@ -429,7 +429,7 @@ describe('the register itself', () => {
     })
 
     await stable(() => screen.getByText('Could not load this list'))
-    expect(screen.getByText('The receipt register is unavailable')).toBeVisible()
+    expect(screen.getByText('The receipt register is unavailable', { exact: false })).toBeVisible()
   })
 
   it('hides the vendor filter from an account that cannot search vendors', async () => {

@@ -29,7 +29,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Select, func, or_, select, text
+from sqlalchemy import Select, func, or_, select, text, tuple_
 from sqlalchemy.orm import InstrumentedAttribute, selectinload
 
 from src.common.repository import BaseRepository
@@ -1556,6 +1556,26 @@ class StockSerialRepository(BaseRepository[StockSerial]):
         )
         return {
             row.serial_number: row for row in (await self.session.execute(stmt)).scalars().all()
+        }
+
+    async def by_number_pairs(
+        self, pairs: Sequence[tuple[uuid.UUID, str]]
+    ) -> dict[tuple[uuid.UUID, str], StockSerial]:
+        """Resolve (item, label) pairs from one document in a single query.
+
+        A transfer or adjustment names labels, not database ids, so the service
+        needs to look up every unit on the document once. Doing that per line
+        would put a round trip inside a loop on the hottest write path.
+        """
+        wanted = list(dict.fromkeys(pairs))
+        if not wanted:
+            return {}
+        stmt = self._scoped().where(
+            tuple_(StockSerial.item_id, StockSerial.serial_number).in_(wanted)
+        )
+        return {
+            (row.item_id, row.serial_number): row
+            for row in (await self.session.execute(stmt)).scalars().all()
         }
 
     async def in_stock_for_batch(self, batch_id: uuid.UUID) -> list[StockSerial]:

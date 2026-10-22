@@ -340,7 +340,7 @@ function OrdersPanel({ newOrderButton }: { newOrderButton: ReactNode }) {
       // A draft holds no reservation and has moved no stock, so only the
       // job-work caches are stale.
       void queryClient.invalidateQueries({ queryKey: jobWorkKeys.all })
-      toast.success(success.deleted('Draft'), `${order.code} is gone.`)
+      toast.success(success.deleted('Draft'), `${order.code} was deleted.`)
       setDeleteFor(null)
       clearReason()
     },

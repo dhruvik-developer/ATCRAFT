@@ -71,7 +71,7 @@ import {
 } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, toDateInput, toDecimal } from '@/lib/format'
-import { messages, success } from '@/lib/messages'
+import { messages, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -267,9 +267,9 @@ export function RfqCommandDialog({
  */
 const schema = z
   .object({
-    warehouse_id: z.string().min(1, 'Choose the warehouse this material is for'),
+    warehouse_id: z.string().min(1, validation.choose('the warehouse this material is for')),
     requisition_id: z.string(),
-    rfq_date: z.string().min(1, 'The RFQ date is required'),
+    rfq_date: z.string().min(1, validation.required('RFQ date')),
     response_due_date: z.string(),
     required_date: z.string(),
     currency: z.string().trim().toUpperCase().regex(CURRENCY, 'Three capital letters, such as INR'),
@@ -280,12 +280,12 @@ const schema = z
     notes: z.string().trim().max(4000, 'At most 4000 characters'),
     lines: z.array(
       z.object({
-        item_id: z.string().min(1, 'Choose an item'),
+        item_id: z.string().min(1, validation.choose('an item')),
         quantity: z
           .string()
           .trim()
           .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places')
-          .refine((v) => toDecimal(v).greaterThan(0), 'Quantity must be greater than zero'),
+          .refine((v) => toDecimal(v).greaterThan(0), validation.positive('Quantity')),
         required_date: z.string(),
         specification: z.string().trim().max(4000, 'At most 4000 characters'),
         // Carried through an edit rather than edited. See the module comment.

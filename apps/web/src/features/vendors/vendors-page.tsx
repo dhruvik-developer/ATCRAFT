@@ -231,7 +231,7 @@ function VendorRatingDialog({
 
       if (result.applied) {
         toast.success(
-          'Vendor rating recorded',
+          success.recorded('Vendor rating'),
           `${toDecimal(result.rating).toDecimalPlaces(2).toFixed(2)} out of ${MAX_VENDOR_RATING} from ${result.receipt_count} receipt${result.receipt_count === 1 ? '' : 's'}`,
         )
         return

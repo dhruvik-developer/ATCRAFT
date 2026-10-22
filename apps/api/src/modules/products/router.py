@@ -10,6 +10,7 @@ Two conventions are worth noting:
   ``ItemDetail`` or ``ItemDetailWithCost`` depending on the caller's
   ``item.cost_view`` permission, and a fixed ``response_model`` would re-widen
   the payload to the union - reintroducing the very field the service withheld.
+  The ``responses`` map documents both payloads without changing serialisation.
 * The item search is exposed twice: offset paging for the browsable grid, keyset
   paging for exports and infinite scroll, which must stay cheap at page 900
   (section 31).
@@ -31,6 +32,7 @@ from src.core.deps import (
     require_any_permission,
     require_permission,
 )
+from src.core.messages import success_message
 from src.core.pagination import (
     CursorParams,
     PageParams,
@@ -63,6 +65,8 @@ from src.modules.products.schemas import (
     ItemAttributeOut,
     ItemAttributeUpdate,
     ItemCreate,
+    ItemDetail,
+    ItemDetailWithCost,
     ItemFilters,
     ItemStatusChange,
     ItemSummary,
@@ -161,7 +165,7 @@ async def create_category(
     session: DbSession, tenant: Tenant, payload: CategoryCreate
 ) -> ApiResponse[CategoryOut]:
     category = await service.create_category(session, tenant, payload)
-    return ApiResponse.ok(category, "Category created")
+    return ApiResponse.ok(category, success_message("Category", "created"))
 
 
 @router.patch(
@@ -174,7 +178,7 @@ async def update_category(
     session: DbSession, tenant: Tenant, category_id: uuid.UUID, payload: CategoryUpdate
 ) -> ApiResponse[CategoryOut]:
     category = await service.update_category(session, tenant, category_id, payload)
-    return ApiResponse.ok(category, "Category updated")
+    return ApiResponse.ok(category, success_message("Category", "updated"))
 
 
 @router.delete(
@@ -187,7 +191,7 @@ async def delete_category(
     session: DbSession, tenant: Tenant, category_id: uuid.UUID
 ) -> ApiResponse[None]:
     await service.delete_category(session, tenant, category_id)
-    return ApiResponse.ok(None, "Category retired")
+    return ApiResponse.ok(None, success_message("Category", "retired"))
 
 
 # -----------------------------------------------------------------------------
@@ -226,7 +230,7 @@ async def create_item_attribute(
     session: DbSession, tenant: Tenant, payload: ItemAttributeCreate
 ) -> ApiResponse[ItemAttributeOut]:
     attribute = await service.create_item_attribute(session, tenant, payload)
-    return ApiResponse.ok(attribute, "Attribute created")
+    return ApiResponse.ok(attribute, success_message("Attribute", "created"))
 
 
 @router.patch(
@@ -239,7 +243,7 @@ async def update_item_attribute(
     session: DbSession, tenant: Tenant, attribute_id: uuid.UUID, payload: ItemAttributeUpdate
 ) -> ApiResponse[ItemAttributeOut]:
     attribute = await service.update_item_attribute(session, tenant, attribute_id, payload)
-    return ApiResponse.ok(attribute, "Attribute updated")
+    return ApiResponse.ok(attribute, success_message("Attribute", "updated"))
 
 
 # -----------------------------------------------------------------------------
@@ -286,7 +290,9 @@ async def list_brands(
 async def create_brand(
     session: DbSession, tenant: Tenant, payload: BrandCreate
 ) -> ApiResponse[BrandOut]:
-    return ApiResponse.ok(await service.create_brand(session, tenant, payload), "Brand created")
+    return ApiResponse.ok(
+        await service.create_brand(session, tenant, payload), success_message("Brand", "created")
+    )
 
 
 @router.get(
@@ -313,7 +319,7 @@ async def update_brand(
     session: DbSession, tenant: Tenant, brand_id: uuid.UUID, payload: BrandUpdate
 ) -> ApiResponse[BrandOut]:
     brand = await service.update_brand(session, tenant, brand_id, payload)
-    return ApiResponse.ok(brand, "Brand updated")
+    return ApiResponse.ok(brand, success_message("Brand", "updated"))
 
 
 @router.delete(
@@ -327,7 +333,7 @@ async def delete_brand(
     session: DbSession, tenant: Tenant, brand_id: uuid.UUID, reason: ReasonQuery
 ) -> ApiResponse[None]:
     await service.delete_brand(session, tenant, brand_id, reason=reason)
-    return ApiResponse.ok(None, "Brand retired")
+    return ApiResponse.ok(None, success_message("Brand", "retired"))
 
 
 # -----------------------------------------------------------------------------
@@ -368,7 +374,7 @@ async def create_manufacturer(
     session: DbSession, tenant: Tenant, payload: ManufacturerCreate
 ) -> ApiResponse[ManufacturerOut]:
     manufacturer = await service.create_manufacturer(session, tenant, payload)
-    return ApiResponse.ok(manufacturer, "Manufacturer created")
+    return ApiResponse.ok(manufacturer, success_message("Manufacturer", "created"))
 
 
 @router.get(
@@ -396,7 +402,7 @@ async def update_manufacturer(
     session: DbSession, tenant: Tenant, manufacturer_id: uuid.UUID, payload: ManufacturerUpdate
 ) -> ApiResponse[ManufacturerOut]:
     manufacturer = await service.update_manufacturer(session, tenant, manufacturer_id, payload)
-    return ApiResponse.ok(manufacturer, "Manufacturer updated")
+    return ApiResponse.ok(manufacturer, success_message("Manufacturer", "updated"))
 
 
 @router.delete(
@@ -411,7 +417,7 @@ async def delete_manufacturer(
     session: DbSession, tenant: Tenant, manufacturer_id: uuid.UUID, reason: ReasonQuery
 ) -> ApiResponse[None]:
     await service.delete_manufacturer(session, tenant, manufacturer_id, reason=reason)
-    return ApiResponse.ok(None, "Manufacturer retired")
+    return ApiResponse.ok(None, success_message("Manufacturer", "retired"))
 
 
 @router.get(
@@ -441,7 +447,9 @@ async def list_uoms(
     dependencies=[require_permission(Permission.UOM_MANAGE)],
 )
 async def create_uom(session: DbSession, tenant: Tenant, payload: UomCreate) -> ApiResponse[UomOut]:
-    return ApiResponse.ok(await service.create_uom(session, tenant, payload), "Unit created")
+    return ApiResponse.ok(
+        await service.create_uom(session, tenant, payload), success_message("Unit", "created")
+    )
 
 
 @router.patch(
@@ -454,7 +462,8 @@ async def update_uom(
     session: DbSession, tenant: Tenant, uom_id: uuid.UUID, payload: UomUpdate
 ) -> ApiResponse[UomOut]:
     return ApiResponse.ok(
-        await service.update_uom(session, tenant, uom_id, payload), "Unit updated"
+        await service.update_uom(session, tenant, uom_id, payload),
+        success_message("Unit", "updated"),
     )
 
 
@@ -482,7 +491,7 @@ async def create_conversion(
     session: DbSession, tenant: Tenant, payload: UomConversionCreate
 ) -> ApiResponse[UomConversionOut]:
     conversion = await service.create_conversion(session, tenant, payload)
-    return ApiResponse.ok(conversion, "Conversion created")
+    return ApiResponse.ok(conversion, success_message("Conversion", "created"))
 
 
 @router.delete(
@@ -495,7 +504,7 @@ async def delete_conversion(
     session: DbSession, tenant: Tenant, conversion_id: uuid.UUID
 ) -> ApiResponse[None]:
     await service.delete_conversion(session, tenant, conversion_id)
-    return ApiResponse.ok(None, "Conversion removed")
+    return ApiResponse.ok(None, success_message("Conversion", "removed"))
 
 
 @router.get(
@@ -525,6 +534,7 @@ async def convert_quantity(
 @router.get(
     "/items",
     response_model=None,
+    responses={200: {"model": PaginatedResponse[ItemSummary | ItemSummaryWithCost]}},
     summary="Search items (offset paging)",
     description=(
         "Server-side search over the item master: trigram term, category subtree, "
@@ -552,6 +562,7 @@ async def search_items(
 @router.get(
     "/items/stream",
     response_model=None,
+    responses={200: {"model": CursorPaginatedResponse[ItemSummary | ItemSummaryWithCost]}},
     summary="Search items (keyset paging)",
     description=(
         "Same filters as `/items`, paged by opaque cursor. Constant cost at any "
@@ -576,6 +587,7 @@ async def stream_items(
 @router.get(
     "/items/{item_id}",
     response_model=None,
+    responses={200: {"model": ApiResponse[ItemDetail | ItemDetailWithCost]}},
     summary="Get one item",
     dependencies=[require_permission(Permission.ITEM_VIEW)],
 )
@@ -588,6 +600,7 @@ async def get_item(
 @router.post(
     "/items",
     response_model=None,
+    responses={201: {"model": ApiResponse[ItemDetail | ItemDetailWithCost]}},
     status_code=status.HTTP_201_CREATED,
     summary="Create an item",
     dependencies=[require_permission(Permission.ITEM_CREATE)],
@@ -598,13 +611,14 @@ async def create_item(
     item = await service.create_item(session, tenant, payload)
     return ApiResponse.ok(
         service.item_response(item, include_cost=service.may_view_cost(principal)),
-        "Item created",
+        success_message("Item", "created"),
     )
 
 
 @router.patch(
     "/items/{item_id}",
     response_model=None,
+    responses={200: {"model": ApiResponse[ItemDetail | ItemDetailWithCost]}},
     summary="Update an item",
     dependencies=[require_permission(Permission.ITEM_UPDATE)],
 )
@@ -618,13 +632,14 @@ async def update_item(
     item = await service.update_item(session, tenant, principal, item_id, payload)
     return ApiResponse.ok(
         service.item_response(item, include_cost=service.may_view_cost(principal)),
-        "Item updated",
+        success_message("Item", "updated"),
     )
 
 
 @router.post(
     "/items/{item_id}/status",
     response_model=None,
+    responses={200: {"model": ApiResponse[ItemDetail | ItemDetailWithCost]}},
     summary="Activate or deactivate an item",
     dependencies=[require_permission(Permission.ITEM_UPDATE)],
 )
@@ -638,7 +653,7 @@ async def change_item_status(
     item = await service.change_item_status(session, tenant, item_id, payload)
     return ApiResponse.ok(
         service.item_response(item, include_cost=service.may_view_cost(principal)),
-        "Item status changed",
+        success_message("Item status", "changed"),
     )
 
 
@@ -650,7 +665,7 @@ async def change_item_status(
 )
 async def delete_item(session: DbSession, tenant: Tenant, item_id: uuid.UUID) -> ApiResponse[None]:
     await service.delete_item(session, tenant, item_id)
-    return ApiResponse.ok(None, "Item retired")
+    return ApiResponse.ok(None, success_message("Item", "retired"))
 
 
 # -----------------------------------------------------------------------------
@@ -700,7 +715,7 @@ async def create_variant(
     variant = await service.create_variant(
         session, tenant, item_id, payload, include_cost=service.may_view_cost(principal)
     )
-    return ApiResponse.ok(variant, "Variant created")
+    return ApiResponse.ok(variant, success_message("Variant", "created"))
 
 
 @router.patch(
@@ -719,7 +734,7 @@ async def update_variant(
     variant = await service.update_variant(
         session, tenant, variant_id, payload, include_cost=service.may_view_cost(principal)
     )
-    return ApiResponse.ok(variant, "Variant updated")
+    return ApiResponse.ok(variant, success_message("Variant", "updated"))
 
 
 @router.delete(
@@ -732,7 +747,7 @@ async def delete_variant(
     session: DbSession, tenant: Tenant, variant_id: uuid.UUID
 ) -> ApiResponse[None]:
     await service.delete_variant(session, tenant, variant_id)
-    return ApiResponse.ok(None, "Variant retired")
+    return ApiResponse.ok(None, success_message("Variant", "retired"))
 
 
 # -----------------------------------------------------------------------------
@@ -778,7 +793,7 @@ async def create_price(
     session: DbSession, tenant: Tenant, item_id: uuid.UUID, payload: PriceCreate
 ) -> ApiResponse[PriceOut]:
     price = await service.create_price(session, tenant, item_id, payload)
-    return ApiResponse.ok(price, "Price created")
+    return ApiResponse.ok(price, success_message("Price", "created"))
 
 
 @router.patch(
@@ -791,7 +806,7 @@ async def update_price(
     session: DbSession, tenant: Tenant, price_id: uuid.UUID, payload: PriceUpdate
 ) -> ApiResponse[PriceOut]:
     price = await service.update_price(session, tenant, price_id, payload)
-    return ApiResponse.ok(price, "Price updated")
+    return ApiResponse.ok(price, success_message("Price", "updated"))
 
 
 @router.delete(
@@ -804,7 +819,7 @@ async def delete_price(
     session: DbSession, tenant: Tenant, price_id: uuid.UUID
 ) -> ApiResponse[None]:
     await service.delete_price(session, tenant, price_id)
-    return ApiResponse.ok(None, "Price removed")
+    return ApiResponse.ok(None, success_message("Price", "removed"))
 
 
 @router.get(
@@ -876,7 +891,7 @@ async def link_vendor(
     session: DbSession, tenant: Tenant, item_id: uuid.UUID, payload: VendorLinkCreate
 ) -> ApiResponse[VendorLinkOut]:
     link = await service.link_vendor(session, tenant, item_id, payload)
-    return ApiResponse.ok(link, "Vendor linked")
+    return ApiResponse.ok(link, success_message("Vendor", "linked"))
 
 
 @router.patch(
@@ -889,7 +904,7 @@ async def update_vendor_link(
     session: DbSession, tenant: Tenant, link_id: uuid.UUID, payload: VendorLinkUpdate
 ) -> ApiResponse[VendorLinkOut]:
     link = await service.update_vendor_link(session, tenant, link_id, payload)
-    return ApiResponse.ok(link, "Vendor link updated")
+    return ApiResponse.ok(link, success_message("Vendor link", "updated"))
 
 
 @router.delete(
@@ -902,7 +917,7 @@ async def unlink_vendor(
     session: DbSession, tenant: Tenant, link_id: uuid.UUID
 ) -> ApiResponse[None]:
     await service.unlink_vendor(session, tenant, link_id)
-    return ApiResponse.ok(None, "Vendor link removed")
+    return ApiResponse.ok(None, success_message("Vendor link", "removed"))
 
 
 __all__ = ["router"]

@@ -45,7 +45,7 @@ import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatQuantity, toDateInput } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -62,10 +62,10 @@ import {
 
 const schema = z
   .object({
-    customer_id: z.string().min(1, 'Choose a customer'),
-    warehouse_id: z.string().min(1, 'Choose the warehouse this ships from'),
+    customer_id: z.string().min(1, validation.choose('a customer')),
+    warehouse_id: z.string().min(1, validation.choose('the warehouse this ships from')),
     order_date: z.string(),
-    required_date: z.string().min(1, 'Required date is required'),
+    required_date: z.string().min(1, validation.required('Required date')),
     promised_date: z.string(),
     priority: z.string(),
     is_urgent: z.boolean(),

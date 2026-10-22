@@ -64,6 +64,7 @@ import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { SELECT_ALL } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
+import { success } from '@/lib/messages'
 import { formatDateTime, formatNumber, humanise } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
@@ -301,13 +302,13 @@ export default function MrpPage() {
         const runId = runIdFromStatusUrl(result.status_url) ?? result.job_id
         setWatchedRunId(runId)
         setWatchStartedAt(Date.now())
-        toast.show('MRP queued', 'The run is large enough to calculate in the background.')
+        toast.show(success.queued('MRP run'), 'The run is being calculated in the background.')
         return
       }
 
       if (result.status === 'COMPLETED') {
         toast.success(
-          'MRP finished',
+          success.completed('MRP run'),
           `${result.code} produced ${formatNumber(result.suggestion_count)} suggestions.`,
         )
         navigate(`/mrp/runs/${result.id}`)
@@ -343,7 +344,7 @@ export default function MrpPage() {
 
     if (watchedRun.status === 'COMPLETED') {
       toast.success(
-        'MRP finished',
+        success.completed('MRP run'),
         `${watchedRun.code} produced ${formatNumber(watchedRun.suggestion_count)} suggestions.`,
       )
       navigate(`/mrp/runs/${watchedRun.id}`)

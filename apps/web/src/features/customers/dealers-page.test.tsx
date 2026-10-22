@@ -457,7 +457,7 @@ describe('when the list does not arrive', () => {
     })
 
     expect(await screen.findByText('Could not load this list')).toBeVisible()
-    expect(screen.getByText('The customer service is down')).toBeVisible()
+    expect(screen.getByText('The customer service is down', { exact: false })).toBeVisible()
     expect(screen.getByRole('button', { name: /try again/i })).toBeVisible()
   })
 

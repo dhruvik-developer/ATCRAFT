@@ -17,6 +17,7 @@ import { useOperatorOptions } from '@/hooks/use-operator-options'
 import { shiftLabel, useShiftOptions } from '@/hooks/use-shift-options'
 import { api, ApiError } from '@/lib/api-client'
 import { queryKeys } from '@/lib/query-client'
+import { success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 import type { SchemaOf } from '@/types/api'
 
@@ -79,7 +80,7 @@ export function RosterDialog({
     },
     onSuccess: () => {
       void cache.invalidateQueries({ queryKey: queryKeys.routing.all })
-      toast.success('Assignments saved')
+      toast.success(success.saved('Assignments'))
       onClose()
     },
   })

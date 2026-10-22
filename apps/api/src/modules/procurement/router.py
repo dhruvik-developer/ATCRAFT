@@ -20,7 +20,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 
 from src.core.deps import CurrentUser, DbSession, Tenant, forbid_vendor_users, require_permission
-from src.core.pagination import PageParams, SortParams, page_params, sort_params
+from src.core.messages import success_message
+from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
@@ -134,7 +135,8 @@ def requisition_filters(
     required_from: Annotated[date | None, Query()] = None,
     required_to: Annotated[date | None, Query()] = None,
 ) -> RequisitionFilters:
-    return RequisitionFilters(
+    return bind_query_filters(
+        RequisitionFilters,
         search=search,
         status=requisition_status,
         warehouse_id=warehouse_id,
@@ -155,7 +157,8 @@ def rfq_filters(
     item_id: Annotated[uuid.UUID | None, Query()] = None,
     due_before: Annotated[date | None, Query()] = None,
 ) -> RfqFilters:
-    return RfqFilters(
+    return bind_query_filters(
+        RfqFilters,
         search=search,
         status=rfq_status,
         warehouse_id=warehouse_id,
@@ -174,7 +177,8 @@ def quotation_filters(
         date | None, Query(description="Only offers still valid on this date")
     ] = None,
 ) -> QuotationFilters:
-    return QuotationFilters(
+    return bind_query_filters(
+        QuotationFilters,
         search=search,
         rfq_id=rfq_id,
         vendor_id=vendor_id,
@@ -202,7 +206,8 @@ def order_filters(
     expected_from: Annotated[date | None, Query()] = None,
     expected_to: Annotated[date | None, Query()] = None,
 ) -> PurchaseOrderFilters:
-    return PurchaseOrderFilters(
+    return bind_query_filters(
+        PurchaseOrderFilters,
         search=search,
         status=order_status,
         vendor_id=vendor_id,
@@ -231,7 +236,8 @@ def receipt_filters(
     received_from: Annotated[date | None, Query()] = None,
     received_to: Annotated[date | None, Query()] = None,
 ) -> GoodsReceiptFilters:
-    return GoodsReceiptFilters(
+    return bind_query_filters(
+        GoodsReceiptFilters,
         search=search,
         status=receipt_status,
         purchase_order_id=purchase_order_id,
@@ -253,7 +259,8 @@ def return_filters(
     return_from: Annotated[date | None, Query()] = None,
     return_to: Annotated[date | None, Query()] = None,
 ) -> PurchaseReturnFilters:
-    return PurchaseReturnFilters(
+    return bind_query_filters(
+        PurchaseReturnFilters,
         search=search,
         status=return_status,
         vendor_id=vendor_id,
@@ -271,8 +278,11 @@ def approval_filters(
     warehouse_id: Annotated[uuid.UUID | None, Query()] = None,
     vendor_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> PendingApprovalFilters:
-    return PendingApprovalFilters(
-        document_type=document_type, warehouse_id=warehouse_id, vendor_id=vendor_id
+    return bind_query_filters(
+        PendingApprovalFilters,
+        document_type=document_type,
+        warehouse_id=warehouse_id,
+        vendor_id=vendor_id,
     )
 
 
@@ -419,7 +429,8 @@ async def create_requisition(
 ) -> ApiResponse[RequisitionDetail]:
     requisition, lines = await service.create_requisition(session, tenant, principal, payload)
     return ApiResponse[RequisitionDetail].ok(
-        service.requisition_detail(requisition, lines), f"Requisition {requisition.code} raised"
+        service.requisition_detail(requisition, lines),
+        success_message(f"Requisition {requisition.code}", "raised"),
     )
 
 
@@ -451,7 +462,8 @@ async def update_requisition(
 ) -> ApiResponse[RequisitionDetail]:
     requisition, lines = await service.update_requisition(session, tenant, requisition_id, payload)
     return ApiResponse[RequisitionDetail].ok(
-        service.requisition_detail(requisition, lines), f"Requisition {requisition.code} updated"
+        service.requisition_detail(requisition, lines),
+        success_message(f"Requisition {requisition.code}", "updated"),
     )
 
 
@@ -466,7 +478,7 @@ async def delete_requisition(
     requisition_id: uuid.UUID, session: DbSession, tenant: Tenant, reason: ReasonQuery
 ) -> ApiResponse[None]:
     await service.delete_draft_requisition(session, tenant, requisition_id, reason=reason)
-    return ApiResponse[None].ok(None, "Draft requisition deleted")
+    return ApiResponse[None].ok(None, success_message("Draft requisition", "deleted"))
 
 
 @router.post(
@@ -520,7 +532,7 @@ async def approve_requisition(
     )
     return ApiResponse[RequisitionSummary].ok(
         RequisitionSummary.model_validate(requisition),
-        f"Requisition {requisition.code} approved",
+        success_message(f"Requisition {requisition.code}", "approved"),
     )
 
 
@@ -547,7 +559,7 @@ async def reject_requisition(
     )
     return ApiResponse[RequisitionSummary].ok(
         RequisitionSummary.model_validate(requisition),
-        f"Requisition {requisition.code} rejected",
+        success_message(f"Requisition {requisition.code}", "rejected"),
     )
 
 
@@ -574,7 +586,7 @@ async def cancel_requisition(
     )
     return ApiResponse[RequisitionSummary].ok(
         RequisitionSummary.model_validate(requisition),
-        f"Requisition {requisition.code} cancelled",
+        success_message(f"Requisition {requisition.code}", "cancelled"),
     )
 
 
@@ -606,7 +618,7 @@ async def close_requisition(
     )
     return ApiResponse[RequisitionSummary].ok(
         RequisitionSummary.model_validate(requisition),
-        f"Requisition {requisition.code} closed",
+        success_message(f"Requisition {requisition.code}", "closed"),
     )
 
 
@@ -698,7 +710,9 @@ async def create_rfq(
     payload: RfqCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[RfqDetail]:
     rfq, lines = await service.create_rfq(session, tenant, payload)
-    return ApiResponse[RfqDetail].ok(service.rfq_detail(rfq, lines), f"RFQ {rfq.code} raised")
+    return ApiResponse[RfqDetail].ok(
+        service.rfq_detail(rfq, lines), success_message(f"RFQ {rfq.code}", "raised")
+    )
 
 
 @router.get(
@@ -741,7 +755,9 @@ async def update_rfq(
     rfq_id: uuid.UUID, payload: RfqUpdate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[RfqDetail]:
     rfq, lines = await service.update_rfq(session, tenant, rfq_id, payload)
-    return ApiResponse[RfqDetail].ok(service.rfq_detail(rfq, lines), f"RFQ {rfq.code} updated")
+    return ApiResponse[RfqDetail].ok(
+        service.rfq_detail(rfq, lines), success_message(f"RFQ {rfq.code}", "updated")
+    )
 
 
 @router.post(
@@ -773,7 +789,9 @@ async def close_rfq(
     rfq = await service.transition_rfq(
         session, tenant, rfq_id, RfqStatus.CLOSED, reason=payload.reason or "Closed"
     )
-    return ApiResponse[RfqSummary].ok(RfqSummary.model_validate(rfq), f"RFQ {rfq.code} closed")
+    return ApiResponse[RfqSummary].ok(
+        RfqSummary.model_validate(rfq), success_message(f"RFQ {rfq.code}", "closed")
+    )
 
 
 @router.post(
@@ -788,7 +806,9 @@ async def cancel_rfq(
     rfq = await service.transition_rfq(
         session, tenant, rfq_id, RfqStatus.CANCELLED, reason=payload.reason
     )
-    return ApiResponse[RfqSummary].ok(RfqSummary.model_validate(rfq), f"RFQ {rfq.code} cancelled")
+    return ApiResponse[RfqSummary].ok(
+        RfqSummary.model_validate(rfq), success_message(f"RFQ {rfq.code}", "cancelled")
+    )
 
 
 # =============================================================================
@@ -826,7 +846,7 @@ async def create_quotation(
     quotation, lines = await service.create_quotation(session, tenant, payload)
     return ApiResponse[QuotationDetail].ok(
         service.quotation_detail(quotation, lines),
-        f"Quotation {quotation.vendor_reference} recorded",
+        success_message(f"Quotation {quotation.vendor_reference}", "recorded"),
     )
 
 
@@ -904,7 +924,7 @@ async def reject_quotation(
     )
     return ApiResponse[QuotationSummary].ok(
         QuotationSummary.model_validate(quotation),
-        f"Quotation {quotation.vendor_reference} rejected",
+        success_message(f"Quotation {quotation.vendor_reference}", "rejected"),
     )
 
 
@@ -1062,7 +1082,7 @@ async def update_purchase_order(
     )
     return ApiResponse[PurchaseOrderDetail].ok(
         await service.describe_purchase_order(session, tenant, order, lines),
-        f"Purchase order {order.code} updated",
+        success_message(f"Purchase order {order.code}", "updated"),
     )
 
 
@@ -1120,7 +1140,8 @@ async def approve_purchase_order(
         reason=payload.reason or "Approved",
     )
     return ApiResponse[PurchaseOrderSummary].ok(
-        PurchaseOrderSummary.model_validate(order), f"Purchase order {order.code} approved"
+        PurchaseOrderSummary.model_validate(order),
+        success_message(f"Purchase order {order.code}", "approved"),
     )
 
 
@@ -1141,7 +1162,8 @@ async def reject_purchase_order(
         session, tenant, principal, order_id, PurchaseOrderStatus.REJECTED, reason=payload.reason
     )
     return ApiResponse[PurchaseOrderSummary].ok(
-        PurchaseOrderSummary.model_validate(order), f"Purchase order {order.code} rejected"
+        PurchaseOrderSummary.model_validate(order),
+        success_message(f"Purchase order {order.code}", "rejected"),
     )
 
 
@@ -1258,7 +1280,8 @@ async def cancel_purchase_order(
         session, tenant, principal, order_id, PurchaseOrderStatus.CANCELLED, reason=payload.reason
     )
     return ApiResponse[PurchaseOrderSummary].ok(
-        PurchaseOrderSummary.model_validate(order), f"Purchase order {order.code} cancelled"
+        PurchaseOrderSummary.model_validate(order),
+        success_message(f"Purchase order {order.code}", "cancelled"),
     )
 
 
@@ -1283,7 +1306,8 @@ async def close_purchase_order(
         session, tenant, principal, order_id, PurchaseOrderStatus.CLOSED, reason=payload.reason
     )
     return ApiResponse[PurchaseOrderSummary].ok(
-        PurchaseOrderSummary.model_validate(order), f"Purchase order {order.code} closed"
+        PurchaseOrderSummary.model_validate(order),
+        success_message(f"Purchase order {order.code}", "closed"),
     )
 
 
@@ -1329,7 +1353,8 @@ async def inbound_tracking(
     rows, page = await inbound_service.tracking_board(
         session,
         tenant,
-        InboundTrackingFilters(
+        bind_query_filters(
+            InboundTrackingFilters,
             overdue=overdue,
             expected_today=expected_today,
             in_transit=in_transit,
@@ -1379,7 +1404,7 @@ async def create_purchase_order_shipment(
 ) -> ApiResponse[InboundShipmentRead]:
     shipment = await inbound_service.record_inbound_shipment(session, tenant, order_id, payload)
     return ApiResponse[InboundShipmentRead].ok(
-        shipment, f"Shipment {shipment.shipment_number} recorded"
+        shipment, success_message(f"Shipment {shipment.shipment_number}", "recorded")
     )
 
 
@@ -1404,7 +1429,7 @@ async def update_purchase_order_shipment(
         session, tenant, order_id, payload, shipment_id=shipment_id
     )
     return ApiResponse[InboundShipmentRead].ok(
-        shipment, f"Shipment {shipment.shipment_number} updated"
+        shipment, success_message(f"Shipment {shipment.shipment_number}", "updated")
     )
 
 
@@ -1550,7 +1575,8 @@ async def create_goods_receipt(
 ) -> ApiResponse[GoodsReceiptDetail]:
     receipt, lines = await service.create_goods_receipt(session, tenant, payload)
     return ApiResponse[GoodsReceiptDetail].ok(
-        service.receipt_detail(receipt, lines), f"Goods receipt {receipt.code} recorded"
+        service.receipt_detail(receipt, lines),
+        success_message(f"Goods receipt {receipt.code}", "recorded"),
     )
 
 
@@ -1605,7 +1631,8 @@ async def cancel_goods_receipt(
 ) -> ApiResponse[GoodsReceiptSummary]:
     receipt = await service.cancel_goods_receipt(session, tenant, receipt_id, reason=payload.reason)
     return ApiResponse[GoodsReceiptSummary].ok(
-        GoodsReceiptSummary.model_validate(receipt), f"Goods receipt {receipt.code} cancelled"
+        GoodsReceiptSummary.model_validate(receipt),
+        success_message(f"Goods receipt {receipt.code}", "cancelled"),
     )
 
 
@@ -1644,7 +1671,7 @@ async def create_purchase_return(
     purchase_return, lines = await service.create_purchase_return(session, tenant, payload)
     return ApiResponse[PurchaseReturnDetail].ok(
         service.return_detail(purchase_return, lines),
-        f"Purchase return {purchase_return.code} raised",
+        success_message(f"Purchase return {purchase_return.code}", "raised"),
     )
 
 
@@ -1699,7 +1726,7 @@ async def post_purchase_return(
 ) -> ApiResponse[PurchaseReturnPostResult]:
     result = await service.post_purchase_return(session, tenant, principal, return_id)
     return ApiResponse[PurchaseReturnPostResult].ok(
-        result, f"Purchase return {result.purchase_return.code} posted"
+        result, success_message(f"Purchase return {result.purchase_return.code}", "posted")
     )
 
 
@@ -1717,7 +1744,7 @@ async def cancel_purchase_return(
     )
     return ApiResponse[PurchaseReturnSummary].ok(
         PurchaseReturnSummary.model_validate(purchase_return),
-        f"Purchase return {purchase_return.code} cancelled",
+        success_message(f"Purchase return {purchase_return.code}", "cancelled"),
     )
 
 

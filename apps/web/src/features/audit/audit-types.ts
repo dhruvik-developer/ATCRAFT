@@ -268,17 +268,12 @@ export function formatAuditValue(value: unknown): string {
 
 // ----------------------------------------------------------------- data -----
 
-/**
- * `api.getPage` returns the envelope untouched; only its TypeScript shape
- * assumes offset pagination. The audit envelope is cursor-shaped, so it is
- * re-typed here rather than widening the shared client for two endpoints.
- */
+/** Audit history uses the client's validated cursor envelope. */
 export async function fetchAuditPage(
   path: string,
   params: Record<string, unknown>,
 ): Promise<CursorEnvelope<AuditLogRow>> {
-  const envelope = await api.getPage<AuditLogRow>(path, { params })
-  return envelope as unknown as CursorEnvelope<AuditLogRow>
+  return api.getCursorPage<AuditLogRow>(path, { params })
 }
 
 /**

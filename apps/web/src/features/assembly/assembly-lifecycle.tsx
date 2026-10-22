@@ -32,6 +32,7 @@ import { Alert, AlertDescription, Input, Label, Textarea } from '@/components/ui
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { formatQuantity } from '@/lib/format'
+import { success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 import type { ReactNode } from 'react'
 
@@ -166,7 +167,7 @@ export function AssemblyVerdictDialog({
       // Accepted output leaves QC hold and becomes promisable, so every stock
       // figure on every other screen has moved.
       toast.success(
-        'Inspection recorded',
+        success.recorded('Inspection'),
         `${updated.code}: ${formatQuantity(updated.assembled_quantity)} accepted, ${formatQuantity(updated.rejected_quantity)} rejected.`,
       )
       onOpenChange(false)

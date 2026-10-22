@@ -64,7 +64,7 @@ import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatMoney, toDateInput, toDecimal } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -89,15 +89,15 @@ const OPTIONAL_PRICE = /^(\d{1,12}(\.\d{1,6})?)?$/
 
 const schema = z
   .object({
-    requisition_date: z.string().min(1, 'A raised date is required'),
-    required_date: z.string().min(1, 'A required-by date is required'),
+    requisition_date: z.string().min(1, validation.required('Raised date')),
+    required_date: z.string().min(1, validation.required('Required-by date')),
     // Required by the contract: a requisition has to say where the material is
     // wanted, because that is what an order raised against it delivers to.
-    warehouse_id: z.string().min(1, 'Choose where the material is needed'),
+    warehouse_id: z.string().min(1, validation.choose('where the material is needed')),
     department_id: z.string(),
     priority: z.coerce
       .number()
-      .int('Whole numbers only')
+      .int(validation.integer('Priority'))
       .min(MIN_PRIORITY, `Between ${MIN_PRIORITY} and ${MAX_PRIORITY}`)
       .max(MAX_PRIORITY, `Between ${MIN_PRIORITY} and ${MAX_PRIORITY}`),
     purpose: z.string().trim().max(255, 'At most 255 characters'),
@@ -105,12 +105,12 @@ const schema = z
     lines: z
       .array(
         z.object({
-          item_id: z.string().min(1, 'Choose an item'),
+          item_id: z.string().min(1, validation.choose('an item')),
           quantity: z
             .string()
             .trim()
             .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places')
-            .refine((v) => toDecimal(v).greaterThan(0), 'Quantity must be greater than zero'),
+            .refine((v) => toDecimal(v).greaterThan(0), validation.positive('Quantity')),
           estimated_unit_price: z
             .string()
             .trim()

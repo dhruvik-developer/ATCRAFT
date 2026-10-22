@@ -36,7 +36,7 @@ import { api } from '@/lib/api-client'
 import { SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { humanise, toDecimal } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { useBrandOptions } from '@/hooks/use-brand-options'
 import { useItemAttributeOptions } from '@/hooks/use-item-attribute-options'
 import { useManufacturerOptions } from '@/hooks/use-manufacturer-options'
@@ -67,8 +67,16 @@ const priceField = (message = 'Enter a price with up to 6 decimal places') =>
   z.string().trim().regex(DECIMAL_6, message)
 
 const schema = z.object({
-  code: z.string().trim().min(1, 'Code is required').max(64, 'Code is at most 64 characters'),
-  name: z.string().trim().min(1, 'Name is required').max(255, 'Name is at most 255 characters'),
+  code: z
+    .string()
+    .trim()
+    .min(1, validation.required('Code'))
+    .max(64, 'Code is at most 64 characters'),
+  name: z
+    .string()
+    .trim()
+    .min(1, validation.required('Name'))
+    .max(255, 'Name is at most 255 characters'),
   item_group: z.enum(ITEM_GROUPS),
   category_id: z.string(),
   finish_id: z.string(),
@@ -77,7 +85,7 @@ const schema = z.object({
   brand_id: z.string(),
   manufacturer_id: z.string(),
   manufacturer_part_number: z.string().trim().max(64, 'Part number is at most 64 characters'),
-  base_uom_id: z.string().min(1, 'Base unit is required'),
+  base_uom_id: z.string().min(1, validation.required('Base unit')),
   purchase_uom_id: z.string(),
   sale_uom_id: z.string(),
   hsn_code: z.string().trim().max(16, 'HSN code is at most 16 characters'),

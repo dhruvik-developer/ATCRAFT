@@ -41,6 +41,7 @@ import { Input, Label, Textarea } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ItemPicker } from '@/features/inventory/pickers'
 import { useUomOptions, type ItemVariant } from '@/features/items/item-model'
+import { validation } from '@/lib/messages'
 import { api } from '@/lib/api-client'
 import { LOOKUP_LIST_LIMIT, SELECT_NONE } from '@/lib/constants'
 import { formatMoney, toDateInput, toDecimal } from '@/lib/format'
@@ -57,7 +58,7 @@ const RATE = /^(\d{1,3}(\.\d{1,4})?)?$/
 const ITEM_DEFAULT_UOM = '__item_default'
 
 const schema = z.object({
-  item_id: z.string().min(1, 'Choose an item'),
+  item_id: z.string().min(1, validation.choose('an item')),
   item_variant_id: z.string(),
   description: z.string().trim().max(500, 'At most 500 characters'),
   quantity: z

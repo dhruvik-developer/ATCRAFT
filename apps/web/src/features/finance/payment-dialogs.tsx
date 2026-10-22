@@ -64,7 +64,7 @@ import type { VendorRow } from '@/features/vendors/vendor-types'
 import { api } from '@/lib/api-client'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatDateTime, formatMoney, toDateInput, toDecimal } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -176,7 +176,7 @@ const paymentFormSchema = z
   .object({
     payment_type: enumOf(PAYMENT_TYPES),
     party_type: enumOf(PAYMENT_PARTY_SIDES),
-    party_id: z.string().min(1, 'Choose who this money is with'),
+    party_id: z.string().min(1, validation.choose('who this money is with')),
     payment_date: z.string().min(1, 'A payment needs a date'),
     amount: z
       .string()

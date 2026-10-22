@@ -186,7 +186,7 @@ describe('raising an assembly order', () => {
 
     await user.click(screen.getByRole('button', { name: 'Raise order' }))
 
-    expect(await screen.findByText('Choose the item to assemble')).toBeVisible()
+    expect(await screen.findByText('Choose the item to assemble.')).toBeVisible()
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
   })
 

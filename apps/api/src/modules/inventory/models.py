@@ -1110,8 +1110,9 @@ class StockSerial(TenantEntity):
         GUID, ForeignKey("stock_batches.id", ondelete="RESTRICT"), nullable=True
     )
 
-    # Where the unit is now. Nullable because a dispatched or scrapped serial is
-    # no longer in any warehouse but must remain traceable.
+    # Where the unit is now, or was last put. Nullable until a registered label
+    # is first received, and never cleared on issue or dispatch: the last known
+    # position is part of the trace, while status says whether it is still there.
     warehouse_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=True
     )

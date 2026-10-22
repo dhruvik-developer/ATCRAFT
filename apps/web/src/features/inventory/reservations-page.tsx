@@ -53,9 +53,9 @@ import { useAuth } from '@/features/auth/auth-context'
 import { useListQuery } from '@/hooks/use-list-query'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH } from '@/lib/constants'
-import { applyFieldErrors } from '@/lib/form-errors'
+import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
 import { daysUntil, formatDate, formatQuantity, humanise, toDecimal } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -107,8 +107,8 @@ const DEFAULT_RESERVATION_PRIORITY = '100'
 // -------------------------------------------------------------- create -----
 
 const createSchema = z.object({
-  item_id: z.string().min(1, 'Choose the item being promised.'),
-  warehouse_id: z.string().min(1, 'Choose the warehouse the stock is held at.'),
+  item_id: z.string().min(1, validation.choose('the item being promised')),
+  warehouse_id: z.string().min(1, validation.choose('the warehouse the stock is held at')),
   quantity: z
     .string()
     .trim()
@@ -646,12 +646,14 @@ function ReallocationInbox() {
     onSuccess: (_result, variables) => {
       setDecision(null)
       toast.success(
-        variables.action === 'approve' ? 'Reallocation approved' : 'Reallocation rejected',
-        'The approval queue and reservation list were refreshed.',
+        variables.action === 'approve'
+          ? success.approved('Reallocation')
+          : success.rejected('Reallocation'),
+        'The reallocation decision has been recorded.',
       )
       void queryClient.invalidateQueries({ queryKey: queryKeys.allocation.all })
     },
-    onError: (error) => toast.error('Could not decide reallocation', error.message),
+    onError: (error) => reportFieldErrors(error, 'Could not decide reallocation'),
   })
 
   const columns = useMemo<ColumnDef<ReallocationRequest, unknown>[]>(

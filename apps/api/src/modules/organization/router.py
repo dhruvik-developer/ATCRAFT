@@ -25,7 +25,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 
 from src.core.deps import DbSession, Tenant, require_permission, require_superuser
-from src.core.pagination import PageParams, SortParams, page_params, sort_params
+from src.core.messages import success_message
+from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
 from src.modules.organization.models import CostCentreType
@@ -89,7 +90,8 @@ def branch_filters(
     is_head_office: Annotated[bool | None, Query()] = None,
     include_deleted: Annotated[bool, Query(description="Include retired branches")] = False,
 ) -> BranchFilters:
-    return BranchFilters(
+    return bind_query_filters(
+        BranchFilters,
         search=search,
         is_active=is_active,
         is_head_office=is_head_office,
@@ -103,7 +105,8 @@ def plant_filters(
     is_active: Annotated[bool | None, Query()] = None,
     include_deleted: Annotated[bool, Query(description="Include retired plants")] = False,
 ) -> PlantFilters:
-    return PlantFilters(
+    return bind_query_filters(
+        PlantFilters,
         search=search,
         branch_id=branch_id,
         is_active=is_active,
@@ -119,7 +122,8 @@ def department_filters(
     is_active: Annotated[bool | None, Query()] = None,
     include_deleted: Annotated[bool, Query(description="Include retired departments")] = False,
 ) -> DepartmentFilters:
-    return DepartmentFilters(
+    return bind_query_filters(
+        DepartmentFilters,
         search=search,
         plant_id=plant_id,
         parent_id=parent_id,
@@ -137,7 +141,8 @@ def cost_centre_filters(
     is_active: Annotated[bool | None, Query()] = None,
     include_deleted: Annotated[bool, Query(description="Include retired cost centres")] = False,
 ) -> CostCentreFilters:
-    return CostCentreFilters(
+    return bind_query_filters(
+        CostCentreFilters,
         search=search,
         parent_id=parent_id,
         plant_id=plant_id,
@@ -156,7 +161,8 @@ def financial_year_filters(
     ] = None,
     include_deleted: Annotated[bool, Query(description="Include retired years")] = False,
 ) -> FinancialYearFilters:
-    return FinancialYearFilters(
+    return bind_query_filters(
+        FinancialYearFilters,
         search=search,
         is_active=is_active,
         is_closed=is_closed,
@@ -198,7 +204,7 @@ async def update_company(
     payload: CompanyUpdate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[CompanyRead]:
     company = await CompanyService(session, tenant).update_company(payload)
-    return ApiResponse[CompanyRead].ok(company, "Company profile updated")
+    return ApiResponse[CompanyRead].ok(company, success_message("Company profile", "updated"))
 
 
 # -----------------------------------------------------------------------------
@@ -234,7 +240,7 @@ async def create_branch(
     payload: BranchCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[BranchRead]:
     branch = await BranchService(session, tenant).create_branch(payload)
-    return ApiResponse[BranchRead].ok(branch, "Branch created")
+    return ApiResponse[BranchRead].ok(branch, success_message("Branch", "created"))
 
 
 @router.get(
@@ -263,7 +269,7 @@ async def update_branch(
     tenant: Tenant,
 ) -> ApiResponse[BranchRead]:
     branch = await BranchService(session, tenant).update_branch(branch_id, payload)
-    return ApiResponse[BranchRead].ok(branch, "Branch updated")
+    return ApiResponse[BranchRead].ok(branch, success_message("Branch", "updated"))
 
 
 @router.delete(
@@ -279,7 +285,7 @@ async def delete_branch(
     reason: ReasonQuery,
 ) -> ApiResponse[None]:
     await BranchService(session, tenant).delete_branch(branch_id, reason=reason)
-    return ApiResponse[None].ok(None, "Branch retired")
+    return ApiResponse[None].ok(None, success_message("Branch", "retired"))
 
 
 # -----------------------------------------------------------------------------
@@ -315,7 +321,7 @@ async def create_plant(
     payload: PlantCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[PlantRead]:
     plant = await PlantService(session, tenant).create_plant(payload)
-    return ApiResponse[PlantRead].ok(plant, "Plant created")
+    return ApiResponse[PlantRead].ok(plant, success_message("Plant", "created"))
 
 
 @router.get(
@@ -344,7 +350,7 @@ async def update_plant(
     tenant: Tenant,
 ) -> ApiResponse[PlantRead]:
     plant = await PlantService(session, tenant).update_plant(plant_id, payload)
-    return ApiResponse[PlantRead].ok(plant, "Plant updated")
+    return ApiResponse[PlantRead].ok(plant, success_message("Plant", "updated"))
 
 
 @router.delete(
@@ -360,7 +366,7 @@ async def delete_plant(
     reason: ReasonQuery,
 ) -> ApiResponse[None]:
     await PlantService(session, tenant).delete_plant(plant_id, reason=reason)
-    return ApiResponse[None].ok(None, "Plant retired")
+    return ApiResponse[None].ok(None, success_message("Plant", "retired"))
 
 
 # -----------------------------------------------------------------------------
@@ -398,7 +404,7 @@ async def create_department(
     payload: DepartmentCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[DepartmentRead]:
     department = await DepartmentService(session, tenant).create_department(payload)
-    return ApiResponse[DepartmentRead].ok(department, "Department created")
+    return ApiResponse[DepartmentRead].ok(department, success_message("Department", "created"))
 
 
 @router.get(
@@ -427,7 +433,7 @@ async def update_department(
     tenant: Tenant,
 ) -> ApiResponse[DepartmentRead]:
     department = await DepartmentService(session, tenant).update_department(department_id, payload)
-    return ApiResponse[DepartmentRead].ok(department, "Department updated")
+    return ApiResponse[DepartmentRead].ok(department, success_message("Department", "updated"))
 
 
 @router.delete(
@@ -443,7 +449,7 @@ async def delete_department(
     reason: ReasonQuery,
 ) -> ApiResponse[None]:
     await DepartmentService(session, tenant).delete_department(department_id, reason=reason)
-    return ApiResponse[None].ok(None, "Department retired")
+    return ApiResponse[None].ok(None, success_message("Department", "retired"))
 
 
 # -----------------------------------------------------------------------------
@@ -481,7 +487,7 @@ async def create_cost_centre(
     payload: CostCentreCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[CostCentreRead]:
     centre = await CostCentreService(session, tenant).create_cost_centre(payload)
-    return ApiResponse[CostCentreRead].ok(centre, "Cost centre created")
+    return ApiResponse[CostCentreRead].ok(centre, success_message("Cost centre", "created"))
 
 
 @router.get(
@@ -515,7 +521,7 @@ async def update_cost_centre(
     tenant: Tenant,
 ) -> ApiResponse[CostCentreRead]:
     centre = await CostCentreService(session, tenant).update_cost_centre(cost_centre_id, payload)
-    return ApiResponse[CostCentreRead].ok(centre, "Cost centre updated")
+    return ApiResponse[CostCentreRead].ok(centre, success_message("Cost centre", "updated"))
 
 
 @router.delete(
@@ -535,7 +541,7 @@ async def delete_cost_centre(
     reason: ReasonQuery,
 ) -> ApiResponse[None]:
     await CostCentreService(session, tenant).delete_cost_centre(cost_centre_id, reason=reason)
-    return ApiResponse[None].ok(None, "Cost centre retired")
+    return ApiResponse[None].ok(None, success_message("Cost centre", "retired"))
 
 
 # -----------------------------------------------------------------------------
@@ -573,7 +579,7 @@ async def create_financial_year(
     payload: FinancialYearCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[FinancialYearRead]:
     year = await FinancialYearService(session, tenant).create_year(payload)
-    return ApiResponse[FinancialYearRead].ok(year, "Financial year opened")
+    return ApiResponse[FinancialYearRead].ok(year, success_message("Financial year", "opened"))
 
 
 @router.get(
@@ -602,7 +608,7 @@ async def update_financial_year(
     tenant: Tenant,
 ) -> ApiResponse[FinancialYearRead]:
     year = await FinancialYearService(session, tenant).update_year(year_id, payload)
-    return ApiResponse[FinancialYearRead].ok(year, "Financial year updated")
+    return ApiResponse[FinancialYearRead].ok(year, success_message("Financial year", "updated"))
 
 
 @router.post(
@@ -618,7 +624,7 @@ async def close_financial_year(
     tenant: Tenant,
 ) -> ApiResponse[FinancialYearRead]:
     year = await FinancialYearService(session, tenant).close_year(year_id, reason=payload.reason)
-    return ApiResponse[FinancialYearRead].ok(year, "Financial year closed")
+    return ApiResponse[FinancialYearRead].ok(year, success_message("Financial year", "closed"))
 
 
 @router.post(
@@ -637,7 +643,7 @@ async def reopen_financial_year(
     tenant: Tenant,
 ) -> ApiResponse[FinancialYearRead]:
     year = await FinancialYearService(session, tenant).reopen_year(year_id, reason=payload.reason)
-    return ApiResponse[FinancialYearRead].ok(year, "Financial year reopened")
+    return ApiResponse[FinancialYearRead].ok(year, success_message("Financial year", "reopened"))
 
 
 @router.delete(
@@ -653,7 +659,7 @@ async def delete_financial_year(
     reason: ReasonQuery,
 ) -> ApiResponse[None]:
     await FinancialYearService(session, tenant).delete_year(year_id, reason=reason)
-    return ApiResponse[None].ok(None, "Financial year retired")
+    return ApiResponse[None].ok(None, success_message("Financial year", "retired"))
 
 
 __all__ = ["router"]

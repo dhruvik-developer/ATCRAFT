@@ -44,10 +44,9 @@ export type DecimalString = string
 // -----------------------------------------------------------------------------
 
 /** `{ success, data, message }` - the shape every non-list endpoint returns. */
-export interface ApiEnvelope<T> {
-  success: boolean
+export type ApiEnvelope<T> = Omit<SchemaOf<'ApiResponse_AccessTokenResponse_'>, 'data'> & {
+  /** Required after boundary validation; include null in T for nullable data. */
   data: T
-  message?: string | null
 }
 
 /** Offset pagination metadata, exactly as the server defines it. */
@@ -57,22 +56,24 @@ export type OffsetPagination = SchemaOf<'OffsetPagination'>
 export type CursorPagination = SchemaOf<'CursorPagination'>
 
 /** A paginated list: rows in `data`, metadata beside them. */
-export interface PaginatedEnvelope<T> {
-  success: boolean
+export type PaginatedEnvelope<T> = Omit<
+  SchemaOf<'PaginatedResponse_ApprovalRequestRead_'>,
+  'data' | 'pagination'
+> & {
   data: T[]
   pagination: OffsetPagination
-  message?: string | null
 }
 
 /**
  * A keyset-paginated list, used by the append-heavy tables (audit log,
  * inventory ledger, notifications) where OFFSET would drift under writes.
  */
-export interface CursorEnvelope<T> {
-  success: boolean
+export type CursorEnvelope<T> = Omit<
+  SchemaOf<'CursorPaginatedResponse_AuditLogListItem_'>,
+  'data' | 'pagination'
+> & {
   data: T[]
   pagination: CursorPagination
-  message?: string | null
 }
 
 /** A 202 from a long-running export: the work moved to Celery. */

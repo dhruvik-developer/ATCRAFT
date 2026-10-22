@@ -18,11 +18,17 @@
 import type { FieldPath, FieldValues, UseFormSetError } from 'react-hook-form'
 
 import { ApiError } from '@/lib/api-client'
+import { joinValidationMessages } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 
-/** A 422 key with no form control behind it: the whole body, or a query parameter. */
+/** A 422 key outside the form body: transport parameters, or the whole body. */
 export function isOrphanField(field: string): boolean {
-  return field === '_root' || field.startsWith('query.')
+  return (
+    field === '_root' ||
+    ['query', 'path', 'header', 'cookie'].some(
+      (source) => field === source || field.startsWith(`${source}.`),
+    )
+  )
 }
 
 export interface PartitionedFieldErrors {
@@ -37,8 +43,10 @@ export function partitionFieldErrors(error: ApiError): PartitionedFieldErrors {
   const fields: Record<string, string[]> = {}
   const orphans: string[] = []
   for (const [field, messages] of Object.entries(error.fieldErrors)) {
-    if (isOrphanField(field)) orphans.push(...messages)
-    else fields[field] = messages
+    const nonempty = messages.filter((message) => message.trim())
+    if (nonempty.length === 0) continue
+    if (isOrphanField(field)) orphans.push(...nonempty)
+    else fields[field] = nonempty
   }
   return { fields, orphans }
 }
@@ -61,10 +69,10 @@ export function applyFieldErrors<T extends FieldValues>(
     // The API sends dotted paths such as `lines.0.quantity`, which is exactly
     // how react-hook-form addresses a field array entry.
     const path = mapPath ? mapPath(field) : field
-    setError(path as FieldPath<T>, { type: 'server', message: messages.join('. ') })
+    setError(path as FieldPath<T>, { type: 'server', message: joinValidationMessages(messages) })
   }
   if (orphans.length > 0) {
-    setError('root', { type: 'server', message: orphans.join('. ') })
+    setError('root', { type: 'server', message: joinValidationMessages(orphans) })
   }
 }
 
@@ -100,7 +108,7 @@ export function remapArrayIndices(name: string, sent: readonly number[]): (path:
 export function fieldErrorSummary(error: unknown): string | null {
   if (!(error instanceof ApiError)) return null
   const messages = Object.values(error.fieldErrors).flat()
-  return messages.length > 0 ? messages.join('. ') : null
+  return joinValidationMessages(messages) || null
 }
 
 /**
@@ -118,6 +126,6 @@ export function reportFieldErrors(error: unknown, title: string): void {
   if (fields.length === 0) return
   toast.error(
     title,
-    fields.map(([field, messages]) => `${field}: ${messages.join('. ')}`).join(' - '),
+    fields.map(([field, messages]) => `${field}: ${joinValidationMessages(messages)}`).join(' - '),
   )
 }

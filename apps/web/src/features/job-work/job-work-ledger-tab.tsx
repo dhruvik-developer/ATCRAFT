@@ -21,6 +21,7 @@ import { VendorPicker } from '@/features/vendors/vendor-picker'
 import { useVendorOptions } from '@/features/vendors/vendor-types'
 import { formatDate, formatMoney, formatQuantity, toDateInput } from '@/lib/format'
 import { P } from '@/lib/permissions'
+import { success } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 import { indexById } from '@/lib/utils'
 
@@ -225,7 +226,7 @@ export default function JobWorkLedgerTab() {
           disabled={rows.length === 0}
           onClick={() => {
             downloadCsv(vendor?.code ?? 'vendor', rows)
-            toast.success('Ledger exported', `${rows.length} row(s) downloaded as CSV.`)
+            toast.success(success.exported('Ledger'), `${rows.length} row(s) downloaded as CSV.`)
           }}
         >
           <Download />

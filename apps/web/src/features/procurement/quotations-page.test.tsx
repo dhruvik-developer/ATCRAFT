@@ -760,7 +760,7 @@ describe('the register itself', () => {
     })
 
     await stable(() => screen.getByText('Could not load this list'))
-    expect(screen.getByText('The quotation service is unavailable')).toBeVisible()
+    expect(screen.getByText('The quotation service is unavailable', { exact: false })).toBeVisible()
   })
 
   it('marks an offer that has already been turned into an order', async () => {

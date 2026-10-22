@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from src.common.codes import normalise_code, strip_optional
 from src.core.constants import CURRENCY_CODE_LENGTH, DEFAULT_CURRENCY
+from src.core.pagination import bind_query_filters
 from src.modules.products.models import (
     DEFAULT_MANUFACTURER_COUNTRY,
     MAX_BRAND_SORT_ORDER,
@@ -651,7 +652,8 @@ def item_filters(
     default_warehouse_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> ItemFilters:
     """FastAPI dependency assembling the item search filters."""
-    return ItemFilters(
+    return bind_query_filters(
+        ItemFilters,
         search=search,
         category_id=category_id,
         include_subcategories=include_subcategories,

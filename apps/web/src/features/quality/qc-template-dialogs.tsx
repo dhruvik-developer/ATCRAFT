@@ -77,7 +77,7 @@ import { ApiError, api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDateTime, humanise, toDecimal } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { joinValidationMessages, success } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -510,7 +510,7 @@ function formError(error: unknown): string | null {
   if (error === null || error === undefined) return null
   if (!(error instanceof ApiError)) return 'Something went wrong. The change was not saved.'
   const root = error.fieldErrors._root
-  if (root && root.length > 0) return root.join('. ')
+  if (root && root.length > 0) return joinValidationMessages(root)
   if (error.status === 422 && Object.keys(error.fieldErrors).length > 0) return null
   return error.message
 }

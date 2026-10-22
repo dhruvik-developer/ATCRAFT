@@ -88,7 +88,7 @@ import {
   toDateInput,
   toDecimal,
 } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -285,7 +285,7 @@ const lineSchema = z.object({
 
 const schema = z
   .object({
-    return_date: z.string().min(1, 'Return date is required'),
+    return_date: z.string().min(1, validation.required('Return date')),
     reason: z
       .string()
       .trim()

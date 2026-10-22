@@ -83,6 +83,21 @@ describe('the mutation error net', () => {
 
     expect(shown).toHaveBeenCalledWith(errors.notEnoughStock, 'Only 4 available')
   })
+
+  it('does not suppress a response with empty field-error arrays', () => {
+    const shown = vi.spyOn(toast, 'error')
+    failMutation(validationError({ quantity: [], _root: [' '] }))
+    expect(shown).toHaveBeenCalledWith(errors.checkTheForm, 'Invalid request')
+  })
+
+  it('toasts a bare query validation error as one punctuated sentence', () => {
+    const shown = vi.spyOn(toast, 'error')
+    failMutation(validationError({ query: ['Choose a start date.', 'Choose an end date.'] }))
+    expect(shown).toHaveBeenCalledWith(
+      errors.checkTheForm,
+      'Choose a start date. Choose an end date.',
+    )
+  })
 })
 
 describe('the query error net', () => {

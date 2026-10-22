@@ -529,8 +529,96 @@ warehouse scope and participate in the report snapshot CHECK vocabulary.
 
 Incoming QC currently addresses the unbinned warehouse position. A GRN line
 held for inspection therefore refuses a bin; put accepted stock away afterwards
-with a bin move. Serial identities are added in E8b; these new documents refuse
-serial-tracked stock until they can identify the units they move.
+with a bin move. E8b added unit identity to receipts, production and assembly
+output, transfers and adjustments. Bin moves and internal issues still carry only
+a quantity and a lot, so their movements refuse serial-tracked stock until they
+can name the units. A scrap disposal consumes the scrap pool by quantity; the
+units were already retired on the scrap posting, so disposal does not mint a new
+unit state.
+
+### 4.7 Batches, serials and document traceability
+
+`stock_batches` is one production or supply lot of one item. A lot label is
+unique within an item, not across the company: the same label on two different
+parts is two rows, and uniqueness is `(company_id, item_id, batch_number)`. It
+carries the supplier's own reference, manufactured/received/expiry dates, the
+original quantity, a default unit cost and `status`.
+
+```
+BatchStatus: ACTIVE -> QUARANTINED -> ACTIVE
+             ACTIVE | QUARANTINED -> EXPIRED
+             any status -> CONSUMED
+```
+
+Quarantine and expiry require a reason; transitions are written to the audit log.
+Quarantine moves the lot's *available* stock to `QC_HOLD`. Reactivating changes
+the lot status only - the held quantity stays held until a separate QC release.
+A serialised lot is quarantined only when each position's in-stock serial count
+equals its available quantity. `EXPIRED` is set by the daily sweep past
+`expires_on`, and a past expiry date blocks issue even before the sweep runs.
+`CONSUMED` is automatic when that lot's company-wide quantity across on-hand,
+in-transit, job-work and scrap reaches zero.
+
+`stock_serials` is one physical unit of one item. Uniqueness is
+`(company_id, item_id, serial_number)`: the same label may legitimately belong to
+two different manufacturers' parts. `batch_id`, `warehouse_id` and `location_id`
+record the unit's lot and last position. The position columns are nullable until
+a registered label is given a position, and are not cleared on issue, dispatch or
+scrap: the last known location is part of the trace, and `status` says whether the
+unit is still there. Status is
+`IN_STOCK | IN_TRANSIT | ISSUED | DISPATCHED | RETURNED | SCRAPPED`.
+`SERIAL_MOVEMENT_TARGETS` in the inventory service is the single mapping from a
+transaction type to the status it leaves the unit in, and the same mapping decides
+which movements must name a unit. One movement carries at most one unit, so a
+serialised document posts one ledger row per unit.
+
+Every movement can carry `batch_id` and `serial_id`; the batch is part of the
+balance grain, so a batch position is a distinct row in `inventory_balances`.
+These documents keep the identity they captured:
+
+| Table | Traceability columns |
+|---|---|
+| `goods_receipt_lines` | `serial_numbers` (typed/scanned labels), `serial_ids` (resolved units) |
+| `production_entries` | `output_batch_id`, `output_serial_ids`, `output_transaction_ids` |
+| `assembly_orders` | `output_batch_id`, `output_serial_ids` |
+| `assembly_order_components` | `is_batch_tracked_component`, `issued_batch_id`, `consumed_batch_id` |
+| `stock_transfer_lines` | `batch_id`, `serial_ids`, `dispatch_transaction_ids`; count check against `quantity` |
+| `stock_adjustment_lines` | `batch_id`, `serial_ids`; count check against `abs(quantity)` |
+| `job_work_order_lines` | `is_batch_tracked`, `batch_id` |
+| `job_work_challan_lines` | `batch_id` |
+| `job_work_receipt_lines` | `batch_id` |
+
+FEFO picking uses `(expires_on NULLS LAST, received_on, id)`. When a caller names
+no lot on `MATERIAL_ISSUE`, `DISPATCH`, `ASSEMBLY_CONSUME`, `JOB_WORK_ISSUE` or
+`TRANSFER_OUT`, the engine picks the earliest-expiring `ACTIVE`, unexpired lot at
+the exact position that can cover the whole line; it never splits a line across
+lots. An explicit lot always wins. A stock transfer document still keys its lot
+explicitly because both legs must address the same grain; the `TRANSFER_OUT`
+fallback serves a direct movement that has no document-level lot to replay.
+
+`TraceabilityService` is the public contract for the registers:
+
+```python
+async def create_batch(payload: StockBatchCreate) -> StockBatchRead
+async def list_batches(...) -> tuple[list[StockBatchRead], OffsetPagination]
+async def quarantine_batch(batch_id, payload: StockBatchAction) -> StockBatchRead
+async def activate_batch(batch_id, payload: StockBatchAction) -> StockBatchRead
+async def expire_batch(batch_id, payload: StockBatchAction) -> StockBatchRead
+async def sweep_expiry(*, warn_days: int = BATCH_EXPIRY_WARN_DAYS) -> ExpirySweepResult
+
+async def create_serial(payload: StockSerialCreate) -> StockSerialRead
+async def bulk_create_serials(payload: StockSerialBulkCreate) -> list[StockSerialRead]
+async def resolve_serial_ids(item_id, serial_numbers, *, batch_id, warehouse_id,
+                              location_id, received_on, unit_cost, source) -> list[uuid.UUID]
+async def get_serial(serial_id) -> StockSerialDetail
+```
+
+`GET/POST /inventory/batches`, the three batch action routes,
+`GET/POST /inventory/serials` and `POST /inventory/serials/bulk` expose those
+operations. Reads require `inventory.view`; recording a lot, changing its
+lifecycle or minting a unit requires `inventory.batch_manage`. The expiry sweep
+runs from the maintenance worker and sends at most one `STOCK_EXPIRY` digest per
+company per day; it does not delete or move expired stock.
 
 ## 5. BOM engine
 

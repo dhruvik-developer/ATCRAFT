@@ -311,7 +311,7 @@ function MfaCard() {
       setCode('')
       setSetupResult(null)
       toast.success(
-        'Two-factor authentication enabled',
+        success.enabled('Two-factor authentication'),
         `${result.revoked_sessions} other session(s) were signed out.`,
       )
       await refreshUser()
@@ -328,7 +328,7 @@ function MfaCard() {
       setCurrentPassword('')
       setCode('')
       toast.success(
-        'Two-factor authentication disabled',
+        success.disabled('Two-factor authentication'),
         `${result.revoked_sessions} other session(s) were signed out.`,
       )
       await refreshUser()

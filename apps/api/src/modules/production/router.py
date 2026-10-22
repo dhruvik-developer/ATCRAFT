@@ -46,7 +46,8 @@ from src.core.deps import (
     require_any_permission,
     require_permission,
 )
-from src.core.pagination import PageParams, SortParams, page_params, sort_params
+from src.core.messages import success_message
+from src.core.pagination import PageParams, SortParams, bind_query_filters, page_params, sort_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
 from src.modules.production import service
@@ -131,7 +132,8 @@ def order_filters(
     ] = None,
     search: Annotated[str | None, Query(max_length=64, description="Order code")] = None,
 ) -> ProductionOrderFilters:
-    return ProductionOrderFilters(
+    return bind_query_filters(
+        ProductionOrderFilters,
         status=status_filter,
         open_only=open_only,
         item_id=item_id,
@@ -155,7 +157,8 @@ def issue_filters(
     issued_to: Annotated[date | None, Query()] = None,
     search: Annotated[str | None, Query(max_length=64, description="Document code")] = None,
 ) -> MaterialIssueFilters:
-    return MaterialIssueFilters(
+    return bind_query_filters(
+        MaterialIssueFilters,
         production_order_id=production_order_id,
         issue_type=issue_type,
         status=status_filter,
@@ -179,7 +182,8 @@ def entry_filters(
         bool, Query(description="Only bookings that received finished goods")
     ] = False,
 ) -> ProductionEntryFilters:
-    return ProductionEntryFilters(
+    return bind_query_filters(
+        ProductionEntryFilters,
         production_order_id=production_order_id,
         work_order_id=work_order_id,
         operator_user_id=operator_user_id,
@@ -208,7 +212,8 @@ def work_order_filters(
         date | None, Query(description="Only operations planned on or before this date")
     ] = None,
 ) -> WorkOrderFilters:
-    return WorkOrderFilters(
+    return bind_query_filters(
+        WorkOrderFilters,
         production_order_id=production_order_id,
         status=status_filter,
         work_center_id=work_center_id,
@@ -231,7 +236,8 @@ def wip_filters(
         bool, Query(description="Only jobs whose planned finish has passed")
     ] = False,
 ) -> WipFilters:
-    return WipFilters(
+    return bind_query_filters(
+        WipFilters,
         warehouse_id=warehouse_id,
         plant_id=plant_id,
         item_id=item_id,
@@ -245,7 +251,8 @@ def capacity_filters(
     date_to: Annotated[date | None, Query(description="Last date on the board")] = None,
     work_center_id: Annotated[uuid.UUID | None, Query()] = None,
 ) -> CapacityFilters:
-    return CapacityFilters(
+    return bind_query_filters(
+        CapacityFilters,
         date_from=date_from,
         date_to=date_to,
         work_center_id=work_center_id,
@@ -412,7 +419,7 @@ async def cancel_material_issue(
 ) -> ApiResponse[MaterialIssueRead]:
     issue = await service.cancel_material_issue(session, tenant, issue_id, payload.reason)
     return ApiResponse[MaterialIssueRead].ok(
-        MaterialIssueRead.model_validate(issue), f"{issue.code} cancelled"
+        MaterialIssueRead.model_validate(issue), success_message(f"{issue.code}", "cancelled")
     )
 
 
@@ -539,7 +546,8 @@ async def create_order(
 ) -> ApiResponse[ProductionOrderRead]:
     order = await service.create_order(session, tenant, payload)
     return ApiResponse[ProductionOrderRead].ok(
-        ProductionOrderRead.model_validate(order), f"Production order {order.code} created"
+        ProductionOrderRead.model_validate(order),
+        success_message(f"Production order {order.code}", "created"),
     )
 
 
@@ -592,7 +600,7 @@ async def update_order(
 ) -> ApiResponse[ProductionOrderRead]:
     order = await service.update_order(session, tenant, order_id, payload)
     return ApiResponse[ProductionOrderRead].ok(
-        ProductionOrderRead.model_validate(order), f"{order.code} updated"
+        ProductionOrderRead.model_validate(order), success_message(f"{order.code}", "updated")
     )
 
 
@@ -610,7 +618,7 @@ async def delete_order(
     order_id: uuid.UUID, reason: ReasonQuery, session: DbSession, tenant: Tenant
 ) -> ApiResponse[None]:
     await service.delete_draft_order(session, tenant, order_id, reason=reason)
-    return ApiResponse[None].ok(None, "Draft production order deleted")
+    return ApiResponse[None].ok(None, success_message("Draft production order", "deleted"))
 
 
 # -----------------------------------------------------------------------------
@@ -637,7 +645,7 @@ async def approve_order(
 ) -> ApiResponse[ProductionOrderRead]:
     order = await service.approve_order(session, tenant, principal, order_id, payload)
     return ApiResponse[ProductionOrderRead].ok(
-        ProductionOrderRead.model_validate(order), f"{order.code} approved"
+        ProductionOrderRead.model_validate(order), success_message(f"{order.code}", "approved")
     )
 
 
@@ -679,7 +687,7 @@ async def start_order(
 ) -> ApiResponse[ProductionOrderRead]:
     order = await service.start_order(session, tenant, order_id, payload)
     return ApiResponse[ProductionOrderRead].ok(
-        ProductionOrderRead.model_validate(order), f"{order.code} started"
+        ProductionOrderRead.model_validate(order), success_message(f"{order.code}", "started")
     )
 
 
@@ -748,7 +756,7 @@ async def cancel_order(
 ) -> ApiResponse[ProductionOrderRead]:
     order = await service.cancel_order(session, tenant, order_id, payload)
     return ApiResponse[ProductionOrderRead].ok(
-        ProductionOrderRead.model_validate(order), f"{order.code} cancelled"
+        ProductionOrderRead.model_validate(order), success_message(f"{order.code}", "cancelled")
     )
 
 
@@ -810,7 +818,9 @@ async def create_material_issue(
         session, tenant, order_id, payload, issue_type=MaterialIssueType.ISSUE
     )
     detail = service.issue_detail(issue, lines)
-    return ApiResponse[MaterialIssueDetail].ok(detail, f"Material issue {issue.code} drafted")
+    return ApiResponse[MaterialIssueDetail].ok(
+        detail, success_message(f"Material issue {issue.code}", "drafted")
+    )
 
 
 @router.post(
@@ -835,7 +845,9 @@ async def create_material_return(
         session, tenant, order_id, payload, issue_type=MaterialIssueType.RETURN
     )
     detail = service.issue_detail(issue, lines)
-    return ApiResponse[MaterialIssueDetail].ok(detail, f"Material return {issue.code} drafted")
+    return ApiResponse[MaterialIssueDetail].ok(
+        detail, success_message(f"Material return {issue.code}", "drafted")
+    )
 
 
 # -----------------------------------------------------------------------------

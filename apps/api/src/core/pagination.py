@@ -29,7 +29,6 @@ from typing import Annotated, Any, Literal, TypeVar
 
 from fastapi import Query
 from pydantic import BaseModel, Field, field_validator
-from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import Select, func, select
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,13 +38,13 @@ from sqlalchemy.sql.elements import UnaryExpression
 
 from src.core.errors import ValidationError
 from src.core.logging import get_logger
-from src.core.messages import FIELDS_NEED_ATTENTION
 from src.core.responses import (
     CursorPaginatedResponse,
     CursorPagination,
     OffsetPagination,
     PaginatedResponse,
 )
+from src.core.validation import bind_request_model
 
 log = get_logger(__name__)
 
@@ -143,15 +142,7 @@ def bind_query_filters(model: type[FilterT], **values: object) -> FilterT:
     A rule written as a ``field_validator`` on the upper-bound field reports
     against ``query.<field>``; a ``model_validator`` reports against ``query``.
     """
-    try:
-        return model(**values)
-    except PydanticValidationError as exc:
-        fields: dict[str, list[str]] = {}
-        for error in exc.errors():
-            location = ".".join(str(part) for part in error.get("loc", ()))
-            key = f"query.{location}" if location else "query"
-            fields.setdefault(key, []).append(error.get("msg", "Invalid value"))
-        raise ValidationError(FIELDS_NEED_ATTENTION, details={"fields": fields}) from exc
+    return bind_request_model(model, values, source="query")
 
 
 def _order_key(clause: Any) -> Any:

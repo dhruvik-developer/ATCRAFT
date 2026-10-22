@@ -134,7 +134,7 @@ describe('linking a vendor', () => {
     const dialog = await screen.findByRole('dialog')
     await user.click(within(dialog).getByRole('button', { name: /link vendor/i }))
 
-    expect(await within(dialog).findByText('Choose a vendor')).toBeVisible()
+    expect(await within(dialog).findByText('Choose a vendor.')).toBeVisible()
     expect(fetch.calls.some((call) => call.method === 'POST')).toBe(false)
   })
 })

@@ -56,7 +56,7 @@ import {
 } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatQuantity, humanise, toDateInput, toDecimal } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -446,20 +446,20 @@ export function CloseProductionDialog({
 
 const orderSchema = z
   .object({
-    item_id: z.string().min(1, 'Choose the item to be made'),
+    item_id: z.string().min(1, validation.choose('the item to be made')),
     bom_id: z.string(),
     planned_quantity: z
       .string()
       .trim()
       .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places')
       .refine((value) => toDecimal(value).greaterThan(0), 'Quantity must be more than zero'),
-    planned_start_date: z.string().min(1, 'A planned start is required'),
+    planned_start_date: z.string().min(1, validation.required('Planned start')),
     // Required by the API, not optional: `ProductionOrderCreate` names both
     // dates and the output warehouse without defaults.
-    planned_end_date: z.string().min(1, 'A planned end is required'),
+    planned_end_date: z.string().min(1, validation.required('Planned end')),
     // A plain integer, lower being more urgent. There is no priority enum.
     priority: z.string().trim().regex(WHOLE, 'Priority is a whole number'),
-    warehouse_id: z.string().min(1, 'Choose the warehouse the output is received into'),
+    warehouse_id: z.string().min(1, validation.choose('the warehouse the output is received into')),
     /** Empty means unallocated - the order carries no cost centre. */
     cost_centre_id: z.string(),
     /**
@@ -1717,7 +1717,7 @@ export function RecordProductionDialog({
       // The API says whether the booking actually posted a receipt; a booking of
       // rejects alone does not, and claiming it did would be a lie a store
       // keeper reconciles against later.
-      toast.success('Production booked', result.message)
+      toast.success(success.booked('Production'), result.message)
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),

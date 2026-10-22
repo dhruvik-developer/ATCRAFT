@@ -12,6 +12,7 @@ from src.core.deps import (
     forbid_vendor_users,
     require_permission,
 )
+from src.core.messages import success_message
 from src.core.pagination import PageParams, page_params
 from src.core.permissions import Permission
 from src.core.responses import COMMON_ERROR_RESPONSES, ApiResponse, PaginatedResponse
@@ -56,7 +57,8 @@ async def create_sales_return(
     payload: SalesReturnCreate, session: DbSession, tenant: Tenant
 ) -> ApiResponse[SalesReturnDetail]:
     return ApiResponse[SalesReturnDetail].ok(
-        await service.create_return(session, tenant, payload), "Sales return created"
+        await service.create_return(session, tenant, payload),
+        success_message("Sales return", "created"),
     )
 
 
@@ -81,7 +83,7 @@ async def receive_sales_return(
 ) -> ApiResponse[SalesReturnDetail]:
     return ApiResponse[SalesReturnDetail].ok(
         await service.transition_return(session, tenant, return_id, SalesReturnStatus.RECEIVED),
-        "Sales return received",
+        success_message("Sales return", "received"),
     )
 
 
@@ -112,7 +114,7 @@ async def close_sales_return(
 ) -> ApiResponse[SalesReturnDetail]:
     return ApiResponse[SalesReturnDetail].ok(
         await service.transition_return(session, tenant, return_id, SalesReturnStatus.CLOSED),
-        "Sales return closed",
+        success_message("Sales return", "closed"),
     )
 
 
@@ -135,5 +137,5 @@ async def cancel_sales_return(
             SalesReturnStatus.CANCELLED,
             reason=payload.reason,
         ),
-        "Sales return cancelled",
+        success_message("Sales return", "cancelled"),
     )

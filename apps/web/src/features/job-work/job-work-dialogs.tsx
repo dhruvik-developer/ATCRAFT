@@ -50,6 +50,7 @@ import { applyFieldErrors } from '@/lib/form-errors'
 import { formatQuantity, humanise, toDateInput, toDecimal } from '@/lib/format'
 import { P } from '@/lib/permissions'
 import { queryKeys } from '@/lib/query-client'
+import { success, validation } from '@/lib/messages'
 import { toast } from '@/lib/toast'
 import type { SchemaOf } from '@/types/api'
 
@@ -214,7 +215,7 @@ export function JobWorkIssueDialog({
       // balances and any reservation against it move with it.
       void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.allocation.all })
-      toast.success('Challan raised', `Material was issued against ${orderCode}.`)
+      toast.success(success.raised('Challan'), `Material was issued against ${orderCode}.`)
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),
@@ -650,7 +651,7 @@ export function JobWorkReceiveDialog({
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: jobWorkKeys.all })
       void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
-      toast.success('Receipt recorded', `Output was received against ${orderCode}.`)
+      toast.success(success.recorded('Receipt'), `Output was received against ${orderCode}.`)
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),
@@ -1009,7 +1010,7 @@ export function JobWorkReceiveDialog({
  */
 
 const verdictSchema = z.object({
-  reason: z.string().trim().min(1, 'A reason is required.').max(500),
+  reason: z.string().trim().min(1, validation.required('Reason')).max(500),
   lines: z.array(
     z.object({
       line_number: z.number(),
@@ -1087,7 +1088,10 @@ export function JobWorkQcResultDialog({
       // Accepted output leaves QC hold and becomes promisable, so every stock
       // figure on every other screen has moved.
       void queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all })
-      toast.success('Verdict recorded', `The held output on ${orderCode} has been decided.`)
+      toast.success(
+        success.recorded('Verdict'),
+        `The held output on ${orderCode} has been decided.`,
+      )
       onOpenChange(false)
     },
     onError: (error) => applyFieldErrors(error, setError),

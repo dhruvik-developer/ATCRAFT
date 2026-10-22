@@ -115,7 +115,7 @@ import { api } from '@/lib/api-client'
 import { PICKER_PAGE_SIZE, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
 import { formatDate, formatMoney, formatQuantity, toDateInput, toDecimal } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -178,7 +178,7 @@ const lineSchema = z.object({
     .string()
     .trim()
     .regex(QUANTITY, 'Enter a quantity with up to 4 decimal places')
-    .refine((v) => toDecimal(v).greaterThan(0), 'Quantity must be greater than zero'),
+    .refine((v) => toDecimal(v).greaterThan(0), validation.positive('Quantity')),
   uom_id: z.string(),
   unit_price: z.string().trim().regex(UNIT_PRICE, 'Enter a price with up to 6 decimal places'),
   discount_amount: z.string().trim().regex(MONEY_OR_BLANK, 'Up to 4 decimal places'),
@@ -206,7 +206,7 @@ const lineSchema = z.object({
 
 const schema = z
   .object({
-    vendor_id: z.string().min(1, 'Choose the vendor who sent the bill'),
+    vendor_id: z.string().min(1, validation.choose('the vendor who sent the bill')),
     vendor_invoice_number: z
       .string()
       .trim()
@@ -215,7 +215,7 @@ const schema = z
         MAX_VENDOR_INVOICE_NUMBER_LENGTH,
         `At most ${MAX_VENDOR_INVOICE_NUMBER_LENGTH} characters`,
       ),
-    invoice_date: z.string().min(1, 'Invoice date is required'),
+    invoice_date: z.string().min(1, validation.required('Invoice date')),
     due_date: z.string(),
     // Case is normalised on the way out, so a clerk typing "inr" is not scolded
     // for it; the API's own pattern is `^[A-Z]{3}$`.

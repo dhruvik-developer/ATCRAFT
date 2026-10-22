@@ -151,6 +151,7 @@ const SCREENS = [
   { file: '71-inventory-ledger', route: '/inventory/ledger', title: 'Stock ledger' },
   { file: '72-reservations', route: '/inventory/reservations', title: 'Reservations' },
   { file: '73-movements', route: '/inventory/movements', title: 'Transfers, adjustments and counts' },
+  { file: '73a-tracking', route: '/inventory/tracking', title: 'Batch and serial tracking' },
   { file: '74-warehouses', route: '/warehouses', title: 'Warehouses' },
   { file: '75-locations', route: '/warehouses/locations', title: 'Storage locations' },
 

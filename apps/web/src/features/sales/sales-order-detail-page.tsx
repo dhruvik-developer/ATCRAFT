@@ -554,7 +554,7 @@ export default function SalesOrderDetailPage() {
       api.post(`/sales/${orderId}/close`, { reason: 'Fully invoiced order closed from detail' }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.sales.all })
-      toast.success('Sales order closed')
+      toast.success(success.closed('Sales order'))
     },
   })
   const [lineEditor, setLineEditor] = useState<{ index: number | null } | null>(null)
@@ -699,7 +699,7 @@ export default function SalesOrderDetailPage() {
       api.patch<SalesOrderDetail>(`/sales/${orderId}`, { lines: renumber(lines) }),
     onSuccess: () => {
       invalidateOrderAndStock()
-      toast.success(success.saved('Lines'), 'The order totals have been recalculated by the API.')
+      toast.success(success.saved('Lines'), 'The order totals have been recalculated.')
       setLineEditor(null)
       setPendingLineDelete(null)
     },

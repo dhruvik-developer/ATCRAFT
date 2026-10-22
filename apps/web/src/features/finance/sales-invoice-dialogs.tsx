@@ -144,7 +144,7 @@ function CreditNoteDialog({
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: salesInvoiceKeys.all })
       void queryClient.invalidateQueries({ queryKey: ['finance', 'credit-notes'] })
-      toast.success('Credit note issued')
+      toast.success(success.issued('Credit note'))
       onClose()
     },
   })

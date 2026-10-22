@@ -6,10 +6,10 @@ import asyncio
 
 import httpx
 import pytest
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 import src.main as main_module
 from src.core.config import AppEnv
+from src.core.middleware import TrustedHostMiddleware
 
 pytestmark = pytest.mark.unit
 
@@ -37,6 +37,11 @@ async def test_invalid_host_is_rejected_before_request_processing(
         response = await client.get("/health/live")
 
     assert response.status_code == 400
+    assert response.json() == {
+        "success": False,
+        "error": {"code": "VALIDATION_ERROR", "message": "Invalid host header", "details": None},
+        "request_id": None,
+    }
     assert "x-request-id" not in response.headers
     assert "x-content-type-options" not in response.headers
 

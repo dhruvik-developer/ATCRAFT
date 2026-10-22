@@ -32,6 +32,8 @@ import json
 import sys
 from pathlib import Path
 
+from scripts.response_contract import validate_response_contract
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUTPUT = REPO_ROOT / "openapi.json"
 
@@ -53,6 +55,10 @@ def build_spec() -> dict:
     spec = app.openapi()
     if not spec.get("paths"):
         raise SystemExit("OpenAPI document has no paths; refusing to write an empty contract.")
+    try:
+        validate_response_contract(spec)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     return spec
 
 

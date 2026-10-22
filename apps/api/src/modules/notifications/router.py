@@ -21,7 +21,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from src.core.deps import DbSession, Tenant, require_permission
-from src.core.pagination import CursorParams, cursor_params
+from src.core.messages import success_message
+from src.core.pagination import CursorParams, bind_query_filters, cursor_params
 from src.core.permissions import Permission
 from src.core.responses import (
     COMMON_ERROR_RESPONSES,
@@ -53,8 +54,11 @@ def notification_filters(
     notification_type: Annotated[NotificationType | None, Query()] = None,
     severity: Annotated[NotificationSeverity | None, Query()] = None,
 ) -> NotificationFilters:
-    return NotificationFilters(
-        unread_only=unread_only, notification_type=notification_type, severity=severity
+    return bind_query_filters(
+        NotificationFilters,
+        unread_only=unread_only,
+        notification_type=notification_type,
+        severity=severity,
     )
 
 
@@ -128,7 +132,9 @@ async def update_preferences(
     session: DbSession, tenant: Tenant, payload: PreferencesUpdateRequest
 ) -> ApiResponse[list[NotificationPreferenceRead]]:
     preferences = await NotificationService(session, tenant).update_preferences(payload)
-    return ApiResponse[list[NotificationPreferenceRead]].ok(preferences, "Preferences saved")
+    return ApiResponse[list[NotificationPreferenceRead]].ok(
+        preferences, success_message("Preferences", "saved")
+    )
 
 
 @router.post(

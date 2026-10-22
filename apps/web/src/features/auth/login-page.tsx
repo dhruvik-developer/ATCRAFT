@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/primitives'
 import { useAuth } from '@/features/auth/auth-context'
 import { ApiError } from '@/lib/api-client'
+import { validation } from '@/lib/messages'
 
 /**
  * How long to hold the form when a 429 arrives without a usable wait.
@@ -52,12 +53,12 @@ interface LoginErrors {
 
 function validate(email: string, password: string): LoginErrors {
   const errors: LoginErrors = {}
-  if (email.trim() === '') errors.email = 'Email is required'
-  else if (!EMAIL_SHAPE.test(email.trim())) errors.email = 'Enter a valid email address'
+  if (email.trim() === '') errors.email = validation.required('Email')
+  else if (!EMAIL_SHAPE.test(email.trim())) errors.email = validation.email
   // No complexity rules on the *login* form: the policy is enforced when a
   // password is set. Rejecting a legacy password here would lock out a user the
   // API would happily authenticate and then upgrade.
-  if (password === '') errors.password = 'Password is required'
+  if (password === '') errors.password = validation.required('Password')
   return errors
 }
 

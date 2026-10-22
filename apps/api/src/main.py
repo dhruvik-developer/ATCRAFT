@@ -14,10 +14,8 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Response
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from starlette.middleware.gzip import DEFAULT_EXCLUDED_CONTENT_TYPES
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import Message, Receive, Scope, Send
 
 from src.api.router import api_router, register_module_routers
@@ -28,10 +26,12 @@ from src.core.exception_handlers import register_exception_handlers
 from src.core.logging import configure_logging, get_logger
 from src.core.middleware import (
     BodySizeLimitMiddleware,
+    CORSMiddleware,
     HttpMiddleware,
     RateLimitMiddleware,
     RequestContextMiddleware,
     SecurityHeadersMiddleware,
+    TrustedHostMiddleware,
     is_final_body_message,
 )
 from src.core.observability import (
@@ -111,7 +111,9 @@ and dispatch.
 
 **Conventions**
 
-* Every response uses the standard envelope: `{"success", "data", "message"}`.
+* JSON successes use `{"success": true, "data": ..., "message": "..."}`;
+  failures use `{"success": false, "error": {...}, "request_id": "..."}`.
+* Lists add pagination; downloads retain their binary content type.
 * List endpoints are paginated. Nothing returns an unbounded result set.
 * Authentication is a bearer access token; refresh tokens rotate on use.
 * Authorisation is permission-based and enforced server-side on every route.

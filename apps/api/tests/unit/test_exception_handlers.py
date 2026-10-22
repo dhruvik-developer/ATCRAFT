@@ -253,3 +253,37 @@ async def test_pydantics_own_messages_pass_through_unchanged() -> None:
     response = await validation_error_handler(_request(), error)
 
     assert _body(response)["error"]["details"]["fields"] == {"code": ["Field required"]}
+
+
+@pytest.mark.parametrize(
+    ("location", "field"),
+    [
+        (("body", "lines", 0, "body", "quantity"), "lines.0.body.quantity"),
+        (("body",), "_root"),
+        (("query", "date_to"), "query.date_to"),
+        (("query",), "query"),
+        (("path", "item_id"), "path.item_id"),
+        (("header", "x-request-id"), "header.x-request-id"),
+        (("cookie", "session"), "cookie.session"),
+    ],
+)
+async def test_validation_paths_preserve_nested_body_fields_and_transport_names(
+    location: tuple[str | int, ...], field: str
+) -> None:
+    response = await validation_error_handler(
+        _request(),
+        RequestValidationError(
+            [
+                {
+                    "type": "missing",
+                    "loc": location,
+                    "msg": "Field required",
+                    "input": "private submitted value",
+                    "ctx": {"private": "internal context"},
+                }
+            ]
+        ),
+    )
+    assert _body(response)["error"]["details"] == {"fields": {field: ["Field required"]}}
+    assert "private" not in response.body.decode()
+    assert "internal context" not in response.body.decode()

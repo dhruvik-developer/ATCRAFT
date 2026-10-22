@@ -53,7 +53,7 @@ import { api } from '@/lib/api-client'
 import { NOTIFICATION_POLL_MS, SELECT_ALL } from '@/lib/constants'
 import { fieldErrorSummary } from '@/lib/form-errors'
 import { formatDateTime, formatRelative, humanise } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { notificationsRead, success } from '@/lib/messages'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
@@ -244,12 +244,8 @@ function InboxTab() {
       invalidate()
       const marked = result?.marked ?? 0
       const remaining = result?.remaining_unread ?? 0
-      toast.success(
-        'All caught up',
-        remaining > 0
-          ? `${marked} notification(s) marked as read; ${remaining} still unread.`
-          : `${marked} notification(s) marked as read.`,
-      )
+      const message = notificationsRead(marked, remaining)
+      toast.success(message.title, message.description)
     },
   })
 

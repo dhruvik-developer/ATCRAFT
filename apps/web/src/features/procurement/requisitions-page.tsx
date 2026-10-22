@@ -178,7 +178,7 @@ const COMMANDS: Record<
     reasonLabel: 'Reason',
     reasonHint: 'The audit row is all that survives the draft, so it needs to say why.',
     toastTitle: success.deleted('Draft requisition'),
-    toastBody: (code) => `${code} is gone.`,
+    toastBody: (code) => `${code} was deleted.`,
   },
   close: {
     title: (code) => `Close ${code}?`,

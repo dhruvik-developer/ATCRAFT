@@ -44,7 +44,7 @@ import {
 } from '@/components/ui/overlays'
 import { Input, Skeleton } from '@/components/ui/primitives'
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES, SEARCH_DEBOUNCE_MS } from '@/lib/constants'
-import { empty } from '@/lib/messages'
+import { describeError, empty } from '@/lib/messages'
 import { cn } from '@/lib/utils'
 import type { OffsetPagination } from '@/types/api'
 
@@ -359,7 +359,7 @@ export function DataTable<T>({
                 <tr>
                   <td colSpan={visibleColumnCount} className="px-3 py-12 text-center">
                     <p className="font-medium text-destructive">{empty.loadFailedTitle}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">{error.message}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{describeError(error)}</p>
                     {onRefresh && (
                       <Button variant="outline" size="sm" onClick={onRefresh} className="mt-4">
                         <RefreshCw />

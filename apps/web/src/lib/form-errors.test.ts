@@ -35,6 +35,32 @@ describe('form error paths', () => {
       orphans: ['At least one line is required', 'Must be an integer'],
     })
   })
+
+  it('treats bare and nested transport parameters as orphan errors', () => {
+    const error = validationError({
+      query: ['Choose a bounded date range.'],
+      'path.id': ['Enter a valid identifier.'],
+      header: ['A required header is missing.'],
+      'cookie.session': ['Sign in again.'],
+      quantity: ['Enter a positive quantity.'],
+    })
+    expect(partitionFieldErrors(error)).toEqual({
+      fields: { quantity: ['Enter a positive quantity.'] },
+      orphans: [
+        'Choose a bounded date range.',
+        'Enter a valid identifier.',
+        'A required header is missing.',
+        'Sign in again.',
+      ],
+    })
+  })
+
+  it('ignores empty field messages so they cannot silence the global error notice', () => {
+    expect(partitionFieldErrors(validationError({ quantity: [], _root: ['  '] }))).toEqual({
+      fields: {},
+      orphans: [],
+    })
+  })
 })
 
 describe('applyFieldErrors', () => {
@@ -75,6 +101,18 @@ describe('applyFieldErrors', () => {
     expect(setError).toHaveBeenCalledWith('code', {
       type: 'server',
       message: 'Required. Must be unique',
+    })
+  })
+
+  it('preserves punctuation when the API already sends complete sentences', () => {
+    const setError = vi.fn()
+    applyFieldErrors(
+      validationError({ code: ['Code is required.', 'Choose a unique code.'] }),
+      setError,
+    )
+    expect(setError).toHaveBeenCalledWith('code', {
+      type: 'server',
+      message: 'Code is required. Choose a unique code.',
     })
   })
 

@@ -36,6 +36,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query, Response, status
 
 from src.core.deps import DbSession, Tenant, require_permission
+from src.core.messages import success_message
 from src.core.pagination import (
     PageParams,
     SortParams,
@@ -108,7 +109,8 @@ def suggestion_filters(
     ] = False,
     search: Annotated[str | None, Query(max_length=120, description="Item code")] = None,
 ) -> SuggestionFilters:
-    return SuggestionFilters(
+    return bind_query_filters(
+        SuggestionFilters,
         suggestion_type=suggestion_type,
         status=status_filter,
         item_id=item_id,
@@ -125,8 +127,12 @@ def shortage_filters(
     shortage_only: Annotated[bool, Query()] = True,
     search: Annotated[str | None, Query(max_length=120, description="Item code")] = None,
 ) -> ShortageReportFilters:
-    return ShortageReportFilters(
-        run_id=run_id, item_id=item_id, shortage_only=shortage_only, search=search
+    return bind_query_filters(
+        ShortageReportFilters,
+        run_id=run_id,
+        item_id=item_id,
+        shortage_only=shortage_only,
+        search=search,
     )
 
 
@@ -161,8 +167,14 @@ ShortageFilterDep = Annotated[ShortageReportFilters, Depends(shortage_filters)]
             "model": AcceptedJobResponse,
             "description": "Run queued; poll the status URL for progress",
         },
-        409: {"description": "A planning run is already in progress for this company"},
-        429: {"description": "This company has started too many runs; see Retry-After"},
+        409: {
+            **COMMON_ERROR_RESPONSES[409],
+            "description": "A planning run is already in progress for this company",
+        },
+        429: {
+            **COMMON_ERROR_RESPONSES[429],
+            "description": "This company has started too many runs; see Retry-After",
+        },
     },
     dependencies=[require_permission(Permission.MRP_RUN)],
 )
@@ -180,7 +192,7 @@ async def start_run(
             status_url=service.status_url(run.id),
             message=(f"Planning run {run.code} queued with {run.demand_line_count} demand lines."),
         )
-    return ApiResponse[MrpRunRead].ok(run, f"Planning run {run.code} completed")
+    return ApiResponse[MrpRunRead].ok(run, success_message(f"Planning run {run.code}", "completed"))
 
 
 @router.get(

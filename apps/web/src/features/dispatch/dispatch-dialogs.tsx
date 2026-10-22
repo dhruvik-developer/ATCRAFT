@@ -79,7 +79,7 @@ import {
   toDateInput,
   toDecimal,
 } from '@/lib/format'
-import { fulfilment, success } from '@/lib/messages'
+import { fulfilment, success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -541,10 +541,10 @@ const createSchema = z
     dispatch_type: z.enum(DISPATCH_TYPES),
     customer_id: z.string().nullable(),
     vendor_id: z.string().nullable(),
-    warehouse_id: z.string().min(1, 'Choose the warehouse this leaves from'),
+    warehouse_id: z.string().min(1, validation.choose('the warehouse this leaves from')),
     sales_order_id: z.string(),
 
-    dispatch_date: z.string().min(1, 'Dispatch date is required'),
+    dispatch_date: z.string().min(1, validation.required('Dispatch date')),
     expected_delivery_date: z.string(),
 
     transporter_id: z.string(),
@@ -1315,7 +1315,10 @@ function AddTrackingEventForm({ dispatchId }: { dispatchId: string }) {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.dispatch.all })
-      toast.success('Tracking event added', 'The timeline and the tracking board are updated.')
+      toast.success(
+        success.added('Tracking event'),
+        'The timeline and the tracking board are updated.',
+      )
       reset(emptyEvent())
     },
     onError: (error) => applyFieldErrors(error, setError),
@@ -1402,7 +1405,7 @@ function AddTrackingEventForm({ dispatchId }: { dispatchId: string }) {
 
 const editDispatchSchema = z
   .object({
-    dispatch_date: z.string().min(1, 'Dispatch date is required'),
+    dispatch_date: z.string().min(1, validation.required('Dispatch date')),
     expected_delivery_date: z.string(),
     transporter_id: z.string(),
     courier_name: z.string().trim().max(120, 'At most 120 characters'),

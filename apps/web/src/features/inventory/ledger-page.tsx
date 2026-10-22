@@ -54,16 +54,11 @@ const STOCK_STATE_TONE: Partial<Record<StockState, 'secondary' | 'warning' | 'de
   RETURN: 'warning',
 }
 
-/**
- * `api.getPage` returns the response envelope untouched; only its TypeScript
- * shape assumes offset pagination. The ledger's envelope is cursor-shaped, so it
- * is re-typed here rather than widening the shared client for one endpoint.
- */
+/** The append-only ledger uses the client's validated cursor envelope. */
 async function fetchLedgerPage(
   params: Record<string, unknown>,
 ): Promise<CursorEnvelope<InventoryLedgerRow>> {
-  const envelope = await api.getPage<InventoryLedgerRow>('/inventory/ledger', { params })
-  return envelope as unknown as CursorEnvelope<InventoryLedgerRow>
+  return api.getCursorPage<InventoryLedgerRow>('/inventory/ledger', { params })
 }
 
 /**

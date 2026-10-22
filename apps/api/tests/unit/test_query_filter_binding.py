@@ -14,6 +14,7 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
+from pydantic import BaseModel, model_validator
 
 import src.modules.finance.router as finance_router
 import src.modules.mrp.router as mrp_router
@@ -47,12 +48,27 @@ class TestTheHelper:
         with pytest.raises(ValidationError) as exc:
             bind_query_filters(PeriodFilters, date_from=LATER, date_to=EARLIER)
         (message,) = exc.value.details["fields"]["query.date_to"]
-        assert "The period end cannot be before the period start." in message
+        assert message == "The period end cannot be before the period start."
 
     def test_a_missing_required_field_names_the_field(self) -> None:
         with pytest.raises(ValidationError) as exc:
             bind_query_filters(PeriodFilters, date_from=EARLIER)
         assert "query.date_to" in exc.value.details["fields"]
+
+    def test_a_model_rule_retains_the_query_root_and_its_own_message(self) -> None:
+        class PairedFilters(BaseModel):
+            first: str | None = None
+            second: str | None = None
+
+            @model_validator(mode="after")
+            def _paired(self) -> PairedFilters:
+                if bool(self.first) != bool(self.second):
+                    raise ValueError("Supply both filters together.")
+                return self
+
+        with pytest.raises(ValidationError) as exc:
+            bind_query_filters(PairedFilters, first="one")
+        assert exc.value.details["fields"] == {"query": ["Supply both filters together."]}
 
 
 class TestTheRouterDependencies:

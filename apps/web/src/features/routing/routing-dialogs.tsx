@@ -64,7 +64,7 @@ import {
   humanise,
   toDecimal,
 } from '@/lib/format'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -642,12 +642,12 @@ const operationSchema = z
     operation_code: z
       .string()
       .trim()
-      .min(1, 'An operation code is required')
+      .min(1, validation.required('Operation code'))
       .max(64, 'At most 64 characters'),
     operation_name: z
       .string()
       .trim()
-      .min(1, 'An operation name is required')
+      .min(1, validation.required('Operation name'))
       .max(255, 'At most 255 characters'),
     work_center_id: z.string().min(1, 'Every operation runs on a work centre'),
     setup_time_minutes: z.string().trim().regex(DECIMAL, 'Enter minutes, up to 4 decimals'),
@@ -679,11 +679,15 @@ const operationSchema = z
   })
 
 const routingSchema = z.object({
-  code: z.string().trim().min(1, 'Code is required').max(64, 'Code is at most 64 characters'),
+  code: z
+    .string()
+    .trim()
+    .min(1, validation.required('Code'))
+    .max(64, 'Code is at most 64 characters'),
   name: z.string().trim().max(255, 'Name is at most 255 characters'),
   // A routing always belongs to an item: `RoutingCreate.item_id` is required and
   // there is no such thing as a shared routing.
-  item_id: z.string().min(1, 'Choose the item this routing makes'),
+  item_id: z.string().min(1, validation.choose('the item this routing makes')),
   // No version and no status field: the API mints the version and moves the
   // status through its own approve/obsolete endpoints.
   notes: z.string().trim().max(1000, 'Notes are at most 1000 characters'),
@@ -1262,8 +1266,16 @@ export function RoutingFormDialog({
 // ---------------------------------------------------- work centre form ------
 
 const workCenterSchema = z.object({
-  code: z.string().trim().min(1, 'Code is required').max(64, 'Code is at most 64 characters'),
-  name: z.string().trim().min(1, 'Name is required').max(255, 'Name is at most 255 characters'),
+  code: z
+    .string()
+    .trim()
+    .min(1, validation.required('Code'))
+    .max(64, 'Code is at most 64 characters'),
+  name: z
+    .string()
+    .trim()
+    .min(1, validation.required('Name'))
+    .max(255, 'Name is at most 255 characters'),
   description: z.string().trim().max(1000, 'Description is at most 1000 characters'),
   capacity_per_hour: z.string().trim().regex(DECIMAL, 'Enter a number with up to 4 decimals'),
   cost_per_hour: z.string().trim().regex(DECIMAL, 'Enter an amount with up to 4 decimals'),
@@ -1519,8 +1531,16 @@ export function WorkCenterFormDialog({
 // -------------------------------------------------------- machine form ------
 
 const machineSchema = z.object({
-  code: z.string().trim().min(1, 'Code is required').max(64, 'Code is at most 64 characters'),
-  name: z.string().trim().min(1, 'Name is required').max(255, 'Name is at most 255 characters'),
+  code: z
+    .string()
+    .trim()
+    .min(1, validation.required('Code'))
+    .max(64, 'Code is at most 64 characters'),
+  name: z
+    .string()
+    .trim()
+    .min(1, validation.required('Name'))
+    .max(255, 'Name is at most 255 characters'),
   // Required: the API has no unassigned machine.
   work_center_id: z.string().min(1, 'A machine belongs to a work centre'),
   machine_type: z.string().trim().max(64, 'Type is at most 64 characters'),

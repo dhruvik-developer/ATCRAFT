@@ -15,14 +15,14 @@ daily, with a green build throughout - because nothing compared the two.
 
 Why the Pydantic model and not ``openapi.json``
 -----------------------------------------------
-Twenty-seven endpoints declare ``response_model=None``, the item master among
-them, and a response with no model produces an empty ``schema: {}`` in the
-contract. That is a deliberate choice where the shape depends on the caller -
+Some endpoints declare ``response_model=None``, the item master among them.
+That is a deliberate choice where the shape depends on the caller -
 ``get_item`` returns ``ItemDetailWithCost`` to a principal who may see costs and
 ``ItemDetail`` to one who may not, and a declared model would strip the costs
-from the first. The consequence is that the contract cannot describe those
-endpoints, which is precisely why the frontend hand-wrote the shape in the first
-place, and precisely why nothing caught the drift.
+from the first. Those endpoints now document their envelopes separately through
+the ``responses`` map, preserving permission filtering while publishing usable
+OpenAPI schemas. The frontend's remaining handwritten mirrors still need this
+guard until they are derived from the generated types.
 
 So this test anchors on the Pydantic model, which exists whatever the router
 declares. It is the authority in either case: the contract is generated from it.

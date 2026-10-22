@@ -63,7 +63,7 @@ import { useVendorCategoryOptions } from '@/features/vendors/vendor-types'
 import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH, SELECT_NONE } from '@/lib/constants'
 import { applyFieldErrors } from '@/lib/form-errors'
-import { success } from '@/lib/messages'
+import { success, validation } from '@/lib/messages'
 import { P } from '@/lib/permissions'
 import { queryKeys, staleTimes } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
@@ -83,8 +83,12 @@ import {
 
 function userSchema(isEdit: boolean) {
   return z.object({
-    email: z.string().trim().min(1, 'Email is required').email('Enter a valid email address'),
-    full_name: z.string().trim().min(1, 'Name is required').max(255, 'At most 255 characters'),
+    email: z.string().trim().min(1, validation.required('Email')).email(validation.email),
+    full_name: z
+      .string()
+      .trim()
+      .min(1, validation.required('Name'))
+      .max(255, 'At most 255 characters'),
     // On an edit the field means "set a new password"; blank leaves it alone.
     password: z
       .string()

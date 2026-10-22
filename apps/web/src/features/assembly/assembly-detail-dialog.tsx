@@ -1209,7 +1209,7 @@ export function AssemblyDetailDialog({
         await api.get<QcInspectionDetail>(`/quality/inspections/${order.qc_inspection_id}`),
       )
     } catch (error) {
-      toast.error('Could not open the inspection', (error as Error).message)
+      toast.failure(error, 'Could not open the inspection')
     } finally {
       setOpeningInspection(false)
     }

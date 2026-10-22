@@ -49,7 +49,7 @@ export interface RouteRequest {
   method: string
 }
 
-/** A response body, as `page()`, `ok()` and `fail()` build it. */
+/** A response body, as the envelope helpers build it. */
 export type RouteBody = Record<string, unknown>
 
 /**
@@ -71,19 +71,42 @@ export function page<T>(rows: T[], pagination: Record<string, unknown> = {}): Ro
   return {
     success: true,
     data: rows,
-    pagination: { page: 1, limit: 50, total: rows.length, pages: 1, ...pagination },
-    request_id: 'test',
+    pagination: {
+      page: 1,
+      limit: 50,
+      total: rows.length,
+      total_pages: rows.length ? 1 : 0,
+      has_next: false,
+      has_previous: false,
+      ...pagination,
+    },
+    message: 'Operation completed successfully',
+  }
+}
+
+/** Wrap append-only rows in the cursor envelope `api.getCursorPage` expects. */
+export function cursorPage<T>(rows: T[], pagination: Record<string, unknown> = {}): RouteBody {
+  return {
+    success: true,
+    data: rows,
+    pagination: { limit: 50, next_cursor: null, has_next: false, ...pagination },
+    message: 'Operation completed successfully',
   }
 }
 
 /** Wrap a single object in the plain envelope `api.get`/`api.post` unwrap. */
 export function ok<T>(data: T): RouteBody {
-  return { success: true, data, request_id: 'test' }
+  return { success: true, data, message: 'Operation completed successfully' }
 }
 
 /** An error body in the shape `toApiError` parses. */
 export function fail(status: number, code: string, message: string, details?: unknown): RouteBody {
-  return { __status: status, success: false, error: { code, message, details }, request_id: 'test' }
+  return {
+    __status: status,
+    success: false,
+    error: { code, message, details: details ?? null },
+    request_id: 'test',
+  }
 }
 
 /** The signed-in user `/auth/me` returns. */

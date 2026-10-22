@@ -997,7 +997,7 @@ export default function BomDetailPage() {
       if (key === 'delete' || !updated) {
         toast.success(
           success.deleted('Draft'),
-          `${bomCode} is gone, along with its lines and operations.`,
+          `${bomCode} was deleted, along with its lines and operations.`,
         )
         // `GET /bom/{id}` now answers 404. Replacing the history entry keeps
         // Back from returning to a page that can only fail.

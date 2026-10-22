@@ -36,7 +36,7 @@ import { api } from '@/lib/api-client'
 import { REASON_MAX_LENGTH, REASON_MIN_LENGTH } from '@/lib/constants'
 import { applyFieldErrors, reportFieldErrors } from '@/lib/form-errors'
 import { humanise } from '@/lib/format'
-import { messages, success } from '@/lib/messages'
+import { messages, success, validation } from '@/lib/messages'
 import { queryKeys } from '@/lib/query-client'
 import { toast } from '@/lib/toast'
 
@@ -135,16 +135,13 @@ function RemovalDialog({
 
 const contactSchema = z
   .object({
-    name: z.string().trim().min(1, 'Name is required').max(160, 'At most 160 characters'),
+    name: z.string().trim().min(1, validation.required('Name')).max(160, 'At most 160 characters'),
     contact_role: z.enum(VENDOR_CONTACT_ROLES),
     designation: z.string().trim().max(120, 'At most 120 characters'),
     email: z
       .string()
       .trim()
-      .refine(
-        (v) => v === '' || z.string().email().safeParse(v).success,
-        'Not a valid email address',
-      ),
+      .refine((v) => v === '' || z.string().email().safeParse(v).success, validation.email),
     phone: z.string().trim().max(32, 'At most 32 characters'),
     mobile: z.string().trim().max(32, 'At most 32 characters'),
     is_primary: z.boolean(),
@@ -259,7 +256,7 @@ export function VendorContactsPanel({ vendorId, canEdit }: { vendorId: string; c
       api.delete(`/vendors/contacts/${contact.id}`, { params: { reason } }),
     onSuccess: (_result, { contact }) => {
       void invalidate()
-      toast.success('Contact removed', contact.name)
+      toast.success(success.removed('Contact'), contact.name)
       setPendingDelete(null)
     },
     // The reason travels as a query parameter, so its 422 has no form control.
@@ -504,7 +501,7 @@ export function VendorContactsPanel({ vendorId, canEdit }: { vendorId: string; c
 // ------------------------------------------------------------ categories ----
 
 const categorySchema = z.object({
-  item_category_id: z.string().min(1, 'Choose an item category'),
+  item_category_id: z.string().min(1, validation.choose('an item category')),
   is_preferred: z.boolean(),
   notes: z.string().trim().max(1000, 'At most 1000 characters'),
 })

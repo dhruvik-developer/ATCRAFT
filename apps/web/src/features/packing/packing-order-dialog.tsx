@@ -297,7 +297,7 @@ function AddCartonForm({ order }: { order: PackingOrderDetail }) {
       }),
     onSuccess: (carton) => {
       void queryClient.invalidateQueries({ queryKey: packingKeys.all })
-      toast.success('Carton added', `Carton ${carton.carton_number} is open for contents.`)
+      toast.success(success.added('Carton'), `Carton ${carton.carton_number} is open for contents.`)
       setLength('')
       setWidth('')
       setHeight('')
@@ -849,7 +849,7 @@ function CartonCard({
       api.delete(`/packing/${order.id}/cartons/${carton.id}`, { params: { reason } }),
     onSuccess: () => {
       invalidate()
-      toast.success('Carton removed', 'Its contents have gone back to the order lines.')
+      toast.success(success.removed('Carton'), 'Its contents have gone back to the order lines.')
       setDeleteOpen(false)
     },
   })
@@ -1083,7 +1083,7 @@ function PackingListAction({ order }: { order: PackingOrderDetail }) {
       // here that can watch it, so the button is not left spinning forever.
       if (!can(P.REPORT_VIEW)) {
         toast.show(
-          'Packing list queued',
+          success.queued('Packing list'),
           'Watching it needs the report permission, which your role does not have. Ask someone who holds it for the document.',
         )
         return

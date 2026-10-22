@@ -71,6 +71,21 @@ MAX_DOCUMENT_LINES = 500
 MAX_SERIAL_BULK = 500
 
 
+def _normalise_serial_labels(values: list[str]) -> list[str]:
+    """Strip whitespace, upper-case and de-duplicate a captured label run.
+
+    Shared by bulk registration and document lines so a scanner that appends a
+    newline behaves the same whichever field received it, and so a line's count
+    is checked against the labels the database will actually match.
+    """
+    cleaned = ["".join(value.split()).upper() for value in values]
+    if any(not value or len(value) > 64 for value in cleaned):
+        raise ValueError("Every serial number must be between 1 and 64 characters.")
+    if len(set(cleaned)) != len(cleaned):
+        raise ValueError("A serial number cannot appear twice in the same request.")
+    return cleaned
+
+
 # -----------------------------------------------------------------------------
 # Balances and ledger
 # -----------------------------------------------------------------------------
@@ -404,12 +419,7 @@ class StockSerialBulkCreate(BaseModel):
     @field_validator("serial_numbers")
     @classmethod
     def _normalise_and_unique(cls, values: list[str]) -> list[str]:
-        cleaned = ["".join(value.split()).upper() for value in values]
-        if any(not value or len(value) > 64 for value in cleaned):
-            raise ValueError("Every serial number must be between 1 and 64 characters.")
-        if len(set(cleaned)) != len(cleaned):
-            raise ValueError("A bulk registration cannot contain the same serial number twice.")
-        return cleaned
+        return _normalise_serial_labels(values)
 
 
 class StockSerialDetail(BaseModel):
@@ -431,6 +441,10 @@ class StockTransferLineCreate(BaseModel):
     #: Required for a serial-tracked item, and forbidden otherwise by the
     #: service once it has the item master. One physical unit per quantity.
     serial_ids: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_DOCUMENT_LINES)
+    #: Labels accepted from the stock screen. The service resolves these to ids
+    #: in one query, so an operator can type or scan the labels on the units
+    #: without first looking their UUIDs up.
+    serial_numbers: list[str] = Field(default_factory=list, max_length=MAX_SERIAL_BULK)
     from_location_id: uuid.UUID | None = None
     to_location_id: uuid.UUID | None = None
     #: The sales order line this line answers (WP E1b section 4). Only set when
@@ -439,9 +453,18 @@ class StockTransferLineCreate(BaseModel):
     source_line_id: uuid.UUID | None = None
     notes: str | None = None
 
+    @field_validator("serial_numbers")
+    @classmethod
+    def _normalise_serials(cls, values: list[str]) -> list[str]:
+        return _normalise_serial_labels(values)
+
     @model_validator(mode="after")
     def _serials_are_whole_units(self) -> StockTransferLineCreate:
+        if self.serial_ids and self.serial_numbers:
+            raise ValueError("Name the units by id or by serial number, not both.")
         if self.serial_ids and Decimal(len(self.serial_ids)) != self.quantity:
+            raise ValueError("A serialised transfer line must name one unit per unit moved.")
+        if self.serial_numbers and Decimal(len(self.serial_numbers)) != self.quantity:
             raise ValueError("A serialised transfer line must name one unit per unit moved.")
         if len(set(self.serial_ids)) != len(self.serial_ids):
             raise ValueError("A serialised transfer line cannot repeat a serial.")
@@ -478,6 +501,11 @@ class StockTransferCreate(BaseModel):
             raise ValueError("The same item, batch and source location appears on two lines.")
         serial_ids = [serial_id for line in self.lines for serial_id in line.serial_ids]
         if len(set(serial_ids)) != len(serial_ids):
+            raise ValueError("A unit may only be transferred once on a document.")
+        serial_labels = [
+            (line.item_id, number) for line in self.lines for number in line.serial_numbers
+        ]
+        if len(set(serial_labels)) != len(serial_labels):
             raise ValueError("A unit may only be transferred once on a document.")
         return self
 
@@ -562,6 +590,8 @@ class StockAdjustmentLineCreate(BaseModel):
     #: Required for a serial-tracked item. The sign of ``quantity`` says which
     #: way the named units move; its absolute value must equal their count.
     serial_ids: list[uuid.UUID] = Field(default_factory=list, max_length=MAX_DOCUMENT_LINES)
+    #: Labels accepted from the stock screen, resolved to ids by the service.
+    serial_numbers: list[str] = Field(default_factory=list, max_length=MAX_SERIAL_BULK)
     #: Valuation for a write-up. Ignored on a write-down, which is always valued
     #: at what the position's FIFO cost layers cost so the balance cannot be drained
     #: of value by quoting a low price.
@@ -575,9 +605,18 @@ class StockAdjustmentLineCreate(BaseModel):
             raise ValueError("An adjustment line of zero changes nothing.")
         return value
 
+    @field_validator("serial_numbers")
+    @classmethod
+    def _normalise_serials(cls, values: list[str]) -> list[str]:
+        return _normalise_serial_labels(values)
+
     @model_validator(mode="after")
     def _serials_are_whole_units(self) -> StockAdjustmentLineCreate:
+        if self.serial_ids and self.serial_numbers:
+            raise ValueError("Name the units by id or by serial number, not both.")
         if self.serial_ids and Decimal(len(self.serial_ids)) != abs(self.quantity):
+            raise ValueError("A serialised adjustment line must name one unit per unit moved.")
+        if self.serial_numbers and Decimal(len(self.serial_numbers)) != abs(self.quantity):
             raise ValueError("A serialised adjustment line must name one unit per unit moved.")
         if len(set(self.serial_ids)) != len(self.serial_ids):
             raise ValueError("A serialised adjustment line cannot repeat a serial.")
@@ -603,6 +642,11 @@ class StockAdjustmentCreate(BaseModel):
             raise ValueError("The same item, batch and location appears on two lines.")
         serial_ids = [serial_id for line in self.lines for serial_id in line.serial_ids]
         if len(set(serial_ids)) != len(serial_ids):
+            raise ValueError("A unit may only be adjusted once on a document.")
+        serial_labels = [
+            (line.item_id, number) for line in self.lines for number in line.serial_numbers
+        ]
+        if len(set(serial_labels)) != len(serial_labels):
             raise ValueError("A unit may only be adjusted once on a document.")
         return self
 
